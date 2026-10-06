@@ -1,0 +1,12 @@
+.agent-work/
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+.claude/settings.local.json
+.claude/
+.codex/

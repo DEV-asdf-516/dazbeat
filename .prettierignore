@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.agent-work/
+.claude/
+.codex/
+package-lock.json
+feature-live
