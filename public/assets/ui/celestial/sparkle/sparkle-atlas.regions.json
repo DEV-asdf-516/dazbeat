@@ -1,0 +1,178 @@
+{
+  "kind": "celestial-atlas-regions",
+  "version": 1,
+  "atlas": "sparkle-atlas.png",
+  "size": [
+    128,
+    640
+  ],
+  "alpha": "straight",
+  "derived_from_official_manifest": "sparkle-atlas.json",
+  "states": {
+    "pin-star": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        64.0,
+        64.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        0,
+        0
+      ],
+      "source_content_bbox": [
+        19,
+        16,
+        109,
+        112
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "cross-glint": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        64.0,
+        64.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        0,
+        0
+      ],
+      "source_content_bbox": [
+        32,
+        16,
+        96,
+        112
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "diamond-shard": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        64.0,
+        64.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        0,
+        0
+      ],
+      "source_content_bbox": [
+        41,
+        16,
+        87,
+        112
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 128,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "needle": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        64.0,
+        64.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        0,
+        0
+      ],
+      "source_content_bbox": [
+        47,
+        16,
+        81,
+        112
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "pearl-mote": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        64.0,
+        64.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        0,
+        0
+      ],
+      "source_content_bbox": [
+        9,
+        8,
+        118,
+        120
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 384,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ]
+    }
+  }
+}

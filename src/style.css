@@ -1,0 +1,132 @@
+@import 'pretendard/dist/web/variable/pretendardvariable.css';
+/* 모든 글자의 라틴 서체. 화면이 쓰는 굵기만 가져온다(800 은 700 으로 그린다). */
+@import '@fontsource/cormorant-garamond/latin-400.css';
+@import '@fontsource/cormorant-garamond/latin-500.css';
+@import '@fontsource/cormorant-garamond/latin-600.css';
+@import '@fontsource/cormorant-garamond/latin-700.css';
+/* 한글·일본어 명조. 글자 범위별 조각으로 나뉘어 쓰인 글자의 조각만 받는다. */
+@import '@fontsource/noto-serif-jp/400.css';
+@import '@fontsource/noto-serif-jp/500.css';
+@import '@fontsource/noto-serif-jp/600.css';
+@import '@fontsource/noto-serif-jp/700.css';
+@import '@fontsource/noto-serif-kr/400.css';
+@import '@fontsource/noto-serif-kr/500.css';
+@import '@fontsource/noto-serif-kr/600.css';
+@import '@fontsource/noto-serif-kr/700.css';
+
+/*
+ * Cormorant 의 숫자는 기본이 old-style 이라 점수·시간의 0 이 소문자 o 만큼 작아진다.
+ * 캔버스 글자에는 font-feature 를 줄 수 없으므로, 높이가 고른 Noto Serif KR 의 숫자만 쓰는 별칭 서체를 앞에 둔다.
+ */
+@font-face {
+  font-family: 'Dazbeat Numerals';
+  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-400-normal.woff2')
+    format('woff2');
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'Dazbeat Numerals';
+  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-500-normal.woff2')
+    format('woff2');
+  font-weight: 500;
+  font-display: swap;
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'Dazbeat Numerals';
+  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-600-normal.woff2')
+    format('woff2');
+  font-weight: 600;
+  font-display: swap;
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'Dazbeat Numerals';
+  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-700-normal.woff2')
+    format('woff2');
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+0030-0039;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0f0f10;
+}
+
+#mv-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#mv-layer iframe {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100vw, 177.78vh);
+  height: max(100vh, 56.25vw);
+  border: 0;
+  transform: translate(-50%, -50%);
+}
+
+#mv-layer[data-mv-mode='dim'] iframe {
+  filter: brightness(0.4);
+}
+
+#mv-layer[data-mv-mode='blur'] iframe {
+  filter: blur(24px) brightness(0.7);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+#mv-layer[data-mv-mode='off'] iframe {
+  opacity: 0;
+}
+
+/* 채보 에디터: 같은 player 를 캔버스 위 미리보기 사각형에만 보인다. 값은 에디터 씬이 CSS px 로 넣는다. */
+#mv-layer[data-mv-frame='preview'] {
+  inset: auto;
+  left: var(--mv-frame-left);
+  top: var(--mv-frame-top);
+  width: var(--mv-frame-width);
+  height: var(--mv-frame-height);
+}
+
+#mv-layer[data-mv-frame='preview'] iframe {
+  width: 100%;
+  height: 100%;
+}
+
+#game {
+  position: relative;
+  z-index: 1;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* 커서 잔상. 게임 캔버스 위에 겹치되 입력은 그대로 아래로 보낸다. */
+.nebula-trail {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+.boot-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f2f0eb;
+  font-family: 'Dazbeat Numerals', 'Cormorant Garamond', 'Noto Serif JP', 'Noto Serif KR', serif;
+  font-size: 20px;
+  text-align: center;
+}

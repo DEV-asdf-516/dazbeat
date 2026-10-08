@@ -1,0 +1,602 @@
+{
+  "characterId": "constellation-atlas",
+  "engine": "component-row",
+  "game_input": "constellation-atlas.png",
+  "degraded_static_fallback": false,
+  "curation_applied": true,
+  "frame_variant": "pixel",
+  "sprite_sheet_alpha": "constellation-atlas.png",
+  "sprite_sheet_alpha_report": "constellation-atlas.compose-report.json",
+  "base_image": null,
+  "cell": {
+    "shape": "square",
+    "width": 256,
+    "height": 256,
+    "size": 256,
+    "safe_margin": 0
+  },
+  "chroma_key": {
+    "name": "magenta",
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ]
+  },
+  "animation": {
+    "cellWidth": 256,
+    "cellHeight": 256,
+    "columns": 16,
+    "rows": {
+      "connection-pulse": {
+        "row": 0,
+        "frames": 16,
+        "fps": 40,
+        "durations_ms": [
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "line-active": {
+        "row": 1,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "line-complete": {
+        "row": 2,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "line-dim": {
+        "row": 3,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "line-reveal": {
+        "row": 4,
+        "frames": 16,
+        "fps": 25,
+        "durations_ms": [
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40,
+          40
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "node-cleared": {
+        "row": 5,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "node-completed": {
+        "row": 6,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "node-hover": {
+        "row": 7,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "node-idle": {
+        "row": 8,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "node-ignite": {
+        "row": 9,
+        "frames": 8,
+        "fps": 40,
+        "durations_ms": [
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "node-played": {
+        "row": 10,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "node-selected": {
+        "row": 11,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "orbit-arc": {
+        "row": 12,
+        "frames": 1,
+        "fps": 1,
+        "durations_ms": [
+          1000
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "selected-halo": {
+        "row": 13,
+        "frames": 8,
+        "fps": 8,
+        "durations_ms": [
+          125,
+          125,
+          125,
+          125,
+          125,
+          125,
+          125,
+          125
+        ],
+        "loop": true,
+        "frame_variant": "pixel"
+      }
+    }
+  },
+  "frame_layout": {
+    "sheetWidth": 4096,
+    "sheetHeight": 3584,
+    "cellWidth": 256,
+    "cellHeight": 256,
+    "rows": {
+      "connection-pulse": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1280,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1792,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2048,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2304,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2560,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2816,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3072,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3328,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3584,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3840,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "line-active": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "line-complete": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "line-dim": [
+        {
+          "x": 0,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "line-reveal": [
+        {
+          "x": 0,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1280,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1536,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1792,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2048,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2304,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2560,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 2816,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3072,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3328,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3584,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 3840,
+          "y": 1024,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "node-cleared": [
+        {
+          "x": 0,
+          "y": 1280,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "node-completed": [
+        {
+          "x": 0,
+          "y": 1536,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "node-hover": [
+        {
+          "x": 0,
+          "y": 1792,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "node-idle": [
+        {
+          "x": 0,
+          "y": 2048,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "node-ignite": [
+        {
+          "x": 0,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1280,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1536,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1792,
+          "y": 2304,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "node-played": [
+        {
+          "x": 0,
+          "y": 2560,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "node-selected": [
+        {
+          "x": 0,
+          "y": 2816,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "orbit-arc": [
+        {
+          "x": 0,
+          "y": 3072,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "selected-halo": [
+        {
+          "x": 0,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1280,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 0,
+          "y": 3328,
+          "w": 256,
+          "h": 256
+        }
+      ]
+    }
+  }
+}

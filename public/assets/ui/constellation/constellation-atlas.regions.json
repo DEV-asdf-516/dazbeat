@@ -1,0 +1,790 @@
+{
+  "kind": "celestial-atlas-regions",
+  "version": 1,
+  "atlas": "constellation-atlas.png",
+  "size": [
+    4096,
+    3584
+  ],
+  "alpha": "straight",
+  "derived_from_official_manifest": "constellation-atlas.json",
+  "states": {
+    "node-idle": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        64,
+        64
+      ],
+      "source_content_bbox": [
+        96,
+        89,
+        159,
+        167
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 2048,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "node-played": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        64,
+        64
+      ],
+      "source_content_bbox": [
+        93,
+        84,
+        163,
+        172
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 2560,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "node-hover": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        64,
+        64
+      ],
+      "source_content_bbox": [
+        87,
+        77,
+        168,
+        179
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 1792,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "node-selected": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        64,
+        64
+      ],
+      "source_content_bbox": [
+        83,
+        72,
+        172,
+        184
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 2816,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "node-cleared": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        64,
+        64
+      ],
+      "source_content_bbox": [
+        88,
+        86,
+        168,
+        170
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 1280,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "node-completed": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        64,
+        64
+      ],
+      "source_content_bbox": [
+        80,
+        78,
+        176,
+        178
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 1536,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "line-dim": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        256,
+        32
+      ],
+      "source_offset_px": [
+        0,
+        112
+      ],
+      "source_content_bbox": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "line-active": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        256,
+        32
+      ],
+      "source_offset_px": [
+        0,
+        112
+      ],
+      "source_content_bbox": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "line-complete": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        256,
+        32
+      ],
+      "source_offset_px": [
+        0,
+        112
+      ],
+      "source_content_bbox": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "node-ignite": {
+      "fps": 40,
+      "loop": false,
+      "duration_ms": 200,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        128,
+        128
+      ],
+      "source_offset_px": [
+        64,
+        64
+      ],
+      "source_content_bbox": [
+        88,
+        86,
+        168,
+        170
+      ],
+      "transparent_frames": [
+        0
+      ],
+      "frames": [
+        {
+          "x": 0,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 256,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 512,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 768,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1024,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1280,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1536,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1792,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        }
+      ]
+    },
+    "line-reveal": {
+      "fps": 25,
+      "loop": false,
+      "duration_ms": 640,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        256,
+        32
+      ],
+      "source_offset_px": [
+        0,
+        112
+      ],
+      "source_content_bbox": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "transparent_frames": [
+        0
+      ],
+      "frames": [
+        {
+          "x": 0,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 256,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 512,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 768,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1024,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1280,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1536,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1792,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2048,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2304,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2560,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2816,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3072,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3328,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3584,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3840,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        }
+      ]
+    },
+    "selected-halo": {
+      "fps": 8,
+      "loop": true,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        256,
+        256
+      ],
+      "source_offset_px": [
+        0,
+        0
+      ],
+      "source_content_bbox": [
+        16,
+        41,
+        240,
+        215
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 256,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 512,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 768,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 512,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1024,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1280,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 0,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        }
+      ]
+    },
+    "orbit-arc": {
+      "fps": 1,
+      "loop": false,
+      "duration_ms": 1000,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        256,
+        256
+      ],
+      "source_offset_px": [
+        0,
+        0
+      ],
+      "source_content_bbox": [
+        16,
+        69,
+        240,
+        187
+      ],
+      "transparent_frames": [],
+      "frames": [
+        {
+          "x": 0,
+          "y": 3072,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ]
+    },
+    "connection-pulse": {
+      "fps": 40,
+      "loop": false,
+      "duration_ms": 400,
+      "anchor_px": [
+        128.0,
+        128.0
+      ],
+      "source_size": [
+        256,
+        32
+      ],
+      "source_offset_px": [
+        0,
+        112
+      ],
+      "source_content_bbox": [
+        122,
+        120,
+        133,
+        136
+      ],
+      "transparent_frames": [
+        0,
+        15
+      ],
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 256,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 768,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1280,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1792,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2048,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2304,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2560,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2816,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3072,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3328,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3584,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3840,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        }
+      ]
+    }
+  }
+}

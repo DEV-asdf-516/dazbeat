@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "kind": "composable-celestial-light-sequences",
+  "units": "ms",
+  "newRasterFrames": false,
+  "bindingRule": "Bind to actual existing song/status/relation only; no predetermined false graph.",
+  "presentationRule": "Frames come from resource; scale, opacity, blend and anchor come from presentationRole. Keep the revealed static visual until the existing persistent state replaces it; never draw two node cores at once.",
+  "sequences": {
+    "constellation-reveal": {
+      "durationMs": 1240,
+      "loop": false,
+      "children": [
+        {
+          "resource": "C:node-ignite",
+          "presentationRole": "R18",
+          "startMs": 0,
+          "durationMs": 200,
+          "binding": "current song node"
+        },
+        {
+          "resource": "C:line-reveal",
+          "presentationRole": "R21",
+          "startMs": 200,
+          "durationMs": 640,
+          "binding": "existing real relation"
+        },
+        {
+          "resource": "R:clear-bloom",
+          "presentationRole": "R42",
+          "startMs": 840,
+          "durationMs": 400,
+          "binding": "current song node"
+        }
+      ]
+    },
+    "node-only-reveal": {
+      "durationMs": 600,
+      "loop": false,
+      "when": "No existing relation data is available",
+      "children": [
+        {
+          "resource": "C:node-ignite",
+          "presentationRole": "R18",
+          "startMs": 0,
+          "durationMs": 200,
+          "binding": "current song node"
+        },
+        {
+          "resource": "R:clear-bloom",
+          "presentationRole": "R42",
+          "startMs": 200,
+          "durationMs": 400,
+          "binding": "current song node"
+        }
+      ]
+    },
+    "constellation-finish": {
+      "durationMs": 1240,
+      "loop": false,
+      "children": [
+        {
+          "sequence": "constellation-reveal",
+          "fallbackSequence": "node-only-reveal",
+          "startMs": 0
+        },
+        {
+          "resource": "R:rank-burst",
+          "presentationRole": "R39",
+          "startMs": 180,
+          "durationMs": 996,
+          "binding": "rank surroundings"
+        },
+        {
+          "resource": "R:jacket-starfall",
+          "presentationRole": "R41",
+          "startMs": 244,
+          "durationMs": 996,
+          "binding": "outside jacket"
+        },
+        {
+          "role": "R40",
+          "startMs": 840,
+          "durationMs": 400,
+          "binding": "score margin"
+        }
+      ]
+    }
+  },
+  "afterPlayback": "Keep existing cleared/completed node and eligible line state; never calculate or store progression in the effect."
+}

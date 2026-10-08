@@ -6,3 +6,6 @@ coverage/
 .codex/
 package-lock.json
 feature-live
+# 아트 패키지(DAZBEAT CELESTIAL)는 celestial-manifest.json 에 바이트 SHA256 이 고정돼 있어 재포맷하지 않는다.
+public/assets/ui/**/*.json
+design/

@@ -1,0 +1,6797 @@
+{
+  "version": 1,
+  "concept": "CELESTIAL / CONSTELLATION",
+  "status": "prepared art assets; not integrated game",
+  "referenceResolutionPx": [
+    1920,
+    1080
+  ],
+  "gameCodeChanged": false,
+  "gameRuntimeTested": false,
+  "provenance": "Built-in GPT image generation -> official sprite-gen native alpha, recolor, tile, PNG import, RGBA/affine curation, compose-atlas",
+  "units": {
+    "time": "ms",
+    "dimensions": "pixels",
+    "opacity": "0..1"
+  },
+  "alphaMode": "straight",
+  "defaultBlend": "NORMAL",
+  "geometryRule": "Apply role scaleXY to actual atlas frame and anchor. SourceCanvasPx is the authoring canvas; imported frames include padding and may have different dimensions.",
+  "staticRule": "A1-frame region is static even when official importer metadata says1000ms/1fps.",
+  "summary": {
+    "generatedImageCandidates": 28,
+    "twinkleMotionCandidates": 2,
+    "requiredRoles": 50,
+    "resolvedRoles": 50,
+    "atlasFiles": 6,
+    "canonicalStates": 35,
+    "canonicalAnimatedClips": 19,
+    "canonicalPlaybackFrames": 206,
+    "sceneFiles": 3,
+    "tileFiles": 2
+  },
+  "atlases": {
+    "S": {
+      "image": {
+        "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+        "bytes": 26691,
+        "sha256": "b9842f0e885dfc202272768a8cf5718731f8c34deb106d89839d398a9d3124eb",
+        "dimensionsPx": [
+          128,
+          640
+        ],
+        "mode": "RGBA",
+        "alpha": true
+      },
+      "manifest": "public/assets/ui/celestial/sparkle/sparkle-atlas.json",
+      "regions": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "recipe": "public/assets/ui/celestial/sparkle/sparkle-atlas.recipe.json"
+    },
+    "A": {
+      "image": {
+        "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+        "bytes": 253150,
+        "sha256": "319f7626fed93ebe1269d4f039d7410b646bb839077b1f9715d93fbb70e52f4c",
+        "dimensionsPx": [
+          3072,
+          1280
+        ],
+        "mode": "RGBA",
+        "alpha": true
+      },
+      "manifest": "public/assets/ui/celestial/animations/celestial-ambient-atlas.json",
+      "regions": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "recipe": "public/assets/ui/celestial/animations/celestial-ambient-atlas.recipe.json"
+    },
+    "C": {
+      "image": {
+        "path": "public/assets/ui/constellation/constellation-atlas.png",
+        "bytes": 184958,
+        "sha256": "826555300129afa9f91c589d9871878c8231a3d7437c5ef083d02c3fedf08e29",
+        "dimensionsPx": [
+          4096,
+          3584
+        ],
+        "mode": "RGBA",
+        "alpha": true
+      },
+      "manifest": "public/assets/ui/constellation/constellation-atlas.json",
+      "regions": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "recipe": "public/assets/ui/constellation/constellation-atlas.recipe.json"
+    },
+    "G": {
+      "image": {
+        "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+        "bytes": 59773,
+        "sha256": "186df261561a4547bd5875b38239c3db6fb505aaaf1c0bfd81a6079cd69a5638",
+        "dimensionsPx": [
+          2048,
+          1024
+        ],
+        "mode": "RGBA",
+        "alpha": true
+      },
+      "manifest": "public/assets/ui/gameplay/gameplay-effects-atlas.json",
+      "regions": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "recipe": "public/assets/ui/gameplay/gameplay-effects-atlas.recipe.json"
+    },
+    "R": {
+      "image": {
+        "path": "public/assets/ui/result/result-effects-atlas.png",
+        "bytes": 70202,
+        "sha256": "11640cc0ef27b335db97741ea6497945bb9ef2d9e1a084b376245f758a8dae42",
+        "dimensionsPx": [
+          3072,
+          768
+        ],
+        "mode": "RGBA",
+        "alpha": true
+      },
+      "manifest": "public/assets/ui/result/result-effects-atlas.json",
+      "regions": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "recipe": "public/assets/ui/result/result-effects-atlas.recipe.json"
+    },
+    "T": {
+      "image": {
+        "path": "public/assets/ui/transition/transition-atlas.png",
+        "bytes": 118628,
+        "sha256": "bce3d6b3f4b5807d4db79a02b3f205681c6d935fe0a19efd266ad889561b6d57",
+        "dimensionsPx": [
+          4096,
+          2048
+        ],
+        "mode": "RGBA",
+        "alpha": true
+      },
+      "manifest": "public/assets/ui/transition/transition-atlas.json",
+      "regions": "public/assets/ui/transition/transition-atlas.regions.json",
+      "recipe": "public/assets/ui/transition/transition-atlas.recipe.json"
+    }
+  },
+  "canonicalStates": {
+    "S:pin-star": {
+      "id": "S:pin-star",
+      "name": "pin-star",
+      "family": "S",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "sourceCandidates": [
+        "P_PIN_A"
+      ],
+      "atlasDimensionsPx": [
+        128,
+        640
+      ],
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        19,
+        16,
+        109,
+        112
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "S:cross-glint": {
+      "id": "S:cross-glint",
+      "name": "cross-glint",
+      "family": "S",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "sourceCandidates": [
+        "P_CROSS"
+      ],
+      "atlasDimensionsPx": [
+        128,
+        640
+      ],
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        32,
+        16,
+        96,
+        112
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "S:diamond-shard": {
+      "id": "S:diamond-shard",
+      "name": "diamond-shard",
+      "family": "S",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "sourceCandidates": [
+        "P_SHARD"
+      ],
+      "atlasDimensionsPx": [
+        128,
+        640
+      ],
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        41,
+        16,
+        87,
+        112
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 128,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "S:needle": {
+      "id": "S:needle",
+      "name": "needle",
+      "family": "S",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "sourceCandidates": [
+        "P_NEEDLE"
+      ],
+      "atlasDimensionsPx": [
+        128,
+        640
+      ],
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        47,
+        16,
+        81,
+        112
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "S:pearl-mote": {
+      "id": "S:pearl-mote",
+      "name": "pearl-mote",
+      "family": "S",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "sourceCandidates": [
+        "P_PEARL_B"
+      ],
+      "atlasDimensionsPx": [
+        128,
+        640
+      ],
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        9,
+        8,
+        118,
+        120
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 384,
+          "w": 128,
+          "h": 128,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "A:twinkle-small": {
+      "id": "A:twinkle-small",
+      "name": "twinkle-small",
+      "family": "A",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "sourceCandidates": [
+        "P_PIN_A",
+        "AM_A"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        1280
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        83,
+        80,
+        173,
+        176
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 12,
+      "frames": [
+        {
+          "x": 0,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 256,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 512,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 768,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 1024,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 1280,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 1536,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 1792,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 2048,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 2304,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 2560,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        },
+        {
+          "x": 0,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 167
+        }
+      ],
+      "durationMs": 2004,
+      "loop": true,
+      "mode": "loop",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        11
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "A:twinkle-cross": {
+      "id": "A:twinkle-cross",
+      "name": "twinkle-cross",
+      "family": "A",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "sourceCandidates": [
+        "P_CROSS",
+        "AM_B"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        1280
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        96,
+        80,
+        160,
+        176
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 12,
+      "frames": [
+        {
+          "x": 0,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 256,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 512,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 768,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1024,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1280,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1536,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1792,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 2048,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 2304,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 2560,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 0,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        }
+      ],
+      "durationMs": 1500,
+      "loop": true,
+      "mode": "loop",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        11
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "A:pearl-pulse": {
+      "id": "A:pearl-pulse",
+      "name": "pearl-pulse",
+      "family": "A",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "sourceCandidates": [
+        "P_PEARL_B"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        1280
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        73,
+        72,
+        182,
+        184
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 12,
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 256,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 512,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 768,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1024,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1280,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1536,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1280,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1792,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 2048,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 2304,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        }
+      ],
+      "durationMs": 1500,
+      "loop": true,
+      "mode": "loop",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "A:dust-drift": {
+      "id": "A:dust-drift",
+      "name": "dust-drift",
+      "family": "A",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "sourceCandidates": [
+        "DUST_B"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        1280
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        16,
+        16,
+        233,
+        237
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 12,
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 256,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 768,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 1280,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 1792,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 2048,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 2304,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 2560,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        },
+        {
+          "x": 2816,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 250
+        }
+      ],
+      "durationMs": 3000,
+      "loop": true,
+      "mode": "loop",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        11
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "A:glint-sweep": {
+      "id": "A:glint-sweep",
+      "name": "glint-sweep",
+      "family": "A",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "sourceCandidates": [
+        "P_CROSS"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        1280
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        64
+      ],
+      "sourceOffsetPx": [
+        0,
+        96
+      ],
+      "sourceContentBoundsPx": [
+        120,
+        116,
+        136,
+        140
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 256,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 512,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 768,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1024,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1280,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1536,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1792,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        }
+      ],
+      "durationMs": 200,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "C:node-idle": {
+      "id": "C:node-idle",
+      "name": "node-idle",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "ND_B"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        96,
+        89,
+        159,
+        167
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 2048,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:node-played": {
+      "id": "C:node-played",
+      "name": "node-played",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "ND_B"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        93,
+        84,
+        163,
+        172
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 2560,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:node-hover": {
+      "id": "C:node-hover",
+      "name": "node-hover",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "ND_B"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        87,
+        77,
+        168,
+        179
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 1792,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:node-selected": {
+      "id": "C:node-selected",
+      "name": "node-selected",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "ND_B"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        83,
+        72,
+        172,
+        184
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 2816,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:node-cleared": {
+      "id": "C:node-cleared",
+      "name": "node-cleared",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "P_PIN_A"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        88,
+        86,
+        168,
+        170
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 1280,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:node-completed": {
+      "id": "C:node-completed",
+      "name": "node-completed",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "P_PIN_A"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        80,
+        78,
+        176,
+        178
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 1536,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:line-dim": {
+      "id": "C:line-dim",
+      "name": "line-dim",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "LN_C"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "sourceOffsetPx": [
+        0,
+        112
+      ],
+      "sourceContentBoundsPx": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:line-active": {
+      "id": "C:line-active",
+      "name": "line-active",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "LN_C"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "sourceOffsetPx": [
+        0,
+        112
+      ],
+      "sourceContentBoundsPx": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:line-complete": {
+      "id": "C:line-complete",
+      "name": "line-complete",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "LN_C"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "sourceOffsetPx": [
+        0,
+        112
+      ],
+      "sourceContentBoundsPx": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:node-ignite": {
+      "id": "C:node-ignite",
+      "name": "node-ignite",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "P_PIN_A"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "sourceOffsetPx": [
+        64,
+        64
+      ],
+      "sourceContentBoundsPx": [
+        88,
+        86,
+        168,
+        170
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 256,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 512,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 768,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1024,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1280,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1536,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1792,
+          "y": 2304,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        }
+      ],
+      "durationMs": 200,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "C:line-reveal": {
+      "id": "C:line-reveal",
+      "name": "line-reveal",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "LN_C"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "sourceOffsetPx": [
+        0,
+        112
+      ],
+      "sourceContentBoundsPx": [
+        7,
+        126,
+        249,
+        129
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 16,
+      "frames": [
+        {
+          "x": 0,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 256,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 512,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 768,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1024,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1280,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1536,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 1792,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2048,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2304,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2560,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 2816,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3072,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3328,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3584,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        },
+        {
+          "x": 3840,
+          "y": 1024,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 40
+        }
+      ],
+      "durationMs": 640,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "C:selected-halo": {
+      "id": "C:selected-halo",
+      "name": "selected-halo",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "HL_A"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        16,
+        41,
+        240,
+        215
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 256,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 512,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 768,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 512,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1024,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 1280,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        },
+        {
+          "x": 0,
+          "y": 3328,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 125
+        }
+      ],
+      "durationMs": 1000,
+      "loop": true,
+      "mode": "loop",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "C:orbit-arc": {
+      "id": "C:orbit-arc",
+      "name": "orbit-arc",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "HL_B"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        16,
+        69,
+        240,
+        187
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 3072,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    },
+    "C:connection-pulse": {
+      "id": "C:connection-pulse",
+      "name": "connection-pulse",
+      "family": "C",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "sourceCandidates": [
+        "P_CROSS"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        3584
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "sourceOffsetPx": [
+        0,
+        112
+      ],
+      "sourceContentBoundsPx": [
+        122,
+        120,
+        133,
+        136
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 16,
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 256,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 768,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1280,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1792,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2048,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2304,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2560,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 2816,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3072,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3328,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3584,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 3840,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        }
+      ],
+      "durationMs": 400,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        15
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "G:note-trail": {
+      "id": "G:note-trail",
+      "name": "note-trail",
+      "family": "G",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "sourceCandidates": [
+        "TR_B"
+      ],
+      "atlasDimensionsPx": [
+        2048,
+        1024
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        64,
+        256
+      ],
+      "sourceOffsetPx": [
+        96,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        121,
+        24,
+        136,
+        232
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 6,
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 256,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 512,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 768,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1024,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        }
+      ],
+      "durationMs": 150,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        129,
+        224
+      ],
+      "anchorNormalized": [
+        0.50390625,
+        0.875
+      ],
+      "transparentFrames": [
+        0,
+        5
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "G:hit-flare": {
+      "id": "G:hit-flare",
+      "name": "hit-flare",
+      "family": "G",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "sourceCandidates": [
+        "GP_A"
+      ],
+      "atlasDimensionsPx": [
+        2048,
+        1024
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        64
+      ],
+      "sourceOffsetPx": [
+        0,
+        96
+      ],
+      "sourceContentBoundsPx": [
+        67,
+        104,
+        188,
+        152
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        },
+        {
+          "x": 256,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        },
+        {
+          "x": 768,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        },
+        {
+          "x": 1280,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        },
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 17
+        }
+      ],
+      "durationMs": 136,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128,
+        142
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5546875
+      ],
+      "transparentFrames": [
+        0,
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "G:hit-sparkle": {
+      "id": "G:hit-sparkle",
+      "name": "hit-sparkle",
+      "family": "G",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "sourceCandidates": [
+        "GP_B"
+      ],
+      "atlasDimensionsPx": [
+        2048,
+        1024
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        32,
+        103,
+        224,
+        152
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        },
+        {
+          "x": 256,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        },
+        {
+          "x": 512,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        },
+        {
+          "x": 768,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        },
+        {
+          "x": 1024,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        },
+        {
+          "x": 1280,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        },
+        {
+          "x": 1536,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        },
+        {
+          "x": 1792,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 20
+        }
+      ],
+      "durationMs": 160,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "G:perfect-burst": {
+      "id": "G:perfect-burst",
+      "name": "perfect-burst",
+      "family": "G",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "sourceCandidates": [
+        "RS_A"
+      ],
+      "atlasDimensionsPx": [
+        2048,
+        1024
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        24,
+        63,
+        232,
+        192
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 256,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 512,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 768,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1024,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1280,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1536,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        },
+        {
+          "x": 1792,
+          "y": 768,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 25
+        }
+      ],
+      "durationMs": 200,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "R:rank-burst": {
+      "id": "R:rank-burst",
+      "name": "rank-burst",
+      "family": "R",
+      "path": "public/assets/ui/result/result-effects-atlas.png",
+      "metadataPath": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "sourceCandidates": [
+        "RS_A"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        768
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        24,
+        63,
+        232,
+        192
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 12,
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 256,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 512,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 768,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1024,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1280,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1536,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1792,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2048,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2304,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2560,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2816,
+          "y": 512,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        }
+      ],
+      "durationMs": 996,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        11
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "R:jacket-starfall": {
+      "id": "R:jacket-starfall",
+      "name": "jacket-starfall",
+      "family": "R",
+      "path": "public/assets/ui/result/result-effects-atlas.png",
+      "metadataPath": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "sourceCandidates": [
+        "RS_B"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        768
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        31,
+        24,
+        225,
+        231
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 12,
+      "frames": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 256,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 512,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 768,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1024,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1280,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1536,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 1792,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2048,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2304,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2560,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        },
+        {
+          "x": 2816,
+          "y": 256,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 83
+        }
+      ],
+      "durationMs": 996,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        11
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "R:clear-bloom": {
+      "id": "R:clear-bloom",
+      "name": "clear-bloom",
+      "family": "R",
+      "path": "public/assets/ui/result/result-effects-atlas.png",
+      "metadataPath": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "sourceCandidates": [
+        "GP_B"
+      ],
+      "atlasDimensionsPx": [
+        3072,
+        768
+      ],
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        32,
+        103,
+        224,
+        152
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        },
+        {
+          "x": 256,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        },
+        {
+          "x": 768,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        },
+        {
+          "x": 1280,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        },
+        {
+          "x": 1792,
+          "y": 0,
+          "w": 256,
+          "h": 256,
+          "duration_ms": 50
+        }
+      ],
+      "durationMs": 400,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "T:star-thread": {
+      "id": "T:star-thread",
+      "name": "star-thread",
+      "family": "T",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "sourceCandidates": [
+        "TR_A"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        2048
+      ],
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        192
+      ],
+      "sourceContentBoundsPx": [
+        64,
+        235,
+        448,
+        276
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 512,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 1024,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 1536,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 2048,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 2560,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 3072,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 3584,
+          "y": 1024,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        }
+      ],
+      "durationMs": 400,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "T:shimmer-wipe": {
+      "id": "T:shimmer-wipe",
+      "name": "shimmer-wipe",
+      "family": "T",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "sourceCandidates": [
+        "TR_B"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        2048
+      ],
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        192
+      ],
+      "sourceContentBoundsPx": [
+        64,
+        242,
+        448,
+        270
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        },
+        {
+          "x": 512,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        },
+        {
+          "x": 1024,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        },
+        {
+          "x": 1536,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        },
+        {
+          "x": 2048,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        },
+        {
+          "x": 2560,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        },
+        {
+          "x": 3072,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        },
+        {
+          "x": 3584,
+          "y": 512,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 40
+        }
+      ],
+      "durationMs": 320,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        0,
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "T:dust-dissolve": {
+      "id": "T:dust-dissolve",
+      "name": "dust-dissolve",
+      "family": "T",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "sourceCandidates": [
+        "DUST_B"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        2048
+      ],
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        512
+      ],
+      "sourceOffsetPx": [
+        0,
+        0
+      ],
+      "sourceContentBoundsPx": [
+        32,
+        32,
+        480,
+        480
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 8,
+      "frames": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 2048,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 2560,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 3072,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        },
+        {
+          "x": 3584,
+          "y": 0,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 50
+        }
+      ],
+      "durationMs": 400,
+      "loop": false,
+      "mode": "one-shot",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [
+        7
+      ],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": null
+    },
+    "T:title-thread": {
+      "id": "T:title-thread",
+      "name": "title-thread",
+      "family": "T",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "sourceCandidates": [
+        "TR_A"
+      ],
+      "atlasDimensionsPx": [
+        4096,
+        2048
+      ],
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        128
+      ],
+      "sourceOffsetPx": [
+        0,
+        192
+      ],
+      "sourceContentBoundsPx": [
+        64,
+        235,
+        448,
+        276
+      ],
+      "alpha": true,
+      "alphaMode": "straight",
+      "frameCount": 1,
+      "frames": [
+        {
+          "x": 0,
+          "y": 1536,
+          "w": 512,
+          "h": 512,
+          "duration_ms": 1000
+        }
+      ],
+      "durationMs": null,
+      "loop": false,
+      "mode": "static",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "transparentFrames": [],
+      "blend": "NORMAL",
+      "runtimeTint": "none; original prepared color",
+      "staticDurationNote": "Official1fps/1000ms is an importer placeholder; hold as a static region."
+    }
+  },
+  "roles": [
+    {
+      "id": "R01",
+      "name": "main-scene",
+      "kind": "image",
+      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "alpha": false,
+      "frameCount": 1,
+      "durationMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main"
+      ],
+      "purpose": "성운·궤도가 오른쪽 위에 모이고 남청 여백을 넓게 남긴 메인 우주 배경",
+      "sourceCandidates": [
+        "02-nebula-orbit-16x9"
+      ],
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": [
+        0,
+        0
+      ],
+      "anchorNormalized": [
+        0,
+        0
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "policy": "cover using existing viewport; preserve reference composition"
+      },
+      "placement": "full scene behind existing UI",
+      "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
+      "reuseOf": null,
+      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
+      "bytes": 73824
+    },
+    {
+      "id": "R02",
+      "name": "song-select-atmosphere",
+      "kind": "image",
+      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "alpha": false,
+      "frameCount": 1,
+      "durationMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect"
+      ],
+      "purpose": "메인과 같은 성운·궤도 우주 배경 — 곡 목록·재킷 뒤",
+      "sourceCandidates": [
+        "02-nebula-orbit-16x9"
+      ],
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": [
+        0,
+        0
+      ],
+      "anchorNormalized": [
+        0,
+        0
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "policy": "cover using existing viewport; preserve reference composition"
+      },
+      "placement": "full scene behind existing UI",
+      "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
+      "reuseOf": null,
+      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
+      "bytes": 73824
+    },
+    {
+      "id": "R03",
+      "name": "result-atmosphere",
+      "kind": "image",
+      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "alpha": false,
+      "frameCount": 1,
+      "durationMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Result"
+      ],
+      "purpose": "메인과 같은 성운·궤도 우주 배경 — 결과 화면",
+      "sourceCandidates": [
+        "02-nebula-orbit-16x9"
+      ],
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": [
+        0,
+        0
+      ],
+      "anchorNormalized": [
+        0,
+        0
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "policy": "cover using existing viewport; preserve reference composition"
+      },
+      "placement": "full scene behind existing UI",
+      "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
+      "reuseOf": "R02",
+      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
+      "bytes": 73824
+    },
+    {
+      "id": "R04",
+      "name": "secondary-atmosphere",
+      "kind": "image",
+      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "alpha": false,
+      "frameCount": 1,
+      "durationMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Settings",
+        "Auth",
+        "Secondary",
+        "Loading"
+      ],
+      "purpose": "메인과 같은 성운·궤도 우주 배경 — 설정·인증·보조 화면",
+      "sourceCandidates": [
+        "02-nebula-orbit-16x9"
+      ],
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": [
+        0,
+        0
+      ],
+      "anchorNormalized": [
+        0,
+        0
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "policy": "cover using existing viewport; preserve reference composition"
+      },
+      "placement": "full scene behind existing UI",
+      "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
+      "reuseOf": null,
+      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
+      "bytes": 73824
+    },
+    {
+      "id": "R05",
+      "name": "dust-tile",
+      "kind": "image",
+      "path": "public/assets/ui/celestial/sparkle/dust-tile.png",
+      "dimensionsPx": [
+        1024,
+        1024
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Gameplay",
+        "Result",
+        "Secondary"
+      ],
+      "purpose": "희미한 공기층, seamless XY",
+      "sourceCandidates": [
+        "DUST_B"
+      ],
+      "opacity": 0.08,
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": [
+        0,
+        0
+      ],
+      "anchorNormalized": [
+        0,
+        0
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": [
+        0.75,
+        1.25
+      ],
+      "placement": "tile repeat XY; use screen-specific opacity budget",
+      "doNotUse": "Do not display at full opacity, enlarge particles, or use snow-like uniform vertical drift.",
+      "reuseOf": null,
+      "sha256": "df1552d74298a7166ae0fcac857a3d6c4fddb38027d4df1c635f0e47df392410",
+      "bytes": 45612
+    },
+    {
+      "id": "R06",
+      "name": "sparkle-small",
+      "kind": "atlas-region",
+      "resource": "S:pin-star",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result",
+        "Secondary"
+      ],
+      "purpose": "작고 선명한 광점",
+      "opacity": 0.55,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.0625,
+        0.0625
+      ],
+      "scaleRange": [
+        0.03125,
+        0.125
+      ],
+      "displayedSourceCanvasPx": [
+        8.0,
+        8.0
+      ],
+      "displayedFrameCanvasPx": [
+        8.0,
+        8.0
+      ],
+      "placement": "peripheral accents",
+      "doNotUse": "8px markers cannot encode progression states.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R07",
+      "name": "sparkle-cross",
+      "kind": "atlas-region",
+      "resource": "S:cross-glint",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "드문 강한 십자 강조",
+      "opacity": 0.65,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.1875,
+        0.1875
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        24.0,
+        24.0
+      ],
+      "displayedFrameCanvasPx": [
+        24.0,
+        24.0
+      ],
+      "placement": "near a focal object",
+      "doNotUse": "Do not use at8px or scatter many at equal brightness.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R08",
+      "name": "sparkle-pearl",
+      "kind": "atlas-region",
+      "resource": "S:pearl-mote",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result",
+        "Secondary"
+      ],
+      "purpose": "부드러운 작은 광량",
+      "opacity": 0.22,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.0625,
+        0.0625
+      ],
+      "scaleRange": [
+        0.03125,
+        0.125
+      ],
+      "displayedSourceCanvasPx": [
+        8.0,
+        8.0
+      ],
+      "displayedFrameCanvasPx": [
+        8.0,
+        8.0
+      ],
+      "placement": "quiet depth layer",
+      "doNotUse": "Do not tint, use on white, or enlarge into a bokeh disc.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R09",
+      "name": "sparkle-shard",
+      "kind": "atlas-region",
+      "resource": "S:diamond-shard",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "드문 각진 빛 조각",
+      "opacity": 0.35,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.09375,
+        0.09375
+      ],
+      "scaleRange": [
+        0.0625,
+        0.1875
+      ],
+      "displayedSourceCanvasPx": [
+        12.0,
+        12.0
+      ],
+      "displayedFrameCanvasPx": [
+        12.0,
+        12.0
+      ],
+      "placement": "sparse outer field",
+      "doNotUse": "Do not render as a jewel or use a dense shower.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R10",
+      "name": "sparkle-needle",
+      "kind": "atlas-region",
+      "resource": "S:needle",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "얇고 짧은 방향 강조",
+      "opacity": 0.4,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.25,
+        0.25
+      ],
+      "scaleRange": [
+        0.1875,
+        0.3125
+      ],
+      "displayedSourceCanvasPx": [
+        32.0,
+        32.0
+      ],
+      "displayedFrameCanvasPx": [
+        32.0,
+        32.0
+      ],
+      "placement": "one accent at a time",
+      "doNotUse": "Do not use at8px;16px is weak; never make a long attack slash.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R11",
+      "name": "twinkle-small",
+      "kind": "atlas-clip",
+      "resource": "A:twinkle-small",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 2004,
+      "frameDurationsMs": [
+        167,
+        167,
+        167,
+        167,
+        167,
+        167,
+        167,
+        167,
+        167,
+        167,
+        167,
+        167
+      ],
+      "loop": true,
+      "playback": "loop",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result",
+        "Secondary"
+      ],
+      "purpose": "AM_A 느린 점등·감쇠",
+      "opacity": 0.55,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.0625,
+        0.0625
+      ],
+      "scaleRange": [
+        0.046875,
+        0.125
+      ],
+      "displayedSourceCanvasPx": [
+        8.0,
+        8.0
+      ],
+      "displayedFrameCanvasPx": [
+        16.0,
+        16.0
+      ],
+      "placement": "phases offset across sparse positions",
+      "doNotUse": "Do not synchronize all particles or scale the whole256px cell as if it were128px.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R12",
+      "name": "twinkle-cross",
+      "kind": "atlas-clip",
+      "resource": "A:twinkle-cross",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 1500,
+      "frameDurationsMs": [
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125
+      ],
+      "loop": true,
+      "playback": "loop",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "AM_B 빠른 강조·긴 감쇠",
+      "opacity": 0.65,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.1875,
+        0.1875
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        24.0,
+        24.0
+      ],
+      "displayedFrameCanvasPx": [
+        48.0,
+        48.0
+      ],
+      "placement": "rare local accent",
+      "doNotUse": "Do not fill the whole scene with simultaneous peaks.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R13",
+      "name": "pearl-pulse",
+      "kind": "atlas-clip",
+      "resource": "A:pearl-pulse",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 1500,
+      "frameDurationsMs": [
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125
+      ],
+      "loop": true,
+      "playback": "loop",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result",
+        "Secondary"
+      ],
+      "purpose": "공기 속 부드러운 호흡",
+      "opacity": 0.22,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.09375,
+        0.09375
+      ],
+      "scaleRange": [
+        0.046875,
+        0.125
+      ],
+      "displayedSourceCanvasPx": [
+        12.0,
+        12.0
+      ],
+      "displayedFrameCanvasPx": [
+        24.0,
+        24.0
+      ],
+      "placement": "away from text baselines",
+      "doNotUse": "Do not tint or enlarge beyond a small mote.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R14",
+      "name": "dust-drift",
+      "kind": "atlas-clip",
+      "resource": "A:dust-drift",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 3000,
+      "frameDurationsMs": [
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250
+      ],
+      "loop": true,
+      "playback": "loop",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result",
+        "Secondary"
+      ],
+      "purpose": "실제 점 위치 이동과 fade loop",
+      "opacity": 0.12,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        2,
+        2
+      ],
+      "scaleRange": [
+        1,
+        2.5
+      ],
+      "displayedSourceCanvasPx": [
+        512,
+        512
+      ],
+      "displayedFrameCanvasPx": [
+        512,
+        512
+      ],
+      "placement": "one or two512px patches; fixed phase offset",
+      "doNotUse": "Do not reuse as dense gameplay fog.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R15",
+      "name": "node-idle",
+      "kind": "atlas-region",
+      "resource": "C:node-idle",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "아직 강조되지 않은 곡",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.125,
+        0.125
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        16.0,
+        16.0
+      ],
+      "displayedFrameCanvasPx": [
+        32.0,
+        32.0
+      ],
+      "placement": "existing song row or actual relation node",
+      "doNotUse": "Do not infer new progression rules; use source128px sizing, never padded-cell width as source sizing.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R16",
+      "name": "node-hover",
+      "kind": "atlas-region",
+      "resource": "C:node-hover",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "포인터·focus의 일시 강조",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.15625,
+        0.15625
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        20.0,
+        20.0
+      ],
+      "displayedFrameCanvasPx": [
+        40.0,
+        40.0
+      ],
+      "placement": "existing song row or actual relation node",
+      "doNotUse": "Do not infer new progression rules; use source128px sizing, never padded-cell width as source sizing.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R17",
+      "name": "node-selected",
+      "kind": "atlas-region",
+      "resource": "C:node-selected",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "현재 선택된 곡",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.171875,
+        0.171875
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        22.0,
+        22.0
+      ],
+      "displayedFrameCanvasPx": [
+        44.0,
+        44.0
+      ],
+      "placement": "existing song row or actual relation node",
+      "doNotUse": "Do not infer new progression rules; use source128px sizing, never padded-cell width as source sizing.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R18",
+      "name": "node-cleared",
+      "kind": "atlas-region",
+      "resource": "C:node-cleared",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "기존 clear 상태의 따뜻한 핵",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.15625,
+        0.15625
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        20.0,
+        20.0
+      ],
+      "displayedFrameCanvasPx": [
+        40.0,
+        40.0
+      ],
+      "placement": "existing song row or actual relation node",
+      "doNotUse": "Do not infer new progression rules; use source128px sizing, never padded-cell width as source sizing.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R19",
+      "name": "node-completed",
+      "kind": "atlas-region",
+      "resource": "C:node-completed",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "기존 완료 상태의 큰 pearl 핵",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.1875,
+        0.1875
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        24.0,
+        24.0
+      ],
+      "displayedFrameCanvasPx": [
+        48.0,
+        48.0
+      ],
+      "placement": "existing song row or actual relation node",
+      "doNotUse": "Do not infer new progression rules; use source128px sizing, never padded-cell width as source sizing.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R20",
+      "name": "line-dim",
+      "kind": "atlas-region",
+      "resource": "C:line-dim",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "약한 실제 관계",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        8,
+        128
+      ],
+      "anchorNormalized": [
+        0.03125,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "x": [
+          0.25,
+          3
+        ],
+        "y": [
+          0.75,
+          1.5
+        ]
+      },
+      "displayedSourceCanvasPx": [
+        256,
+        32
+      ],
+      "displayedFrameCanvasPx": [
+        256,
+        256
+      ],
+      "placement": "anchor at left end, rotate toward actual relation end; keep1–3px body",
+      "doNotUse": "Do not draw a fabricated progress graph or uniformly shrink the line height.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R21",
+      "name": "line-active",
+      "kind": "atlas-region",
+      "resource": "C:line-active",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "현재 관련된 연결",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        8,
+        128
+      ],
+      "anchorNormalized": [
+        0.03125,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "x": [
+          0.25,
+          3
+        ],
+        "y": [
+          0.75,
+          1.5
+        ]
+      },
+      "displayedSourceCanvasPx": [
+        256,
+        32
+      ],
+      "displayedFrameCanvasPx": [
+        256,
+        256
+      ],
+      "placement": "anchor at left end, rotate toward actual relation end; keep1–3px body",
+      "doNotUse": "Do not draw a fabricated progress graph or uniformly shrink the line height.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R22",
+      "name": "line-complete",
+      "kind": "atlas-region",
+      "resource": "C:line-complete",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "기존 완료 관계",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        8,
+        128
+      ],
+      "anchorNormalized": [
+        0.03125,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "x": [
+          0.25,
+          3
+        ],
+        "y": [
+          0.75,
+          1.5
+        ]
+      },
+      "displayedSourceCanvasPx": [
+        256,
+        32
+      ],
+      "displayedFrameCanvasPx": [
+        256,
+        256
+      ],
+      "placement": "anchor at left end, rotate toward actual relation end; keep1–3px body",
+      "doNotUse": "Do not draw a fabricated progress graph or uniformly shrink the line height.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R23",
+      "name": "connection-pulse",
+      "kind": "atlas-clip",
+      "resource": "C:connection-pulse",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        32
+      ],
+      "alpha": true,
+      "frameCount": 16,
+      "durationMs": 400,
+      "frameDurationsMs": [
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "SongSelect",
+        "Result"
+      ],
+      "purpose": "실제 관계를 따라 움직이는 작은 빛",
+      "opacity": 0.65,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        8,
+        128
+      ],
+      "anchorNormalized": [
+        0.03125,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": {
+        "x": [
+          0.5,
+          3
+        ],
+        "y": [
+          0.75,
+          1.5
+        ]
+      },
+      "displayedSourceCanvasPx": [
+        256,
+        32
+      ],
+      "displayedFrameCanvasPx": [
+        256,
+        256
+      ],
+      "placement": "same endpoints and angle as the associated line",
+      "doNotUse": "Do not use without an actual relation or loop forever.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R24",
+      "name": "constellation-reveal",
+      "kind": "composed-sequence",
+      "path": "public/assets/ui/constellation/constellation-sequences.json",
+      "sequence": "constellation-reveal",
+      "resources": [
+        "C:node-ignite",
+        "C:line-reveal",
+        "R:clear-bloom"
+      ],
+      "alpha": true,
+      "frameCount": null,
+      "frameCountNote": "No new frame images; plays the explicitly referenced real clips.",
+      "durationMs": 1240,
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Result",
+        "SongSelect"
+      ],
+      "purpose": "node 점등 → 실제 관계의 선 공개 → 국소 보상",
+      "opacity": "per child role",
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": "per child binding",
+      "scaleRange": "use each child role contract",
+      "placement": "actual current song and eligible relation only",
+      "doNotUse": "If no existing relation, use node-only-reveal; do not fabricate a graph or progression rules.",
+      "reuseOf": null
+    },
+    {
+      "id": "R25",
+      "name": "logo-glint",
+      "kind": "atlas-clip",
+      "resource": "A:glint-sweep",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        64
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 240,
+      "frameDurationsMs": [
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Main"
+      ],
+      "purpose": "로고 가까운 짧은 이동 강조",
+      "opacity": 0.6,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.75,
+        0.75
+      ],
+      "scaleRange": [
+        0.5,
+        1
+      ],
+      "displayedSourceCanvasPx": [
+        192.0,
+        48.0
+      ],
+      "displayedFrameCanvasPx": [
+        192.0,
+        192.0
+      ],
+      "placement": "at logo lower-right margin once on entry; leave current letter pixels in code",
+      "doNotUse": "Do not rasterize the logo or continuously sweep over menu text.",
+      "reuseOf": null,
+      "timingOverride": true,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R26",
+      "name": "title-star-thread",
+      "kind": "atlas-region",
+      "resource": "T:title-thread",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main"
+      ],
+      "purpose": "작은 별과 얇은 장식 연결",
+      "opacity": 0.22,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.625,
+        0.625
+      ],
+      "scaleRange": [
+        0.46875,
+        0.78125
+      ],
+      "displayedSourceCanvasPx": [
+        320.0,
+        80.0
+      ],
+      "displayedFrameCanvasPx": [
+        320.0,
+        320.0
+      ],
+      "placement": "quiet gap below logo and above menu",
+      "doNotUse": "Decorative only; do not treat this motif as progression data.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R27",
+      "name": "foreground-motes",
+      "kind": "atlas-clip",
+      "resource": "A:dust-drift",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 3000,
+      "frameDurationsMs": [
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250
+      ],
+      "loop": true,
+      "playback": "loop",
+      "scenes": [
+        "Main"
+      ],
+      "purpose": "낮은 밝기의 가까운 먼지",
+      "opacity": 0.08,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        2.5,
+        2.5
+      ],
+      "scaleRange": [
+        2,
+        2.75
+      ],
+      "displayedSourceCanvasPx": [
+        640.0,
+        640.0
+      ],
+      "displayedFrameCanvasPx": [
+        640.0,
+        640.0
+      ],
+      "placement": "one640px patch near lower-right foreground",
+      "doNotUse": "Do not enlarge into bokeh or place over menus.",
+      "reuseOf": "R14",
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R28",
+      "name": "jacket-glint",
+      "kind": "atlas-clip",
+      "resource": "A:twinkle-cross",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 160,
+      "frameDurationsMs": [
+        13,
+        14,
+        13,
+        13,
+        14,
+        13,
+        13,
+        14,
+        13,
+        13,
+        14,
+        13
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "SongSelect"
+      ],
+      "purpose": "선택 재킷 모서리의 한 번 반짝임",
+      "opacity": 0.7,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.1875,
+        0.1875
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        24.0,
+        24.0
+      ],
+      "displayedFrameCanvasPx": [
+        48.0,
+        48.0
+      ],
+      "placement": "selected jacket corner after focus changes",
+      "doNotUse": "Do not draw a glowing card border.",
+      "reuseOf": "R12",
+      "timingOverride": true,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R29",
+      "name": "selected-halo",
+      "kind": "atlas-clip",
+      "resource": "C:selected-halo",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 1000,
+      "frameDurationsMs": [
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125,
+        125
+      ],
+      "loop": true,
+      "playback": "loop",
+      "scenes": [
+        "SongSelect"
+      ],
+      "purpose": "선택 핵 주변의 열린 두 arc",
+      "opacity": 0.32,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.1875,
+        0.1875
+      ],
+      "scaleRange": [
+        0.125,
+        0.25
+      ],
+      "displayedSourceCanvasPx": [
+        48.0,
+        48.0
+      ],
+      "displayedFrameCanvasPx": [
+        48.0,
+        48.0
+      ],
+      "placement": "centered on selected node, not around entire jacket",
+      "doNotUse": "Do not use below32px source canvas, rotate as a spinner, or close the ring.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R30",
+      "name": "orbit-arc",
+      "kind": "atlas-region",
+      "resource": "C:orbit-arc",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect"
+      ],
+      "purpose": "재킷 가까운 불완전 타원 장식",
+      "opacity": 0.22,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.703125,
+        0.703125
+      ],
+      "scaleRange": [
+        0.5,
+        1.0
+      ],
+      "displayedSourceCanvasPx": [
+        180.0,
+        180.0
+      ],
+      "displayedFrameCanvasPx": [
+        180.0,
+        180.0
+      ],
+      "placement": "offset beside selected jacket; never across title text",
+      "doNotUse": "Do not use below128px or turn into a circular mechanical menu.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R31",
+      "name": "navigation-star",
+      "kind": "atlas-region",
+      "resource": "C:node-selected",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "SongSelect",
+        "Secondary"
+      ],
+      "purpose": "선택 위치 marker",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.15625,
+        0.15625
+      ],
+      "scaleRange": [
+        0.125,
+        0.1875
+      ],
+      "displayedSourceCanvasPx": [
+        20.0,
+        20.0
+      ],
+      "displayedFrameCanvasPx": [
+        40.0,
+        40.0
+      ],
+      "placement": "before selected navigation label",
+      "doNotUse": "Do not use as a pointer hit target.",
+      "reuseOf": "R17",
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R32",
+      "name": "note-glint",
+      "kind": "atlas-clip",
+      "resource": "A:twinkle-cross",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 120,
+      "frameDurationsMs": [
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Gameplay"
+      ],
+      "purpose": "작은 노트 표면 강조",
+      "opacity": 0.5,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.125,
+        0.125
+      ],
+      "scaleRange": [
+        0.125,
+        0.1875
+      ],
+      "displayedSourceCanvasPx": [
+        16.0,
+        16.0
+      ],
+      "displayedFrameCanvasPx": [
+        32.0,
+        32.0
+      ],
+      "placement": "bound to existing note display event",
+      "doNotUse": "Do not shift note timing, input, judgement or visual note shape.",
+      "reuseOf": "R12",
+      "timingOverride": true,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R33",
+      "name": "note-trail",
+      "kind": "atlas-clip",
+      "resource": "G:note-trail",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        64,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 6,
+      "durationMs": 150,
+      "frameDurationsMs": [
+        25,
+        25,
+        25,
+        25,
+        25,
+        25
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Gameplay"
+      ],
+      "purpose": "노트 뒤의 짧은 빛 잔상",
+      "opacity": 0.24,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        129,
+        224
+      ],
+      "anchorNormalized": [
+        0.50390625,
+        0.875
+      ],
+      "scaleXY": [
+        0.375,
+        0.375
+      ],
+      "scaleRange": [
+        0.25,
+        0.5
+      ],
+      "displayedSourceCanvasPx": [
+        24.0,
+        96.0
+      ],
+      "displayedFrameCanvasPx": [
+        96.0,
+        96.0
+      ],
+      "placement": "anchor generated bright head to existing note, behind the note",
+      "doNotUse": "Do not extend onto score/judgement text; one active trail per lane.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R34",
+      "name": "hit-flare",
+      "kind": "atlas-clip",
+      "resource": "G:hit-flare",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        64
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 136,
+      "frameDurationsMs": [
+        17,
+        17,
+        17,
+        17,
+        17,
+        17,
+        17,
+        17
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Gameplay"
+      ],
+      "purpose": "판정 지점의 짧은 세 갈래 core",
+      "opacity": 0.75,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128,
+        142
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5546875
+      ],
+      "scaleXY": [
+        0.46875,
+        0.46875
+      ],
+      "scaleRange": [
+        0.3125,
+        0.5625
+      ],
+      "displayedSourceCanvasPx": [
+        120.0,
+        30.0
+      ],
+      "displayedFrameCanvasPx": [
+        120.0,
+        120.0
+      ],
+      "placement": "align measured core with existing lane judgement line",
+      "doNotUse": "Do not center by whole-cell bbox or stack old flares in one lane.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R35",
+      "name": "hit-sparkle",
+      "kind": "atlas-clip",
+      "resource": "G:hit-sparkle",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 160,
+      "frameDurationsMs": [
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Gameplay"
+      ],
+      "purpose": "cross와 네 작은 shard",
+      "opacity": 0.6,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.46875,
+        0.46875
+      ],
+      "scaleRange": [
+        0.3125,
+        0.5625
+      ],
+      "displayedSourceCanvasPx": [
+        120.0,
+        120.0
+      ],
+      "displayedFrameCanvasPx": [
+        120.0,
+        120.0
+      ],
+      "placement": "existing hit location, inside one lane",
+      "doNotUse": "Do not add random unbounded sparks or keep alive beyond clip.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R36",
+      "name": "perfect-burst",
+      "kind": "atlas-clip",
+      "resource": "G:perfect-burst",
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "metadataPath": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 200,
+      "frameDurationsMs": [
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Gameplay"
+      ],
+      "purpose": "기존 PERFECT의 다섯 작은 별",
+      "opacity": 0.85,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.4375,
+        0.4375
+      ],
+      "scaleRange": [
+        0.3125,
+        0.5
+      ],
+      "displayedSourceCanvasPx": [
+        112.0,
+        112.0
+      ],
+      "displayedFrameCanvasPx": [
+        112.0,
+        112.0
+      ],
+      "placement": "one local fan per lane on an existing PERFECT event",
+      "doNotUse": "Do not invent a new judgement threshold or cover judgement lettering.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R37",
+      "name": "combo-glint",
+      "kind": "atlas-clip",
+      "resource": "A:glint-sweep",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        64
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 240,
+      "frameDurationsMs": [
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Gameplay"
+      ],
+      "purpose": "기존 combo 강조 사건의 짧은 이동 빛",
+      "opacity": 0.45,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.6,
+        0.6
+      ],
+      "scaleRange": [
+        0.4,
+        0.8
+      ],
+      "displayedSourceCanvasPx": [
+        153.6,
+        38.4
+      ],
+      "displayedFrameCanvasPx": [
+        153.6,
+        153.6
+      ],
+      "placement": "beside combo display; reuse existing milestone events only",
+      "doNotUse": "If no existing milestone event exists, do not add a new threshold.",
+      "reuseOf": "R25",
+      "timingOverride": true,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R38",
+      "name": "judgement-shimmer",
+      "kind": "atlas-clip",
+      "resource": "A:glint-sweep",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        64
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 160,
+      "frameDurationsMs": [
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Gameplay"
+      ],
+      "purpose": "판정 글자 외곽의 짧은 shimmer",
+      "opacity": 0.4,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.5,
+        0.5
+      ],
+      "scaleRange": [
+        0.35,
+        0.65
+      ],
+      "displayedSourceCanvasPx": [
+        128.0,
+        32.0
+      ],
+      "displayedFrameCanvasPx": [
+        128.0,
+        128.0
+      ],
+      "placement": "below or beside existing judgement text",
+      "doNotUse": "Do not bake text or cover its glyph interiors.",
+      "reuseOf": "R25",
+      "timingOverride": true,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R39",
+      "name": "rank-burst",
+      "kind": "atlas-clip",
+      "resource": "R:rank-burst",
+      "path": "public/assets/ui/result/result-effects-atlas.png",
+      "metadataPath": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 996,
+      "frameDurationsMs": [
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Result"
+      ],
+      "purpose": "빈 중심을 둔 다섯 별의 완료 보상",
+      "opacity": 0.85,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        1.125,
+        1.125
+      ],
+      "scaleRange": [
+        0.75,
+        1.5
+      ],
+      "displayedSourceCanvasPx": [
+        288.0,
+        288.0
+      ],
+      "displayedFrameCanvasPx": [
+        288.0,
+        288.0
+      ],
+      "placement": "around rank with central opening aligned to empty surrounding space",
+      "doNotUse": "Do not cover rank glyph or turn into full-screen fireworks.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R40",
+      "name": "score-shimmer",
+      "kind": "atlas-clip",
+      "resource": "A:glint-sweep",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        64
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 400,
+      "frameDurationsMs": [
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Result"
+      ],
+      "purpose": "최종 수치 가까운 짧은 빛",
+      "opacity": 0.5,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": [
+        0.75,
+        1.25
+      ],
+      "displayedSourceCanvasPx": [
+        256,
+        64
+      ],
+      "displayedFrameCanvasPx": [
+        256,
+        256
+      ],
+      "placement": "just below score baseline, after value is settled",
+      "doNotUse": "Do not delay or mask the real score.",
+      "reuseOf": "R25",
+      "timingOverride": true,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R41",
+      "name": "jacket-starfall",
+      "kind": "atlas-clip",
+      "resource": "R:jacket-starfall",
+      "path": "public/assets/ui/result/result-effects-atlas.png",
+      "metadataPath": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 996,
+      "frameDurationsMs": [
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83,
+        83
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Result"
+      ],
+      "purpose": "재킷 옆으로 내려오는 일곱 빛",
+      "opacity": 0.6,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": [
+        0.75,
+        1.25
+      ],
+      "displayedSourceCanvasPx": [
+        256,
+        256
+      ],
+      "displayedFrameCanvasPx": [
+        256,
+        256
+      ],
+      "placement": "outside jacket edge, within256px local area",
+      "doNotUse": "Do not rain over the entire result or overlay bright silver leaves at screen edge.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R42",
+      "name": "clear-bloom",
+      "kind": "atlas-clip",
+      "resource": "R:clear-bloom",
+      "path": "public/assets/ui/result/result-effects-atlas.png",
+      "metadataPath": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        256,
+        256
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 400,
+      "frameDurationsMs": [
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Result",
+        "SongSelect"
+      ],
+      "purpose": "해당 별 주변의 국소 점등 보상",
+      "opacity": 0.9,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.5,
+        0.5
+      ],
+      "scaleRange": [
+        0.375,
+        0.75
+      ],
+      "displayedSourceCanvasPx": [
+        128.0,
+        128.0
+      ],
+      "displayedFrameCanvasPx": [
+        128.0,
+        128.0
+      ],
+      "placement": "center on just-cleared/completed song node",
+      "doNotUse": "Do not use a full-screen bloom, new score rule or success state.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R43",
+      "name": "constellation-finish",
+      "kind": "composed-sequence",
+      "path": "public/assets/ui/constellation/constellation-sequences.json",
+      "sequence": "constellation-finish",
+      "resources": [
+        "C:node-ignite",
+        "C:line-reveal",
+        "R:clear-bloom",
+        "R:rank-burst",
+        "R:jacket-starfall",
+        "A:glint-sweep"
+      ],
+      "alpha": true,
+      "frameCount": null,
+      "frameCountNote": "No new frame images; plays the explicitly referenced real clips.",
+      "durationMs": 1240,
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Result"
+      ],
+      "purpose": "node 점등 → 실제 관계의 선 공개 → 국소 보상 및 rank·score·jacket 마감",
+      "opacity": "per child role",
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": "per child binding",
+      "scaleRange": "use each child role contract",
+      "placement": "actual current song and eligible relation only",
+      "doNotUse": "If no existing relation, use node-only-reveal; do not fabricate a graph or progression rules.",
+      "reuseOf": "R24"
+    },
+    {
+      "id": "R44",
+      "name": "star-thread",
+      "kind": "atlas-clip",
+      "resource": "T:star-thread",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 400,
+      "frameDurationsMs": [
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Transition"
+      ],
+      "purpose": "작은 별이 이끄는 짧은 곡선",
+      "opacity": 0.65,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.75,
+        0.75
+      ],
+      "scaleRange": [
+        0.5,
+        1
+      ],
+      "displayedSourceCanvasPx": [
+        384.0,
+        96.0
+      ],
+      "displayedFrameCanvasPx": [
+        384.0,
+        384.0
+      ],
+      "placement": "one local transition gesture near the next focal area",
+      "doNotUse": "Do not stretch to screen-filling neon or block navigation.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R45",
+      "name": "shimmer-wipe",
+      "kind": "atlas-clip",
+      "resource": "T:shimmer-wipe",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 320,
+      "frameDurationsMs": [
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Transition"
+      ],
+      "purpose": "짧은 직선 shimmer",
+      "opacity": 0.35,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": [
+        0.75,
+        1.25
+      ],
+      "displayedSourceCanvasPx": [
+        512,
+        128
+      ],
+      "displayedFrameCanvasPx": [
+        512,
+        512
+      ],
+      "placement": "local edge sweep accompanying the existing scene change",
+      "doNotUse": "This is a light accent, not an opaque full-screen mask.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R46",
+      "name": "dust-dissolve",
+      "kind": "atlas-clip",
+      "resource": "T:dust-dissolve",
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "metadataPath": "public/assets/ui/transition/transition-atlas.regions.json",
+      "frameCanvasPx": [
+        512,
+        512
+      ],
+      "sourceCanvasPx": [
+        512,
+        512
+      ],
+      "alpha": true,
+      "frameCount": 8,
+      "durationMs": 400,
+      "frameDurationsMs": [
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50
+      ],
+      "loop": false,
+      "playback": "one-shot",
+      "scenes": [
+        "Transition"
+      ],
+      "purpose": "실제 먼지 alpha 소멸",
+      "opacity": 0.12,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        256.0,
+        256.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": [
+        0.75,
+        1.5
+      ],
+      "displayedSourceCanvasPx": [
+        512,
+        512
+      ],
+      "displayedFrameCanvasPx": [
+        512,
+        512
+      ],
+      "placement": "one512px patch synchronized with existing crossfade",
+      "doNotUse": "Do not treat it as a black/white screen cover or raise ambient density.",
+      "reuseOf": null,
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": false
+    },
+    {
+      "id": "R47",
+      "name": "loading-star",
+      "kind": "atlas-clip",
+      "resource": "A:twinkle-small",
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 12,
+      "durationMs": 1200,
+      "frameDurationsMs": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "loop": true,
+      "playback": "loop",
+      "scenes": [
+        "Loading",
+        "Auth",
+        "Secondary"
+      ],
+      "purpose": "회전 없는 느린 상태 pulse",
+      "opacity": 0.75,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.15625,
+        0.15625
+      ],
+      "scaleRange": [
+        0.125,
+        0.1875
+      ],
+      "displayedSourceCanvasPx": [
+        20.0,
+        20.0
+      ],
+      "displayedFrameCanvasPx": [
+        40.0,
+        40.0
+      ],
+      "placement": "beside existing loading text/status",
+      "doNotUse": "Do not spin, falsely show completion, or hold actual navigation.",
+      "reuseOf": "R11",
+      "timingOverride": true,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R48",
+      "name": "divider-glint",
+      "kind": "atlas-region",
+      "resource": "S:pin-star",
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "metadataPath": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "frameCanvasPx": [
+        128,
+        128
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Settings",
+        "Auth",
+        "Secondary"
+      ],
+      "purpose": "구분선 끝의 작은 점",
+      "opacity": 0.35,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        64.0,
+        64.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.0625,
+        0.0625
+      ],
+      "scaleRange": [
+        0.046875,
+        0.09375
+      ],
+      "displayedSourceCanvasPx": [
+        8.0,
+        8.0
+      ],
+      "displayedFrameCanvasPx": [
+        8.0,
+        8.0
+      ],
+      "placement": "existing divider endpoint",
+      "doNotUse": "Do not make every divider equally bright.",
+      "reuseOf": "R06",
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R49",
+      "name": "focus-star",
+      "kind": "atlas-region",
+      "resource": "C:node-hover",
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "metadataPath": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "frameCanvasPx": [
+        256,
+        256
+      ],
+      "sourceCanvasPx": [
+        128,
+        128
+      ],
+      "alpha": true,
+      "frameCount": 1,
+      "durationMs": null,
+      "frameDurationsMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Settings",
+        "Auth",
+        "Secondary"
+      ],
+      "purpose": "현재 keyboard focus의 별",
+      "opacity": 1,
+      "blend": "NORMAL",
+      "runtimeTint": "none; preserve baked palette",
+      "anchorPx": [
+        128.0,
+        128.0
+      ],
+      "anchorNormalized": [
+        0.5,
+        0.5
+      ],
+      "scaleXY": [
+        0.125,
+        0.125
+      ],
+      "scaleRange": [
+        0.125,
+        0.1875
+      ],
+      "displayedSourceCanvasPx": [
+        16.0,
+        16.0
+      ],
+      "displayedFrameCanvasPx": [
+        32.0,
+        32.0
+      ],
+      "placement": "beside focused item using existing focus state",
+      "doNotUse": "Decorative/pointer-events disabled; do not replace focus semantics.",
+      "reuseOf": "R16",
+      "timingOverride": false,
+      "imagesSharedWithoutRegeneration": true
+    },
+    {
+      "id": "R50",
+      "name": "grain",
+      "kind": "image",
+      "path": "public/assets/ui/surface/grain.png",
+      "dimensionsPx": [
+        1024,
+        1024
+      ],
+      "alpha": false,
+      "frameCount": 1,
+      "durationMs": null,
+      "loop": false,
+      "playback": "static",
+      "scenes": [
+        "Main",
+        "SongSelect",
+        "Result",
+        "Secondary"
+      ],
+      "purpose": "공통 표면의 약한 미세 입자",
+      "sourceCandidates": [
+        "OLD_GRAIN_REUSED"
+      ],
+      "opacity": 0.018,
+      "blend": "NORMAL",
+      "runtimeTint": "none",
+      "anchorPx": [
+        0,
+        0
+      ],
+      "anchorNormalized": [
+        0,
+        0
+      ],
+      "scaleXY": [
+        1,
+        1
+      ],
+      "scaleRange": [
+        1,
+        1
+      ],
+      "placement": "repeat XY on night base, behind all readable UI",
+      "doNotUse": "Do not use as the celestial particle system; no grain layer over gameplay video.",
+      "reuseOf": null,
+      "sha256": "e65bc8caab29b0247ea5141d5675edb734fb0f6e55d93baf4e5b8df3aca1ef8d",
+      "bytes": 1062384
+    }
+  ],
+  "sequenceManifest": "public/assets/ui/constellation/constellation-sequences.json",
+  "sceneApplication": "design/dazbeat/scene-application.json",
+  "additionalSemanticState": {
+    "resource": "C:node-played",
+    "meaning": "existing played flag only, distinguish from existing cleared state",
+    "minimumSourceCanvasPx": 16,
+    "scaleXY": [
+      0.140625,
+      0.140625
+    ],
+    "opacity": 1,
+    "blend": "NORMAL",
+    "runtimeTint": "none",
+    "doNotUse": "Do not invent play history or display semantic state at8px."
+  },
+  "files": [
+    {
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.compose-report.json",
+      "bytes": 15323,
+      "sha256": "807a94c3c8b891aa25daae5ac5b635a2713c81ab6d03f354225a461902a6fad6"
+    },
+    {
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.json",
+      "bytes": 8350,
+      "sha256": "ed6628d0902d3041a1e05ec3fe10589b65a38e50f0740114e2a6848739162349"
+    },
+    {
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.png",
+      "bytes": 253150,
+      "sha256": "319f7626fed93ebe1269d4f039d7410b646bb839077b1f9715d93fbb70e52f4c",
+      "dimensionsPx": [
+        3072,
+        1280
+      ],
+      "mode": "RGBA",
+      "alpha": true
+    },
+    {
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.recipe.json",
+      "bytes": 13584,
+      "sha256": "fed0223acb244e791089528bd8fa3973ba5deb95e823d8e8ebf48a06fe4c7081"
+    },
+    {
+      "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
+      "bytes": 9702,
+      "sha256": "83b3db0a9f7ab7c243b7e8237b6630a8461932e4a2913f6af41625bf210ebfd6"
+    },
+    {
+      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "bytes": 73824,
+      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "mode": "RGB",
+      "alpha": false
+    },
+    {
+      "path": "public/assets/ui/celestial/sparkle/dust-tile.png",
+      "bytes": 45612,
+      "sha256": "df1552d74298a7166ae0fcac857a3d6c4fddb38027d4df1c635f0e47df392410",
+      "dimensionsPx": [
+        1024,
+        1024
+      ],
+      "mode": "RGBA",
+      "alpha": true
+    },
+    {
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.compose-report.json",
+      "bytes": 1981,
+      "sha256": "5e4b53106204e0d2814283917c0c9c325ef24a365a94826e04ec13d15f13da31"
+    },
+    {
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.json",
+      "bytes": 2417,
+      "sha256": "6f0732a5531723fde4b58f90fb3b303f6cca0cc85f5e2dae942acc707c6cb73a"
+    },
+    {
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.png",
+      "bytes": 26691,
+      "sha256": "b9842f0e885dfc202272768a8cf5718731f8c34deb106d89839d398a9d3124eb",
+      "dimensionsPx": [
+        128,
+        640
+      ],
+      "mode": "RGBA",
+      "alpha": true
+    },
+    {
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.recipe.json",
+      "bytes": 6813,
+      "sha256": "e59d41e210466ac753c57dab26f9846888a89195aa60c6717c706fc960f948a9"
+    },
+    {
+      "path": "public/assets/ui/celestial/sparkle/sparkle-atlas.regions.json",
+      "bytes": 2902,
+      "sha256": "acfa5a9fb9f43816fa31f9e4c16309545e4f6c1bcdc54769bfa4b3d483354c23"
+    },
+    {
+      "path": "public/assets/ui/constellation/constellation-atlas.compose-report.json",
+      "bytes": 16376,
+      "sha256": "be1b56f7c94529944d4fb8e413d3a04493ff3a48563001a0ed820fbf597fec93"
+    },
+    {
+      "path": "public/assets/ui/constellation/constellation-atlas.json",
+      "bytes": 10467,
+      "sha256": "a2bd184e8f1b66d90bc540514761b66a3aa0d9e3921d9648135e1ed7caa16dd3"
+    },
+    {
+      "path": "public/assets/ui/constellation/constellation-atlas.png",
+      "bytes": 184958,
+      "sha256": "826555300129afa9f91c589d9871878c8231a3d7437c5ef083d02c3fedf08e29",
+      "dimensionsPx": [
+        4096,
+        3584
+      ],
+      "mode": "RGBA",
+      "alpha": true
+    },
+    {
+      "path": "public/assets/ui/constellation/constellation-atlas.recipe.json",
+      "bytes": 22611,
+      "sha256": "fc61868653d9395b03eda1d4ec1347a6b19bd24e9a41afe13120d8f3fa60c331"
+    },
+    {
+      "path": "public/assets/ui/constellation/constellation-atlas.regions.json",
+      "bytes": 13610,
+      "sha256": "024d95632b0c8dd53c869f6ad63de0092f42301d11f0bd6798d26d4c53a1186b"
+    },
+    {
+      "path": "public/assets/ui/constellation/constellation-sequences.json",
+      "bytes": 2614,
+      "sha256": "9852987872ebd7704361d30acc738d0c18310268b5cfa138f07ed46e9c40086d"
+    },
+    {
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.compose-report.json",
+      "bytes": 8433,
+      "sha256": "661d15801fa254a25ec65c371f096347c5163c8d035b15855e140832aa95e574"
+    },
+    {
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.json",
+      "bytes": 5095,
+      "sha256": "6dfb2c7a8030225cee5a7506a9fd076606f3a6a0c73e838c68b629d7177ddfff"
+    },
+    {
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.png",
+      "bytes": 59773,
+      "sha256": "186df261561a4547bd5875b38239c3db6fb505aaaf1c0bfd81a6079cd69a5638",
+      "dimensionsPx": [
+        2048,
+        1024
+      ],
+      "mode": "RGBA",
+      "alpha": true
+    },
+    {
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.recipe.json",
+      "bytes": 8626,
+      "sha256": "a8ee1915af950cce14e85f210517a7e5faea5340f680e3770edd6751c556714f"
+    },
+    {
+      "path": "public/assets/ui/gameplay/gameplay-effects-atlas.regions.json",
+      "bytes": 6714,
+      "sha256": "24d8ef10945e992e70642d677c0fde1e86b23e5c3672645d80409cfd72097079"
+    },
+    {
+      "path": "public/assets/ui/result/result-effects-atlas.compose-report.json",
+      "bytes": 9006,
+      "sha256": "c9e7d2be45b08969e93f74a89c4339d028cec680dcff46d5f6f4cfddda9d83ac"
+    },
+    {
+      "path": "public/assets/ui/result/result-effects-atlas.json",
+      "bytes": 5126,
+      "sha256": "31213702baa88d284d825d38ed16cabc512c3faa7e628cdd4b9a5891c8697fa0"
+    },
+    {
+      "path": "public/assets/ui/result/result-effects-atlas.png",
+      "bytes": 70202,
+      "sha256": "11640cc0ef27b335db97741ea6497945bb9ef2d9e1a084b376245f758a8dae42",
+      "dimensionsPx": [
+        3072,
+        768
+      ],
+      "mode": "RGBA",
+      "alpha": true
+    },
+    {
+      "path": "public/assets/ui/result/result-effects-atlas.recipe.json",
+      "bytes": 8217,
+      "sha256": "8d8059593f9344826258097d6f94a7bd9dc586a90e76552370fc3aa45c72cade"
+    },
+    {
+      "path": "public/assets/ui/result/result-effects-atlas.regions.json",
+      "bytes": 5688,
+      "sha256": "e5874c17e87e992a88c7b10d914ec9590848ca69c358d31df7f6bad7db6982f8"
+    },
+    {
+      "path": "public/assets/ui/surface/grain.png",
+      "bytes": 1062384,
+      "sha256": "e65bc8caab29b0247ea5141d5675edb734fb0f6e55d93baf4e5b8df3aca1ef8d",
+      "dimensionsPx": [
+        1024,
+        1024
+      ],
+      "mode": "RGB",
+      "alpha": false
+    },
+    {
+      "path": "public/assets/ui/transition/transition-atlas.compose-report.json",
+      "bytes": 7226,
+      "sha256": "226114ace4ffe6f1e26b28e7f04dd9575a89ecb8b8e0811530ace3f4045fc12b"
+    },
+    {
+      "path": "public/assets/ui/transition/transition-atlas.json",
+      "bytes": 4531,
+      "sha256": "1867e1c730dde7f056b607570b9c47805560f7737f5470518cd92f750fd06dc1"
+    },
+    {
+      "path": "public/assets/ui/transition/transition-atlas.png",
+      "bytes": 118628,
+      "sha256": "bce3d6b3f4b5807d4db79a02b3f205681c6d935fe0a19efd266ad889561b6d57",
+      "dimensionsPx": [
+        4096,
+        2048
+      ],
+      "mode": "RGBA",
+      "alpha": true
+    },
+    {
+      "path": "public/assets/ui/transition/transition-atlas.recipe.json",
+      "bytes": 8326,
+      "sha256": "9f9648ff4473aee805b7b1b7b2c74b6289720045ee325d755c415527f296c66e"
+    },
+    {
+      "path": "public/assets/ui/transition/transition-atlas.regions.json",
+      "bytes": 5193,
+      "sha256": "01aae46cf428058cd5659be1d7b66c50a4132f30402b86633b228862ce852e7d"
+    }
+  ]
+}

@@ -1,12 +1,38 @@
 .agent-work/
 node_modules/
 dist/
+dist-ssr/
 coverage/
 *.tsbuildinfo
+*.local
+
+# env
 .env
 .env.*
 !.env.example
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / editor
 .DS_Store
-.claude/settings.local.json
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# agent tooling
 .claude/
 .codex/
+skills-lock.json
+pb_data/
+
+# design work & capture output (not shipped)
+design/
+screenshots/
+public/assets/**/*.recipe.json
+public/assets/**/*.compose-report.json
+
+# third-party song artwork and screenshots that show it (not ours to redistribute)
+pocketbase/seed/**/jacket.*
+docs/screenshots/

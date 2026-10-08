@@ -1,0 +1,296 @@
+{
+  "characterId": "gameplay-effects-atlas",
+  "engine": "component-row",
+  "game_input": "gameplay-effects-atlas.png",
+  "degraded_static_fallback": false,
+  "curation_applied": true,
+  "frame_variant": "pixel",
+  "sprite_sheet_alpha": "gameplay-effects-atlas.png",
+  "sprite_sheet_alpha_report": "gameplay-effects-atlas.compose-report.json",
+  "base_image": null,
+  "cell": {
+    "shape": "square",
+    "width": 256,
+    "height": 256,
+    "size": 256,
+    "safe_margin": 0
+  },
+  "chroma_key": {
+    "name": "magenta",
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ]
+  },
+  "animation": {
+    "cellWidth": 256,
+    "cellHeight": 256,
+    "columns": 8,
+    "rows": {
+      "hit-flare": {
+        "row": 0,
+        "frames": 8,
+        "fps": 60,
+        "durations_ms": [
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "hit-sparkle": {
+        "row": 1,
+        "frames": 8,
+        "fps": 50,
+        "durations_ms": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "note-trail": {
+        "row": 2,
+        "frames": 6,
+        "fps": 40,
+        "durations_ms": [
+          25,
+          25,
+          25,
+          25,
+          25,
+          25
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      },
+      "perfect-burst": {
+        "row": 3,
+        "frames": 8,
+        "fps": 40,
+        "durations_ms": [
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25,
+          25
+        ],
+        "loop": false,
+        "frame_variant": "pixel"
+      }
+    }
+  },
+  "frame_layout": {
+    "sheetWidth": 2048,
+    "sheetHeight": 1024,
+    "cellWidth": 256,
+    "cellHeight": 256,
+    "rows": {
+      "hit-flare": [
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1280,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1536,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 0,
+          "y": 0,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "hit-sparkle": [
+        {
+          "x": 0,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1280,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1536,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1792,
+          "y": 256,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "note-trail": [
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 512,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 512,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 512,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 512,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 0,
+          "y": 512,
+          "w": 256,
+          "h": 256
+        }
+      ],
+      "perfect-burst": [
+        {
+          "x": 0,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 256,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 512,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 768,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1024,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1280,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1536,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        },
+        {
+          "x": 1792,
+          "y": 768,
+          "w": 256,
+          "h": 256
+        }
+      ]
+    }
+  }
+}
