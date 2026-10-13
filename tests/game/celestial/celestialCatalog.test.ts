@@ -136,7 +136,7 @@ describe('loadCelestialCatalog', () => {
     const files = requireArray(manifest['files'], 'files').map((file) =>
       requireObject(file, 'file'),
     );
-    expect(files).toHaveLength(34);
+    expect(files).toHaveLength(37);
     for (const file of files) {
       const path = String(file['path']);
       const bytes = await readFile(new URL(path, ROOT));
@@ -158,16 +158,16 @@ describe('loadCelestialCatalog', () => {
     expect(imageIds).toEqual(['R01', 'R02', 'R03', 'R04', 'R05', 'R50']);
   });
 
-  it('lists 9 textures with unique URLs and keys', async () => {
+  it('lists 12 textures with unique URLs and keys', async () => {
     const catalog = await loadCatalog();
-    expect(catalog.textures).toHaveLength(9);
-    expect(new Set(catalog.textures.map(({ url }) => url)).size).toBe(9);
-    expect(new Set(catalog.textures.map(({ key }) => key)).size).toBe(9);
-    // 모든 화면 배경(R01–R04)이 같은 성운·궤도 이미지를 공유하므로 텍스처도 하나다.
-    const mainKey = getImagePresentation(catalog, 'R01').textureKey;
-    ['R02', 'R03', 'R04'].forEach((id) =>
-      expect(getImagePresentation(catalog, id).textureKey, id).toBe(mainKey),
+    expect(catalog.textures).toHaveLength(12);
+    expect(new Set(catalog.textures.map(({ url }) => url)).size).toBe(12);
+    expect(new Set(catalog.textures.map(({ key }) => key)).size).toBe(12);
+    // 네 화면 배경은 각자 다른 이미지다. 보조 화면(R04)은 기존 성운·궤도 파일을 유지한다.
+    const backgroundKeys = ['R01', 'R02', 'R03', 'R04'].map(
+      (id) => getImagePresentation(catalog, id).textureKey,
     );
+    expect(new Set(backgroundKeys).size).toBe(4);
     catalog.textures.forEach(({ url }) => expect(url.startsWith('/assets/ui/')).toBe(true));
   });
 

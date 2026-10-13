@@ -3447,7 +3447,7 @@
       "id": "R01",
       "name": "main-scene",
       "kind": "image",
-      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "path": "public/assets/ui/celestial/scenes/dazbeat-orbit-painted-vivid.png",
       "dimensionsPx": [
         1920,
         1080
@@ -3485,14 +3485,14 @@
       "placement": "full scene behind existing UI",
       "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
       "reuseOf": null,
-      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
-      "bytes": 73824
+      "sha256": "2503a2cac93298f61e06dedfe2d17046530c280e1642b78bbace01e9617b18d8",
+      "bytes": 2408431
     },
     {
       "id": "R02",
       "name": "song-select-atmosphere",
       "kind": "image",
-      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "path": "public/assets/ui/celestial/scenes/dazbeat-song-select-bg-harmonized.png",
       "dimensionsPx": [
         1920,
         1080
@@ -3505,9 +3505,9 @@
       "scenes": [
         "SongSelect"
       ],
-      "purpose": "메인과 같은 성운·궤도 우주 배경 — 곡 목록·재킷 뒤",
+      "purpose": "메인과 남청 팔레트를 공유하는 보랏빛 언덕 배경 — 곡 목록·재킷 뒤",
       "sourceCandidates": [
-        "02-nebula-orbit-16x9"
+        "song-select-harmony-v2"
       ],
       "opacity": 1,
       "blend": "NORMAL",
@@ -3530,14 +3530,14 @@
       "placement": "full scene behind existing UI",
       "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
       "reuseOf": null,
-      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
-      "bytes": 73824
+      "sha256": "f7005d1d4ecb91c786cd974a20fcdda93ea84fdbd0b02c45852626da8a30ebf3",
+      "bytes": 2855734
     },
     {
       "id": "R03",
       "name": "result-atmosphere",
       "kind": "image",
-      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
+      "path": "public/assets/ui/celestial/scenes/dazbeat-result-afterglow.png",
       "dimensionsPx": [
         1920,
         1080
@@ -3550,9 +3550,9 @@
       "scenes": [
         "Result"
       ],
-      "purpose": "메인과 같은 성운·궤도 우주 배경 — 결과 화면",
+      "purpose": "남청 하늘과 오른쪽 아래 은빛 별빛 잔상 — 결과 정보 뒤",
       "sourceCandidates": [
-        "02-nebula-orbit-16x9"
+        "result-afterglow-candidate"
       ],
       "opacity": 1,
       "blend": "NORMAL",
@@ -3574,9 +3574,9 @@
       },
       "placement": "full scene behind existing UI",
       "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
-      "reuseOf": "R02",
-      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
-      "bytes": 73824
+      "reuseOf": null,
+      "sha256": "5c751992ab376e67ac179084305c5a2ac4dff8e877b7015930919967b09b05e5",
+      "bytes": 2236754
     },
     {
       "id": "R04",
@@ -6599,6 +6599,39 @@
       "path": "public/assets/ui/celestial/animations/celestial-ambient-atlas.regions.json",
       "bytes": 9702,
       "sha256": "83b3db0a9f7ab7c243b7e8237b6630a8461932e4a2913f6af41625bf210ebfd6"
+    },
+    {
+      "path": "public/assets/ui/celestial/scenes/dazbeat-orbit-painted-vivid.png",
+      "bytes": 2408431,
+      "sha256": "2503a2cac93298f61e06dedfe2d17046530c280e1642b78bbace01e9617b18d8",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "mode": "RGB",
+      "alpha": false
+    },
+    {
+      "path": "public/assets/ui/celestial/scenes/dazbeat-song-select-bg-harmonized.png",
+      "bytes": 2855734,
+      "sha256": "f7005d1d4ecb91c786cd974a20fcdda93ea84fdbd0b02c45852626da8a30ebf3",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "mode": "RGB",
+      "alpha": false
+    },
+    {
+      "path": "public/assets/ui/celestial/scenes/dazbeat-result-afterglow.png",
+      "bytes": 2236754,
+      "sha256": "5c751992ab376e67ac179084305c5a2ac4dff8e877b7015930919967b09b05e5",
+      "dimensionsPx": [
+        1920,
+        1080
+      ],
+      "mode": "RGB",
+      "alpha": false
     },
     {
       "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",

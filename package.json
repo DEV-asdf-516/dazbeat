@@ -9,16 +9,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:hooks": "vite build --config vite.hooks.config.ts",
     "preview": "vite preview",
-    "seed": "node --env-file-if-exists=.env pocketbase/seed/seed.ts",
+    "seed": "node --env-file-if-exists=.env --import ./pocketbase/seed/resolveTsImports.mjs pocketbase/seed/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "npm run build:hooks && vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run test:integration"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -33,6 +33,11 @@ screenshots/
 public/assets/**/*.recipe.json
 public/assets/**/*.compose-report.json
 
-# third-party song artwork and screenshots that show it (not ours to redistribute)
-pocketbase/seed/**/jacket.*
+# real local seed data (song metadata, jackets, charts) is not kept in the repository
+pocketbase/seed/data/
+
+# PocketBase hooks bundle (npm run build:hooks output)
+pocketbase/pb_hooks/lib/
+
+# screenshots that show third-party song artwork (not ours to redistribute)
 docs/screenshots/

@@ -18,6 +18,13 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "pocketbase/**/*.ts", "vitest.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "pocketbase/**/*.ts",
+    "vitest.config.ts",
+    "vite.hooks.config.ts",
+    "vitest.integration.config.ts"
+  ],
   "exclude": ["node_modules", "dist", "coverage", ".agent-work"]
 }

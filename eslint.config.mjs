@@ -11,6 +11,7 @@ export default tseslint.config(
       '.agent-work/**',
       '.claude/**',
       '.codex/**',
+      'pocketbase/pb_hooks/lib/**',
     ],
   },
   {

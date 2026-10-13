@@ -13,6 +13,15 @@ export class InvalidChartError extends Error {
   }
 }
 
+export interface LoadedChart {
+  chart: Chart;
+  /** 랭킹 세션 발급 때 서버 채보와 같은지 확인하는 값. */
+  revision: string;
+}
+
+// 채보 검증에 필요한 곡 정보만 받아, 시드·서버 검증도 전체 Song 없이 채보를 파싱할 수 있다.
+type ChartSong = Pick<Song, 'id' | 'gameStartMs' | 'gameEndMs'>;
+
 const lane = z.literal(LANES);
 
 const note = z.discriminatedUnion('type', [
@@ -26,7 +35,11 @@ const note = z.discriminatedUnion('type', [
 ]);
 
 // 노트 단위 스키마로는 알 수 없는, 곡 구간·노트 간 관계에 대한 불변 조건.
-function checkPlayableTimeline(notes: readonly Note[], song: Song, ctx: z.RefinementCtx): void {
+function checkPlayableTimeline(
+  notes: readonly Note[],
+  song: ChartSong,
+  ctx: z.RefinementCtx,
+): void {
   const laneEndTimesMs = new Map<Note['lane'], number>();
   let previousTimeMs = Number.NEGATIVE_INFINITY;
   for (const [index, current] of notes.entries()) {
@@ -39,7 +52,7 @@ function checkPlayableTimeline(notes: readonly Note[], song: Song, ctx: z.Refine
     } else if (endMs > song.gameEndMs) {
       fail('ends after gameEndMs');
     } else if (current.timeMs < previousTimeMs) {
-      fail('is not in timeMs ascending order');
+      fail('is not in timeMs non-decreasing order');
     } else if (current.timeMs <= (laneEndTimesMs.get(current.lane) ?? Number.NEGATIVE_INFINITY)) {
       fail(`overlaps the previous note in lane ${current.lane}`);
     }
@@ -48,7 +61,7 @@ function checkPlayableTimeline(notes: readonly Note[], song: Song, ctx: z.Refine
   }
 }
 
-function chartSchema(song: Song, difficulty: Difficulty) {
+function chartSchema(song: ChartSong, difficulty: Difficulty) {
   return z
     .object({
       songId: z.literal(song.id),
@@ -59,18 +72,21 @@ function chartSchema(song: Song, difficulty: Difficulty) {
     .superRefine((chart, ctx) => checkPlayableTimeline(chart.notes, song, ctx));
 }
 
-function formatPath(path: readonly PropertyKey[]): string {
+export function formatPath(path: readonly PropertyKey[], rootName: string): string {
   return path.reduce<string>(
     (joined, key) => (typeof key === 'number' ? `${joined}[${key}]` : `${joined}.${String(key)}`),
-    'chart',
+    rootName,
   );
 }
 
-export function parseChart(input: unknown, song: Song, difficulty: Difficulty): Chart {
+export function parseChart(input: unknown, song: ChartSong, difficulty: Difficulty): Chart {
   const result = chartSchema(song, difficulty).safeParse(input);
   if (!result.success) {
     const [issue] = result.error.issues;
-    throw new InvalidChartError(formatPath(issue?.path ?? []), issue?.message ?? 'is invalid');
+    throw new InvalidChartError(
+      formatPath(issue?.path ?? [], 'chart'),
+      issue?.message ?? 'is invalid',
+    );
   }
   return result.data;
 }

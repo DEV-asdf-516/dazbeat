@@ -1,5 +1,5 @@
 import type PocketBase from 'pocketbase';
-import { parseChart } from '../data/chartSchema.js';
+import { parseChart, type LoadedChart } from '../data/chartSchema.js';
 import type { Song } from '../data/songs.js';
 import type { Chart, Difficulty } from '../rhythm/types.js';
 import { isString, readRecordField } from './recordField.js';
@@ -8,14 +8,17 @@ export async function loadChart(
   pb: PocketBase,
   song: Song,
   difficulty: Difficulty,
-): Promise<Chart> {
+): Promise<LoadedChart> {
   const chartId = song.chartIds[difficulty];
   if (chartId === undefined) {
     throw new Error(`No chart for song ${song.id} difficulty ${difficulty}`);
   }
-  const record = await pb.collection('charts').getOne(chartId, { fields: 'data' });
+  const record = await pb.collection('charts').getOne(chartId, { fields: 'data,revision' });
   const data: unknown = record.data;
-  return parseChart(data, song, difficulty);
+  return {
+    chart: parseChart(data, song, difficulty),
+    revision: readRecordField(record, 'charts', 'revision', isString),
+  };
 }
 
 /** 검증된 chart 를 저장하고 그 chart record id 를 돌려준다. 난이도에 chart id 가 없을 때만 새로 만든다. */

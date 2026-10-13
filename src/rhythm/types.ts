@@ -71,4 +71,12 @@ export interface JudgmentEvent {
   judgment: Judgment;
 }
 
+export type InputKind = 'press' | 'release';
+
+export interface InputEvent {
+  lane: Lane;
+  kind: InputKind;
+  songTimeMs: number;
+}
+
 export type Rank = 'S' | 'A' | 'B' | 'C' | 'D';

@@ -8,6 +8,8 @@ import type {
   GameplayResult,
   GameplayState,
   HoldNote,
+  InputEvent,
+  InputKind,
   Judgment,
   JudgmentCounts,
   JudgmentEvent,
@@ -44,6 +46,9 @@ export class GameplaySession {
   private readonly counts: JudgmentCounts = { perfect: 0, great: 0, good: 0, bad: 0, miss: 0 };
   private hp = MAX_HP;
   private hasFailed = false;
+  /** 지금까지 받은 가장 큰 시각. 시계가 뒤로 튀어도 이 시각으로 판정·기록한다. */
+  private latestTimeMs = Number.NEGATIVE_INFINITY;
+  private readonly inputs: InputEvent[] = [];
 
   constructor(chart: Chart, windows: JudgmentWindows) {
     this.windows = windows;
@@ -54,7 +59,84 @@ export class GameplaySession {
     this.unjudgedCount = chart.notes.length;
   }
 
-  press(lane: Lane, songTimeMs: number): JudgmentEvent | null {
+  press(lane: Lane, songTimeMs: number): JudgmentEvent[] {
+    const judgedAtMs = this.recordInput(lane, 'press', songTimeMs);
+    const events = this.judgeExpired(judgedAtMs);
+    const event = this.judgePress(lane, judgedAtMs);
+    return event === null ? events : [...events, event];
+  }
+
+  release(lane: Lane, songTimeMs: number): JudgmentEvent[] {
+    const judgedAtMs = this.recordInput(lane, 'release', songTimeMs);
+    const events = this.judgeExpired(judgedAtMs);
+    const event = this.judgeRelease(lane, judgedAtMs);
+    return event === null ? events : [...events, event];
+  }
+
+  update(songTimeMs: number): JudgmentEvent[] {
+    return this.judgeExpired(this.advanceTime(songTimeMs));
+  }
+
+  getInputs(): readonly InputEvent[] {
+    return this.inputs.map((input) => ({ ...input }));
+  }
+
+  getState(): GameplayState {
+    return {
+      score: this.score,
+      combo: this.combo,
+      maxCombo: this.maxCombo,
+      counts: { ...this.counts },
+      hp: this.hp,
+    };
+  }
+
+  getNoteStatus(noteIndex: number): NoteStatus {
+    const status = this.statuses[noteIndex];
+    if (status === undefined) {
+      throw new Error(`Note index out of range: ${noteIndex}`);
+    }
+    return status;
+  }
+
+  isFinished(): boolean {
+    return this.unjudgedCount === 0;
+  }
+
+  isFailed(): boolean {
+    return this.hasFailed;
+  }
+
+  /** 실패가 완주보다 우선한다. 마지막 판정으로 HP 가 0 이 되어도 실패 결과다. */
+  getResult(): GameplayResult {
+    if (!this.hasFailed && !this.isFinished()) {
+      throw new Error('Gameplay is not finished');
+    }
+    const accuracy = calculateAccuracy(this.counts);
+    const base = {
+      score: this.score,
+      accuracy,
+      maxCombo: this.maxCombo,
+      counts: { ...this.counts },
+    };
+    return this.hasFailed
+      ? { ...base, outcome: 'failed', cleared: false }
+      : { ...base, outcome: 'finished', cleared: isCleared(accuracy) };
+  }
+
+  private advanceTime(songTimeMs: number): number {
+    this.latestTimeMs = Math.max(this.latestTimeMs, songTimeMs);
+    return this.latestTimeMs;
+  }
+
+  /** 실패 뒤의 입력도 기록한다. 리플레이가 같은 호출 순서를 재현해야 하기 때문이다. */
+  private recordInput(lane: Lane, kind: InputKind, songTimeMs: number): number {
+    const judgedAtMs = this.advanceTime(songTimeMs);
+    this.inputs.push({ lane, kind, songTimeMs: judgedAtMs });
+    return judgedAtMs;
+  }
+
+  private judgePress(lane: Lane, songTimeMs: number): JudgmentEvent | null {
     if (this.hasFailed || this.holdingEntries[lane] !== null) {
       return null;
     }
@@ -92,7 +174,7 @@ export class GameplaySession {
     return { noteIndex: selected.noteIndex, lane, kind: 'holdStart', judgment };
   }
 
-  release(lane: Lane, songTimeMs: number): JudgmentEvent | null {
+  private judgeRelease(lane: Lane, songTimeMs: number): JudgmentEvent | null {
     const holding = this.holdingEntries[lane];
     if (this.hasFailed || holding === null) {
       return null;
@@ -104,14 +186,15 @@ export class GameplaySession {
     return { noteIndex: holding.noteIndex, lane, kind: 'holdEnd', judgment };
   }
 
-  update(songTimeMs: number): JudgmentEvent[] {
+  /** 판정 시각이 songTimeMs 보다 이전인 자동 판정(MISS·hold 완료)을 처리한다. */
+  private judgeExpired(songTimeMs: number): JudgmentEvent[] {
     if (this.hasFailed) {
       return [];
     }
     const candidates: UpdateCandidate[] = [];
     for (const lane of LANES) {
       const holding = this.holdingEntries[lane];
-      if (holding !== null && holding.note.endTimeMs <= songTimeMs) {
+      if (holding !== null && holding.note.endTimeMs < songTimeMs) {
         candidates.push({
           judgedAtMs: holding.note.endTimeMs,
           entry: holding,
@@ -160,49 +243,6 @@ export class GameplaySession {
       }
     }
     return events;
-  }
-
-  getState(): GameplayState {
-    return {
-      score: this.score,
-      combo: this.combo,
-      maxCombo: this.maxCombo,
-      counts: { ...this.counts },
-      hp: this.hp,
-    };
-  }
-
-  getNoteStatus(noteIndex: number): NoteStatus {
-    const status = this.statuses[noteIndex];
-    if (status === undefined) {
-      throw new Error(`Note index out of range: ${noteIndex}`);
-    }
-    return status;
-  }
-
-  isFinished(): boolean {
-    return this.unjudgedCount === 0;
-  }
-
-  isFailed(): boolean {
-    return this.hasFailed;
-  }
-
-  /** 실패가 완주보다 우선한다. 마지막 판정으로 HP 가 0 이 되어도 실패 결과다. */
-  getResult(): GameplayResult {
-    if (!this.hasFailed && !this.isFinished()) {
-      throw new Error('Gameplay is not finished');
-    }
-    const accuracy = calculateAccuracy(this.counts);
-    const base = {
-      score: this.score,
-      accuracy,
-      maxCombo: this.maxCombo,
-      counts: { ...this.counts },
-    };
-    return this.hasFailed
-      ? { ...base, outcome: 'failed', cleared: false }
-      : { ...base, outcome: 'finished', cleared: isCleared(accuracy) };
   }
 
   private applyJudgment(judgment: Judgment): void {

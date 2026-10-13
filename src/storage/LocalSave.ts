@@ -1,5 +1,6 @@
 import { parseLanguage } from '../i18n/language.js';
 import type { Language } from '../i18n/language.js';
+import { INPUT_OFFSET_RANGE_MS } from '../rhythm/playTiming.js';
 import type { Difficulty, FinishedGameplayResult } from '../rhythm/types.js';
 
 export type MvMode = 'normal' | 'dim' | 'blur' | 'off';
@@ -38,7 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const SETTINGS_LIMITS = {
   volume: { min: 0, max: 1, step: 0.1 },
-  inputOffsetMs: { min: -300, max: 300, step: 5 },
+  inputOffsetMs: { ...INPUT_OFFSET_RANGE_MS, step: 5 },
   scrollSpeedPxPerSecond: { min: 200, max: 2000, step: 50 },
 } as const;
 

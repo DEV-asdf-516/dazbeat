@@ -24,6 +24,8 @@ const validChart = {
   notes: [{ type: 'tap', timeMs: 1000, lane: 0 }],
 };
 
+const REVISION = 'a'.repeat(64);
+
 function stubFetch(response: Response) {
   const fetchMock = vi.fn<(input: string) => Promise<Response>>(() => Promise.resolve(response));
   vi.stubGlobal('fetch', fetchMock);
@@ -35,21 +37,42 @@ afterEach(() => {
 });
 
 describe('loadChart', () => {
-  it('requests the chart record data once and resolves the validated chart', async () => {
-    const fetchMock = stubFetch(new Response(JSON.stringify({ data: validChart })));
-
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).resolves.toEqual(
-      validChart,
+  it('requests the chart record data and revision once and resolves both', async () => {
+    const fetchMock = stubFetch(
+      new Response(JSON.stringify({ data: validChart, revision: REVISION })),
     );
+
+    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).resolves.toEqual({
+      chart: validChart,
+      revision: REVISION,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [input] = fetchMock.mock.calls[0] ?? [''];
     const url = new URL(input);
     expect(url.pathname).toBe('/api/collections/charts/records/chart_normal');
-    expect(url.searchParams.get('fields')).toBe('data');
+    expect(url.searchParams.get('fields')).toBe('data,revision');
+  });
+
+  it('rejects when the revision is missing', async () => {
+    stubFetch(new Response(JSON.stringify({ data: validChart })));
+
+    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
+      'revision',
+    );
+  });
+
+  it('rejects when the revision is not a string', async () => {
+    stubFetch(new Response(JSON.stringify({ data: validChart, revision: 1 })));
+
+    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
+      'revision',
+    );
   });
 
   it('rejects without requesting when the difficulty has no chart id', async () => {
-    const fetchMock = stubFetch(new Response(JSON.stringify({ data: validChart })));
+    const fetchMock = stubFetch(
+      new Response(JSON.stringify({ data: validChart, revision: REVISION })),
+    );
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'hard')).rejects.toThrow(Error);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -66,7 +89,11 @@ describe('loadChart', () => {
   });
 
   it('rejects with the validation message when songId does not match', async () => {
-    stubFetch(new Response(JSON.stringify({ data: { ...validChart, songId: 'other' } })));
+    stubFetch(
+      new Response(
+        JSON.stringify({ data: { ...validChart, songId: 'other' }, revision: REVISION }),
+      ),
+    );
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
       'songId',
@@ -74,7 +101,7 @@ describe('loadChart', () => {
   });
 
   it('rejects when data is not a chart object', async () => {
-    stubFetch(new Response(JSON.stringify({ data: 'chart' })));
+    stubFetch(new Response(JSON.stringify({ data: 'chart', revision: REVISION })));
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
       Error,

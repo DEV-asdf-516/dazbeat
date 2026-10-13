@@ -7,7 +7,9 @@ import {
   signOut,
 } from './backend/auth.js';
 import { loadChart, saveChart } from './backend/chartLoader.js';
+import { startPlaySession, submitPlay } from './backend/playSessions.js';
 import { loadSongs } from './backend/songLoader.js';
+import type { LoadedChart } from './data/chartSchema.js';
 import { withChartId } from './data/songs.js';
 import type { Song } from './data/songs.js';
 import type { AccountAuth } from './game/accountState.js';
@@ -18,6 +20,7 @@ import { ChartEditorSelectScene } from './game/editor/ChartEditorSelectScene.js'
 import type { ChartCatalog } from './game/editor/ChartEditorScene.js';
 import { CreditsScene } from './game/credits/CreditsScene.js';
 import { GameplayScene } from './game/gameplay/GameplayScene.js';
+import type { RankedPlay } from './game/gameplay/GameplayScene.js';
 import { MainScene } from './game/main/MainScene.js';
 import { ResultScene } from './game/result/ResultScene.js';
 import { SettingsScene } from './game/settings/SettingsScene.js';
@@ -31,7 +34,7 @@ import { ja } from './i18n/messages/ja.js';
 import { ko } from './i18n/messages/ko.js';
 import { createI18n } from './i18n/createI18n.js';
 import { detectLanguage } from './i18n/language.js';
-import type { Chart, Difficulty } from './rhythm/types.js';
+import type { Difficulty } from './rhythm/types.js';
 import { LocalSave } from './storage/LocalSave.js';
 
 async function loadSongCatalog(): Promise<{ pb: PocketBase; songs: Song[] }> {
@@ -97,11 +100,16 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
       cancelSignIn: () => cancelSignInWithGoogle(pb),
       signOut: () => signOut(pb),
     };
-    const loadSongChart = (song: Song, difficulty: Difficulty): Promise<Chart> =>
+    const loadSongChart = (song: Song, difficulty: Difficulty): Promise<LoadedChart> =>
       loadChart(pb, song, difficulty);
+    const rankedPlay: RankedPlay = {
+      startSession: (song, difficulty, chartRevision) =>
+        startPlaySession(pb, song, difficulty, chartRevision),
+      submit: (sessionId, submission) => submitPlay(pb, sessionId, submission),
+    };
     const catalog: ChartCatalog = {
       getSongs,
-      loadChart: loadSongChart,
+      loadChart: async (song, difficulty) => (await loadSongChart(song, difficulty)).chart,
       saveChart: async (song, chart) => {
         const chartId = await saveChart(pb, song, chart);
         // 저장이 겹칠 수 있으므로 요청 때의 스냅샷이 아니라 지금의 목록 곡에 chart id 를 더한다.
@@ -122,7 +130,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
         new CreditsScene(initialSongs, i18n, celestial),
         new SongSelectScene(save, getSongs, i18n, celestial),
         new SettingsScene(save, i18n, celestial),
-        new GameplayScene(save, mvLayer, loadSongChart, i18n, celestial),
+        new GameplayScene(save, mvLayer, loadSongChart, i18n, celestial, rankedPlay),
         new ResultScene(initialSongs, i18n, celestial),
         new ChartEditorSelectScene(getSongs, auth, i18n),
         new ChartEditorScene(save, mvLayer, catalog, auth, i18n, celestial),

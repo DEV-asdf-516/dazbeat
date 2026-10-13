@@ -9,10 +9,13 @@ import { RhythmClock } from '../../audio/RhythmClock.js';
 import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.js';
 import type { YouTubePlayerState } from '../../audio/YouTubePlayer.js';
 import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
+import type { LoadedChart } from '../../data/chartSchema.js';
+import type { PlaySubmission, VerifiedPlay } from '../../data/playSubmission.js';
 import type { Song } from '../../data/songs.js';
 import { GameplaySession } from '../../rhythm/GameplaySession.js';
 import { JUDGMENT_WINDOWS, countJudgments } from '../../rhythm/judgment.js';
 import { LANES, mapLanes } from '../../rhythm/lanes.js';
+import { getPlaybackStartMs } from '../../rhythm/playTiming.js';
 import type { Chart, Difficulty, Judgment, JudgmentEvent, Lane } from '../../rhythm/types.js';
 import { DEFAULT_SETTINGS, MV_MODES } from '../../storage/LocalSave.js';
 import type { LocalSave, Settings } from '../../storage/LocalSave.js';
@@ -57,7 +60,6 @@ import {
 } from '../ui/theme.js';
 import { WorldActivation } from './worldActivation.js';
 
-const LEAD_IN_MS = 2000;
 const LANE_WIDTH_PX = 120;
 const PLAY_AREA_WIDTH_PX = LANE_WIDTH_PX * LANES.length;
 const LANES_LEFT_PX = (GAME_WIDTH - PLAY_AREA_WIDTH_PX) / 2;
@@ -176,10 +178,19 @@ interface GameplayView {
   quitDialog: ConfirmDialog;
 }
 
+/** main.ts 가 로그인 여부와 PocketBase 호출을 묶어 주입하는 랭킹 세션 발급·결과 제출. */
+export interface RankedPlay {
+  /** 비로그인이면 세션 없이 null 이다. */
+  startSession(song: Song, difficulty: Difficulty, chartRevision: string): Promise<string | null>;
+  submit(sessionId: string, submission: PlaySubmission): Promise<VerifiedPlay>;
+}
+
 interface PreparedRun {
   song: Song;
   difficulty: Difficulty;
   chart: Chart;
+  /** 발급 실패는 이미 경고하고 null 로 바꿔 두었으므로 거부되지 않는다. */
+  rankedSessionId: Promise<string | null>;
   view: GameplayView;
   player: YouTubePlayer;
   timeSource: YouTubeTimeSource;
@@ -215,9 +226,10 @@ export class GameplayScene extends Phaser.Scene {
   constructor(
     private readonly save: LocalSave,
     private readonly mvLayer: HTMLElement,
-    private readonly loadChart: (song: Song, difficulty: Difficulty) => Promise<Chart>,
+    private readonly loadChart: (song: Song, difficulty: Difficulty) => Promise<LoadedChart>,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
+    private readonly rankedPlay: RankedPlay,
   ) {
     super(SCENE_KEYS.gameplay);
   }
@@ -421,9 +433,9 @@ export class GameplayScene extends Phaser.Scene {
   ): Promise<void> {
     const { song, difficulty } = data;
 
-    let chart: Chart;
+    let loaded: LoadedChart;
     try {
-      chart = await this.loadChart(song, difficulty);
+      loaded = await this.loadChart(song, difficulty);
     } catch (error) {
       if (this.isCurrentRun(token)) {
         this.showLoadError(view, this.i18n.t('gameplay.chartLoadFailed'), error);
@@ -434,6 +446,14 @@ export class GameplayScene extends Phaser.Scene {
     if (!this.isCurrentRun(token)) {
       return;
     }
+    const { chart } = loaded;
+    // 플레이 시작은 세션 응답을 기다리지 않는다. 세션이 없으면 그 판은 랭킹 없이 진행한다.
+    const rankedSessionId = this.rankedPlay
+      .startSession(song, difficulty, loaded.revision)
+      .catch((error: unknown) => {
+        console.warn('Failed to start ranked play session', error);
+        return null;
+      });
 
     try {
       await loadYouTubeIframeApi();
@@ -458,7 +478,7 @@ export class GameplayScene extends Phaser.Scene {
           player.setVolume(this.settings.masterVolume * this.settings.musicVolume);
           this.phase = {
             kind: 'ready',
-            run: { song, difficulty, chart, view, player, timeSource },
+            run: { song, difficulty, chart, rankedSessionId, view, player, timeSource },
           };
           this.setStatus(view, 'awaitingStart');
         },
@@ -666,7 +686,7 @@ export class GameplayScene extends Phaser.Scene {
   private handleReadyKey(run: PreparedRun, key: GameplayKey, view: GameplayView): void {
     switch (key.command) {
       case 'confirm':
-        run.player.requestPlay(Math.max(0, run.song.gameStartMs - LEAD_IN_MS) / 1000);
+        run.player.requestPlay(getPlaybackStartMs(run.song.gameStartMs) / 1000);
         this.setStatus(run.view, 'preparing');
         this.phase = { kind: 'starting', run };
         return;
@@ -702,7 +722,7 @@ export class GameplayScene extends Phaser.Scene {
     if (key.lane !== null && !isStopped) {
       run.view.laneFx.press(key.lane);
       this.flashKeyLabel(run.view.lanes[key.lane].keyLabel);
-      this.applyJudgmentEvent(run.view, run.session.press(key.lane, run.clock.getTimeMs()));
+      this.applyJudgmentEvents(run.view, run.session.press(key.lane, run.clock.getTimeMs()));
       this.failIfDepleted(run);
       return;
     }
@@ -777,7 +797,7 @@ export class GameplayScene extends Phaser.Scene {
     if (lane === null) {
       return;
     }
-    this.applyJudgmentEvent(run.view, run.session.release(lane, run.clock.getTimeMs()));
+    this.applyJudgmentEvents(run.view, run.session.release(lane, run.clock.getTimeMs()));
     this.failIfDepleted(run);
   }
 
@@ -791,10 +811,6 @@ export class GameplayScene extends Phaser.Scene {
       duration: MOTION.fastMs,
       onComplete: () => keyLabel.setColor(cssColor(COLORS.textMuted)),
     });
-  }
-
-  private applyJudgmentEvent(view: GameplayView, event: JudgmentEvent | null): void {
-    this.applyJudgmentEvents(view, event === null ? [] : [event]);
   }
 
   private applyJudgmentEvents(view: GameplayView, events: readonly JudgmentEvent[]): void {
@@ -954,11 +970,29 @@ export class GameplayScene extends Phaser.Scene {
       } catch (error) {
         console.error('Failed to save result', error);
       }
+      void this.submitRankedPlay(run).catch((error: unknown) => {
+        console.warn('Failed to submit ranked play', error);
+      });
     }
     const data: ResultSceneData = { song: run.song, difficulty: run.difficulty, result };
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
       startScene(this, 'result', data),
     );
     this.cameras.main.fadeOut(MOTION.mediumMs);
+  }
+
+  /** 완주한 판의 입력 기록을 백그라운드로 제출한다. 결과는 화면에 쓰지 않는다. */
+  private async submitRankedPlay(run: PlayRun): Promise<void> {
+    // RhythmClock 에 준 값과 같다. 플레이 중에는 바뀌지 않지만, 발급을 기다리는 동안 다음 씬이
+    // this.settings 를 바꿀 수 있어 await 전에 고정한다.
+    const submission: PlaySubmission = {
+      inputOffsetMs: this.settings.inputOffsetMs,
+      events: run.session.getInputs(),
+    };
+    const sessionId = await run.rankedSessionId;
+    if (sessionId === null) {
+      return;
+    }
+    await this.rankedPlay.submit(sessionId, submission);
   }
 }

@@ -13,6 +13,7 @@ import {
 import type { AccountAuth, AccountState } from '../accountState.js';
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS, exitScene } from '../config.js';
 import type { SceneRequest } from '../config.js';
+import { addCosmicLight } from './cosmicLight.js';
 import { getMainMenuItems } from './mainMenu.js';
 import type { MainMenuItem } from './mainMenu.js';
 import { STAYING } from '../sceneExit.js';
@@ -105,6 +106,20 @@ const TITLE_THREAD_ID = 'R26';
 const TITLE_THREAD_POSITION_PX = { x: 540, y: 505 } as const;
 const LOGO_GLINT_ID = 'R25';
 const LOGO_GLINT_POSITION_PX = { x: 900, y: 478 } as const;
+const CHARACTER_TEXTURE_KEY = 'ui:dazbee-character';
+const CHARACTER_PATH =
+  '/assets/ui/main/dazbee-character-overlay-left-full-side-prayer-oil-pastel.png';
+const CHARACTER_POSITION_PX = { x: 1380, y: 1190 } as const;
+const CHARACTER_SCALE = 0.67;
+// 밝은 원화를 밤하늘 조명에 맞추고 로고·메뉴보다 앞서 보이지 않도록 푸른 기운을 곱해 조금 어둡게 한다.
+const CHARACTER_TINT = 0xc9d0e6;
+/**
+ * 캐릭터 아랫단이 화면 끝에서 칼로 자른 듯 끊기지 않도록 배경 아래쪽 밤색으로 서서히 덮는다.
+ * 색은 R01 배경 아래 띠의 평균색이다.
+ */
+const GROUND_FADE_COLOR = 0x050c1a;
+const GROUND_FADE_TOP_Y_PX = 820;
+const GROUND_FADE_MAX_ALPHA = 0.92;
 const LOADING_STAR_ID = 'R47';
 const LOADING_STAR_GAP_PX = 24;
 
@@ -141,6 +156,7 @@ export class MainScene extends Phaser.Scene {
       [
         { key: GOOGLE_ICON_TEXTURE_KEY, url: GOOGLE_ICON_PATH },
         { key: YOUTUBE_ICON_TEXTURE_KEY, url: YOUTUBE_ICON_PATH },
+        { key: CHARACTER_TEXTURE_KEY, url: CHARACTER_PATH },
       ],
       'main scene image',
     );
@@ -151,6 +167,28 @@ export class MainScene extends Phaser.Scene {
     this.exit = STAYING;
     registerCelestialAnimations(this, this.celestial);
     addCelestialAtmosphere(this, this.celestial, 'main');
+    // 배경 바로 위에 두어 로고·메뉴·계정 UI 가 캐릭터 앞에 그려지게 한다.
+    if (this.textures.exists(CHARACTER_TEXTURE_KEY)) {
+      const character = this.add
+        .image(CHARACTER_POSITION_PX.x, CHARACTER_POSITION_PX.y, CHARACTER_TEXTURE_KEY)
+        .setOrigin(0.5, 1)
+        .setScale(CHARACTER_SCALE)
+        .setTint(CHARACTER_TINT);
+      addCosmicLight(this, character);
+    }
+    this.add
+      .graphics()
+      .fillGradientStyle(
+        GROUND_FADE_COLOR,
+        GROUND_FADE_COLOR,
+        GROUND_FADE_COLOR,
+        GROUND_FADE_COLOR,
+        0,
+        0,
+        GROUND_FADE_MAX_ALPHA,
+        GROUND_FADE_MAX_ALPHA,
+      )
+      .fillRect(0, GROUND_FADE_TOP_Y_PX, GAME_WIDTH, GAME_HEIGHT - GROUND_FADE_TOP_Y_PX);
     this.account = this.restoreAccount();
     const keyboard = requireKeyboard(this);
     this.cameras.main.fadeIn(MOTION.mediumMs);

@@ -6,6 +6,9 @@ services:
     volumes:
       - pb_data:/pb/pb_data
       - ./pocketbase/pb_migrations:/pb/pb_migrations
+      - ./pocketbase/pb_hooks:/pb/pb_hooks
+    environment:
+      DAZBEAT_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
 
 volumes:
   pb_data: {}
