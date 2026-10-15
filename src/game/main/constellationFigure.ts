@@ -249,8 +249,18 @@ export function addConstellationFigure(
     );
   };
 
+  const placePass = (progress: number): void => {
+    const point = passPoint(progress);
+    band.setPosition(point.x, point.y);
+    const scenePoint = toScene(point.x, point.y);
+    trail.setPosition(scenePoint.x, scenePoint.y);
+    trailHead.setPosition(scenePoint.x, scenePoint.y);
+  };
+
   const playPass = (): void => {
     const pass = { progress: 0 };
+    // 트윈의 첫 onUpdate 전에 보이면 빛 띠가 원점(머리 앞쪽)에 놓인 채 한 프레임 그려져 번쩍인다.
+    placePass(0);
     glint.setVisible(true);
     trail.setVisible(true).setAlpha(1);
     trailHead.setVisible(true).setAlpha(1);
@@ -259,13 +269,7 @@ export function addConstellationFigure(
       progress: 1,
       duration: PASS_DURATION_MS,
       ease: 'Sine.easeInOut',
-      onUpdate: () => {
-        const point = passPoint(pass.progress);
-        band.setPosition(point.x, point.y);
-        const scenePoint = toScene(point.x, point.y);
-        trail.setPosition(scenePoint.x, scenePoint.y);
-        trailHead.setPosition(scenePoint.x, scenePoint.y);
-      },
+      onUpdate: () => placePass(pass.progress),
       onComplete: () => {
         glint.setVisible(false);
         trail.setVisible(false);
