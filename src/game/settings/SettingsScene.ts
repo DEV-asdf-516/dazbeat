@@ -25,7 +25,7 @@ import {
 } from './settingsEditorState.js';
 import type { SettingsEditorState } from './settingsEditorState.js';
 import { Button } from '../ui/Button.js';
-import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
+import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import {
   addCelestialAtmosphere,
   playCelestialEntryTransition,
@@ -191,8 +191,7 @@ export class SettingsScene extends Phaser.Scene {
         0,
       ),
     };
-    // 한 줄 Text 의 높이는 내용과 무관하므로 제목이 아직 비어 있어도 세로 중심을 잴 수 있다.
-    createAuxiliaryButton(this, 0, view.title.y + view.title.height / 2, {
+    createHeaderAuxiliaryButton(this, {
       label: 'BACK',
       onActivate: () => {
         if (isWaitingKey(this.editor)) {
@@ -201,7 +200,7 @@ export class SettingsScene extends Phaser.Scene {
           this.back();
         }
       },
-    }).alignX(SCREEN_LAYOUT.rightXPx, 1);
+    });
     this.render(view);
     playCelestialEntryTransition(this, this.celestial, view.title.getBounds());
     keyboard.on(

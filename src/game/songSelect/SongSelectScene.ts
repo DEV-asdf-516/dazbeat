@@ -27,7 +27,7 @@ import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
 import type { SongSelectState } from './songSelectState.js';
 import { Button } from '../ui/Button.js';
-import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
+import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import {
   addCelestialAtmosphere,
   playCelestialEntryTransition,
@@ -58,7 +58,6 @@ import {
 
 const FILTER_X_PX = 120;
 const FILTER_GAP_PX = 48;
-const SETTINGS_RIGHT_X_PX = 1800;
 const ROW_X_PX = 120;
 const ROW_Y_PX = 200;
 const ROW_WIDTH_PX = 640;
@@ -236,14 +235,10 @@ export class SongSelectScene extends Phaser.Scene {
       }),
       hover,
     };
-    const firstTab = view.tabs[0];
-    if (firstTab === undefined) {
-      throw new Error('Missing filter tabs');
-    }
-    createAuxiliaryButton(this, 0, firstTab.text.y + firstTab.text.height / 2, {
+    createHeaderAuxiliaryButton(this, {
       label: 'SETTINGS',
       onActivate: () => this.openSettings(),
-    }).alignX(SETTINGS_RIGHT_X_PX, 1);
+    });
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     this.render(view);

@@ -6,7 +6,7 @@ import { SCENE_KEYS, exitScene } from '../config.js';
 import type { SceneRequest } from '../config.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
+import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import {
   addCelestialAtmosphere,
   playCelestialEntryTransition,
@@ -49,12 +49,10 @@ export class CreditsScene extends Phaser.Scene {
       this.i18n.t('credits.title'),
       textStyle('heading', COLORS.textPrimary),
     );
-    createAuxiliaryButton(this, 0, title.y + title.height / 2, {
+    createHeaderAuxiliaryButton(this, {
       label: 'BACK',
       onActivate: () => this.back(),
-    })
-      .alignX(SCREEN_LAYOUT.rightXPx, 1)
-      .setFocused(true);
+    });
 
     let yPx = CREDITS_TOP_Y_PX;
     this.songs.forEach((song) => {

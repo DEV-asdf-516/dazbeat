@@ -13,7 +13,7 @@ import {
 import type { AccountAuth, AccountState } from '../accountState.js';
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS, exitScene } from '../config.js';
 import type { SceneRequest } from '../config.js';
-import { addCosmicLight } from './cosmicLight.js';
+import { addConstellationFigure } from './constellationFigure.js';
 import { getMainMenuItems } from './mainMenu.js';
 import type { MainMenuItem } from './mainMenu.js';
 import { STAYING } from '../sceneExit.js';
@@ -106,13 +106,10 @@ const TITLE_THREAD_ID = 'R26';
 const TITLE_THREAD_POSITION_PX = { x: 540, y: 505 } as const;
 const LOGO_GLINT_ID = 'R25';
 const LOGO_GLINT_POSITION_PX = { x: 900, y: 478 } as const;
-const CHARACTER_TEXTURE_KEY = 'ui:dazbee-character';
-const CHARACTER_PATH =
-  '/assets/ui/main/dazbee-character-overlay-left-full-side-prayer-oil-pastel.png';
-const CHARACTER_POSITION_PX = { x: 1380, y: 1190 } as const;
-const CHARACTER_SCALE = 0.67;
-// 밝은 원화를 밤하늘 조명에 맞추고 로고·메뉴보다 앞서 보이지 않도록 푸른 기운을 곱해 조금 어둡게 한다.
-const CHARACTER_TINT = 0xc9d0e6;
+const CHARACTER_TEXTURE_KEY = 'ui:dazbee-constellation';
+const CHARACTER_PATH = '/assets/ui/main/dazbee-constellation-lineart.png';
+const CHARACTER_CENTER_PX = { x: 1400, y: 560 } as const;
+const CHARACTER_SCALE = 0.64;
 /**
  * 캐릭터 아랫단이 화면 끝에서 칼로 자른 듯 끊기지 않도록 배경 아래쪽 밤색으로 서서히 덮는다.
  * 색은 R01 배경 아래 띠의 평균색이다.
@@ -169,12 +166,13 @@ export class MainScene extends Phaser.Scene {
     addCelestialAtmosphere(this, this.celestial, 'main');
     // 배경 바로 위에 두어 로고·메뉴·계정 UI 가 캐릭터 앞에 그려지게 한다.
     if (this.textures.exists(CHARACTER_TEXTURE_KEY)) {
-      const character = this.add
-        .image(CHARACTER_POSITION_PX.x, CHARACTER_POSITION_PX.y, CHARACTER_TEXTURE_KEY)
-        .setOrigin(0.5, 1)
-        .setScale(CHARACTER_SCALE)
-        .setTint(CHARACTER_TINT);
-      addCosmicLight(this, character);
+      addConstellationFigure(
+        this,
+        CHARACTER_TEXTURE_KEY,
+        CHARACTER_CENTER_PX.x,
+        CHARACTER_CENTER_PX.y,
+        CHARACTER_SCALE,
+      );
     }
     this.add
       .graphics()
