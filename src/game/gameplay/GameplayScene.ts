@@ -16,6 +16,7 @@ import { GameplaySession } from '../../rhythm/GameplaySession.js';
 import { JUDGMENT_WINDOWS, countJudgments } from '../../rhythm/judgment.js';
 import { LANES, mapLanes } from '../../rhythm/lanes.js';
 import { getPlaybackStartMs } from '../../rhythm/playTiming.js';
+import { isFullCombo } from '../../rhythm/score.js';
 import type { Chart, Difficulty, Judgment, JudgmentEvent, Lane } from '../../rhythm/types.js';
 import { DEFAULT_SETTINGS, MV_MODES } from '../../storage/LocalSave.js';
 import type { LocalSave, Settings } from '../../storage/LocalSave.js';
@@ -140,6 +141,39 @@ const FAILURE_STAR_FADE_MS = 360;
 const FAILED_X_PX = 960;
 const FAILED_Y_PX = 440;
 const FAILED_HOLD_MS = 600;
+const FULL_COMBO_X_PX = 960;
+// 콤보 숫자·COMBO 라벨·반짝임(y 360~470)과 판정 글자(y 780) 사이에 둔다.
+const FULL_COMBO_Y_PX = 600;
+// 판정 글자와 같은 문법이다: 커진 채로 나타나 제자리로 가라앉고, 진주빛 글자가 겹쳐 번쩍였다가 빠진다.
+const FULL_COMBO_POP_SCALE = 1.25;
+const FULL_COMBO_FLASH_MS = 360;
+// 영상이 밝아도 금색 글자가 읽히도록 글자 바로 뒤에 짙은 밤색 그림자를 깐다.
+const FULL_COMBO_SHADOW = {
+  offsetXPx: 0,
+  offsetYPx: 3,
+  color: 'rgba(8, 15, 32, 0.85)',
+  blurPx: 14,
+} as const;
+// 둥근 빛 하나를 가로로 늘리면 큰 타원이 되므로, 둥근 빛 여럿을 글자를 따라 겹쳐 글자 모양대로 번지게 한다.
+// 위치는 글자 반폭에 대한 비율이다. SCREEN 으로 겹쳐 더해지므로 하나의 alpha 는 낮게 둔다.
+const FULL_COMBO_GLOW_POINTS = [-0.8, -0.4, 0, 0.4, 0.8] as const;
+const FULL_COMBO_GLOW_SIZE_PX = [56, 150] as const;
+const FULL_COMBO_GLOW_PEAK_ALPHA = 0.32;
+const FULL_COMBO_GLOW_REST_ALPHA = 0.16;
+// 글자 귀퉁이 바깥에서 십자 별이 차례로 한 번씩 반짝인다. 위치는 글자 반폭·반높이에 대한 비율이다.
+const FULL_COMBO_TWINKLE_ID = 'R28';
+const FULL_COMBO_TWINKLES = [
+  { x: -1.06, y: -0.85, haloSizePx: 44, delayMs: 100 },
+  { x: 1.08, y: -0.6, haloSizePx: 32, delayMs: 260 },
+  { x: 0.98, y: 1.0, haloSizePx: 40, delayMs: 420 },
+] as const;
+// 매니페스트 scaleRange 의 최대값이다. 십자만으로는 작아서 뒤에 금빛 광점을 함께 키웠다 줄인다.
+const FULL_COMBO_TWINKLE_SCALE = 0.25;
+const FULL_COMBO_TWINKLE_HALO_MS = 260;
+// 64px 글자의 아랫선과 겹치지 않는 높이에서 판정 반짝임과 같은 천체 효과를 한 번 튼다.
+const FULL_COMBO_SHIMMER_OFFSET_Y_PX = 64;
+// 결과 화면으로 넘어가기 전에 FULL COMBO 를 읽을 수 있을 만큼 머문다.
+const FULL_COMBO_HOLD_MS = 1100;
 
 const STATUS_MESSAGES = {
   loading: 'gameplay.loading',
@@ -890,7 +924,108 @@ export class GameplayScene extends Phaser.Scene {
       return;
     }
     this.phase = { kind: 'ending' };
+    if (isFullCombo(run.session.getResult().counts)) {
+      this.playFullCombo(run);
+      return;
+    }
     this.showResult(run);
+  }
+
+  /** 미스·배드 없이 완주하면 FULL COMBO 를 띄운 뒤 결과 화면으로 넘어간다. */
+  private playFullCombo(run: PlayRun): void {
+    const color = JUDGMENT_COLORS.perfect;
+    // 같은 depth 에서 글로우 → 글자 → 플래시 순으로 겹치도록 만드는 순서를 지킨다.
+    // 글로우 위치는 글자 폭을 알아야 정해지므로 글자를 만든 뒤 옮긴다.
+    const glows = FULL_COMBO_GLOW_POINTS.map((point) => ({
+      point,
+      image: addLight(this, LIGHT_TEXTURES.glow, FULL_COMBO_X_PX, FULL_COMBO_Y_PX)
+        .setDepth(GAMEPLAY_DEPTH.text)
+        .setTint(color)
+        .setDisplaySize(FULL_COMBO_GLOW_SIZE_PX[0], FULL_COMBO_GLOW_SIZE_PX[0])
+        .setAlpha(0),
+    }));
+    const { offsetXPx, offsetYPx, color: shadowColor, blurPx } = FULL_COMBO_SHADOW;
+    const label = this.addHudText(
+      FULL_COMBO_X_PX,
+      FULL_COMBO_Y_PX,
+      'FULL COMBO',
+      textStyle('title', color),
+    )
+      .setShadow(offsetXPx, offsetYPx, shadowColor, blurPx, false, true)
+      .setAlpha(0)
+      .setScale(FULL_COMBO_POP_SCALE);
+    const flash = this.addHudText(
+      FULL_COMBO_X_PX,
+      FULL_COMBO_Y_PX,
+      'FULL COMBO',
+      textStyle('title', COLORS.note),
+    )
+      .setBlendMode(Phaser.BlendModes.SCREEN)
+      .setScale(FULL_COMBO_POP_SCALE);
+    const halfWidthPx = label.width / 2;
+    const halfHeightPx = label.height / 2;
+    // 플래시가 글자와 같은 크기로 줄어들어야 획이 어긋나 겹쳐 보이지 않는다.
+    this.tweens.add({
+      targets: [label, flash],
+      scale: 1,
+      duration: MOTION.mediumMs,
+      ease: 'Back.Out',
+    });
+    this.tweens.add({ targets: label, alpha: 1, duration: MOTION.fastMs });
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: FULL_COMBO_FLASH_MS,
+      ease: 'Quad.Out',
+    });
+    glows.forEach(({ point, image }) => image.setX(FULL_COMBO_X_PX + point * halfWidthPx));
+    this.tweens.chain({
+      targets: glows.map(({ image }) => image),
+      tweens: [
+        {
+          alpha: FULL_COMBO_GLOW_PEAK_ALPHA,
+          displayWidth: FULL_COMBO_GLOW_SIZE_PX[1],
+          displayHeight: FULL_COMBO_GLOW_SIZE_PX[1],
+          duration: MOTION.mediumMs,
+          ease: 'Cubic.Out',
+        },
+        { alpha: FULL_COMBO_GLOW_REST_ALPHA, duration: MOTION.mediumMs },
+      ],
+    });
+    FULL_COMBO_TWINKLES.forEach(({ x, y, haloSizePx, delayMs }) => {
+      const xPx = FULL_COMBO_X_PX + x * halfWidthPx;
+      const yPx = FULL_COMBO_Y_PX + y * halfHeightPx;
+      const halo = addLight(this, LIGHT_TEXTURES.star, xPx, yPx)
+        .setDepth(GAMEPLAY_DEPTH.text)
+        .setTint(color)
+        .setDisplaySize(0, 0);
+      this.tweens.add({
+        targets: halo,
+        displayWidth: haloSizePx,
+        displayHeight: haloSizePx,
+        delay: delayMs,
+        duration: FULL_COMBO_TWINKLE_HALO_MS,
+        ease: 'Quad.Out',
+        yoyo: true,
+      });
+      const twinkle = this.addHudEffect(FULL_COMBO_TWINKLE_ID, xPx, yPx);
+      if (twinkle !== null) {
+        twinkle.setScale(FULL_COMBO_TWINKLE_SCALE);
+        // 광점이 가장 클 때 십자가 번쩍이도록 광점이 커지는 시간만큼 늦춘다.
+        this.time.delayedCall(delayMs + FULL_COMBO_TWINKLE_HALO_MS, () =>
+          playCelestialOnce(twinkle),
+        );
+      }
+    });
+    const shimmer = this.addHudEffect(
+      JUDGMENT_SHIMMER_ID,
+      FULL_COMBO_X_PX,
+      FULL_COMBO_Y_PX + FULL_COMBO_SHIMMER_OFFSET_Y_PX,
+    );
+    if (shimmer !== null) {
+      playCelestialOnce(shimmer);
+    }
+    this.time.delayedCall(MOTION.mediumMs + FULL_COMBO_HOLD_MS, () => this.showResult(run));
   }
 
   /**
