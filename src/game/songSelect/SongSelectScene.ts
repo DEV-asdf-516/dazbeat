@@ -4,7 +4,7 @@ import { getAtlasPresentation } from '../celestial/celestialCatalog.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import { SCENE_KEYS, exitScene } from '../config.js';
 import type { SceneRequest } from '../config.js';
-import { DIFFICULTIES, SONG_FILTERS, getAvailableDifficulties } from '../../data/songs.js';
+import { DIFFICULTIES, SONG_FILTERS } from '../../data/songs.js';
 import type { Song, SongFilter } from '../../data/songs.js';
 import type { ChartRecord, LocalSave } from '../../storage/LocalSave.js';
 import type { Difficulty } from '../../rhythm/types.js';
@@ -12,8 +12,10 @@ import {
   createSongSelectState,
   cycleFilter,
   getCurrentSong,
+  getDifficultyAppearance,
   getPlayableSelection,
   getRowRecordDifficulty,
+  getSongPage,
   getSongRowNodeId,
   hasNewCurrentSong,
   isSameSelection,
@@ -25,7 +27,7 @@ import {
 } from './songSelectState.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import type { SongSelectState } from './songSelectState.js';
+import type { DifficultyAppearance, SongSelectState } from './songSelectState.js';
 import { Button } from '../ui/Button.js';
 import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import {
@@ -122,8 +124,6 @@ interface SongRow {
   record: ChartRecord | null;
   shifted: boolean;
 }
-
-type DifficultyAppearance = 'disabled' | 'selected' | 'emphasized' | 'normal';
 
 interface DifficultyItem {
   difficulty: Difficulty;
@@ -305,7 +305,9 @@ export class SongSelectScene extends Phaser.Scene {
         )
         .setOrigin(1, 0.5);
       hover.bind(background, slot, () =>
-        update((state) => selectSong(state, this.pageStart() + slot)),
+        update((state) =>
+          selectSong(state, getSongPage(this.state, ROWS_PER_PAGE).startIndex + slot),
+        ),
       );
       const content = this.add.container(0, 0, [thumbnail, thumbnailBorder, title]);
       return {
@@ -460,24 +462,13 @@ export class SongSelectScene extends Phaser.Scene {
     });
   }
 
-  private pageStart(): number {
-    return Math.floor(this.state.songIndex / ROWS_PER_PAGE) * ROWS_PER_PAGE;
-  }
-
-  private isSelectedSlot(slot: number): boolean {
-    const songIndex = this.pageStart() + slot;
-    return this.state.songs[songIndex] !== undefined && songIndex === this.state.songIndex;
-  }
-
   private render(view: SongSelectView): void {
     view.tabs.forEach((tab) => this.renderTab(view, tab));
     view.rows.forEach((row, slot) => this.renderRow(view, row, slot));
     this.renderSelectedHalo(view);
     view.emptyText.setVisible(this.state.songs.length === 0);
-    const pageCount = Math.ceil(this.state.songs.length / ROWS_PER_PAGE);
-    view.pageText
-      .setText(`${this.pageStart() / ROWS_PER_PAGE + 1} / ${pageCount}`)
-      .setVisible(pageCount >= 2);
+    const { pageNumber, pageCount } = getSongPage(this.state, ROWS_PER_PAGE);
+    view.pageText.setText(`${pageNumber} / ${pageCount}`).setVisible(pageCount >= 2);
 
     const song = getCurrentSong(this.state);
     if (song === undefined) {
@@ -503,8 +494,9 @@ export class SongSelectScene extends Phaser.Scene {
 
   private renderRow(view: SongSelectView, row: SongRow, slot: number): void {
     const { background, thumbnail, thumbnailBorder, title, category, node } = row;
-    const rowSong = this.state.songs[this.pageStart() + slot];
-    const selected = this.isSelectedSlot(slot);
+    const { startIndex, selectedSlot } = getSongPage(this.state, ROWS_PER_PAGE);
+    const rowSong = this.state.songs[startIndex + slot];
+    const selected = selectedSlot === slot;
     background.setFillStyle(COLORS.surface, selected ? 1 : 0);
     thumbnail.setVisible(rowSong !== undefined);
     thumbnailBorder.setVisible(selected);
@@ -533,7 +525,7 @@ export class SongSelectScene extends Phaser.Scene {
     if (row === undefined) {
       throw new Error(`Invalid song row slot: ${slot}`);
     }
-    const isSelected = this.isSelectedSlot(slot);
+    const isSelected = getSongPage(this.state, ROWS_PER_PAGE).selectedSlot === slot;
     const isHovered = view.hover.row.isHovered(slot);
     setTextColor(row.title, isSelected || isHovered ? COLORS.textPrimary : COLORS.textSecondary);
     if (row.node !== null) {
@@ -549,12 +541,11 @@ export class SongSelectScene extends Phaser.Scene {
     if (view.selectedHalo === null) {
       return;
     }
-    const hasSelection = getCurrentSong(this.state) !== undefined;
-    if (hasSelection) {
-      const slot = this.state.songIndex - this.pageStart();
-      view.selectedHalo.setPosition(ROW_NODE_X_PX, getRowCenterYPx(slot));
+    const { selectedSlot } = getSongPage(this.state, ROWS_PER_PAGE);
+    if (selectedSlot !== null) {
+      view.selectedHalo.setPosition(ROW_NODE_X_PX, getRowCenterYPx(selectedSlot));
     }
-    setCelestialLoopActive(view.selectedHalo, hasSelection);
+    setCelestialLoopActive(view.selectedHalo, selectedSlot !== null);
   }
 
   private renderSong(view: SongSelectView, song: Song): void {
@@ -584,23 +575,23 @@ export class SongSelectScene extends Phaser.Scene {
 
   private renderDifficulty(view: SongSelectView, item: DifficultyItem): void {
     const { difficulty, text, underline } = item;
+    const appearance = getDifficultyAppearance(
+      this.state,
+      difficulty,
+      view.hover.difficulty.isHovered(difficulty),
+    );
+    underline.setVisible(appearance === 'selected');
     const song = getCurrentSong(this.state);
-    const enabled = song !== undefined && getAvailableDifficulties(song).includes(difficulty);
-    const selected = enabled && difficulty === this.state.difficulty;
-    underline.setVisible(selected);
     if (song !== undefined) {
       underline.setFillStyle(song.accentColor);
     }
-    if (enabled) {
-      text.setInteractive();
-    } else {
+    if (appearance === 'disabled') {
       view.hover.difficulty.release(difficulty);
       text.disableInteractive(true);
+    } else {
+      text.setInteractive();
     }
-    this.applyDifficultyAppearance(
-      item,
-      getDifficultyAppearance(enabled, selected, view.hover.difficulty.isHovered(difficulty)),
-    );
+    this.applyDifficultyAppearance(item, appearance);
   }
 
   private applyDifficultyAppearance(item: DifficultyItem, appearance: DifficultyAppearance): void {
@@ -637,20 +628,6 @@ export class SongSelectScene extends Phaser.Scene {
       ease: 'Cubic.Out',
     });
   }
-}
-
-function getDifficultyAppearance(
-  enabled: boolean,
-  selected: boolean,
-  hovered: boolean,
-): DifficultyAppearance {
-  if (!enabled) {
-    return 'disabled';
-  }
-  if (selected) {
-    return 'selected';
-  }
-  return hovered ? 'emphasized' : 'normal';
 }
 
 function getRowCenterYPx(slot: number): number {

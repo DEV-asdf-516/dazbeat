@@ -75,6 +75,47 @@ export function getSongRowNodeId(
   return record.cleared ? 'R18' : 'C:node-played';
 }
 
+export interface SongPage {
+  /** state.songs 에서 이 페이지 첫 행의 index. */
+  readonly startIndex: number;
+  /** 1부터 센다. */
+  readonly pageNumber: number;
+  /** 곡이 없으면 0. */
+  readonly pageCount: number;
+  /** 선택 곡이 있으면 이 페이지에서 그 곡의 행 번호(0부터), 없으면 null. */
+  readonly selectedSlot: number | null;
+}
+
+/** 선택 곡이 들어 있는 페이지. */
+export function getSongPage(state: SongSelectState, rowsPerPage: number): SongPage {
+  const pageIndex = Math.floor(state.songIndex / rowsPerPage);
+  const startIndex = pageIndex * rowsPerPage;
+  return {
+    startIndex,
+    pageNumber: pageIndex + 1,
+    pageCount: Math.ceil(state.songs.length / rowsPerPage),
+    selectedSlot: getCurrentSong(state) === undefined ? null : state.songIndex - startIndex,
+  };
+}
+
+export type DifficultyAppearance = 'disabled' | 'selected' | 'emphasized' | 'normal';
+
+/** 채보가 없거나 곡이 없으면 disabled, 선택 난이도는 hover 와 무관하게 selected 다. */
+export function getDifficultyAppearance(
+  state: SongSelectState,
+  difficulty: Difficulty,
+  isHovered: boolean,
+): DifficultyAppearance {
+  const song = getCurrentSong(state);
+  if (song === undefined || !getAvailableDifficulties(song).includes(difficulty)) {
+    return 'disabled';
+  }
+  if (difficulty === state.difficulty) {
+    return 'selected';
+  }
+  return isHovered ? 'emphasized' : 'normal';
+}
+
 export function moveSong(state: SongSelectState, delta: number): SongSelectState {
   const songIndex = clamp(state.songIndex + delta, 0, state.songs.length - 1);
   return selectSong(state, songIndex);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ZODIACS } from '../../../src/data/songs.js';
 import type { Zodiac } from '../../../src/data/songs.js';
 import {
+  getConstellationLines,
   getConstellationTier,
   planSongConstellation,
 } from '../../../src/game/result/resultConstellation.js';
@@ -247,5 +248,74 @@ describe('planSongConstellation', () => {
     const result = plan('sample', 'leo', tier);
     const lastEndMs = result.edges.at(-1)?.endMs;
     expect(result.finale).toEqual(kind === null ? null : { kind, atMs: lastEndMs });
+  });
+});
+
+describe('getConstellationLines', () => {
+  function node(xPx: number, yPx: number): ConstellationPlan['nodes'][number] {
+    return { xPx, yPx, isAccent: false, igniteAtMs: null };
+  }
+
+  const singleEdge: ConstellationPlan = {
+    tier: 'complete',
+    nodes: [node(0, 0), node(100, 200)],
+    edges: [{ fromIndex: 0, toIndex: 1, startMs: 100, endMs: 300 }],
+    finale: null,
+  };
+
+  it.each([50, 99, 100])('returns no line before or at the edge start (%i ms)', (elapsedMs) => {
+    expect(getConstellationLines(singleEdge, elapsedMs)).toEqual([]);
+  });
+
+  it('starts drawing one millisecond after the edge start', () => {
+    expect(getConstellationLines(singleEdge, 101)).toEqual([
+      { fromXPx: 0, fromYPx: 0, toXPx: 0.5, toYPx: 1 },
+    ]);
+  });
+
+  it('interpolates the end point by the edge progress', () => {
+    expect(getConstellationLines(singleEdge, 200)).toEqual([
+      { fromXPx: 0, fromYPx: 0, toXPx: 50, toYPx: 100 },
+    ]);
+  });
+
+  it('stops short of the target node one millisecond before the edge end', () => {
+    expect(getConstellationLines(singleEdge, 299)).toEqual([
+      { fromXPx: 0, fromYPx: 0, toXPx: 99.5, toYPx: 199 },
+    ]);
+  });
+
+  it.each([300, 301, 500])(
+    'reaches the target node at or after the edge end (%i ms)',
+    (elapsedMs) => {
+      expect(getConstellationLines(singleEdge, elapsedMs)).toEqual([
+        { fromXPx: 0, fromYPx: 0, toXPx: 100, toYPx: 200 },
+      ]);
+    },
+  );
+
+  it('keeps edge order and drops only edges that have not started', () => {
+    const multi: ConstellationPlan = {
+      tier: 'complete',
+      nodes: [node(0, 0), node(100, 0), node(100, 100), node(0, 100)],
+      edges: [
+        { fromIndex: 2, toIndex: 3, startMs: 0, endMs: 100 },
+        { fromIndex: 0, toIndex: 1, startMs: 100, endMs: 200 },
+        { fromIndex: 1, toIndex: 2, startMs: 200, endMs: 300 },
+      ],
+      finale: null,
+    };
+    expect(getConstellationLines(multi, 150)).toEqual([
+      { fromXPx: 100, fromYPx: 100, toXPx: 0, toYPx: 100 },
+      { fromXPx: 0, fromYPx: 0, toXPx: 50, toYPx: 0 },
+    ]);
+  });
+
+  it('throws when an edge points at a missing node', () => {
+    const broken: ConstellationPlan = {
+      ...singleEdge,
+      edges: [{ fromIndex: 0, toIndex: 5, startMs: 0, endMs: 100 }],
+    };
+    expect(() => getConstellationLines(broken, 50)).toThrow('Invalid constellation edge: 0-5');
   });
 });

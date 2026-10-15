@@ -22,7 +22,6 @@ import type { LocalSave, Settings } from '../../storage/LocalSave.js';
 import { getPlayingStatus, isLoadingStatus } from './gameplayStatus.js';
 import type { GameplayStatus } from './gameplayStatus.js';
 import { getHitBloomIntensity, hasJudgmentShimmer, shouldFailPlay } from './judgmentEffects.js';
-import { getQuitConfirmAction } from './quitConfirm.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
 import { clamp, cycleItem } from '../range.js';
@@ -37,8 +36,8 @@ import {
 } from '../celestial/celestialSprites.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { formatKeyCode, formatScore } from '../ui/format.js';
-import { readGameplayKey } from './gameplayInput.js';
-import type { GameplayKey } from './gameplayInput.js';
+import { getGameplayKeyAction, readGameplayKey } from './gameplayInput.js';
+import type { GameplayKeyContext } from './gameplayInput.js';
 import { LaneFx } from './LaneFx.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { NoteLayer } from './NoteLayer.js';
@@ -644,100 +643,63 @@ export class GameplayScene extends Phaser.Scene {
       event.preventDefault();
     }
     const key = readGameplayKey(event.code, this.settings.keyBindings);
-    // 키를 누르고 있을 때의 반복 입력은 나가기만 받는다. 플레이 중에는 Esc 반복이 확인창을 여닫지 않게 모두 무시한다.
-    if (event.repeat && (key.command !== 'back' || this.phase.kind === 'playing')) {
-      return;
-    }
-    switch (this.phase.kind) {
-      case 'loading':
-      case 'starting':
-        // starting 은 재생 요청을 이미 보냈으므로 확인을 로딩 중처럼 무시한다.
-        this.handleLoadingKey(key, view);
+    const context: GameplayKeyContext =
+      this.phase.kind === 'playing'
+        ? {
+            phase: 'playing',
+            isQuitConfirmOpen: this.phase.run.isQuitConfirmOpen,
+            playerState: this.phase.run.playerState,
+          }
+        : { phase: this.phase.kind };
+    const action = getGameplayKeyAction(context, key, event.repeat);
+    switch (action.kind) {
+      case 'none':
         return;
-      case 'ready':
-        this.handleReadyKey(this.phase.run, key, view);
-        return;
-      case 'playing':
-        this.handlePlayingKey(this.phase.run, key, view);
-        return;
-      case 'error':
-        if (key.command === 'confirm' || key.command === 'back') {
-          this.backToSongSelect();
-        }
-        return;
-      case 'ending':
-        return;
-    }
-  }
-
-  private handleLoadingKey(key: GameplayKey, view: GameplayView): void {
-    switch (key.command) {
-      case 'back':
+      case 'leave':
         this.backToSongSelect();
         return;
-      case 'mvMode':
+      case 'cycleMvMode':
         this.cycleMvMode(view);
         return;
-      default:
-        return;
-    }
-  }
-
-  private handleReadyKey(run: PreparedRun, key: GameplayKey, view: GameplayView): void {
-    switch (key.command) {
-      case 'confirm':
+      case 'start': {
+        const run = this.requireReadyRun();
         run.player.requestPlay(getPlaybackStartMs(run.song.gameStartMs) / 1000);
         this.setStatus(run.view, 'preparing');
         this.phase = { kind: 'starting', run };
         return;
-      case 'back':
-        this.backToSongSelect();
+      }
+      case 'openQuitConfirm':
+        this.openQuitConfirm(this.requirePlayRun());
         return;
-      case 'mvMode':
-        this.cycleMvMode(view);
+      case 'closeQuitConfirm':
+        this.closeQuitConfirm(this.requirePlayRun());
         return;
-      case null:
+      case 'resume':
+        this.requirePlayRun().player.resume();
         return;
+      case 'pressLane': {
+        const run = this.requirePlayRun();
+        run.view.laneFx.press(action.lane);
+        this.flashKeyLabel(run.view.lanes[action.lane].keyLabel);
+        this.applyJudgmentEvents(run.view, run.session.press(action.lane, run.clock.getTimeMs()));
+        this.failIfDepleted(run);
+        return;
+      }
     }
   }
 
-  private handlePlayingKey(run: PlayRun, key: GameplayKey, view: GameplayView): void {
-    switch (getQuitConfirmAction(run.isQuitConfirmOpen, key.command)) {
-      case 'open':
-        this.openQuitConfirm(run);
-        return;
-      case 'quit':
-        this.backToSongSelect();
-        return;
-      case 'cancel':
-        this.closeQuitConfirm(run);
-        return;
-      case 'ignore':
-        return;
-      case 'pass':
-        break;
+  private requireReadyRun(): PreparedRun {
+    if (this.phase.kind !== 'ready') {
+      throw new Error(`Expected ready phase, got ${this.phase.kind}`);
     }
-    // 버퍼링·일시정지 중에는 레인 입력을 판정하지 않는다.
-    const isStopped = run.playerState === 'buffering' || run.playerState === 'paused';
-    if (key.lane !== null && !isStopped) {
-      run.view.laneFx.press(key.lane);
-      this.flashKeyLabel(run.view.lanes[key.lane].keyLabel);
-      this.applyJudgmentEvents(run.view, run.session.press(key.lane, run.clock.getTimeMs()));
-      this.failIfDepleted(run);
-      return;
+    return this.phase.run;
+  }
+
+  private requirePlayRun(): PlayRun {
+    if (this.phase.kind !== 'playing') {
+      throw new Error(`Expected playing phase, got ${this.phase.kind}`);
     }
-    switch (key.command) {
-      case 'confirm':
-        if (run.playerState === 'paused') {
-          run.player.resume();
-        }
-        return;
-      case 'mvMode':
-        this.cycleMvMode(view);
-        return;
-      case null:
-        return;
-    }
+    return this.phase.run;
   }
 
   /** 영상을 멈춰 판정 시계도 함께 멈춘다. 뒤의 일시정지 안내는 Enter 의 뜻이 달라지므로 가린다. */
