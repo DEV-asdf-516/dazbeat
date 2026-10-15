@@ -96,8 +96,9 @@ export const CELESTIAL_SCREENS: Readonly<Record<CelestialScreen, CelestialScreen
     ],
   },
   // 보드는 Settings 캡처 없이 만든 예시라, 실제 Settings 행·제목과 겹치는 세 좌표만 오른쪽 빈 영역으로 옮겼다.
+  // 크레딧·설정은 메인과 같은 배경을 써서 메뉴 화면끼리 한 하늘로 이어지게 한다.
   secondary: {
-    backgroundId: 'R04',
+    backgroundId: 'R01',
     hasGrain: true,
     dustOpacity: 0.055,
     ambient: [

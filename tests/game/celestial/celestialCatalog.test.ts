@@ -163,7 +163,7 @@ describe('loadCelestialCatalog', () => {
     expect(catalog.textures).toHaveLength(12);
     expect(new Set(catalog.textures.map(({ url }) => url)).size).toBe(12);
     expect(new Set(catalog.textures.map(({ key }) => key)).size).toBe(12);
-    // 네 화면 배경은 각자 다른 이미지다. 보조 화면(R04)은 기존 성운·궤도 파일을 유지한다.
+    // manifest 의 네 배경 이미지는 각자 다른 파일이다.
     const backgroundKeys = ['R01', 'R02', 'R03', 'R04'].map(
       (id) => getImagePresentation(catalog, id).textureKey,
     );

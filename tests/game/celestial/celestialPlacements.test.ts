@@ -117,7 +117,7 @@ describe('CELESTIAL_SCREENS', () => {
     expect(CELESTIAL_SCREENS.main.backgroundId).toBe('R01');
     expect(CELESTIAL_SCREENS.songSelect.backgroundId).toBe('R02');
     expect(CELESTIAL_SCREENS.result.backgroundId).toBe('R03');
-    expect(CELESTIAL_SCREENS.secondary.backgroundId).toBe('R04');
+    expect(CELESTIAL_SCREENS.secondary.backgroundId).toBe('R01');
     expect(CELESTIAL_SCREENS.gameplay).toEqual({
       backgroundId: null,
       hasGrain: false,
