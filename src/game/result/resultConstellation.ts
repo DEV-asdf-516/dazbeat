@@ -4,6 +4,7 @@ import { isFullCombo } from '../../rhythm/score.js';
 import type { GameplayResult } from '../../rhythm/types.js';
 import { ZODIAC_FIGURES } from './zodiacFigures.js';
 import type { ZodiacFigure } from './zodiacFigures.js';
+import { clamp } from '../range.js';
 
 export type ConstellationTier = 'faint' | 'clear' | 'bright' | 'complete';
 
@@ -36,6 +37,13 @@ export interface ConstellationPlan {
   /** 연결되는 edge 만 그리기 순서로 담는다. */
   edges: readonly ConstellationEdgePlan[];
   finale: { kind: 'shimmer' | 'pulse'; atMs: number } | null;
+}
+
+export interface ConstellationLine {
+  fromXPx: number;
+  fromYPx: number;
+  toXPx: number;
+  toYPx: number;
 }
 
 /** 단위 없는 값. figure 정규화 좌표이거나 여백을 나누는 0~1 비율이다. */
@@ -119,6 +127,33 @@ export function planSongConstellation(
       index === accentIndex ? 0 : (edges.find(({ toIndex }) => toIndex === index)?.endMs ?? null),
   }));
   return { tier, nodes, edges, finale: getFinale(tier, connectedCount * edgeMs) };
+}
+
+/** 연출 시작 후 elapsedMs 시점에 보이는 선. edge 순서를 따르고 아직 시작하지 않은 edge 는 뺀다. */
+export function getConstellationLines(
+  plan: ConstellationPlan,
+  elapsedMs: number,
+): readonly ConstellationLine[] {
+  // 각 edge 는 자기 시간 구간 안의 진행도만큼 from 에서 to 로 그린다.
+  return plan.edges.flatMap(({ fromIndex, toIndex, startMs, endMs }) => {
+    const from = plan.nodes[fromIndex];
+    const to = plan.nodes[toIndex];
+    if (from === undefined || to === undefined) {
+      throw new Error(`Invalid constellation edge: ${fromIndex}-${toIndex}`);
+    }
+    const segment = clamp((elapsedMs - startMs) / (endMs - startMs), 0, 1);
+    if (segment === 0) {
+      return [];
+    }
+    return [
+      {
+        fromXPx: from.xPx,
+        fromYPx: from.yPx,
+        toXPx: from.xPx + (to.xPx - from.xPx) * segment,
+        toYPx: from.yPx + (to.yPx - from.yPx) * segment,
+      },
+    ];
+  });
 }
 
 function getConnectedEdgeCount(tier: ConstellationTier, edgeCount: number): number {

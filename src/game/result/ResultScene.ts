@@ -4,7 +4,11 @@ import { SCENE_KEYS, exitScene } from '../config.js';
 import type { ResultSceneData, SceneRequest } from '../config.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import { getAtlasPresentation } from '../celestial/celestialCatalog.js';
-import { getConstellationTier, planSongConstellation } from './resultConstellation.js';
+import {
+  getConstellationLines,
+  getConstellationTier,
+  planSongConstellation,
+} from './resultConstellation.js';
 import type {
   ConstellationBox,
   ConstellationPlan,
@@ -16,7 +20,6 @@ import { stepRetryDifficulty } from './retryDifficulty.js';
 import type { FinishAnchor, FinishCue } from './resultFinish.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import { clamp } from '../range.js';
 import { getAvailableDifficulties } from '../../data/songs.js';
 import type { Song } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
@@ -453,29 +456,17 @@ export class ResultScene extends Phaser.Scene {
     });
 
     const lines = this.add.graphics();
-    // 각 edge 는 자기 시간 구간 안의 진행도만큼 from 에서 to 로 그린다.
     const drawLines = (elapsedMs: number): void => {
       lines.clear();
-      plan.edges.forEach(({ fromIndex, toIndex, startMs, endMs }) => {
-        const from = plan.nodes[fromIndex];
-        const to = plan.nodes[toIndex];
-        if (from === undefined || to === undefined) {
-          throw new Error(`Invalid constellation edge: ${fromIndex}-${toIndex}`);
-        }
-        const segment = clamp((elapsedMs - startMs) / (endMs - startMs), 0, 1);
-        if (segment === 0) {
-          return;
-        }
-        const endXPx = from.xPx + (to.xPx - from.xPx) * segment;
-        const endYPx = from.yPx + (to.yPx - from.yPx) * segment;
+      getConstellationLines(plan, elapsedMs).forEach(({ fromXPx, fromYPx, toXPx, toYPx }) => {
         if (alphas.lineHalo > 0) {
           lines
             .lineStyle(CONSTELLATION_LINE_HALO_WIDTH_PX, accent, alphas.lineHalo)
-            .lineBetween(from.xPx, from.yPx, endXPx, endYPx);
+            .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
         }
         lines
           .lineStyle(CONSTELLATION_LINE_CORE_WIDTH_PX, COLORS.note, alphas.lineCore)
-          .lineBetween(from.xPx, from.yPx, endXPx, endYPx);
+          .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
       });
     };
     const lastEdge = plan.edges.at(-1);

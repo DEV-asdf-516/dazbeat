@@ -5,8 +5,10 @@ import {
   createSongSelectState,
   cycleFilter,
   getCurrentSong,
+  getDifficultyAppearance,
   getPlayableSelection,
   getRowRecordDifficulty,
+  getSongPage,
   getSongRowNodeId,
   hasNewCurrentSong,
   isSameSelection,
@@ -283,5 +285,85 @@ describe('hasNewCurrentSong', () => {
     const empty = selectFilter(createSongSelectState(ORIGINAL_SONGS), 'cover');
 
     expect(hasNewCurrentSong(empty, selectFilter(empty, 'all'))).toBe(true);
+  });
+});
+
+describe('getSongPage', () => {
+  const songs = (count: number): readonly Song[] =>
+    Array.from({ length: count }, (_, index) =>
+      makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+    );
+
+  it('is the first page with no selected slot when there are no songs', () => {
+    expect(getSongPage(createSongSelectState([]), 3)).toEqual({
+      startIndex: 0,
+      pageNumber: 1,
+      pageCount: 0,
+      selectedSlot: null,
+    });
+  });
+
+  it('keeps the last row of a page on that page', () => {
+    const state = selectSong(createSongSelectState(songs(7)), 2);
+
+    expect(getSongPage(state, 3)).toEqual({
+      startIndex: 0,
+      pageNumber: 1,
+      pageCount: 3,
+      selectedSlot: 2,
+    });
+  });
+
+  it('moves the next row to the first slot of the next page', () => {
+    const state = selectSong(createSongSelectState(songs(7)), 3);
+
+    expect(getSongPage(state, 3)).toEqual({
+      startIndex: 3,
+      pageNumber: 2,
+      pageCount: 3,
+      selectedSlot: 0,
+    });
+  });
+
+  it('puts a lone song on the last page', () => {
+    const state = selectSong(createSongSelectState(songs(7)), 6);
+
+    expect(getSongPage(state, 3)).toEqual({
+      startIndex: 6,
+      pageNumber: 3,
+      pageCount: 3,
+      selectedSlot: 0,
+    });
+  });
+
+  it('counts only full or partial pages', () => {
+    expect(getSongPage(createSongSelectState(songs(6)), 3).pageCount).toBe(2);
+    expect(getSongPage(createSongSelectState(songs(7)), 3).pageCount).toBe(3);
+  });
+});
+
+describe('getDifficultyAppearance', () => {
+  it('is disabled when there is no song', () => {
+    expect(getDifficultyAppearance(createSongSelectState([]), 'easy', true)).toBe('disabled');
+  });
+
+  it('is disabled for a difficulty without a chart even when hovered', () => {
+    const state = createSongSelectState([EASY_HARD_SONG]);
+
+    expect(getDifficultyAppearance(state, 'normal', true)).toBe('disabled');
+  });
+
+  it('is selected for the selected difficulty regardless of hover', () => {
+    const state = createSongSelectState([EASY_HARD_SONG]);
+
+    expect(getDifficultyAppearance(state, 'easy', false)).toBe('selected');
+    expect(getDifficultyAppearance(state, 'easy', true)).toBe('selected');
+  });
+
+  it('is emphasized when hovered and normal otherwise for other charted difficulties', () => {
+    const state = createSongSelectState([EASY_HARD_SONG]);
+
+    expect(getDifficultyAppearance(state, 'hard', true)).toBe('emphasized');
+    expect(getDifficultyAppearance(state, 'hard', false)).toBe('normal');
   });
 });
