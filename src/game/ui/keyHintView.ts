@@ -49,7 +49,10 @@ export const EDITOR_KEY_HINT_STYLE: KeyHintStyle = {
 
 /** 배경 그림 위에 놓이는 메뉴형 화면의 키캡. 그림이 비치지 않게 어두운 면을 깐다. */
 const MENU_KEY_HINT_STYLE: KeyHintStyle = {
-  keyType: { sizePx: 17, weight: 600 },
+  keyType: {
+    sizePx: 17,
+    weight: 600,
+  },
   labelType: TYPE_SCALE.meta,
   keyColor: COLORS.textPrimary,
   labelColor: COLORS.textSecondary,
@@ -94,7 +97,11 @@ function createItems(scene: Phaser.Scene, text: string, style: KeyHintStyle): Ke
     const label = scene.add
       .text(0, 0, hint.label, typeStyle(style.labelType, style.labelColor))
       .setOrigin(0, 0.5);
-    return { cap, key, label };
+    return {
+      cap,
+      key,
+      label,
+    };
   });
 }
 

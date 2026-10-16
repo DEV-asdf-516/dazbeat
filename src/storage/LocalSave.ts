@@ -38,9 +38,20 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const SETTINGS_LIMITS = {
-  volume: { min: 0, max: 1, step: 0.1 },
-  inputOffsetMs: { ...INPUT_OFFSET_RANGE_MS, step: 5 },
-  scrollSpeedPxPerSecond: { min: 200, max: 2000, step: 50 },
+  volume: {
+    min: 0,
+    max: 1,
+    step: 0.1,
+  },
+  inputOffsetMs: {
+    ...INPUT_OFFSET_RANGE_MS,
+    step: 5,
+  },
+  scrollSpeedPxPerSecond: {
+    min: 200,
+    max: 2000,
+    step: 50,
+  },
 } as const;
 
 const SETTINGS_KEY = 'dazbeat:settings:v1';
@@ -110,7 +121,12 @@ function parseChartRecord(value: unknown): ChartRecord | undefined {
     isFiniteNumber(accuracy) &&
     isFiniteNumber(maxCombo) &&
     typeof cleared === 'boolean'
-    ? { score, accuracy, maxCombo, cleared }
+    ? {
+        score,
+        accuracy,
+        maxCombo,
+        cleared,
+      }
     : undefined;
 }
 
@@ -121,7 +137,12 @@ function mergeBestRecord(
 ): ChartRecord {
   if (existing === undefined) {
     const { score, accuracy, maxCombo, cleared } = result;
-    return { score, accuracy, maxCombo, cleared };
+    return {
+      score,
+      accuracy,
+      maxCombo,
+      cleared,
+    };
   }
   return {
     score: Math.max(existing.score, result.score),

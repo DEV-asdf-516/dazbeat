@@ -50,10 +50,22 @@ type MenuItem = MainMenuItem | 'account' | 'youtube';
 
 const LOGO_Y_PX = 300;
 const MENU_ITEMS: Record<MainMenuItem, { label: string; variant: ButtonVariant }> = {
-  play: { label: 'PLAY', variant: 'quiet' },
-  chartEditor: { label: 'CHART EDITOR', variant: 'quiet' },
-  settings: { label: 'SETTINGS', variant: 'quiet' },
-  credits: { label: 'CREDITS', variant: 'quiet' },
+  play: {
+    label: 'PLAY',
+    variant: 'quiet',
+  },
+  chartEditor: {
+    label: 'CHART EDITOR',
+    variant: 'quiet',
+  },
+  settings: {
+    label: 'SETTINGS',
+    variant: 'quiet',
+  },
+  credits: {
+    label: 'CREDITS',
+    variant: 'quiet',
+  },
 };
 // 첫 항목(PLAY)만 따로 두고, 그 뒤 항목은 표시 순서대로 간격을 두고 쌓는다.
 const MENU_FIRST_Y_PX = 560;
@@ -94,7 +106,10 @@ const USER_NAME_WEIGHT = 600;
 const ACCOUNT_ACTION_GAP_PX = 24;
 const ACCOUNT_DIVIDER_ALPHA = 0.3;
 /** Pretendard 는 같은 px 에서 Cormorant 보다 커 보이므로 한 단계 줄여 이름보다 앞서지 않게 한다. */
-const USER_EMAIL_TYPE = { sizePx: 18, weight: 400 } as const;
+const USER_EMAIL_TYPE = {
+  sizePx: 18,
+  weight: 400,
+} as const;
 const YOUTUBE_URL = 'https://www.youtube.com/@dazbeeee';
 const YOUTUBE_ICON_TEXTURE_KEY = 'ui:youtube';
 const YOUTUBE_ICON_PATH = '/assets/ui/youtube.svg';
@@ -103,12 +118,21 @@ const YOUTUBE_ICON_SIZE_PX = 64;
 const YOUTUBE_BUTTON_TOP_Y_PX = GAME_HEIGHT - 32 - 12 - YOUTUBE_ICON_SIZE_PX - 12;
 
 const TITLE_THREAD_ID = 'R26';
-const TITLE_THREAD_POSITION_PX = { x: 540, y: 505 } as const;
+const TITLE_THREAD_POSITION_PX = {
+  x: 540,
+  y: 505,
+} as const;
 const LOGO_GLINT_ID = 'R25';
-const LOGO_GLINT_POSITION_PX = { x: 900, y: 478 } as const;
+const LOGO_GLINT_POSITION_PX = {
+  x: 900,
+  y: 478,
+} as const;
 const CHARACTER_TEXTURE_KEY = 'ui:dazbee-constellation';
 const CHARACTER_PATH = '/assets/ui/main/dazbee-constellation-lineart.png';
-const CHARACTER_CENTER_PX = { x: 1400, y: 560 } as const;
+const CHARACTER_CENTER_PX = {
+  x: 1400,
+  y: 560,
+} as const;
 const CHARACTER_SCALE = 0.64;
 /**
  * 캐릭터 아랫단이 화면 끝에서 칼로 자른 듯 끊기지 않도록 배경 아래쪽 밤색으로 서서히 덮는다.
@@ -133,7 +157,10 @@ interface AccountView {
 }
 
 export class MainScene extends Phaser.Scene {
-  private account: AccountState = { kind: 'guest', hasSignInFailed: false };
+  private account: AccountState = {
+    kind: 'guest',
+    hasSignInFailed: false,
+  };
   private menuItems: readonly MainMenuItem[] = [];
   private menuButtons: readonly Button[] = [];
   private menu = new MenuFocus<MenuItem>([]);
@@ -151,9 +178,18 @@ export class MainScene extends Phaser.Scene {
     queueImageLoads(
       this,
       [
-        { key: GOOGLE_ICON_TEXTURE_KEY, url: GOOGLE_ICON_PATH },
-        { key: YOUTUBE_ICON_TEXTURE_KEY, url: YOUTUBE_ICON_PATH },
-        { key: CHARACTER_TEXTURE_KEY, url: CHARACTER_PATH },
+        {
+          key: GOOGLE_ICON_TEXTURE_KEY,
+          url: GOOGLE_ICON_PATH,
+        },
+        {
+          key: YOUTUBE_ICON_TEXTURE_KEY,
+          url: YOUTUBE_ICON_PATH,
+        },
+        {
+          key: CHARACTER_TEXTURE_KEY,
+          url: CHARACTER_PATH,
+        },
       ],
       'main scene image',
     );
@@ -316,8 +352,14 @@ export class MainScene extends Phaser.Scene {
     this.menu = new MenuFocus<MenuItem>(
       [
         ...entries,
-        { item: 'account', button: view.button },
-        { item: 'youtube', button: view.youtubeButton },
+        {
+          item: 'account',
+          button: view.button,
+        },
+        {
+          item: 'youtube',
+          button: view.youtubeButton,
+        },
       ],
       focusedItem,
     );
@@ -348,12 +390,18 @@ export class MainScene extends Phaser.Scene {
     }
     switch (item) {
       case 'play':
-        this.exit = exitScene(this, this.exit, { key: 'songSelect', data: undefined });
+        this.exit = exitScene(this, this.exit, {
+          key: 'songSelect',
+          data: undefined,
+        });
         return;
       case 'chartEditor':
         this.exit = exitScene(this, this.exit, {
           key: 'chartEditorSelect',
-          data: { focusedSongId: null, filter: 'all' },
+          data: {
+            focusedSongId: null,
+            filter: 'all',
+          },
         });
         return;
       case 'settings':
@@ -363,7 +411,10 @@ export class MainScene extends Phaser.Scene {
         });
         return;
       case 'credits':
-        this.exit = exitScene(this, this.exit, { key: 'credits', data: undefined });
+        this.exit = exitScene(this, this.exit, {
+          key: 'credits',
+          data: undefined,
+        });
         return;
       case 'account':
         this.activateAccount(view);

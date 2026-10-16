@@ -60,7 +60,11 @@ export function moveSongListFocus(list: SongListState, delta: number): SongListS
     return list;
   }
   const topIndex = clamp(list.topIndex, focusedIndex - list.visibleRowCount + 1, focusedIndex);
-  return { ...list, focusedIndex, topIndex };
+  return {
+    ...list,
+    focusedIndex,
+    topIndex,
+  };
 }
 
 /** pointer 가 올라간 줄로 포커스를 옮긴다. 곡이 없는 빈 줄이면 그대로다. */
@@ -74,7 +78,10 @@ export function focusSongListRow(list: SongListState, rowIndex: number): SongLis
   ) {
     return list;
   }
-  return { ...list, focusedIndex };
+  return {
+    ...list,
+    focusedIndex,
+  };
 }
 
 /** 보이는 범위를 줄 단위로 넘긴다. 포커스는 보이는 범위 안으로 따라온다. */
@@ -88,7 +95,11 @@ export function scrollSongList(list: SongListState, deltaRows: number): SongList
     return list;
   }
   const focusedIndex = clamp(list.focusedIndex, topIndex, topIndex + list.visibleRowCount - 1);
-  return { ...list, topIndex, focusedIndex };
+  return {
+    ...list,
+    topIndex,
+    focusedIndex,
+  };
 }
 
 /** 휠 한 번에 최소 한 줄은 넘기고, 큰 delta 는 줄 높이만큼씩 넘긴다. */
@@ -110,7 +121,11 @@ export function getSongListRows(list: SongListState, allSongs: readonly Song[]):
     if (song === undefined) {
       break;
     }
-    rows.push({ rowIndex: index - list.topIndex, song, isFocused: index === list.focusedIndex });
+    rows.push({
+      rowIndex: index - list.topIndex,
+      song,
+      isFocused: index === list.focusedIndex,
+    });
   }
   return rows;
 }

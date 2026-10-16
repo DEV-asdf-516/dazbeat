@@ -13,8 +13,14 @@ const DOCKERFILE_PATH = join(REPO_ROOT, 'pocketbase/Dockerfile');
 const CACHE_ROOT = join(REPO_ROOT, 'node_modules/.cache/pocketbase');
 const RELEASE_BASE_URL = 'https://github.com/pocketbase/pocketbase/releases/download';
 
-const OS_NAMES: Partial<Record<NodeJS.Platform, string>> = { darwin: 'darwin', linux: 'linux' };
-const ARCH_NAMES: Partial<Record<NodeJS.Architecture, string>> = { arm64: 'arm64', x64: 'amd64' };
+const OS_NAMES: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: 'darwin',
+  linux: 'linux',
+};
+const ARCH_NAMES: Partial<Record<NodeJS.Architecture, string>> = {
+  arm64: 'arm64',
+  x64: 'amd64',
+};
 
 // The Dockerfile is the single place that pins the PocketBase version.
 async function readPocketBaseVersion(): Promise<string> {
@@ -86,7 +92,10 @@ export async function ensurePocketBaseBinary(): Promise<string> {
     await mkdir(join(CACHE_ROOT, version), { recursive: true });
     await rename(join(workDir, 'pocketbase'), binaryPath);
   } finally {
-    await rm(workDir, { recursive: true, force: true });
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+    });
   }
   return binaryPath;
 }

@@ -96,7 +96,10 @@ function getPlayingKeyAction(
   // 버퍼링·일시정지 중에는 레인 입력을 판정하지 않는다.
   const isStopped = playerState === 'buffering' || playerState === 'paused';
   if (key.lane !== null && !isStopped) {
-    return { kind: 'pressLane', lane: key.lane };
+    return {
+      kind: 'pressLane',
+      lane: key.lane,
+    };
   }
   switch (key.command) {
     case 'confirm':
@@ -110,7 +113,10 @@ function getPlayingKeyAction(
 
 export function readGameplayKey(code: string, keyBindings: Settings['keyBindings']): GameplayKey {
   const lane = LANES.find((candidate) => keyBindings[candidate] === code) ?? null;
-  return { lane, command: toCommand(code, lane) };
+  return {
+    lane,
+    command: toCommand(code, lane),
+  };
 }
 
 function toCommand(code: string, lane: Lane | null): GameplayCommand | null {

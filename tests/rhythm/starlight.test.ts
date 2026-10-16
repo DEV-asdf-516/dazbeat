@@ -3,7 +3,13 @@ import { HP_DELTAS, MAX_HP, getNextHp } from '../../src/rhythm/starlight.js';
 
 describe('HP_DELTAS', () => {
   it('maps each judgment to its hp change', () => {
-    expect(HP_DELTAS).toEqual({ perfect: 1, great: 0.5, good: 0, bad: -5, miss: -10 });
+    expect(HP_DELTAS).toEqual({
+      perfect: 1,
+      great: 0.5,
+      good: 0,
+      bad: -5,
+      miss: -10,
+    });
   });
 });
 

@@ -72,7 +72,10 @@ export async function startPlaySession(
   try {
     response = await pb.send(PLAY_SESSIONS_PATH, {
       method: 'POST',
-      body: { chartId, chartRevision },
+      body: {
+        chartId,
+        chartRevision,
+      },
     });
   } catch (error) {
     throw toPlaySessionError(error);
@@ -90,7 +93,10 @@ export async function submitPlay(
   try {
     response = await pb.send(`${PLAY_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/result`, {
       method: 'POST',
-      body: { inputOffsetMs: submission.inputOffsetMs, events: submission.events },
+      body: {
+        inputOffsetMs: submission.inputOffsetMs,
+        events: submission.events,
+      },
     });
   } catch (error) {
     throw toPlaySessionError(error);

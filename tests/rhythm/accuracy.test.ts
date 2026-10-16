@@ -3,13 +3,27 @@ import { calculateAccuracy, isCleared } from '../../src/rhythm/accuracy.js';
 
 describe('calculateAccuracy', () => {
   it('averages the judgment weights over all judgments', () => {
-    expect(calculateAccuracy({ perfect: 2, great: 1, good: 1, bad: 2, miss: 1 })).toBeCloseTo(
-      (2 + 0.8 + 0.5 + 0.4) / 7,
-    );
+    expect(
+      calculateAccuracy({
+        perfect: 2,
+        great: 1,
+        good: 1,
+        bad: 2,
+        miss: 1,
+      }),
+    ).toBeCloseTo((2 + 0.8 + 0.5 + 0.4) / 7);
   });
 
   it('returns 0 when there are no judgments', () => {
-    expect(calculateAccuracy({ perfect: 0, great: 0, good: 0, bad: 0, miss: 0 })).toBe(0);
+    expect(
+      calculateAccuracy({
+        perfect: 0,
+        great: 0,
+        good: 0,
+        bad: 0,
+        miss: 0,
+      }),
+    ).toBe(0);
   });
 });
 

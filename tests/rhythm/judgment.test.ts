@@ -44,9 +44,22 @@ describe('judgeHoldRelease', () => {
 describe('countJudgments', () => {
   it('counts a tap as one judgment and a hold as two', () => {
     const notes: Note[] = [
-      { type: 'tap', timeMs: 0, lane: 0 },
-      { type: 'tap', timeMs: 100, lane: 1 },
-      { type: 'hold', timeMs: 200, endTimeMs: 400, lane: 2 },
+      {
+        type: 'tap',
+        timeMs: 0,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 100,
+        lane: 1,
+      },
+      {
+        type: 'hold',
+        timeMs: 200,
+        endTimeMs: 400,
+        lane: 2,
+      },
     ];
     expect(countJudgments(notes)).toBe(4);
   });

@@ -76,7 +76,10 @@ export function addCelestialSprite(
 
 /** 보이게 하고 첫 frame 부터 재생한 뒤 끝나면 숨긴다. 재생 중이면 처음부터 다시 시작한다. */
 export function playCelestialOnce(sprite: Phaser.GameObjects.Sprite): void {
-  sprite.setVisible(true).play({ key: requireAnimationKey(sprite), hideOnComplete: true });
+  sprite.setVisible(true).play({
+    key: requireAnimationKey(sprite),
+    hideOnComplete: true,
+  });
 }
 
 export function setCelestialLoopActive(sprite: Phaser.GameObjects.Sprite, isActive: boolean): void {

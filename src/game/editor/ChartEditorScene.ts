@@ -331,7 +331,12 @@ export class ChartEditorScene extends Phaser.Scene {
     const bounds = this.game.canvas.getBoundingClientRect();
     const rect = toViewportRect(
       LAYOUT.video,
-      { leftPx: bounds.left, topPx: bounds.top, widthPx: bounds.width, heightPx: bounds.height },
+      {
+        leftPx: bounds.left,
+        topPx: bounds.top,
+        widthPx: bounds.width,
+        heightPx: bounds.height,
+      },
       GAME_WIDTH,
       GAME_HEIGHT,
     );
@@ -368,7 +373,11 @@ export class ChartEditorScene extends Phaser.Scene {
       this,
       back.x + back.width + BUTTON_GAP_PX,
       topCenterYPx,
-      { variant: 'quiet', label: '◀', onActivate: () => this.moveSong(view, -1) },
+      {
+        variant: 'quiet',
+        label: '◀',
+        onActivate: () => this.moveSong(view, -1),
+      },
     );
     createCenteredEditorButton(
       this,
@@ -411,7 +420,10 @@ export class ChartEditorScene extends Phaser.Scene {
         .text(statusRightXPx, topCenterYPx, '', {
           ...typeStyle(EDITOR_TYPE_SCALE.meta, EDITOR_COLORS.textSecondary),
           align: 'right',
-          wordWrap: { width: statusRightXPx - statusLeftXPx, useAdvancedWrap: true },
+          wordWrap: {
+            width: statusRightXPx - statusLeftXPx,
+            useAdvancedWrap: true,
+          },
           maxLines: STATUS_MAX_LINES,
         })
         .setOrigin(1, 0.5),
@@ -454,7 +466,10 @@ export class ChartEditorScene extends Phaser.Scene {
       }),
       playerText: this.add.text(LAYOUT.playerText.leftPx, LAYOUT.playerText.topYPx, '', {
         ...typeStyle(EDITOR_TYPE_SCALE.meta, EDITOR_COLORS.textSecondary),
-        wordWrap: { width: LAYOUT.playerText.widthPx, useAdvancedWrap: true },
+        wordWrap: {
+          width: LAYOUT.playerText.widthPx,
+          useAdvancedWrap: true,
+        },
       }),
       grid: this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider),
       gridLabels: Array.from({ length: GRID_LABEL_COUNT }, () =>
@@ -583,7 +598,10 @@ export class ChartEditorScene extends Phaser.Scene {
       return this.add.text(valueLeftXPx, rowYPx, '', {
         ...typeStyle(EDITOR_TYPE_SCALE.body, EDITOR_COLORS.textPrimary),
         lineSpacing: SELECTION_LINE_SPACING_PX,
-        wordWrap: { width: TOOLS_CONTENT_RIGHT_PX - valueLeftXPx, useAdvancedWrap: true },
+        wordWrap: {
+          width: TOOLS_CONTENT_RIGHT_PX - valueLeftXPx,
+          useAdvancedWrap: true,
+        },
       });
     });
     const lastValue = selectionValues[selectionValues.length - 1];
@@ -669,7 +687,11 @@ export class ChartEditorScene extends Phaser.Scene {
         )
         .setOrigin(0, 0);
       xPx += text.width + DIFFICULTY_GAP_PX;
-      return { difficulty, text, underline };
+      return {
+        difficulty,
+        text,
+        underline,
+      };
     });
   }
 
@@ -864,7 +886,11 @@ export class ChartEditorScene extends Phaser.Scene {
       this.setState(view, clearSelection(this.state));
       return;
     }
-    this.navigate(view, { kind: 'select', song, difficulty: selection.difficulty });
+    this.navigate(view, {
+      kind: 'select',
+      song,
+      difficulty: selection.difficulty,
+    });
   }
 
   private selectDifficulty(view: EditorView, difficulty: Difficulty): void {
@@ -877,7 +903,11 @@ export class ChartEditorScene extends Phaser.Scene {
       this.setState(view, clearSelection(this.state));
       return;
     }
-    this.navigate(view, { kind: 'select', song, difficulty });
+    this.navigate(view, {
+      kind: 'select',
+      song,
+      difficulty,
+    });
   }
 
   /** 현재 곡에서 delta 만큼 떨어진 목록의 곡. 끝에서 멈추며, 목록이 비면 없다. */
@@ -981,7 +1011,11 @@ export class ChartEditorScene extends Phaser.Scene {
             return;
           }
           player.setVolume(this.settings.masterVolume * this.settings.musicVolume);
-          this.playerStatus = { kind: 'ready', player, timeSource };
+          this.playerStatus = {
+            kind: 'ready',
+            player,
+            timeSource,
+          };
           this.renderTransport(view);
         },
         onStateChange: (state) => {
@@ -1015,7 +1049,10 @@ export class ChartEditorScene extends Phaser.Scene {
 
   private failPlayer(view: EditorView, message: string, error: unknown): void {
     console.error('Failed to load YouTube player for chart editor', error);
-    this.playerStatus = { kind: 'error', message };
+    this.playerStatus = {
+      kind: 'error',
+      message,
+    };
     this.renderTransport(view);
   }
 
@@ -1269,7 +1306,10 @@ export class ChartEditorScene extends Phaser.Scene {
       bottomYPx: LAYOUT.timeline.bottomYPx,
       accentColor: song.accentColor,
     });
-    this.noteLayer = { songId: song.id, layer };
+    this.noteLayer = {
+      songId: song.id,
+      layer,
+    };
     return layer;
   }
 

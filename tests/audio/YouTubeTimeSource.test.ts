@@ -3,12 +3,18 @@ import type { YouTubePlayerState } from '../../src/audio/YouTubePlayer.js';
 import { YouTubeTimeSource } from '../../src/audio/YouTubeTimeSource.js';
 
 function setup(startMs = 1000) {
-  const fake = { positionSec: 0, nowMs: startMs };
+  const fake = {
+    positionSec: 0,
+    nowMs: startMs,
+  };
   const source = new YouTubeTimeSource(
     { getCurrentTime: () => fake.positionSec },
     () => fake.nowMs,
   );
-  return { fake, source };
+  return {
+    fake,
+    source,
+  };
 }
 
 describe('YouTubeTimeSource', () => {

@@ -52,7 +52,10 @@ describe('withChartId', () => {
     const saved = withChartId(song, 'hard', 'chart_hard');
 
     expect(saved).not.toBe(song);
-    expect(saved.chartIds).toEqual({ normal: 'chart_normal', hard: 'chart_hard' });
+    expect(saved.chartIds).toEqual({
+      normal: 'chart_normal',
+      hard: 'chart_hard',
+    });
     expect(getAvailableDifficulties(saved)).toEqual(['normal', 'hard']);
     expect(song.chartIds).toEqual({ normal: 'chart_normal' });
     expect(getAvailableDifficulties(song)).toEqual(['normal']);

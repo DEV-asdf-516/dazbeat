@@ -41,24 +41,72 @@ interface PlayBody {
 }
 
 function chartOf(songKey: string, difficulty: Difficulty, notes: Chart['notes']): Chart {
-  return { songId: songKey, difficulty, offsetMs: 0, notes };
+  return {
+    songId: songKey,
+    difficulty,
+    offsetMs: 0,
+    notes,
+  };
 }
 
 const tapChart = chartOf(SONG_KEY, 'easy', [
-  { type: 'tap', timeMs: 1_000, lane: 0 },
-  { type: 'tap', timeMs: 1_500, lane: 1 },
-  { type: 'tap', timeMs: 2_000, lane: 2 },
-  { type: 'tap', timeMs: 2_500, lane: 3 },
+  {
+    type: 'tap',
+    timeMs: 1_000,
+    lane: 0,
+  },
+  {
+    type: 'tap',
+    timeMs: 1_500,
+    lane: 1,
+  },
+  {
+    type: 'tap',
+    timeMs: 2_000,
+    lane: 2,
+  },
+  {
+    type: 'tap',
+    timeMs: 2_500,
+    lane: 3,
+  },
 ]);
 const holdChart = chartOf(SONG_KEY, 'normal', [
-  { type: 'hold', timeMs: 1_000, endTimeMs: 2_000, lane: 0 },
-  { type: 'hold', timeMs: 2_500, endTimeMs: 3_500, lane: 2 },
+  {
+    type: 'hold',
+    timeMs: 1_000,
+    endTimeMs: 2_000,
+    lane: 0,
+  },
+  {
+    type: 'hold',
+    timeMs: 2_500,
+    endTimeMs: 3_500,
+    lane: 2,
+  },
 ]);
 const mixedChart = chartOf(SONG_KEY, 'hard', [
-  { type: 'tap', timeMs: 1_000, lane: 0 },
-  { type: 'hold', timeMs: 2_000, endTimeMs: 3_000, lane: 1 },
-  { type: 'tap', timeMs: 2_500, lane: 3 },
-  { type: 'tap', timeMs: 3_500, lane: 0 },
+  {
+    type: 'tap',
+    timeMs: 1_000,
+    lane: 0,
+  },
+  {
+    type: 'hold',
+    timeMs: 2_000,
+    endTimeMs: 3_000,
+    lane: 1,
+  },
+  {
+    type: 'tap',
+    timeMs: 2_500,
+    lane: 3,
+  },
+  {
+    type: 'tap',
+    timeMs: 3_500,
+    lane: 0,
+  },
 ]);
 // Ten misses empty the HP, so a play without inputs fails.
 const failingChart = chartOf(
@@ -73,8 +121,16 @@ const failingChart = chartOf(
 const mutableChart = chartOf(MUTABLE_SONG_KEY, 'easy', tapChart.notes);
 
 const tapPerfectInputs: InputEvent[] = tapChart.notes.flatMap((note) => [
-  { lane: note.lane, kind: 'press', songTimeMs: note.timeMs },
-  { lane: note.lane, kind: 'release', songTimeMs: note.timeMs + 50 },
+  {
+    lane: note.lane,
+    kind: 'press',
+    songTimeMs: note.timeMs,
+  },
+  {
+    lane: note.lane,
+    kind: 'release',
+    songTimeMs: note.timeMs + 50,
+  },
 ]);
 
 let dataDir: string;
@@ -97,7 +153,10 @@ function recordOf(chart: Chart): RecordModel {
 }
 
 function issueSession(client: PocketBase, body: unknown): Promise<SessionResponse> {
-  return client.send<SessionResponse>('/api/dazbeat/play-sessions', { method: 'POST', body });
+  return client.send<SessionResponse>('/api/dazbeat/play-sessions', {
+    method: 'POST',
+    body,
+  });
 }
 
 function revisionOf(record: RecordModel): string {
@@ -109,7 +168,10 @@ function revisionOf(record: RecordModel): string {
 }
 
 function sessionBodyOf(record: RecordModel): { chartId: string; chartRevision: string } {
-  return { chartId: record.id, chartRevision: revisionOf(record) };
+  return {
+    chartId: record.id,
+    chartRevision: revisionOf(record),
+  };
 }
 
 function submitResult(
@@ -146,7 +208,13 @@ function findScores(userId: string, chart: Chart): Promise<RecordModel[]> {
 }
 
 function expectRejection(request: Promise<unknown>, status: number, code: string): Promise<void> {
-  return expect(request).rejects.toMatchObject({ status, response: { status, code } });
+  return expect(request).rejects.toMatchObject({
+    status,
+    response: {
+      status,
+      code,
+    },
+  });
 }
 
 function sessionExists(sessionId: string): Promise<boolean> {
@@ -177,10 +245,16 @@ async function expectServerMatchesClient(
     events: play.inputs,
   });
 
-  expect(response).toEqual({ ...expected, bestScore: expected.score });
+  expect(response).toEqual({
+    ...expected,
+    bestScore: expected.score,
+  });
   const [stored, ...others] = await findScores(player.id, chart);
   expect(others).toEqual([]);
-  expect(stored).toMatchObject({ ...expected, chartRevision: revisionOf(recordOf(chart)) });
+  expect(stored).toMatchObject({
+    ...expected,
+    chartRevision: revisionOf(recordOf(chart)),
+  });
 }
 
 beforeAll(async () => {
@@ -234,7 +308,10 @@ describe('POST /api/dazbeat/play-sessions', () => {
     });
     expect(sessions.map((session) => session.id)).toEqual([second.sessionId]);
     await expectRejection(
-      submitResult(player.client, first.sessionId, { inputOffsetMs: 0, events: [] }),
+      submitResult(player.client, first.sessionId, {
+        inputOffsetMs: 0,
+        events: [],
+      }),
       404,
       'session_not_found',
     );
@@ -244,17 +321,26 @@ describe('POST /api/dazbeat/play-sessions', () => {
     const player = await newPlayer();
     const record = recordOf(tapChart);
     await expectRejection(
-      issueSession(player.client, { chartId: 1, chartRevision: revisionOf(record) }),
+      issueSession(player.client, {
+        chartId: 1,
+        chartRevision: revisionOf(record),
+      }),
       400,
       'invalid_request',
     );
     await expectRejection(
-      issueSession(player.client, { chartId: 'missingchart123', chartRevision: 'x' }),
+      issueSession(player.client, {
+        chartId: 'missingchart123',
+        chartRevision: 'x',
+      }),
       404,
       'chart_not_found',
     );
     await expectRejection(
-      issueSession(player.client, { chartId: record.id, chartRevision: 'stale' }),
+      issueSession(player.client, {
+        chartId: record.id,
+        chartRevision: 'stale',
+      }),
       409,
       'chart_changed',
     );
@@ -277,44 +363,132 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
 
   it('matches the client result for a HOLD chart', async () => {
     await expectServerMatchesClient(holdChart, [
-      { lane: 0, kind: 'press', songTimeMs: 1_010 },
-      { lane: 0, kind: 'release', songTimeMs: 1_900 },
-      { lane: 2, kind: 'press', songTimeMs: 2_480 },
-      { lane: 2, kind: 'release', songTimeMs: 3_600 },
+      {
+        lane: 0,
+        kind: 'press',
+        songTimeMs: 1_010,
+      },
+      {
+        lane: 0,
+        kind: 'release',
+        songTimeMs: 1_900,
+      },
+      {
+        lane: 2,
+        kind: 'press',
+        songTimeMs: 2_480,
+      },
+      {
+        lane: 2,
+        kind: 'release',
+        songTimeMs: 3_600,
+      },
     ]);
   });
 
   it('matches the client result for a mixed chart', async () => {
     await expectServerMatchesClient(mixedChart, [
-      { lane: 0, kind: 'press', songTimeMs: 1_060 },
-      { lane: 0, kind: 'release', songTimeMs: 1_100 },
-      { lane: 1, kind: 'press', songTimeMs: 2_000 },
-      { lane: 3, kind: 'press', songTimeMs: 2_520 },
-      { lane: 3, kind: 'release', songTimeMs: 2_560 },
-      { lane: 1, kind: 'release', songTimeMs: 2_700 },
-      { lane: 0, kind: 'press', songTimeMs: 3_500 },
-      { lane: 0, kind: 'release', songTimeMs: 3_550 },
+      {
+        lane: 0,
+        kind: 'press',
+        songTimeMs: 1_060,
+      },
+      {
+        lane: 0,
+        kind: 'release',
+        songTimeMs: 1_100,
+      },
+      {
+        lane: 1,
+        kind: 'press',
+        songTimeMs: 2_000,
+      },
+      {
+        lane: 3,
+        kind: 'press',
+        songTimeMs: 2_520,
+      },
+      {
+        lane: 3,
+        kind: 'release',
+        songTimeMs: 2_560,
+      },
+      {
+        lane: 1,
+        kind: 'release',
+        songTimeMs: 2_700,
+      },
+      {
+        lane: 0,
+        kind: 'press',
+        songTimeMs: 3_500,
+      },
+      {
+        lane: 0,
+        kind: 'release',
+        songTimeMs: 3_550,
+      },
     ]);
   });
 
   it('matches the client result on judgment window boundaries', async () => {
     const { perfectMs, badMs } = JUDGMENT_WINDOWS;
     await expectServerMatchesClient(tapChart, [
-      { lane: 0, kind: 'press', songTimeMs: 1_000 + badMs },
-      { lane: 1, kind: 'press', songTimeMs: 1_500 - badMs },
-      { lane: 2, kind: 'press', songTimeMs: 2_000 + badMs + 1 },
-      { lane: 3, kind: 'press', songTimeMs: 2_500 + perfectMs },
+      {
+        lane: 0,
+        kind: 'press',
+        songTimeMs: 1_000 + badMs,
+      },
+      {
+        lane: 1,
+        kind: 'press',
+        songTimeMs: 1_500 - badMs,
+      },
+      {
+        lane: 2,
+        kind: 'press',
+        songTimeMs: 2_000 + badMs + 1,
+      },
+      {
+        lane: 3,
+        kind: 'press',
+        songTimeMs: 2_500 + perfectMs,
+      },
     ]);
   });
 
   it('accepts a release without a press, consecutive presses and a press while holding', async () => {
     await expectServerMatchesClient(mixedChart, [
-      { lane: 0, kind: 'release', songTimeMs: 500 },
-      { lane: 0, kind: 'press', songTimeMs: 1_000 },
-      { lane: 0, kind: 'press', songTimeMs: 1_010 },
-      { lane: 1, kind: 'press', songTimeMs: 2_000 },
-      { lane: 1, kind: 'press', songTimeMs: 2_100 },
-      { lane: 1, kind: 'release', songTimeMs: 3_000 },
+      {
+        lane: 0,
+        kind: 'release',
+        songTimeMs: 500,
+      },
+      {
+        lane: 0,
+        kind: 'press',
+        songTimeMs: 1_000,
+      },
+      {
+        lane: 0,
+        kind: 'press',
+        songTimeMs: 1_010,
+      },
+      {
+        lane: 1,
+        kind: 'press',
+        songTimeMs: 2_000,
+      },
+      {
+        lane: 1,
+        kind: 'press',
+        songTimeMs: 2_100,
+      },
+      {
+        lane: 1,
+        kind: 'release',
+        songTimeMs: 3_000,
+      },
     ]);
   });
 
@@ -331,7 +505,13 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
       accuracy: 100,
       maxCombo: 4,
       cleared: true,
-      counts: { perfect: 4, great: 0, good: 0, bad: 0, miss: 0 },
+      counts: {
+        perfect: 4,
+        great: 0,
+        good: 0,
+        bad: 0,
+        miss: 0,
+      },
       user: other.id,
     });
 
@@ -339,28 +519,63 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     expect(response.counts).toEqual(play.result.counts);
     expect(await findScores(other.id, tapChart)).toEqual([]);
     const [stored] = await findScores(player.id, tapChart);
-    expect(stored).toMatchObject({ score: play.result.score, cleared: play.result.cleared });
+    expect(stored).toMatchObject({
+      score: play.result.score,
+      cleared: play.result.cleared,
+    });
   });
 
   it.each<[string, PlayBody]>([
     [
       'a corrupted event',
-      { inputOffsetMs: 0, events: [{ lane: 7, kind: 'press', songTimeMs: 1_000 }] },
+      {
+        inputOffsetMs: 0,
+        events: [
+          {
+            lane: 7,
+            kind: 'press',
+            songTimeMs: 1_000,
+          },
+        ],
+      },
     ],
     [
       'events going back in time',
       {
         inputOffsetMs: 0,
         events: [
-          { lane: 0, kind: 'press', songTimeMs: 1_000 },
-          { lane: 0, kind: 'release', songTimeMs: 999 },
+          {
+            lane: 0,
+            kind: 'press',
+            songTimeMs: 1_000,
+          },
+          {
+            lane: 0,
+            kind: 'release',
+            songTimeMs: 999,
+          },
         ],
       },
     ],
-    ['an input offset out of range', { inputOffsetMs: 301, events: [] }],
+    [
+      'an input offset out of range',
+      {
+        inputOffsetMs: 301,
+        events: [],
+      },
+    ],
     [
       'an event after the allowed range',
-      { inputOffsetMs: 0, events: [{ lane: 0, kind: 'press', songTimeMs: 60_000 }] },
+      {
+        inputOffsetMs: 0,
+        events: [
+          {
+            lane: 0,
+            kind: 'press',
+            songTimeMs: 60_000,
+          },
+        ],
+      },
     ],
     [
       'too many events',
@@ -384,7 +599,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
   it('rejects a submission sooner than the play could finish and consumes the session', async () => {
     const player = await newPlayer();
     const { sessionId } = await issueSession(player.client, sessionBodyOf(recordOf(tapChart)));
-    const body = { inputOffsetMs: 0, events: tapPerfectInputs };
+    const body = {
+      inputOffsetMs: 0,
+      events: tapPerfectInputs,
+    };
 
     await expectRejection(submitResult(player.client, sessionId, body), 422, 'too_short');
     expect(await sessionExists(sessionId)).toBe(false);
@@ -395,7 +613,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
   it('accepts a session only once', async () => {
     const player = await newPlayer();
     const sessionId = await startRankedPlay(player, tapChart);
-    const body = { inputOffsetMs: 0, events: tapPerfectInputs };
+    const body = {
+      inputOffsetMs: 0,
+      events: tapPerfectInputs,
+    };
 
     await submitResult(player.client, sessionId, body);
     await expectRejection(submitResult(player.client, sessionId, body), 404, 'session_not_found');
@@ -404,7 +625,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
   it('accepts exactly one of parallel submissions of the same session', async () => {
     const player = await newPlayer();
     const sessionId = await startRankedPlay(player, tapChart);
-    const body = { inputOffsetMs: 0, events: tapPerfectInputs };
+    const body = {
+      inputOffsetMs: 0,
+      events: tapPerfectInputs,
+    };
 
     const outcomes = await Promise.allSettled(
       Array.from({ length: 5 }, () => submitResult(player.client, sessionId, body)),
@@ -426,7 +650,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     const owner = await newPlayer();
     const intruder = await newPlayer();
     const sessionId = await startRankedPlay(owner, tapChart);
-    const body = { inputOffsetMs: 0, events: tapPerfectInputs };
+    const body = {
+      inputOffsetMs: 0,
+      events: tapPerfectInputs,
+    };
 
     await expectRejection(submitResult(intruder.client, sessionId, body), 404, 'session_not_found');
     expect(await sessionExists(sessionId)).toBe(true);
@@ -440,11 +667,17 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     const before = recordOf(mutableChart);
     const sessionId = await startRankedPlay(player, mutableChart);
     await editor.client.collection('charts').update(before.id, {
-      data: { ...mutableChart, offsetMs: 10 },
+      data: {
+        ...mutableChart,
+        offsetMs: 10,
+      },
     });
 
     await expectRejection(
-      submitResult(player.client, sessionId, { inputOffsetMs: 0, events: tapPerfectInputs }),
+      submitResult(player.client, sessionId, {
+        inputOffsetMs: 0,
+        events: tapPerfectInputs,
+      }),
       409,
       'chart_changed',
     );
@@ -460,7 +693,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
       .update(sessionId, { expiresAt: new Date(Date.now() - 1_000).toISOString() });
 
     await expectRejection(
-      submitResult(player.client, sessionId, { inputOffsetMs: 0, events: tapPerfectInputs }),
+      submitResult(player.client, sessionId, {
+        inputOffsetMs: 0,
+        events: tapPerfectInputs,
+      }),
       410,
       'session_expired',
     );
@@ -472,7 +708,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     const sessionId = await startRankedPlay(player, failingChart);
 
     await expectRejection(
-      submitResult(player.client, sessionId, { inputOffsetMs: 0, events: [] }),
+      submitResult(player.client, sessionId, {
+        inputOffsetMs: 0,
+        events: [],
+      }),
       422,
       'not_finished',
     );
@@ -482,7 +721,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
   it('requires a signed-in user', async () => {
     const player = await newPlayer();
     const sessionId = await startRankedPlay(player, tapChart);
-    const body = { inputOffsetMs: 0, events: tapPerfectInputs };
+    const body = {
+      inputOffsetMs: 0,
+      events: tapPerfectInputs,
+    };
 
     await expect(submitResult(createClient(server.url), sessionId, body)).rejects.toMatchObject({
       status: 401,
@@ -505,12 +747,18 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
         events: inputs,
       });
 
-    expect(await play(lowInputs)).toMatchObject({ score: low.score, bestScore: low.score });
+    expect(await play(lowInputs)).toMatchObject({
+      score: low.score,
+      bestScore: low.score,
+    });
     expect(await play(tapPerfectInputs)).toMatchObject({
       score: high.score,
       bestScore: high.score,
     });
-    expect(await play(lowInputs)).toMatchObject({ score: low.score, bestScore: high.score });
+    expect(await play(lowInputs)).toMatchObject({
+      score: low.score,
+      bestScore: high.score,
+    });
 
     const [stored, ...others] = await findScores(player.id, tapChart);
     expect(others).toEqual([]);

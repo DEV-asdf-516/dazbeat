@@ -28,7 +28,10 @@ describe('createAccountState', () => {
   });
 
   it('starts as guest without a failed sign-in when there is no user', () => {
-    expect(createAccountState(null)).toEqual({ kind: 'guest', hasSignInFailed: false });
+    expect(createAccountState(null)).toEqual({
+      kind: 'guest',
+      hasSignInFailed: false,
+    });
   });
 });
 
@@ -72,7 +75,10 @@ describe('completeSignIn', () => {
 describe('cancelSignIn', () => {
   it('returns guest without a failed sign-in while the attempt is the current state', () => {
     const attempt = startSignIn();
-    expect(cancelSignIn(attempt, attempt)).toEqual({ kind: 'guest', hasSignInFailed: false });
+    expect(cancelSignIn(attempt, attempt)).toEqual({
+      kind: 'guest',
+      hasSignInFailed: false,
+    });
   });
 
   it('keeps the current state when another state replaced the attempt', () => {
@@ -86,7 +92,10 @@ describe('failSignIn', () => {
   it('returns guest with a failed sign-in while the attempt is the current state', () => {
     const attempt = startSignIn();
 
-    expect(failSignIn(attempt, attempt)).toEqual({ kind: 'guest', hasSignInFailed: true });
+    expect(failSignIn(attempt, attempt)).toEqual({
+      kind: 'guest',
+      hasSignInFailed: true,
+    });
   });
 
   it('keeps the current state when the attempt was cancelled', () => {
@@ -114,7 +123,12 @@ describe('canOpenChartEditor', () => {
   });
 
   it('allows an editor', () => {
-    expect(canOpenChartEditor({ ...USER, isEditor: true })).toBe(true);
+    expect(
+      canOpenChartEditor({
+        ...USER,
+        isEditor: true,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -123,7 +137,12 @@ describe('canCurrentUserOpenChartEditor', () => {
     expect(canCurrentUserOpenChartEditor({ getCurrentUser: () => null })).toBe(false);
     expect(canCurrentUserOpenChartEditor({ getCurrentUser: () => USER })).toBe(false);
     expect(
-      canCurrentUserOpenChartEditor({ getCurrentUser: () => ({ ...USER, isEditor: true }) }),
+      canCurrentUserOpenChartEditor({
+        getCurrentUser: () => ({
+          ...USER,
+          isEditor: true,
+        }),
+      }),
     ).toBe(true);
   });
 

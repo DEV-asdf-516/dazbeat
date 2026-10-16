@@ -44,7 +44,10 @@ const EASY_HARD_SONG = makeSong('easy-hard', 'original', {
   easy: 'easy.json',
   hard: 'hard.json',
 });
-const COVER_SONG = makeSong('cover', 'cover', { normal: 'normal.json', hard: 'hard.json' });
+const COVER_SONG = makeSong('cover', 'cover', {
+  normal: 'normal.json',
+  hard: 'hard.json',
+});
 const SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG, COVER_SONG];
 const ORIGINAL_SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG];
 
@@ -220,8 +223,18 @@ describe('isSameSelection', () => {
 });
 
 describe('getSongRowNodeId', () => {
-  const played: ChartRecord = { score: 500000, accuracy: 0.8, maxCombo: 40, cleared: false };
-  const cleared: ChartRecord = { score: 900000, accuracy: 0.95, maxCombo: 120, cleared: true };
+  const played: ChartRecord = {
+    score: 500000,
+    accuracy: 0.8,
+    maxCombo: 40,
+    cleared: false,
+  };
+  const cleared: ChartRecord = {
+    score: 900000,
+    accuracy: 0.95,
+    maxCombo: 120,
+    cleared: true,
+  };
 
   it('shows selected regardless of hover and record', () => {
     expect(getSongRowNodeId(null, true, false)).toBe('R17');

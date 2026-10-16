@@ -87,7 +87,10 @@ export function pickNote(
     timeMs,
   );
   if (end !== undefined) {
-    return { note: end, part: 'end' };
+    return {
+      note: end,
+      part: 'end',
+    };
   }
   const head = findClosest(
     laneNotes.filter(
@@ -98,7 +101,12 @@ export function pickNote(
     (note) => note.timeMs,
     timeMs,
   );
-  return head === undefined ? null : { note: head, part: 'head' };
+  return head === undefined
+    ? null
+    : {
+        note: head,
+        part: 'head',
+      };
 }
 
 /** 같은 거리면 앞(이른) 노트를 고른다. */
@@ -142,15 +150,30 @@ export function describeSelection(
 ): readonly [SelectionRow, SelectionRow, SelectionRow] {
   if (note === null) {
     return [
-      { label: 'TYPE', value: NO_VALUE },
-      { label: 'LANE', value: NO_VALUE },
-      { label: 'TIME', value: NO_VALUE },
+      {
+        label: 'TYPE',
+        value: NO_VALUE,
+      },
+      {
+        label: 'LANE',
+        value: NO_VALUE,
+      },
+      {
+        label: 'TIME',
+        value: NO_VALUE,
+      },
     ];
   }
   const startText = formatEditorTime(note.timeMs);
   return [
-    { label: 'TYPE', value: note.type === 'tap' ? 'TAP' : 'HOLD' },
-    { label: 'LANE', value: String(note.lane) },
+    {
+      label: 'TYPE',
+      value: note.type === 'tap' ? 'TAP' : 'HOLD',
+    },
+    {
+      label: 'LANE',
+      value: String(note.lane),
+    },
     {
       label: 'TIME',
       value: note.type === 'tap' ? startText : `${startText}–${formatEditorTime(note.endTimeMs)}`,

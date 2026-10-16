@@ -25,9 +25,18 @@ type ChartSong = Pick<Song, 'id' | 'gameStartMs' | 'gameEndMs'>;
 const lane = z.literal(LANES);
 
 const note = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('tap'), timeMs: z.number(), lane }),
+  z.object({
+    type: z.literal('tap'),
+    timeMs: z.number(),
+    lane,
+  }),
   z
-    .object({ type: z.literal('hold'), timeMs: z.number(), endTimeMs: z.number(), lane })
+    .object({
+      type: z.literal('hold'),
+      timeMs: z.number(),
+      endTimeMs: z.number(),
+      lane,
+    })
     .refine((hold) => hold.endTimeMs > hold.timeMs, {
       path: ['endTimeMs'],
       message: 'must be greater than timeMs',
@@ -45,7 +54,11 @@ function checkPlayableTimeline(
   for (const [index, current] of notes.entries()) {
     const endMs = current.type === 'hold' ? current.endTimeMs : current.timeMs;
     const fail = (message: string): void => {
-      ctx.addIssue({ code: 'custom', path: ['notes', index], message });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['notes', index],
+        message,
+      });
     };
     if (current.timeMs < song.gameStartMs) {
       fail('starts before gameStartMs');

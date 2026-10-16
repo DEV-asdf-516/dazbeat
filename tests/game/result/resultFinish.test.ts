@@ -13,7 +13,12 @@ function step(presentationId: string, startMs: number, durationMs: number): Cele
       kind: 'atlas',
       textureKey: `texture-${presentationId}`,
       animationKey: `animation-${presentationId}`,
-      frames: [{ frameName: `${presentationId}-0`, durationMs }],
+      frames: [
+        {
+          frameName: `${presentationId}-0`,
+          durationMs,
+        },
+      ],
       isLoop: false,
       scaleXY: [1, 1],
       scaleRange: null,

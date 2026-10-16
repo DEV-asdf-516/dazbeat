@@ -96,18 +96,35 @@ function makeApp(sampleRecords: FakeRecord[]) {
       return songs;
     },
     findRecordsByFilter(collection, filter, _sort, limit, _offset, params) {
-      queries.push({ collection, filter, limit, params });
+      queries.push({
+        collection,
+        filter,
+        limit,
+        params,
+      });
       return sampleRecords;
     },
     save(model) {
       if ('set' in model) {
-        saved.push({ kind: 'record', id: model.id, data: { ...model.data } });
+        saved.push({
+          kind: 'record',
+          id: model.id,
+          data: { ...model.data },
+        });
       } else {
-        saved.push({ kind: 'collection', name: model.name, fields: [...model.fields.list] });
+        saved.push({
+          kind: 'collection',
+          name: model.name,
+          fields: [...model.fields.list],
+        });
       }
     },
   };
-  return { app, saved, queries };
+  return {
+    app,
+    saved,
+    queries,
+  };
 }
 
 async function loadMigration(): Promise<{ up: MigrationStep; down: MigrationStep }> {
@@ -127,7 +144,10 @@ async function loadMigration(): Promise<{ up: MigrationStep; down: MigrationStep
   if (steps.length !== 2 || up === undefined || down === undefined) {
     throw new Error('Migration must call migrate(up, down) exactly once');
   }
-  return { up, down };
+  return {
+    up,
+    down,
+  };
 }
 
 describe('1791436800_add_songs_constellation migration', () => {
@@ -144,7 +164,12 @@ describe('1791436800_add_songs_constellation migration', () => {
       fields: [
         {
           name: 'constellation',
-          options: { name: 'constellation', required: true, maxSelect: 1, values: [...ZODIACS] },
+          options: {
+            name: 'constellation',
+            required: true,
+            maxSelect: 1,
+            values: [...ZODIACS],
+          },
         },
       ],
     });
@@ -157,7 +182,12 @@ describe('1791436800_add_songs_constellation migration', () => {
     up(app);
 
     expect(queries).toEqual([
-      { collection: 'songs', filter: 'key = {:key}', limit: 1, params: { key: 'sample' } },
+      {
+        collection: 'songs',
+        filter: 'key = {:key}',
+        limit: 1,
+        params: { key: 'sample' },
+      },
     ]);
     expect(saved.map((entry) => entry.kind)).toEqual(['collection', 'record']);
     expect(saved[1]).toEqual({
@@ -183,6 +213,10 @@ describe('1791436800_add_songs_constellation migration', () => {
     up(app);
     down(app);
 
-    expect(saved.at(-1)).toEqual({ kind: 'collection', name: 'songs', fields: [] });
+    expect(saved.at(-1)).toEqual({
+      kind: 'collection',
+      name: 'songs',
+      fields: [],
+    });
   });
 });

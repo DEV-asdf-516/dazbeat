@@ -43,7 +43,13 @@ export class GameplaySession {
   private score = 0;
   private combo = 0;
   private maxCombo = 0;
-  private readonly counts: JudgmentCounts = { perfect: 0, great: 0, good: 0, bad: 0, miss: 0 };
+  private readonly counts: JudgmentCounts = {
+    perfect: 0,
+    great: 0,
+    good: 0,
+    bad: 0,
+    miss: 0,
+  };
   private hp = MAX_HP;
   private hasFailed = false;
   /** 지금까지 받은 가장 큰 시각. 시계가 뒤로 튀어도 이 시각으로 판정·기록한다. */
@@ -54,7 +60,10 @@ export class GameplaySession {
     this.windows = windows;
     this.statuses = chart.notes.map((): NoteStatus => 'pending');
     chart.notes.forEach((note, noteIndex) => {
-      this.laneEntries[note.lane].push({ noteIndex, note });
+      this.laneEntries[note.lane].push({
+        noteIndex,
+        note,
+      });
     });
     this.unjudgedCount = chart.notes.length;
   }
@@ -120,8 +129,16 @@ export class GameplaySession {
       counts: { ...this.counts },
     };
     return this.hasFailed
-      ? { ...base, outcome: 'failed', cleared: false }
-      : { ...base, outcome: 'finished', cleared: isCleared(accuracy) };
+      ? {
+          ...base,
+          outcome: 'failed',
+          cleared: false,
+        }
+      : {
+          ...base,
+          outcome: 'finished',
+          cleared: isCleared(accuracy),
+        };
   }
 
   private advanceTime(songTimeMs: number): number {
@@ -132,7 +149,11 @@ export class GameplaySession {
   /** 실패 뒤의 입력도 기록한다. 리플레이가 같은 호출 순서를 재현해야 하기 때문이다. */
   private recordInput(lane: Lane, kind: InputKind, songTimeMs: number): number {
     const judgedAtMs = this.advanceTime(songTimeMs);
-    this.inputs.push({ lane, kind, songTimeMs: judgedAtMs });
+    this.inputs.push({
+      lane,
+      kind,
+      songTimeMs: judgedAtMs,
+    });
     return judgedAtMs;
   }
 
@@ -166,12 +187,25 @@ export class GameplaySession {
     this.applyJudgment(judgment);
     if (selected.note.type === 'tap') {
       this.settle(selected, 'hit');
-      return { noteIndex: selected.noteIndex, lane, kind: 'tap', judgment };
+      return {
+        noteIndex: selected.noteIndex,
+        lane,
+        kind: 'tap',
+        judgment,
+      };
     }
     this.statuses[selected.noteIndex] = 'holding';
-    this.holdingEntries[lane] = { noteIndex: selected.noteIndex, note: selected.note };
+    this.holdingEntries[lane] = {
+      noteIndex: selected.noteIndex,
+      note: selected.note,
+    };
     this.advanceCursor(lane);
-    return { noteIndex: selected.noteIndex, lane, kind: 'holdStart', judgment };
+    return {
+      noteIndex: selected.noteIndex,
+      lane,
+      kind: 'holdStart',
+      judgment,
+    };
   }
 
   private judgeRelease(lane: Lane, songTimeMs: number): JudgmentEvent | null {
@@ -183,7 +217,12 @@ export class GameplaySession {
     this.applyJudgment(judgment);
     this.holdingEntries[lane] = null;
     this.settle(holding, judgment === 'perfect' ? 'hit' : 'missed');
-    return { noteIndex: holding.noteIndex, lane, kind: 'holdEnd', judgment };
+    return {
+      noteIndex: holding.noteIndex,
+      lane,
+      kind: 'holdEnd',
+      judgment,
+    };
   }
 
   /** 판정 시각이 songTimeMs 보다 이전인 자동 판정(MISS·hold 완료)을 처리한다. */
@@ -217,10 +256,25 @@ export class GameplaySession {
         const judgedAtMs = entry.note.timeMs + this.windows.badMs;
 
         if (entry.note.type === 'tap') {
-          candidates.push({ judgedAtMs, entry, kind: 'tap', judgment: 'miss' });
+          candidates.push({
+            judgedAtMs,
+            entry,
+            kind: 'tap',
+            judgment: 'miss',
+          });
         } else {
-          candidates.push({ judgedAtMs, entry, kind: 'holdStart', judgment: 'miss' });
-          candidates.push({ judgedAtMs, entry, kind: 'holdEnd', judgment: 'miss' });
+          candidates.push({
+            judgedAtMs,
+            entry,
+            kind: 'holdStart',
+            judgment: 'miss',
+          });
+          candidates.push({
+            judgedAtMs,
+            entry,
+            kind: 'holdEnd',
+            judgment: 'miss',
+          });
         }
       }
     }
@@ -236,7 +290,12 @@ export class GameplaySession {
       } else if (kind !== 'holdStart') {
         this.settle(entry, 'missed');
       }
-      events.push({ noteIndex: entry.noteIndex, lane, kind, judgment });
+      events.push({
+        noteIndex: entry.noteIndex,
+        lane,
+        kind,
+        judgment,
+      });
       // 실패한 판정까지만 반영한다. 같은 묶음의 뒤 후보는 실패 뒤의 판정이므로 버린다.
       if (this.hasFailed) {
         break;

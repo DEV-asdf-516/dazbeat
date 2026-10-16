@@ -56,6 +56,9 @@ export class WorldActivation {
     const reachedFull = reachedFullActivation(this.combo, combo, this.fullActivationCombo);
     this.timeMs = songTimeMs;
     this.combo = combo;
-    return { level: this.level, reachedFull };
+    return {
+      level: this.level,
+      reachedFull,
+    };
   }
 }

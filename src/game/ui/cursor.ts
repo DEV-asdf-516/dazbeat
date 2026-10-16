@@ -7,4 +7,7 @@ export const DRAG_CURSOR = "url('/assets/ui/cursor/cursor-drag.png') 6 2, ew-res
 export const DISABLED_CURSOR = "url('/assets/ui/cursor/cursor-disabled.png') 6 2, not-allowed";
 
 /** 커서 그림에서 화살표 꼬리 끝이 hotspot(화살표 끝)에서 떨어진 거리. 성운 잔상이 여기서 풀려 나온다. */
-export const CURSOR_TAIL_OFFSET_PX = { xPx: 14, yPx: 21 } as const;
+export const CURSOR_TAIL_OFFSET_PX = {
+  xPx: 14,
+  yPx: 21,
+} as const;

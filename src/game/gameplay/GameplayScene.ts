@@ -103,7 +103,10 @@ const STARLIGHT_Y_PX = 68;
 const STARLIGHT_EMBLEM_GAP_PX = 8;
 const STARLIGHT_LABEL_GAP_PX = 12;
 const STARLIGHT_WIDTH_PX = 256;
-const STARLIGHT_LABEL_TYPE = { sizePx: 12, weight: 500 } as const;
+const STARLIGHT_LABEL_TYPE = {
+  sizePx: 12,
+  weight: 500,
+} as const;
 // 밝은 영상 위에서도 라벨이 읽히도록 글자 바로 뒤에만 좁은 어두운 그림자를 둔다.
 const STARLIGHT_LABEL_SHADOW = {
   offsetXPx: 0,
@@ -162,9 +165,24 @@ const FULL_COMBO_GLOW_REST_ALPHA = 0.16;
 // 글자 귀퉁이 바깥에서 십자 별이 차례로 한 번씩 반짝인다. 위치는 글자 반폭·반높이에 대한 비율이다.
 const FULL_COMBO_TWINKLE_ID = 'R28';
 const FULL_COMBO_TWINKLES = [
-  { x: -1.06, y: -0.85, haloSizePx: 44, delayMs: 100 },
-  { x: 1.08, y: -0.6, haloSizePx: 32, delayMs: 260 },
-  { x: 0.98, y: 1.0, haloSizePx: 40, delayMs: 420 },
+  {
+    x: -1.06,
+    y: -0.85,
+    haloSizePx: 44,
+    delayMs: 100,
+  },
+  {
+    x: 1.08,
+    y: -0.6,
+    haloSizePx: 32,
+    delayMs: 260,
+  },
+  {
+    x: 0.98,
+    y: 1.0,
+    haloSizePx: 40,
+    delayMs: 420,
+  },
 ] as const;
 // 매니페스트 scaleRange 의 최대값이다. 십자만으로는 작아서 뒤에 금빛 광점을 함께 키웠다 줄인다.
 const FULL_COMBO_TWINKLE_SCALE = 0.25;
@@ -511,7 +529,15 @@ export class GameplayScene extends Phaser.Scene {
           player.setVolume(this.settings.masterVolume * this.settings.musicVolume);
           this.phase = {
             kind: 'ready',
-            run: { song, difficulty, chart, rankedSessionId, view, player, timeSource },
+            run: {
+              song,
+              difficulty,
+              chart,
+              rankedSessionId,
+              view,
+              player,
+              timeSource,
+            },
           };
           this.setStatus(view, 'awaitingStart');
         },
@@ -699,7 +725,10 @@ export class GameplayScene extends Phaser.Scene {
         const run = this.requireReadyRun();
         run.player.requestPlay(getPlaybackStartMs(run.song.gameStartMs) / 1000);
         this.setStatus(run.view, 'preparing');
-        this.phase = { kind: 'starting', run };
+        this.phase = {
+          kind: 'starting',
+          run,
+        };
         return;
       }
       case 'openQuitConfirm':
@@ -761,13 +790,19 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private backToSongSelect(): void {
-    this.exit = exitScene(this, this.exit, { key: 'songSelect', data: undefined });
+    this.exit = exitScene(this, this.exit, {
+      key: 'songSelect',
+      data: undefined,
+    });
   }
 
   private cycleMvMode(view: GameplayView): void {
     const next = cycleItem(MV_MODES, this.settings.mvMode, 1);
     this.mvLayer.dataset.mvMode = next;
-    this.settings = { ...this.settings, mvMode: next };
+    this.settings = {
+      ...this.settings,
+      mvMode: next,
+    };
     try {
       this.save.saveSettings(this.settings);
     } catch (error) {
@@ -832,7 +867,11 @@ export class GameplayScene extends Phaser.Scene {
       delay: JUDGMENT_HOLD_MS,
       duration: JUDGMENT_FADE_MS,
     });
-    this.tweens.add({ targets: judgmentText, scale: 1, duration: MOTION.fastMs });
+    this.tweens.add({
+      targets: judgmentText,
+      scale: 1,
+      duration: MOTION.fastMs,
+    });
     // 맞힌 판정만 번쩍인다. 글자와 같은 크기로 줄어들며 사라져 획이 어긋나 보이지 않는다.
     judgmentFlash
       .setText(judgmentText.text)
@@ -933,7 +972,11 @@ export class GameplayScene extends Phaser.Scene {
       duration: MOTION.mediumMs,
       ease: 'Back.Out',
     });
-    this.tweens.add({ targets: label, alpha: 1, duration: MOTION.fastMs });
+    this.tweens.add({
+      targets: label,
+      alpha: 1,
+      duration: MOTION.fastMs,
+    });
     this.tweens.add({
       targets: flash,
       alpha: 0,
@@ -951,7 +994,10 @@ export class GameplayScene extends Phaser.Scene {
           duration: MOTION.mediumMs,
           ease: 'Cubic.Out',
         },
-        { alpha: FULL_COMBO_GLOW_REST_ALPHA, duration: MOTION.mediumMs },
+        {
+          alpha: FULL_COMBO_GLOW_REST_ALPHA,
+          duration: MOTION.mediumMs,
+        },
       ],
     });
     FULL_COMBO_TWINKLES.forEach(({ x, y, haloSizePx, delayMs }) => {
@@ -1034,7 +1080,11 @@ export class GameplayScene extends Phaser.Scene {
       this.tweens.chain({
         targets: star,
         tweens: [
-          { alpha, delay: gaugeGoneMs, duration: FAILURE_STAR_APPEAR_MS },
+          {
+            alpha,
+            delay: gaugeGoneMs,
+            duration: FAILURE_STAR_APPEAR_MS,
+          },
           {
             alpha: 0,
             delay: FAILURE_STAR_HOLD_MS + FAILURE_STAR_STAGGER_MS * index,
@@ -1071,7 +1121,11 @@ export class GameplayScene extends Phaser.Scene {
         console.warn('Failed to submit ranked play', error);
       });
     }
-    const data: ResultSceneData = { song: run.song, difficulty: run.difficulty, result };
+    const data: ResultSceneData = {
+      song: run.song,
+      difficulty: run.difficulty,
+      result,
+    };
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
       startScene(this, 'result', data),
     );

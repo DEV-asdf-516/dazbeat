@@ -9,7 +9,11 @@ const PLAYER: AuthUser = {
   name: 'Player',
   isEditor: false,
 };
-const EDITOR: AuthUser = { ...PLAYER, id: 'user-2', isEditor: true };
+const EDITOR: AuthUser = {
+  ...PLAYER,
+  id: 'user-2',
+  isEditor: true,
+};
 
 describe('getMainMenuItems', () => {
   it('shows the player menu to a guest', () => {

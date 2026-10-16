@@ -54,7 +54,10 @@ const HOLD_RIBBON_EDGE_ALPHA = 0.4;
 // 채움 꼬리가 너무 꺼지면 짧은 채움(위험 단계)이 읽히지 않으므로 절반 남짓만 물린다.
 const STARLIGHT_FILL_TAIL_ALPHA = 0.55;
 // 도려내는 원의 위치·크기(반지름 비율). 가는 초승달이 16px 에서도 뭉개지지 않는 두께다.
-const CRESCENT_CUT_OFFSET = { x: 0.45, y: -0.2 } as const;
+const CRESCENT_CUT_OFFSET = {
+  x: 0.45,
+  y: -0.2,
+} as const;
 const CRESCENT_CUT_RADIUS = 0.85;
 const JUDGE_LINE_TEXTURE_WIDTH_PX = 480;
 const JUDGE_LINE_TEXTURE_HEIGHT_PX = 2;

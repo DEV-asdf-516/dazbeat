@@ -18,7 +18,12 @@ const SCREEN_WIDTH_PX = 1920;
 const SCREEN_HEIGHT_PX = 1080;
 const AMBIENT_ROLES = new Set(['R11', 'R12', 'R13', 'R27']);
 // Settings UI(행 라벨·컨트롤 x160–1040, 제목 y96 부터 힌트 y1000 까지)와 겹치면 안 된다.
-const SETTINGS_UI = { left: 160, top: 96, right: 1040, bottom: 1000 };
+const SETTINGS_UI = {
+  left: 160,
+  top: 96,
+  right: 1040,
+  bottom: 1000,
+};
 
 const BOARDS: readonly [CelestialScreen, string, string][] = [
   ['main', 'main', 'Main'],
@@ -95,9 +100,27 @@ describe('CELESTIAL_SCREENS', () => {
 
   it('secondary ambient keeps the board except the three moved Settings overlaps', async () => {
     const moved = new Map([
-      ['R11@120,254', { xPx: 1760, yPx: 300 }],
-      ['R11@315,929', { xPx: 1380, yPx: 180 }],
-      ['R13@193,145', { xPx: 1700, yPx: 520 }],
+      [
+        'R11@120,254',
+        {
+          xPx: 1760,
+          yPx: 300,
+        },
+      ],
+      [
+        'R11@315,929',
+        {
+          xPx: 1380,
+          yPx: 180,
+        },
+      ],
+      [
+        'R13@193,145',
+        {
+          xPx: 1700,
+          yPx: 520,
+        },
+      ],
     ]);
     const expected = (await readBoardAmbient('secondary')).map((placement) => ({
       ...placement,

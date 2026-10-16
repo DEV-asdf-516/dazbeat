@@ -13,14 +13,25 @@ const SONG_KEY = 'limited';
 const GAME_END_MS = 5_000;
 const ELAPSED_PLAY_MS = 10_000;
 const FRAME_INTERVAL_MS = 17;
-const ISSUE_LIMIT = 10;
+const USER_ISSUE_LIMIT = 20;
+const IP_ISSUE_LIMIT = 30;
+// The built-in `*:auth` rule allows 2 sign-ins per 3 s; waiting a bit longer empties that bucket.
+const AUTH_RULE_WAIT_MS = 3_500;
 const chart: Chart = {
   songId: SONG_KEY,
   difficulty: 'easy',
   offsetMs: 0,
   notes: [
-    { type: 'tap', timeMs: 1_000, lane: 0 },
-    { type: 'tap', timeMs: 2_000, lane: 1 },
+    {
+      type: 'tap',
+      timeMs: 1_000,
+      lane: 0,
+    },
+    {
+      type: 'tap',
+      timeMs: 2_000,
+      lane: 1,
+    },
   ],
 };
 
@@ -29,20 +40,24 @@ let server: PocketBaseServer;
 let player: TestUser;
 let chartRecord: RecordModel;
 let chartRevision: unknown;
+// Every issue request this file sends from the loopback IP, accepted or not: the IP bucket counts them all.
 let issuedCount = 0;
 
 function issueSession(client: PocketBase): Promise<{ sessionId: string }> {
   issuedCount += 1;
   return client.send<{ sessionId: string }>('/api/dazbeat/play-sessions', {
     method: 'POST',
-    body: { chartId: chartRecord.id, chartRevision },
+    body: {
+      chartId: chartRecord.id,
+      chartRevision,
+    },
   });
 }
 
 beforeAll(async () => {
   dataDir = await createTempDir('rate-limits');
   server = await startPocketBase({ dataDir });
-  // Only one user signs in: the superuser and this player already use up the 2 / 3 s auth limit.
+  // The superuser and this player use up the 2 / 3 s auth limit, so a later sign-in waits it out.
   player = await createUser(server, 'player@example.com');
   const song = await createSong(server.superuser, SONG_KEY, GAME_END_MS);
   chartRecord = await createChart(server.superuser, song.id, chart.difficulty, chart);
@@ -61,12 +76,42 @@ describe('built-in rate limits', () => {
     expect(settings).toHaveProperty(
       'rateLimits.rules',
       expect.arrayContaining([
-        { label: '*:auth', audience: '', maxRequests: 2, duration: 3 },
-        { label: '*:create', audience: '', maxRequests: 20, duration: 5 },
-        { label: '/api/batch', audience: '', maxRequests: 3, duration: 1 },
-        { label: '/api/', audience: '', maxRequests: 300, duration: 10 },
-        { label: 'POST /api/dazbeat/play-sessions', audience: '', maxRequests: 10, duration: 60 },
-        { label: 'POST /api/dazbeat/play-sessions/', audience: '', maxRequests: 10, duration: 60 },
+        {
+          label: '*:auth',
+          audience: '',
+          maxRequests: 2,
+          duration: 3,
+        },
+        {
+          label: '*:create',
+          audience: '',
+          maxRequests: 20,
+          duration: 5,
+        },
+        {
+          label: '/api/batch',
+          audience: '',
+          maxRequests: 3,
+          duration: 1,
+        },
+        {
+          label: '/api/',
+          audience: '',
+          maxRequests: 300,
+          duration: 10,
+        },
+        {
+          label: 'POST /api/dazbeat/play-sessions',
+          audience: '',
+          maxRequests: 30,
+          duration: 60,
+        },
+        {
+          label: 'POST /api/dazbeat/play-sessions/',
+          audience: '',
+          maxRequests: 30,
+          duration: 60,
+        },
       ]),
     );
   });
@@ -75,8 +120,16 @@ describe('built-in rate limits', () => {
     const play = simulateClientPlay(
       chart,
       chart.notes.flatMap((note) => [
-        { lane: note.lane, kind: 'press' as const, songTimeMs: note.timeMs },
-        { lane: note.lane, kind: 'release' as const, songTimeMs: note.timeMs + 50 },
+        {
+          lane: note.lane,
+          kind: 'press' as const,
+          songTimeMs: note.timeMs,
+        },
+        {
+          lane: note.lane,
+          kind: 'release' as const,
+          songTimeMs: note.timeMs + 50,
+        },
       ]),
       Array.from(
         { length: Math.ceil((GAME_END_MS + 1_000) / FRAME_INTERVAL_MS) },
@@ -90,16 +143,37 @@ describe('built-in rate limits', () => {
 
     const response = await player.client.send<{ score: number }>(
       `/api/dazbeat/play-sessions/${sessionId}/result`,
-      { method: 'POST', body: { inputOffsetMs: 0, events: play.inputs } },
+      {
+        method: 'POST',
+        body: {
+          inputOffsetMs: 0,
+          events: play.inputs,
+        },
+      },
     );
     expect(response.score).toBe(play.result.score);
   });
 
-  it('reject the 11th session issue within a minute with 429', async () => {
-    while (issuedCount < ISSUE_LIMIT) {
+  it('reject the 31st session issue from one IP within a minute with the built-in 429', async () => {
+    // Every request so far came from the player, so issuedCount is also the player's own count.
+    while (issuedCount < USER_ISSUE_LIMIT) {
       await issueSession(player.client);
     }
-    await expect(issueSession(player.client)).rejects.toMatchObject({ status: 429 });
+    await expect(issueSession(player.client)).rejects.toMatchObject({
+      status: 429,
+      response: { code: 'session_rate_limited' },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, AUTH_RULE_WAIT_MS));
+    const secondPlayer = await createUser(server, 'second-player@example.com');
+    while (issuedCount < IP_ISSUE_LIMIT) {
+      await issueSession(secondPlayer.client);
+    }
+    const rejected: unknown = await issueSession(secondPlayer.client).catch(
+      (error: unknown) => error,
+    );
+    expect(rejected).toMatchObject({ status: 429 });
+    expect(rejected).not.toHaveProperty('response.code');
   });
 });
 

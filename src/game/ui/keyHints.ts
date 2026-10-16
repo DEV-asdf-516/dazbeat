@@ -19,6 +19,9 @@ export function parseKeyHints(text: string): KeyHint[] {
       if (spaceIndex === -1) {
         throw new Error(`Key hint item needs a key and a label: "${item}"`);
       }
-      return { key: item.slice(0, spaceIndex), label: item.slice(spaceIndex + 1) };
+      return {
+        key: item.slice(0, spaceIndex),
+        label: item.slice(spaceIndex + 1),
+      };
     });
 }

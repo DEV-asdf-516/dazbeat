@@ -17,7 +17,12 @@ export function createSettingsEditorState(
   rows: readonly SettingsRow[],
   settings: Settings,
 ): SettingsEditorState {
-  return { rows, settings, rowIndex: 0, waitingLane: null };
+  return {
+    rows,
+    settings,
+    rowIndex: 0,
+    waitingLane: null,
+  };
 }
 
 export function isWaitingKey(state: SettingsEditorState): boolean {
@@ -26,7 +31,12 @@ export function isWaitingKey(state: SettingsEditorState): boolean {
 
 export function focusRow(state: SettingsEditorState, index: number): SettingsEditorState {
   getRow(state, index);
-  return index === state.rowIndex ? state : { ...state, rowIndex: index };
+  return index === state.rowIndex
+    ? state
+    : {
+        ...state,
+        rowIndex: index,
+      };
 }
 
 export function moveFocus(state: SettingsEditorState, delta: 1 | -1): SettingsEditorState {
@@ -44,7 +54,11 @@ export function adjustRow(
   if (settings === state.settings && index === state.rowIndex) {
     return state;
   }
-  return { ...state, rowIndex: index, settings };
+  return {
+    ...state,
+    rowIndex: index,
+    settings,
+  };
 }
 
 /** 키 행이 아니면 포커스만 옮긴다. */
@@ -53,7 +67,11 @@ export function startWaiting(state: SettingsEditorState, index: number): Setting
   if (row.kind !== 'key') {
     return focusRow(state, index);
   }
-  return { ...state, rowIndex: index, waitingLane: row.lane };
+  return {
+    ...state,
+    rowIndex: index,
+    waitingLane: row.lane,
+  };
 }
 
 /** Escape 는 바인딩 없이 대기만 끝낸다. */
@@ -64,17 +82,28 @@ export function bindWaitingKey(state: SettingsEditorState, code: string): Settin
   }
   const { keyBindings } = state.settings;
   if (code === 'Escape' || keyBindings[lane] === code) {
-    return { ...state, waitingLane: null };
+    return {
+      ...state,
+      waitingLane: null,
+    };
   }
   return {
     ...state,
     waitingLane: null,
-    settings: { ...state.settings, keyBindings: assignKey(keyBindings, lane, code) },
+    settings: {
+      ...state.settings,
+      keyBindings: assignKey(keyBindings, lane, code),
+    },
   };
 }
 
 export function cancelWaiting(state: SettingsEditorState): SettingsEditorState {
-  return state.waitingLane === null ? state : { ...state, waitingLane: null };
+  return state.waitingLane === null
+    ? state
+    : {
+        ...state,
+        waitingLane: null,
+      };
 }
 
 /** 키 대기 중의 포인터 입력은 원래 동작 대신 대기를 취소한다. */

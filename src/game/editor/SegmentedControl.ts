@@ -30,7 +30,10 @@ interface Segment<T> {
 
 const TRACK_HEIGHT_PX = 44;
 const TRACK_INSET_PX = 4;
-const LABEL_TYPE = { sizePx: EDITOR_TYPE_SCALE.control.sizePx, weight: 600 } as const;
+const LABEL_TYPE = {
+  sizePx: EDITOR_TYPE_SCALE.control.sizePx,
+  weight: 600,
+} as const;
 const GLYPH_LABEL_GAP_PX = 8;
 
 /**
@@ -80,7 +83,12 @@ export class SegmentedControl<T> {
       const groupLeftPx = centerXPx - (glyphSpanPx + label.width) / 2;
       label.setX(groupLeftPx + glyphSpanPx);
       const glyph =
-        option.glyph === undefined ? null : scene.add.graphics({ x: groupLeftPx, y: centerYPx });
+        option.glyph === undefined
+          ? null
+          : scene.add.graphics({
+              x: groupLeftPx,
+              y: centerYPx,
+            });
       scene.add
         .zone(segmentLeftPx, topYPx, segmentWidthPx, TRACK_HEIGHT_PX)
         .setOrigin(0, 0)
@@ -88,7 +96,12 @@ export class SegmentedControl<T> {
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => this.setHovered(option.value))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.setHovered(null))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => onSelect(option.value));
-      return { option, label, glyph, centerXPx };
+      return {
+        option,
+        label,
+        glyph,
+        centerXPx,
+      };
     });
   }
 

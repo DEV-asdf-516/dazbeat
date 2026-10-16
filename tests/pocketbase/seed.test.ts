@@ -33,8 +33,17 @@ function fakeChart(key: string, difficulty: string) {
     difficulty,
     offsetMs: 0,
     notes: [
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'hold', timeMs: 2000, endTimeMs: 3000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'hold',
+        timeMs: 2000,
+        endTimeMs: 3000,
+        lane: 1,
+      },
     ],
   };
 }
@@ -51,7 +60,10 @@ function fakeManifestSong(key: string, overrides: Record<string, unknown> = {}) 
     gameEndMs: 10000,
     credit: [`Fake credit for ${key}`],
     jacket: `${key}/jacket.png`,
-    charts: { easy: `${key}/charts/easy.json`, expert: `${key}/charts/expert.json` },
+    charts: {
+      easy: `${key}/charts/easy.json`,
+      expert: `${key}/charts/expert.json`,
+    },
     ...overrides,
   };
 }
@@ -82,7 +94,10 @@ async function writeManifest(manifest: unknown): Promise<void> {
 
 async function writeFakeData(): Promise<void> {
   await writeFakeSongFiles('fake-a');
-  await writeManifest({ version: 1, songs: [fakeManifestSong('fake-a')] });
+  await writeManifest({
+    version: 1,
+    songs: [fakeManifestSong('fake-a')],
+  });
 }
 
 function parseFilter(filter: string | null): [string, string] {
@@ -125,7 +140,10 @@ function stubPocketBase(store: Record<'songs' | 'charts', StoredRecord[]>) {
           new Response(
             JSON.stringify({
               token: 'superuser-token',
-              record: { id: 'superuser_1', collectionName: '_superusers' },
+              record: {
+                id: 'superuser_1',
+                collectionName: '_superusers',
+              },
             }),
           ),
         );
@@ -141,19 +159,35 @@ function stubPocketBase(store: Record<'songs' | 'charts', StoredRecord[]>) {
         const items = store[collection].filter((record) => record[field] === value);
         return Promise.resolve(
           new Response(
-            JSON.stringify({ page: 1, perPage: 1000, totalItems: -1, totalPages: -1, items }),
+            JSON.stringify({
+              page: 1,
+              perPage: 1000,
+              totalItems: -1,
+              totalPages: -1,
+              items,
+            }),
           ),
         );
       }
       const body = parseBody(init?.body);
-      writes.push({ method, collection, body });
-      const record: StoredRecord = { ...body, id: `${collection}_${nextId++}` };
+      writes.push({
+        method,
+        collection,
+        body,
+      });
+      const record: StoredRecord = {
+        ...body,
+        id: `${collection}_${nextId++}`,
+      };
       store[collection].push(record);
       return Promise.resolve(new Response(JSON.stringify(record)));
     },
   );
   vi.stubGlobal('fetch', fetchMock);
-  return { fetchMock, writes };
+  return {
+    fetchMock,
+    writes,
+  };
 }
 
 beforeEach(async () => {
@@ -164,7 +198,10 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
-  await rm(dataDirPath, { recursive: true, force: true });
+  await rm(dataDirPath, {
+    recursive: true,
+    force: true,
+  });
 });
 
 async function seedError(env: Readonly<Record<string, string | undefined>>): Promise<unknown> {
@@ -177,7 +214,10 @@ async function seedError(env: Readonly<Record<string, string | undefined>>): Pro
 describe('seedPocketBase', () => {
   it('creates the song with its jacket and charts on an empty server', async () => {
     await writeFakeData();
-    const { writes } = stubPocketBase({ songs: [], charts: [] });
+    const { writes } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
 
     await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
 
@@ -205,12 +245,20 @@ describe('seedPocketBase', () => {
       {
         method: 'POST',
         collection: 'charts',
-        body: { song: 'songs_1', difficulty: 'easy', data: fakeChart('fake-a', 'easy') },
+        body: {
+          song: 'songs_1',
+          difficulty: 'easy',
+          data: fakeChart('fake-a', 'easy'),
+        },
       },
       {
         method: 'POST',
         collection: 'charts',
-        body: { song: 'songs_1', difficulty: 'expert', data: fakeChart('fake-a', 'expert') },
+        body: {
+          song: 'songs_1',
+          difficulty: 'expert',
+          data: fakeChart('fake-a', 'expert'),
+        },
       },
     ]);
   });
@@ -222,7 +270,10 @@ describe('seedPocketBase', () => {
       version: 1,
       songs: [fakeManifestSong('fake-a', { jacket: 'fake-a/My 재킷.png' })],
     });
-    const { writes } = stubPocketBase({ songs: [], charts: [] });
+    const { writes } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
 
     await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
 
@@ -233,10 +284,23 @@ describe('seedPocketBase', () => {
   it('sends no write requests when the song and all charts already exist', async () => {
     await writeFakeData();
     const { fetchMock, writes } = stubPocketBase({
-      songs: [{ id: 'existing_song', key: 'fake-a' }],
+      songs: [
+        {
+          id: 'existing_song',
+          key: 'fake-a',
+        },
+      ],
       charts: [
-        { id: 'existing_easy', song: 'existing_song', difficulty: 'easy' },
-        { id: 'existing_expert', song: 'existing_song', difficulty: 'expert' },
+        {
+          id: 'existing_easy',
+          song: 'existing_song',
+          difficulty: 'easy',
+        },
+        {
+          id: 'existing_expert',
+          song: 'existing_song',
+          difficulty: 'expert',
+        },
       ],
     });
 
@@ -249,8 +313,19 @@ describe('seedPocketBase', () => {
   it('creates only the missing charts when some charts already exist', async () => {
     await writeFakeData();
     const { writes } = stubPocketBase({
-      songs: [{ id: 'existing_song', key: 'fake-a' }],
-      charts: [{ id: 'existing_easy', song: 'existing_song', difficulty: 'easy' }],
+      songs: [
+        {
+          id: 'existing_song',
+          key: 'fake-a',
+        },
+      ],
+      charts: [
+        {
+          id: 'existing_easy',
+          song: 'existing_song',
+          difficulty: 'easy',
+        },
+      ],
     });
 
     await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
@@ -259,7 +334,11 @@ describe('seedPocketBase', () => {
       {
         method: 'POST',
         collection: 'charts',
-        body: { song: 'existing_song', difficulty: 'expert', data: fakeChart('fake-a', 'expert') },
+        body: {
+          song: 'existing_song',
+          difficulty: 'expert',
+          data: fakeChart('fake-a', 'expert'),
+        },
       },
     ]);
   });
@@ -268,7 +347,10 @@ describe('seedPocketBase', () => {
 describe('runSeed', () => {
   it('authenticates and seeds a loopback PocketBase from the data directory', async () => {
     await writeFakeData();
-    const { fetchMock, writes } = stubPocketBase({ songs: [], charts: [] });
+    const { fetchMock, writes } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
 
     await runSeed(LOCAL_ENV, dataDir);
 
@@ -280,7 +362,10 @@ describe('runSeed', () => {
 
   it('rejects with every missing variable name without sending requests', async () => {
     await writeFakeData();
-    const { fetchMock } = stubPocketBase({ songs: [], charts: [] });
+    const { fetchMock } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
 
     const error = await seedError({});
 
@@ -294,9 +379,15 @@ describe('runSeed', () => {
 
   it('rejects with only the missing names when some variables are set', async () => {
     await writeFakeData();
-    const { fetchMock } = stubPocketBase({ songs: [], charts: [] });
+    const { fetchMock } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
 
-    const error = await seedError({ ...LOCAL_ENV, PB_SUPERUSER_PASSWORD: '' });
+    const error = await seedError({
+      ...LOCAL_ENV,
+      PB_SUPERUSER_PASSWORD: '',
+    });
 
     expect(error).toBeInstanceOf(Error);
     const message = error instanceof Error ? error.message : '';
@@ -313,9 +404,15 @@ describe('runSeed', () => {
     'not a url',
   ])('rejects the non-loopback target %s without sending requests', async (url) => {
     await writeFakeData();
-    const { fetchMock } = stubPocketBase({ songs: [], charts: [] });
+    const { fetchMock } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
 
-    const error = await seedError({ ...LOCAL_ENV, VITE_POCKETBASE_URL: url });
+    const error = await seedError({
+      ...LOCAL_ENV,
+      VITE_POCKETBASE_URL: url,
+    });
 
     expect(error).toBeInstanceOf(Error);
     expect(error instanceof Error ? error.message : '').toContain('admin UI');
@@ -326,9 +423,18 @@ describe('runSeed', () => {
     'accepts the loopback target %s',
     async (url) => {
       await writeFakeData();
-      const { fetchMock } = stubPocketBase({ songs: [], charts: [] });
+      const { fetchMock } = stubPocketBase({
+        songs: [],
+        charts: [],
+      });
 
-      await runSeed({ ...LOCAL_ENV, VITE_POCKETBASE_URL: url }, dataDir);
+      await runSeed(
+        {
+          ...LOCAL_ENV,
+          VITE_POCKETBASE_URL: url,
+        },
+        dataDir,
+      );
 
       expect(fetchMock).toHaveBeenCalled();
     },
@@ -354,7 +460,10 @@ describe('runSeed', () => {
       name: 'the manifest has an unknown field',
       prepare: async () => {
         await writeFakeSongFiles('fake-a');
-        await writeManifest({ version: 1, songs: [fakeManifestSong('fake-a', { titel: 'typo' })] });
+        await writeManifest({
+          version: 1,
+          songs: [fakeManifestSong('fake-a', { titel: 'typo' })],
+        });
       },
       failedPath: 'manifest.json',
     },
@@ -382,7 +491,11 @@ describe('runSeed', () => {
     },
     {
       name: 'the manifest has no songs',
-      prepare: () => writeManifest({ version: 1, songs: [] }),
+      prepare: () =>
+        writeManifest({
+          version: 1,
+          songs: [],
+        }),
       failedPath: 'manifest.json',
     },
     {
@@ -419,7 +532,10 @@ describe('runSeed', () => {
         await writeFakeData();
         await writeDataFile(
           'fake-a/charts/easy.json',
-          JSON.stringify({ ...fakeChart('fake-a', 'easy'), notes: [] }),
+          JSON.stringify({
+            ...fakeChart('fake-a', 'easy'),
+            notes: [],
+          }),
         );
       },
       failedPath: 'fake-a/charts/easy.json',
@@ -478,7 +594,10 @@ describe('runSeed', () => {
     'rejects without sending requests when $name',
     async ({ prepare, failedPath, location }) => {
       await prepare();
-      const { fetchMock } = stubPocketBase({ songs: [], charts: [] });
+      const { fetchMock } = stubPocketBase({
+        songs: [],
+        charts: [],
+      });
 
       const error = await seedError(LOCAL_ENV);
 
@@ -495,7 +614,10 @@ describe('runSeed', () => {
 
   it('names the song key and field when a song field is invalid', async () => {
     await writeFakeSongFiles('fake-a');
-    await writeManifest({ version: 1, songs: [fakeManifestSong('fake-a', { category: 'remix' })] });
+    await writeManifest({
+      version: 1,
+      songs: [fakeManifestSong('fake-a', { category: 'remix' })],
+    });
 
     const error = await loadSeedManifest(dataDir).catch((reason: unknown) => reason);
 
@@ -529,7 +651,10 @@ describe('runSeed', () => {
       version: 1,
       songs: [fakeManifestSong('fake-a', { charts: { easy: unconvertibleUrl } })],
     });
-    const { fetchMock } = stubPocketBase({ songs: [], charts: [] });
+    const { fetchMock } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
 
     const error = await seedError(LOCAL_ENV);
 
@@ -550,8 +675,15 @@ describe('seed CLI', () => {
       const child = execFile(
         process.execPath,
         ['--import', './pocketbase/seed/resolveTsImports.mjs', 'pocketbase/seed/seed.ts'],
-        { cwd: repoRoot, env: {} },
-        (_error, _stdout, stderr) => resolve({ code: child.exitCode, stderr }),
+        {
+          cwd: repoRoot,
+          env: {},
+        },
+        (_error, _stdout, stderr) =>
+          resolve({
+            code: child.exitCode,
+            stderr,
+          }),
       );
     });
 

@@ -160,7 +160,11 @@ async function loadJacket(dataDir: URL, song: ManifestSong): Promise<SeedSong['j
     );
   }
   const bytes = await readDataFile(url, location);
-  return { fileName: basename(filePath), type, bytes };
+  return {
+    fileName: basename(filePath),
+    type,
+    bytes,
+  };
 }
 
 async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['charts']> {
@@ -176,10 +180,17 @@ async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['c
     try {
       const data = parseChart(
         json,
-        { id: song.key, gameStartMs: song.gameStartMs, gameEndMs: song.gameEndMs },
+        {
+          id: song.key,
+          gameStartMs: song.gameStartMs,
+          gameEndMs: song.gameEndMs,
+        },
         difficulty,
       );
-      charts.push({ difficulty, data });
+      charts.push({
+        difficulty,
+        data,
+      });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new InvalidSeedDataError(fileURLToPath(url), `${location}: ${reason}`);

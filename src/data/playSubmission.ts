@@ -76,7 +76,11 @@ function checkEventTimeline(
   let previousTimeMs = Number.NEGATIVE_INFINITY;
   for (const [index, { songTimeMs }] of events.entries()) {
     const fail = (message: string): void => {
-      ctx.addIssue({ code: 'custom', path: ['events', index, 'songTimeMs'], message });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['events', index, 'songTimeMs'],
+        message,
+      });
     };
     if (songTimeMs < range.minMs) {
       fail(`is before ${range.minMs}`);
@@ -94,7 +98,10 @@ function submissionSchema(range: EventTimeRangeMs) {
     ((range.maxMs - range.minMs) / MS_PER_SECOND) * MAX_INPUT_EVENTS_PER_SECOND,
   );
   return z
-    .object({ inputOffsetMs, events: z.array(inputEvent).max(maxEvents) })
+    .object({
+      inputOffsetMs,
+      events: z.array(inputEvent).max(maxEvents),
+    })
     .superRefine((submission, ctx) => checkEventTimeline(submission.events, range, ctx));
 }
 

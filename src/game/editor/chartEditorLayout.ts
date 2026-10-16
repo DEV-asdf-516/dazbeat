@@ -86,7 +86,10 @@ export function createEditorLayout(screenWidthPx: number, screenHeightPx: number
   const lanesWidthPx = laneColumnRightPx - lanesLeftPx;
   const seekLeftPx = laneColumnLeftPx + SEEK_OFFSET_X_PX;
   return {
-    topBar: { heightPx: TOP_BAR_HEIGHT_PX, centerYPx: TOP_BAR_HEIGHT_PX / 2 },
+    topBar: {
+      heightPx: TOP_BAR_HEIGHT_PX,
+      centerYPx: TOP_BAR_HEIGHT_PX / 2,
+    },
     bottomBar: {
       topYPx: bottomBarTopYPx,
       heightPx: BOTTOM_BAR_HEIGHT_PX,
@@ -104,12 +107,21 @@ export function createEditorLayout(screenWidthPx: number, screenHeightPx: number
       widthPx: VIDEO_WIDTH_PX,
     },
     hint: { leftPx: workLeftPx },
-    laneColumn: { leftPx: laneColumnLeftPx, widthPx: LANE_COLUMN_WIDTH_PX },
-    title: { leftPx: laneColumnLeftPx, maxWidthPx: TITLE_MAX_WIDTH_PX },
+    laneColumn: {
+      leftPx: laneColumnLeftPx,
+      widthPx: LANE_COLUMN_WIDTH_PX,
+    },
+    title: {
+      leftPx: laneColumnLeftPx,
+      maxWidthPx: TITLE_MAX_WIDTH_PX,
+    },
     difficultiesLeftPx: laneColumnLeftPx + TITLE_MAX_WIDTH_PX + TITLE_DIFFICULTY_GAP_PX,
     playLeftPx: laneColumnLeftPx,
     timeXPx: laneColumnLeftPx + TIME_OFFSET_X_PX,
-    seek: { leftPx: seekLeftPx, widthPx: laneColumnRightPx - seekLeftPx },
+    seek: {
+      leftPx: seekLeftPx,
+      widthPx: laneColumnRightPx - seekLeftPx,
+    },
     timeline: {
       topYPx: workTopYPx,
       bottomYPx: timelineBottomYPx,

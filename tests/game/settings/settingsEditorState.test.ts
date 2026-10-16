@@ -14,9 +14,18 @@ import {
 import { DEFAULT_SETTINGS } from '../../../src/storage/LocalSave.js';
 
 const ROWS: readonly SettingsRow[] = [
-  { kind: 'volume', field: 'masterVolume' },
-  { kind: 'key', lane: 0 },
-  { kind: 'key', lane: 1 },
+  {
+    kind: 'volume',
+    field: 'masterVolume',
+  },
+  {
+    kind: 'key',
+    lane: 0,
+  },
+  {
+    kind: 'key',
+    lane: 1,
+  },
 ];
 
 function initial() {

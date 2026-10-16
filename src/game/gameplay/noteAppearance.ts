@@ -51,7 +51,12 @@ export function getHoldRibbonSpans(headYPx: number, tailYPx: number): HoldRibbon
     (1 - (1 - HOLD_RIBBON_TAIL_ALPHA) * clamp((headYPx - yPx) / lengthPx, 0, 1));
   const toSpan = (topYPx: number, bottomYPx: number): FadingSpan | null =>
     bottomYPx > topYPx
-      ? { topYPx, bottomYPx, topAlpha: getAlpha(topYPx), bottomAlpha: getAlpha(bottomYPx) }
+      ? {
+          topYPx,
+          bottomYPx,
+          topAlpha: getAlpha(topYPx),
+          bottomAlpha: getAlpha(bottomYPx),
+        }
       : null;
   return {
     body: toSpan(Math.max(tailYPx, NOTE_EMERGE_END_Y_PX), headYPx),

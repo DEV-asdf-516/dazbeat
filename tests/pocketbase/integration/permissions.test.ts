@@ -42,6 +42,7 @@ let chart: RecordModel;
 let scoredChart: RecordModel;
 let currentScore: RecordModel;
 let playSession: RecordModel;
+let playSessionQuota: RecordModel;
 let user: TestUser;
 let editor: TestUser;
 // Owns the public score, so no tested role is the owner who may view the expanded profile.
@@ -71,7 +72,13 @@ function scoreBody(userId: string, chartRevision: string) {
     accuracy: 95,
     maxCombo: 2,
     cleared: true,
-    counts: { perfect: 1, great: 1, good: 0, bad: 0, miss: 0 },
+    counts: {
+      perfect: 1,
+      great: 1,
+      good: 0,
+      bad: 0,
+      miss: 0,
+    },
   };
 }
 
@@ -97,6 +104,11 @@ beforeAll(async () => {
     chartRevision: String(chart['revision']),
     issuedAt: new Date(nowMs).toISOString(),
     expiresAt: new Date(nowMs + 60_000).toISOString(),
+  });
+  playSessionQuota = await superuser.collection('play_session_quotas').create({
+    user: user.id,
+    windowStartedAt: new Date(nowMs).toISOString(),
+    issuedCount: 1,
   });
 });
 
@@ -162,6 +174,28 @@ describe.each<Role>(['guest', 'user', 'editor'])('%s', (role) => {
     await expectStatus(sessions.delete(playSession.id), SUPERUSER_ONLY);
     const stored = await server.superuser.collection('play_sessions').getOne(playSession.id);
     expect(stored['chartRevision']).toBe(playSession['chartRevision']);
+  });
+
+  it('cannot reach play_session_quotas at all', async () => {
+    const pb = clientFor(role);
+    const quotas = pb.collection('play_session_quotas');
+    await expectStatus(quotas.getList(), SUPERUSER_ONLY);
+    await expectStatus(quotas.getOne(playSessionQuota.id), SUPERUSER_ONLY);
+    await expectStatus(
+      quotas.create({
+        user: user.id,
+        windowStartedAt: new Date().toISOString(),
+        issuedCount: 1,
+      }),
+      SUPERUSER_ONLY,
+    );
+    await expectStatus(quotas.update(playSessionQuota.id, { issuedCount: 20 }), SUPERUSER_ONLY);
+    await expectStatus(quotas.delete(playSessionQuota.id), SUPERUSER_ONLY);
+    const stored = await server.superuser
+      .collection('play_session_quotas')
+      .getOne(playSessionQuota.id);
+    expect(stored['issuedCount']).toBe(playSessionQuota['issuedCount']);
+    expect(stored['windowStartedAt']).toBe(playSessionQuota['windowStartedAt']);
   });
 
   it('sees only current-revision scores without sensitive fields', async () => {

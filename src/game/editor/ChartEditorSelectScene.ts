@@ -103,7 +103,10 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         'keydown',
         handleEachEventOnce((event: KeyboardEvent) => {
           if (readMenuAction(event) === 'back') {
-            this.leave({ key: 'main', data: undefined });
+            this.leave({
+              key: 'main',
+              data: undefined,
+            });
           }
         }),
       );
@@ -112,8 +115,15 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     const view: ListView = {
       filter: new SegmentedControl(
         this,
-        { leftPx: LIST_LEFT_PX, topYPx: FILTER_TOP_Y_PX, widthPx: FILTER_WIDTH_PX },
-        SONG_FILTERS.map((filter) => ({ value: filter, label: filter.toUpperCase() })),
+        {
+          leftPx: LIST_LEFT_PX,
+          topYPx: FILTER_TOP_Y_PX,
+          widthPx: FILTER_WIDTH_PX,
+        },
+        SONG_FILTERS.map((filter) => ({
+          value: filter,
+          label: filter.toUpperCase(),
+        })),
         (filter) => this.setList(view, selectSongListFilter(this.list, this.getSongs(), filter)),
       ),
       panel: new SongListPanel(this, LIST_FRAME, {
@@ -157,7 +167,11 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     const centerYPx = LAYOUT.topBar.centerYPx;
     createAuxiliaryButton(this, LAYOUT.video.leftPx, centerYPx, {
       label: 'BACK',
-      onActivate: () => this.leave({ key: 'main', data: undefined }),
+      onActivate: () =>
+        this.leave({
+          key: 'main',
+          data: undefined,
+        }),
     });
     this.add
       .text(
@@ -205,7 +219,13 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     if (song === undefined) {
       return;
     }
-    this.leave({ key: 'chartEditor', data: { songId: song.id, listFilter: this.list.filter } });
+    this.leave({
+      key: 'chartEditor',
+      data: {
+        songId: song.id,
+        listFilter: this.list.filter,
+      },
+    });
   }
 
   private leave(request: SceneRequest): void {
@@ -233,7 +253,10 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         this.pick();
         return;
       case 'back':
-        this.leave({ key: 'main', data: undefined });
+        this.leave({
+          key: 'main',
+          data: undefined,
+        });
         return;
       case 'left':
       case 'right':

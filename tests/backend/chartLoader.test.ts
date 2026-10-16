@@ -21,7 +21,13 @@ const validChart = {
   songId: 'test-song',
   difficulty: 'normal',
   offsetMs: 0,
-  notes: [{ type: 'tap', timeMs: 1000, lane: 0 }],
+  notes: [
+    {
+      type: 'tap',
+      timeMs: 1000,
+      lane: 0,
+    },
+  ],
 };
 
 const REVISION = 'a'.repeat(64);
@@ -39,7 +45,12 @@ afterEach(() => {
 describe('loadChart', () => {
   it('requests the chart record data and revision once and resolves both', async () => {
     const fetchMock = stubFetch(
-      new Response(JSON.stringify({ data: validChart, revision: REVISION })),
+      new Response(
+        JSON.stringify({
+          data: validChart,
+          revision: REVISION,
+        }),
+      ),
     );
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).resolves.toEqual({
@@ -62,7 +73,14 @@ describe('loadChart', () => {
   });
 
   it('rejects when the revision is not a string', async () => {
-    stubFetch(new Response(JSON.stringify({ data: validChart, revision: 1 })));
+    stubFetch(
+      new Response(
+        JSON.stringify({
+          data: validChart,
+          revision: 1,
+        }),
+      ),
+    );
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
       'revision',
@@ -71,7 +89,12 @@ describe('loadChart', () => {
 
   it('rejects without requesting when the difficulty has no chart id', async () => {
     const fetchMock = stubFetch(
-      new Response(JSON.stringify({ data: validChart, revision: REVISION })),
+      new Response(
+        JSON.stringify({
+          data: validChart,
+          revision: REVISION,
+        }),
+      ),
     );
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'hard')).rejects.toThrow(Error);
@@ -80,9 +103,16 @@ describe('loadChart', () => {
 
   it('rejects when the server responds with HTTP 404', async () => {
     stubFetch(
-      new Response(JSON.stringify({ status: 404, message: 'Not found', data: {} }), {
-        status: 404,
-      }),
+      new Response(
+        JSON.stringify({
+          status: 404,
+          message: 'Not found',
+          data: {},
+        }),
+        {
+          status: 404,
+        },
+      ),
     );
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow();
@@ -91,7 +121,13 @@ describe('loadChart', () => {
   it('rejects with the validation message when songId does not match', async () => {
     stubFetch(
       new Response(
-        JSON.stringify({ data: { ...validChart, songId: 'other' }, revision: REVISION }),
+        JSON.stringify({
+          data: {
+            ...validChart,
+            songId: 'other',
+          },
+          revision: REVISION,
+        }),
       ),
     );
 
@@ -101,7 +137,14 @@ describe('loadChart', () => {
   });
 
   it('rejects when data is not a chart object', async () => {
-    stubFetch(new Response(JSON.stringify({ data: 'chart', revision: REVISION })));
+    stubFetch(
+      new Response(
+        JSON.stringify({
+          data: 'chart',
+          revision: REVISION,
+        }),
+      ),
+    );
 
     await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
       Error,
@@ -133,24 +176,49 @@ describe('saveChart', () => {
     }
     const [input, init] = call;
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-    return { url: new URL(input), method: init?.method, body };
+    return {
+      url: new URL(input),
+      method: init?.method,
+      body,
+    };
   }
 
   function errorResponse(status: number): Response {
-    return new Response(JSON.stringify({ status, message: 'error', data: {} }), { status });
+    return new Response(
+      JSON.stringify({
+        status,
+        message: 'error',
+        data: {},
+      }),
+      { status },
+    );
   }
 
   const normalChart: Chart = {
     songId: 'test-song',
     difficulty: 'normal',
     offsetMs: 0,
-    notes: [{ type: 'tap', timeMs: 1000, lane: 0 }],
+    notes: [
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+    ],
   };
-  const hardChart: Chart = { ...normalChart, difficulty: 'hard' };
+  const hardChart: Chart = {
+    ...normalChart,
+    difficulty: 'hard',
+  };
 
   it('updates the existing chart record once and resolves its id', async () => {
     const fetchMock = stubFetchSequence([
-      new Response(JSON.stringify({ id: 'chart_normal', data: normalChart })),
+      new Response(
+        JSON.stringify({
+          id: 'chart_normal',
+          data: normalChart,
+        }),
+      ),
     ]);
 
     await expect(saveChart(new PocketBase('http://pb.test'), song, normalChart)).resolves.toBe(
@@ -165,7 +233,13 @@ describe('saveChart', () => {
 
   it('finds the song record by key and creates the chart when the difficulty has no chart id', async () => {
     const fetchMock = stubFetchSequence([
-      new Response(JSON.stringify({ page: 1, perPage: 1, items: [{ id: 'song_record' }] })),
+      new Response(
+        JSON.stringify({
+          page: 1,
+          perPage: 1,
+          items: [{ id: 'song_record' }],
+        }),
+      ),
       new Response(JSON.stringify({ id: 'chart_hard' })),
     ]);
 
@@ -179,7 +253,11 @@ describe('saveChart', () => {
     const create = getCall(fetchMock, 1);
     expect(create.method).toBe('POST');
     expect(create.url.pathname).toBe('/api/collections/charts/records');
-    expect(create.body).toEqual({ song: 'song_record', difficulty: 'hard', data: hardChart });
+    expect(create.body).toEqual({
+      song: 'song_record',
+      difficulty: 'hard',
+      data: hardChart,
+    });
   });
 
   it('rejects when the update responds with HTTP 403', async () => {
@@ -190,7 +268,13 @@ describe('saveChart', () => {
 
   it('rejects when the create responds with HTTP 400', async () => {
     stubFetchSequence([
-      new Response(JSON.stringify({ page: 1, perPage: 1, items: [{ id: 'song_record' }] })),
+      new Response(
+        JSON.stringify({
+          page: 1,
+          perPage: 1,
+          items: [{ id: 'song_record' }],
+        }),
+      ),
       errorResponse(400),
     ]);
 
@@ -199,7 +283,13 @@ describe('saveChart', () => {
 
   it('rejects without creating when no song record has the key', async () => {
     const fetchMock = stubFetchSequence([
-      new Response(JSON.stringify({ page: 1, perPage: 1, items: [] })),
+      new Response(
+        JSON.stringify({
+          page: 1,
+          perPage: 1,
+          items: [],
+        }),
+      ),
     ]);
 
     await expect(saveChart(new PocketBase('http://pb.test'), song, hardChart)).rejects.toThrow();

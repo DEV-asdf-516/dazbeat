@@ -49,22 +49,71 @@ import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/theme.js';
 type SettingsGroup = 'audio' | 'input' | 'general';
 
 const ROWS: readonly (SettingsRow & { yPx: number })[] = [
-  { kind: 'volume', field: 'masterVolume', yPx: 224 },
-  { kind: 'volume', field: 'musicVolume', yPx: 280 },
-  { kind: 'volume', field: 'effectVolume', yPx: 336 },
-  { kind: 'inputOffset', yPx: 452 },
-  { kind: 'key', lane: 0, yPx: 508 },
-  { kind: 'key', lane: 1, yPx: 564 },
-  { kind: 'key', lane: 2, yPx: 620 },
-  { kind: 'key', lane: 3, yPx: 676 },
-  { kind: 'scrollSpeed', yPx: 792 },
-  { kind: 'mvMode', yPx: 848 },
-  { kind: 'language', yPx: 904 },
+  {
+    kind: 'volume',
+    field: 'masterVolume',
+    yPx: 224,
+  },
+  {
+    kind: 'volume',
+    field: 'musicVolume',
+    yPx: 280,
+  },
+  {
+    kind: 'volume',
+    field: 'effectVolume',
+    yPx: 336,
+  },
+  {
+    kind: 'inputOffset',
+    yPx: 452,
+  },
+  {
+    kind: 'key',
+    lane: 0,
+    yPx: 508,
+  },
+  {
+    kind: 'key',
+    lane: 1,
+    yPx: 564,
+  },
+  {
+    kind: 'key',
+    lane: 2,
+    yPx: 620,
+  },
+  {
+    kind: 'key',
+    lane: 3,
+    yPx: 676,
+  },
+  {
+    kind: 'scrollSpeed',
+    yPx: 792,
+  },
+  {
+    kind: 'mvMode',
+    yPx: 848,
+  },
+  {
+    kind: 'language',
+    yPx: 904,
+  },
 ];
 const GROUPS: readonly { group: SettingsGroup; yPx: number }[] = [
-  { group: 'audio', yPx: 184 },
-  { group: 'input', yPx: 412 },
-  { group: 'general', yPx: 752 },
+  {
+    group: 'audio',
+    yPx: 184,
+  },
+  {
+    group: 'input',
+    yPx: 412,
+  },
+  {
+    group: 'general',
+    yPx: 752,
+  },
 ];
 const GROUP_TITLE_WEIGHT = 700;
 const ROW_HEIGHT_PX = 56;
@@ -233,7 +282,15 @@ export class SettingsScene extends Phaser.Scene {
         heightPx: KEY_BOX_HEIGHT_PX,
         onActivate: () => onPointer((state) => startWaiting(state, index)),
       });
-      return { row, index, label, control: { kind: 'key', keyBox } };
+      return {
+        row,
+        index,
+        label,
+        control: {
+          kind: 'key',
+          keyBox,
+        },
+      };
     }
     // 수치가 아니라 선택지를 넘기는 행은 증감 대신 좌우 쉐브론으로 표시한다.
     const isChoice = row.kind === 'mvMode' || row.kind === 'language';
@@ -249,7 +306,10 @@ export class SettingsScene extends Phaser.Scene {
       if (isChoice) {
         button.setIcon(ensureChevronTexture(this, direction), CHEVRON_SIZE_PX);
       }
-      return { button, direction };
+      return {
+        button,
+        direction,
+      };
     };
     const value = this.add
       .text(VALUE_X_PX, centerYPx, '', textStyle('primary', COLORS.textPrimary))
@@ -316,7 +376,10 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   private back(): void {
-    this.exit = exitScene(this, this.exit, { key: this.returnScene, data: undefined });
+    this.exit = exitScene(this, this.exit, {
+      key: this.returnScene,
+      data: undefined,
+    });
   }
 
   private applySettings(view: SettingsView, settings: Settings): void {

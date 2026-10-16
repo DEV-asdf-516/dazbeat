@@ -265,7 +265,11 @@ export class SongSelectScene extends Phaser.Scene {
       const underline = this.addUnderline(text);
       hover.bind(text, filter, () => update((state) => selectFilter(state, filter)));
       xPx += text.width + FILTER_GAP_PX;
-      return { filter, text, underline };
+      return {
+        filter,
+        text,
+        underline,
+      };
     });
   }
 
@@ -333,7 +337,12 @@ export class SongSelectScene extends Phaser.Scene {
       const underline = this.addUnderline(text);
       hover.bind(text, difficulty, () => update((state) => selectDifficulty(state, difficulty)));
       xPx += text.width + DIFFICULTY_GAP_PX;
-      return { difficulty, text, underline, appearance: null };
+      return {
+        difficulty,
+        text,
+        underline,
+        appearance: null,
+      };
     });
   }
 
@@ -375,7 +384,11 @@ export class SongSelectScene extends Phaser.Scene {
       this.i18n.t('songSelect.noRecord'),
       textStyle('secondary', COLORS.textMuted),
     );
-    return { recordLabel, recordValue, noRecordText };
+    return {
+      recordLabel,
+      recordValue,
+      noRecordText,
+    };
   }
 
   private handleKey(event: KeyboardEvent, update: Update): void {
@@ -399,7 +412,10 @@ export class SongSelectScene extends Phaser.Scene {
         this.play();
         return;
       case 'back':
-        this.exit = exitScene(this, this.exit, { key: 'main', data: undefined });
+        this.exit = exitScene(this, this.exit, {
+          key: 'main',
+          data: undefined,
+        });
         return;
       case null:
         break;
@@ -446,7 +462,10 @@ export class SongSelectScene extends Phaser.Scene {
   private play(): void {
     const selection = getPlayableSelection(this.state);
     if (selection !== null) {
-      this.exit = exitScene(this, this.exit, { key: 'gameplay', data: selection });
+      this.exit = exitScene(this, this.exit, {
+        key: 'gameplay',
+        data: selection,
+      });
     }
   }
 

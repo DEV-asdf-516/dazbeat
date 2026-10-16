@@ -40,9 +40,10 @@ export async function signInWithGoogle(
 ): Promise<AuthUser | null> {
   const stopWatching = cancelWhenFocusReturns(pb, focusTarget);
   try {
-    const { record } = await pb
-      .collection('users')
-      .authWithOAuth2({ provider: 'google', requestKey: GOOGLE_SIGN_IN_REQUEST_KEY });
+    const { record } = await pb.collection('users').authWithOAuth2({
+      provider: 'google',
+      requestKey: GOOGLE_SIGN_IN_REQUEST_KEY,
+    });
     return toAuthUser(record);
   } catch (error) {
     if (error instanceof ClientResponseError && error.isAbort) {

@@ -37,6 +37,14 @@ const HOLD_GLYPH: SegmentGlyph = {
 };
 
 export const TOOL_SEGMENTS: readonly SegmentOption<EditTool>[] = [
-  { value: 'tap', label: 'TAP', glyph: TAP_GLYPH },
-  { value: 'hold', label: 'HOLD', glyph: HOLD_GLYPH },
+  {
+    value: 'tap',
+    label: 'TAP',
+    glyph: TAP_GLYPH,
+  },
+  {
+    value: 'hold',
+    label: 'HOLD',
+    glyph: HOLD_GLYPH,
+  },
 ];

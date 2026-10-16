@@ -43,7 +43,10 @@ async function loadSongCatalog(): Promise<{ pb: PocketBase; songs: Song[] }> {
     throw new Error('VITE_POCKETBASE_URL is not set');
   }
   const pb = new PocketBase(url);
-  return { pb, songs: await loadSongs(pb) };
+  return {
+    pb,
+    songs: await loadSongs(pb),
+  };
 }
 
 async function fetchJson(url: string): Promise<unknown> {

@@ -42,7 +42,10 @@ const TAG_WIDTH_PX = 76;
 const TAG_HEIGHT_PX = 22;
 const TAG_TITLE_GAP_PX = 14;
 const TAG_BORDER_PX = 1;
-const TAG_TYPE = { sizePx: 11, weight: 600 } as const;
+const TAG_TYPE = {
+  sizePx: 11,
+  weight: 600,
+} as const;
 const TAG_LETTER_SPACING_PX = 1;
 /** 원곡은 강조색, 커버는 보조색으로 구분한다. */
 const TAG_COLORS: Record<SongCategory, number> = {
@@ -175,7 +178,13 @@ export class SongListPanel {
         typeStyle(EDITOR_TYPE_SCALE.body, EDITOR_COLORS.textPrimary),
       )
       .setOrigin(0, 0.5);
-    return { background, tag, tagText, title, shown: null };
+    return {
+      background,
+      tag,
+      tagText,
+      title,
+      shown: null,
+    };
   }
 
   private renderRow(row: RowView, content: SongListRowContent | undefined): void {
@@ -196,7 +205,10 @@ export class SongListPanel {
     if (row.shown?.title === content.title && row.shown.category === content.category) {
       return;
     }
-    row.shown = { title: content.title, category: content.category };
+    row.shown = {
+      title: content.title,
+      category: content.category,
+    };
     const tagColor = TAG_COLORS[content.category];
     row.tag.setStrokeStyle(TAG_BORDER_PX, tagColor, TAG_BORDER_ALPHA);
     row.tagText.setText(content.category.toUpperCase());

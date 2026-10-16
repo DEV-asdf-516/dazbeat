@@ -12,7 +12,10 @@ describe('readGameplayKey', () => {
     ['KeyJ', 2],
     ['KeyK', 3],
   ] as const)('maps bound key %s to lane %i without a command', (code, lane) => {
-    expect(readGameplayKey(code, BINDINGS)).toEqual({ lane, command: null });
+    expect(readGameplayKey(code, BINDINGS)).toEqual({
+      lane,
+      command: null,
+    });
   });
 
   it.each([
@@ -20,38 +23,69 @@ describe('readGameplayKey', () => {
     ['Escape', 'back'],
     ['Tab', 'mvMode'],
   ] as const)('maps unbound %s to the %s command', (code, command) => {
-    expect(readGameplayKey(code, BINDINGS)).toEqual({ lane: null, command });
+    expect(readGameplayKey(code, BINDINGS)).toEqual({
+      lane: null,
+      command,
+    });
   });
 
   it('ignores keys that are neither bound nor commands', () => {
-    expect(readGameplayKey('KeyQ', BINDINGS)).toEqual({ lane: null, command: null });
+    expect(readGameplayKey('KeyQ', BINDINGS)).toEqual({
+      lane: null,
+      command: null,
+    });
   });
 
   it('keeps Enter as confirm even when it is bound to a lane', () => {
     const bindings: Settings['keyBindings'] = ['KeyD', 'KeyF', 'Enter', 'KeyK'];
-    expect(readGameplayKey('Enter', bindings)).toEqual({ lane: 2, command: 'confirm' });
+    expect(readGameplayKey('Enter', bindings)).toEqual({
+      lane: 2,
+      command: 'confirm',
+    });
   });
 
   it('drops the MV mode command when Tab is bound to a lane', () => {
     const bindings: Settings['keyBindings'] = ['Tab', 'KeyF', 'KeyJ', 'KeyK'];
-    expect(readGameplayKey('Tab', bindings)).toEqual({ lane: 0, command: null });
+    expect(readGameplayKey('Tab', bindings)).toEqual({
+      lane: 0,
+      command: null,
+    });
   });
 
   it('matches key codes case-sensitively', () => {
-    expect(readGameplayKey('keyd', BINDINGS)).toEqual({ lane: null, command: null });
+    expect(readGameplayKey('keyd', BINDINGS)).toEqual({
+      lane: null,
+      command: null,
+    });
   });
 });
 
-const CONFIRM: GameplayKey = { lane: null, command: 'confirm' };
-const BACK: GameplayKey = { lane: null, command: 'back' };
-const MV_MODE: GameplayKey = { lane: null, command: 'mvMode' };
-const LANE_1: GameplayKey = { lane: 1, command: null };
+const CONFIRM: GameplayKey = {
+  lane: null,
+  command: 'confirm',
+};
+const BACK: GameplayKey = {
+  lane: null,
+  command: 'back',
+};
+const MV_MODE: GameplayKey = {
+  lane: null,
+  command: 'mvMode',
+};
+const LANE_1: GameplayKey = {
+  lane: 1,
+  command: null,
+};
 
 function playing(
   isQuitConfirmOpen: boolean,
   playerState: 'playing' | 'buffering' | 'paused' = 'playing',
 ): GameplayKeyContext {
-  return { phase: 'playing', isQuitConfirmOpen, playerState };
+  return {
+    phase: 'playing',
+    isQuitConfirmOpen,
+    playerState,
+  };
 }
 
 describe('getGameplayKeyAction', () => {
@@ -142,7 +176,10 @@ describe('getGameplayKeyAction', () => {
   });
 
   describe('Enter bound to a lane', () => {
-    const enterLane: GameplayKey = { lane: 2, command: 'confirm' };
+    const enterLane: GameplayKey = {
+      lane: 2,
+      command: 'confirm',
+    };
 
     it('presses the lane while the video plays', () => {
       expect(getGameplayKeyAction(playing(false), enterLane, false)).toEqual({

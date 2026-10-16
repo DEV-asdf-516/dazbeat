@@ -25,14 +25,38 @@ describe('getNextCombo', () => {
 
 describe('isFullCombo', () => {
   it('is false with a single bad', () => {
-    expect(isFullCombo({ perfect: 10, great: 3, good: 1, bad: 1, miss: 0 })).toBe(false);
+    expect(
+      isFullCombo({
+        perfect: 10,
+        great: 3,
+        good: 1,
+        bad: 1,
+        miss: 0,
+      }),
+    ).toBe(false);
   });
 
   it('is true without any bad or miss', () => {
-    expect(isFullCombo({ perfect: 10, great: 3, good: 1, bad: 0, miss: 0 })).toBe(true);
+    expect(
+      isFullCombo({
+        perfect: 10,
+        great: 3,
+        good: 1,
+        bad: 0,
+        miss: 0,
+      }),
+    ).toBe(true);
   });
 
   it('is false with a single miss', () => {
-    expect(isFullCombo({ perfect: 10, great: 3, good: 1, bad: 0, miss: 1 })).toBe(false);
+    expect(
+      isFullCombo({
+        perfect: 10,
+        great: 3,
+        good: 1,
+        bad: 0,
+        miss: 1,
+      }),
+    ).toBe(false);
   });
 });

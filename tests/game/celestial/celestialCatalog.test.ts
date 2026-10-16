@@ -48,7 +48,10 @@ async function readManifestRoles(): Promise<{ manifest: JsonObject; roles: JsonO
   const roles = requireArray(manifest['roles'], 'roles').map((role, index) =>
     requireObject(role, `roles[${index}]`),
   );
-  return { manifest, roles };
+  return {
+    manifest,
+    roles,
+  };
 }
 
 function findRole(roles: readonly JsonObject[], id: string): JsonObject {
@@ -293,7 +296,12 @@ describe('loadCelestialCatalog', () => {
     ).toEqual(
       ignite.map((frame) => {
         const { x, y, w, h } = requireObject(frame, 'frame');
-        return { x, y, w, h };
+        return {
+          x,
+          y,
+          w,
+          h,
+        };
       }),
     );
   });

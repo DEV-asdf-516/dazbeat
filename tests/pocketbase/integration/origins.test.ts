@@ -23,7 +23,10 @@ async function startOriginServer(prefix: string, allowedOrigins: string): Promis
     env: { DAZBEAT_ALLOWED_ORIGINS: allowedOrigins },
   });
   await excludeLoopbackFromRateLimits(server.superuser);
-  return { dataDir, server };
+  return {
+    dataDir,
+    server,
+  };
 }
 
 async function stopOriginServer(instance: OriginServer | undefined): Promise<void> {
@@ -43,14 +46,20 @@ function get(server: PocketBaseServer, origin?: string): Promise<Response> {
 function preflight(server: PocketBaseServer, origin: string): Promise<Response> {
   return fetch(`${server.url}${PUBLIC_PATH}`, {
     method: 'OPTIONS',
-    headers: { Origin: origin, 'Access-Control-Request-Method': 'GET' },
+    headers: {
+      Origin: origin,
+      'Access-Control-Request-Method': 'GET',
+    },
   });
 }
 
 async function expectRejected(response: Response): Promise<void> {
   expect(response.status).toBe(403);
   expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
-  expect(await response.json()).toMatchObject({ status: 403, code: 'origin_not_allowed' });
+  expect(await response.json()).toMatchObject({
+    status: 403,
+    code: 'origin_not_allowed',
+  });
 }
 
 describe('with DAZBEAT_ALLOWED_ORIGINS set', () => {

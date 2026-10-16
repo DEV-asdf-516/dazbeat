@@ -38,11 +38,31 @@ const NOTE_TRAIL_ID: LaneEffectId = 'R33';
  * 크기는 [시작, 끝] px, alpha 는 PERFECT 기준 최고값이며 판정 세기를 곱한다.
  */
 const HIT_BLOOM = {
-  core: { widthPx: [96, 40], heightPx: [96, 40], alpha: 1, durationMs: 120 },
-  streak: { widthPx: [160, 560], heightPx: [10, 4], alpha: 0.9, durationMs: 260 },
-  haze: { widthPx: [160, 380], heightPx: [70, 150], alpha: 0.7, durationMs: 420 },
+  core: {
+    widthPx: [96, 40],
+    heightPx: [96, 40],
+    alpha: 1,
+    durationMs: 120,
+  },
+  streak: {
+    widthPx: [160, 560],
+    heightPx: [10, 4],
+    alpha: 0.9,
+    durationMs: 260,
+  },
+  haze: {
+    widthPx: [160, 380],
+    heightPx: [70, 150],
+    alpha: 0.7,
+    durationMs: 420,
+  },
   // 위로 갈수록 사라지는 기둥이라 다가오는 노트를 가리지 않는다.
-  pillar: { widthPx: [110, 150], heightPx: [200, 460], alpha: 0.5, durationMs: 440 },
+  pillar: {
+    widthPx: [110, 150],
+    heightPx: [200, 460],
+    alpha: 0.5,
+    durationMs: 440,
+  },
 } as const;
 type HitBloomLayer = keyof typeof HIT_BLOOM;
 
@@ -121,7 +141,13 @@ export class LaneFx {
         streak: addBloom(LIGHT_TEXTURES.glow).setDepth(GAMEPLAY_DEPTH.hitFx),
         core: addBloom(LIGHT_TEXTURES.glow).setDepth(GAMEPLAY_DEPTH.hitFx),
       };
-      return { anchor, pulse, missShade, effects, bloom };
+      return {
+        anchor,
+        pulse,
+        missShade,
+        effects,
+        bloom,
+      };
     });
   }
 
@@ -139,7 +165,11 @@ export class LaneFx {
       duration: MOTION.fastMs,
     });
     pulse.setAlpha(PULSE_ALPHA);
-    this.scene.tweens.add({ targets: pulse, alpha: 0, duration: MOTION.fastMs });
+    this.scene.tweens.add({
+      targets: pulse,
+      alpha: 0,
+      duration: MOTION.fastMs,
+    });
   }
 
   setActivation(level: number): void {
@@ -207,6 +237,10 @@ export class LaneFx {
   private flashAnchor(anchor: Phaser.GameObjects.Image, alpha: number, recoverMs: number): void {
     this.scene.tweens.killTweensOf(anchor);
     anchor.setDisplaySize(ANCHOR_WIDTH_PX, ANCHOR_HEIGHT_PX).setAlpha(alpha);
-    this.scene.tweens.add({ targets: anchor, alpha: ANCHOR_IDLE_ALPHA, duration: recoverMs });
+    this.scene.tweens.add({
+      targets: anchor,
+      alpha: ANCHOR_IDLE_ALPHA,
+      duration: recoverMs,
+    });
   }
 }

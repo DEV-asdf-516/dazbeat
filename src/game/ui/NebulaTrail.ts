@@ -4,9 +4,18 @@ import { CURSOR_TAIL_OFFSET_PX } from './cursor.js';
 
 /** 옅은 민트 → 청록 → 깊은 바다빛으로 번지는 성운 한 덩이. 흰 심이 없어야 연기처럼 흐리다. */
 const NEBULA_STOPS = [
-  { offset: 0, rgb: '190, 245, 228' },
-  { offset: 0.45, rgb: '96, 212, 196' },
-  { offset: 1, rgb: '40, 118, 128' },
+  {
+    offset: 0,
+    rgb: '190, 245, 228',
+  },
+  {
+    offset: 0.45,
+    rgb: '96, 212, 196',
+  },
+  {
+    offset: 1,
+    rgb: '40, 118, 128',
+  },
 ] as const;
 const SPARK_RGB = '224, 255, 244';
 const SPARK_RADIUS_PX = 0.9;

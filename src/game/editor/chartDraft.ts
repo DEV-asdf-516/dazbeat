@@ -28,7 +28,14 @@ export function createDraft(song: Song, chart: Chart): ChartDraft {
 
 export function createEmptyDraft(song: Song, difficulty: Difficulty): ChartDraft {
   const notes: readonly Note[] = [];
-  return { song, difficulty, offsetMs: 0, notes, selected: null, savedNotes: notes };
+  return {
+    song,
+    difficulty,
+    offsetMs: 0,
+    notes,
+    selected: null,
+    savedNotes: notes,
+  };
 }
 
 /** 내용이 원래대로 돌아왔는지가 아니라 저장 기준 배열 자체인지로 판정한다. */
@@ -55,14 +62,21 @@ export function addNote(draft: ChartDraft, note: Note): ChartDraft {
   if (note.type === 'hold' && note.endTimeMs <= note.timeMs) {
     return draft;
   }
-  return { ...draft, notes: insertNote(draft.notes, note), selected: note };
+  return {
+    ...draft,
+    notes: insertNote(draft.notes, note),
+    selected: note,
+  };
 }
 
 export function selectNote(draft: ChartDraft, note: Note | null): ChartDraft {
   if (draft.selected === note) {
     return draft;
   }
-  return { ...draft, selected: note };
+  return {
+    ...draft,
+    selected: note,
+  };
 }
 
 /** Hold 는 길이를 유지한 채 옮긴다. */
@@ -73,10 +87,23 @@ export function moveSelectedNote(draft: ChartDraft, timeMs: number, lane: Lane):
   }
   const moved: Note =
     selected.type === 'hold'
-      ? { type: 'hold', timeMs, endTimeMs: timeMs + selected.endTimeMs - selected.timeMs, lane }
-      : { type: 'tap', timeMs, lane };
+      ? {
+          type: 'hold',
+          timeMs,
+          endTimeMs: timeMs + selected.endTimeMs - selected.timeMs,
+          lane,
+        }
+      : {
+          type: 'tap',
+          timeMs,
+          lane,
+        };
   const others = draft.notes.filter((note) => note !== selected);
-  return { ...draft, notes: insertNote(others, moved), selected: moved };
+  return {
+    ...draft,
+    notes: insertNote(others, moved),
+    selected: moved,
+  };
 }
 
 /** 끝은 항상 시작보다 늦다. */
@@ -90,7 +117,10 @@ export function resizeSelectedHold(draft: ChartDraft, endTimeMs: number): ChartD
     return draft;
   }
   // 시작 시각·lane 이 그대로이므로 같은 자리에서 교체해도 정렬이 유지된다.
-  const resized: Note = { ...selected, endTimeMs: nextEndTimeMs };
+  const resized: Note = {
+    ...selected,
+    endTimeMs: nextEndTimeMs,
+  };
   return {
     ...draft,
     notes: draft.notes.map((note) => (note === selected ? resized : note)),
@@ -114,7 +144,11 @@ export function clearNotes(draft: ChartDraft): ChartDraft {
   if (draft.notes.length === 0) {
     return draft;
   }
-  return { ...draft, notes: [], selected: null };
+  return {
+    ...draft,
+    notes: [],
+    selected: null,
+  };
 }
 
 /** 정렬 순서를 지키는 새 배열. 같은 순서 값의 노트 뒤에 넣는다. */
@@ -135,7 +169,11 @@ export function completeSave(
   if (current.song === song && current.savedNotes === savedNotes) {
     return current;
   }
-  return { ...current, song, savedNotes };
+  return {
+    ...current,
+    song,
+    savedNotes,
+  };
 }
 
 /** 그 사이 끝난 저장 결과(song·저장 기준)는 두고 notes·선택만 되돌린다. */
@@ -143,7 +181,11 @@ export function restoreNotes(current: ChartDraft, before: ChartDraft): ChartDraf
   if (current.notes === before.notes && current.selected === before.selected) {
     return current;
   }
-  return { ...current, notes: before.notes, selected: before.selected };
+  return {
+    ...current,
+    notes: before.notes,
+    selected: before.selected,
+  };
 }
 
 const INVALID_NOTE_PATH = /^chart\.notes\[(\d+)\]/;

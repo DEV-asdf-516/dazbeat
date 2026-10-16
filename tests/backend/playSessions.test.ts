@@ -25,7 +25,10 @@ function base64Url(value: object): string {
 }
 
 // getCurrentUser 가 유효하다고 보도록 만료가 한 시간 뒤인 JWT 모양 토큰.
-const TOKEN = `${base64Url({ alg: 'HS256', typ: 'JWT' })}.${base64Url({
+const TOKEN = `${base64Url({
+  alg: 'HS256',
+  typ: 'JWT',
+})}.${base64Url({
   exp: Math.floor(Date.now() / 1000) + 3600,
 })}.signature`;
 
@@ -43,8 +46,16 @@ const USER_RECORD: RecordModel = {
 const submission: PlaySubmission = {
   inputOffsetMs: 12,
   events: [
-    { lane: 0, kind: 'press', songTimeMs: 1000 },
-    { lane: 0, kind: 'release', songTimeMs: 1100 },
+    {
+      lane: 0,
+      kind: 'press',
+      songTimeMs: 1000,
+    },
+    {
+      lane: 0,
+      kind: 'release',
+      songTimeMs: 1100,
+    },
   ],
 };
 
@@ -52,7 +63,13 @@ const verifiedResponse = {
   score: 1000000,
   accuracy: 100,
   maxCombo: 1,
-  counts: { perfect: 1, great: 0, good: 0, bad: 0, miss: 0 },
+  counts: {
+    perfect: 1,
+    great: 0,
+    good: 0,
+    bad: 0,
+    miss: 0,
+  },
   cleared: true,
   bestScore: 1000000,
 };
@@ -118,7 +135,10 @@ describe('startPlaySession', () => {
     expect(request.method).toBe('POST');
     expect(request.url.pathname).toBe('/api/dazbeat/play-sessions');
     expect(request.authorization).toBe(TOKEN);
-    expect(request.body).toEqual({ chartId: 'chart_normal', chartRevision: REVISION });
+    expect(request.body).toEqual({
+      chartId: 'chart_normal',
+      chartRevision: REVISION,
+    });
   });
 
   it('resolves null without requesting when signed out', async () => {
@@ -144,12 +164,35 @@ describe('startPlaySession', () => {
   });
 
   it('rejects with the server error code', async () => {
-    respondWith(409, { status: 409, code: 'chart_changed', message: 'Chart changed.' });
+    respondWith(409, {
+      status: 409,
+      code: 'chart_changed',
+      message: 'Chart changed.',
+    });
 
     const error = await captureError(startPlaySession(signedInClient(), song, 'normal', REVISION));
 
     expect(error).toBeInstanceOf(PlaySessionError);
-    expect(error).toMatchObject({ status: 409, code: 'chart_changed' });
+    expect(error).toMatchObject({
+      status: 409,
+      code: 'chart_changed',
+    });
+  });
+
+  it('rejects with the session rate limit code', async () => {
+    respondWith(429, {
+      status: 429,
+      code: 'session_rate_limited',
+      message: 'Too many play sessions were requested. Try again later.',
+    });
+
+    const error = await captureError(startPlaySession(signedInClient(), song, 'normal', REVISION));
+
+    expect(error).toBeInstanceOf(PlaySessionError);
+    expect(error).toMatchObject({
+      status: 429,
+      code: 'session_rate_limited',
+    });
   });
 });
 
@@ -157,7 +200,11 @@ describe('submitPlay', () => {
   it('posts only the input offset and events to the session result path', async () => {
     const fetchMock = respondWith(200, verifiedResponse);
 
-    const withExtraFields = { ...submission, score: 999, userId: 'other' };
+    const withExtraFields = {
+      ...submission,
+      score: 999,
+      userId: 'other',
+    };
     await submitPlay(signedInClient(), 'session1', withExtraFields);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -184,7 +231,10 @@ describe('submitPlay', () => {
   });
 
   it('rejects when the response is not a verified result', async () => {
-    respondWith(200, { ...verifiedResponse, cleared: 'yes' });
+    respondWith(200, {
+      ...verifiedResponse,
+      cleared: 'yes',
+    });
 
     await expect(submitPlay(signedInClient(), 'session1', submission)).rejects.toThrow();
   });
@@ -195,12 +245,19 @@ describe('submitPlay', () => {
     [400, 'invalid_events'],
     [409, 'chart_changed'],
   ])('rejects HTTP %i with the server error code %s', async (status, code) => {
-    respondWith(status, { status, code, message: 'Rejected.' });
+    respondWith(status, {
+      status,
+      code,
+      message: 'Rejected.',
+    });
 
     const error = await captureError(submitPlay(signedInClient(), 'session1', submission));
 
     expect(error).toBeInstanceOf(PlaySessionError);
-    expect(error).toMatchObject({ status, code });
+    expect(error).toMatchObject({
+      status,
+      code,
+    });
   });
 
   it.each([
@@ -209,12 +266,19 @@ describe('submitPlay', () => {
     [429, 'rate_limited'],
     [503, 'http_503'],
   ])('rejects HTTP %i without a code as %s', async (status, code) => {
-    respondWith(status, { status, message: 'Rejected.', data: {} });
+    respondWith(status, {
+      status,
+      message: 'Rejected.',
+      data: {},
+    });
 
     const error = await captureError(submitPlay(signedInClient(), 'session1', submission));
 
     expect(error).toBeInstanceOf(PlaySessionError);
-    expect(error).toMatchObject({ status, code });
+    expect(error).toMatchObject({
+      status,
+      code,
+    });
   });
 
   it('rejects a network failure as status 0 network', async () => {
@@ -223,6 +287,9 @@ describe('submitPlay', () => {
     const error = await captureError(submitPlay(signedInClient(), 'session1', submission));
 
     expect(error).toBeInstanceOf(PlaySessionError);
-    expect(error).toMatchObject({ status: 0, code: 'network' });
+    expect(error).toMatchObject({
+      status: 0,
+      code: 'network',
+    });
   });
 });

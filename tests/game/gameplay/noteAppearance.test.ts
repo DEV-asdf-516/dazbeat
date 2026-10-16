@@ -56,14 +56,22 @@ describe('getHoldRibbonSpans', () => {
   it('uses only the body, fading from the head toward the tail', () => {
     const { body, fade } = getHoldRibbonSpans(900, 400);
     expect(fade).toBeNull();
-    expect(body).toMatchObject({ topYPx: 400, bottomYPx: 900, bottomAlpha: 1 });
+    expect(body).toMatchObject({
+      topYPx: 400,
+      bottomYPx: 900,
+      bottomAlpha: 1,
+    });
     expect(body?.topAlpha).toBeCloseTo(HOLD_RIBBON_TAIL_ALPHA);
   });
 
   it('keeps the body when the tail is exactly on the emerge boundary', () => {
     const { body, fade } = getHoldRibbonSpans(900, NOTE_EMERGE_END_Y_PX);
     expect(fade).toBeNull();
-    expect(body).toMatchObject({ topYPx: NOTE_EMERGE_END_Y_PX, bottomYPx: 900, bottomAlpha: 1 });
+    expect(body).toMatchObject({
+      topYPx: NOTE_EMERGE_END_Y_PX,
+      bottomYPx: 900,
+      bottomAlpha: 1,
+    });
     expect(body?.topAlpha).toBeCloseTo(HOLD_RIBBON_TAIL_ALPHA);
   });
 
@@ -85,17 +93,28 @@ describe('getHoldRibbonSpans', () => {
   });
 
   it('clips the part above the screen', () => {
-    expect(getHoldRibbonSpans(900, -300).fade).toMatchObject({ topYPx: 0, topAlpha: 0 });
+    expect(getHoldRibbonSpans(900, -300).fade).toMatchObject({
+      topYPx: 0,
+      topAlpha: 0,
+    });
   });
 
   it('uses only the fade piece while the head is still in the emerge zone', () => {
     expect(getHoldRibbonSpans(100, -50)).toEqual({
       body: null,
-      fade: { topYPx: 0, bottomYPx: 100, topAlpha: 0, bottomAlpha: getNoteEmergence(100) },
+      fade: {
+        topYPx: 0,
+        bottomYPx: 100,
+        topAlpha: 0,
+        bottomAlpha: getNoteEmergence(100),
+      },
     });
   });
 
   it('draws nothing when the ribbon has no length', () => {
-    expect(getHoldRibbonSpans(500, 500)).toEqual({ body: null, fade: null });
+    expect(getHoldRibbonSpans(500, 500)).toEqual({
+      body: null,
+      fade: null,
+    });
   });
 });

@@ -15,7 +15,10 @@ export function jacketTextureKey(song: Song): string {
 export function queueJacketLoads(scene: Phaser.Scene, songs: readonly Song[]): void {
   queueImageLoads(
     scene,
-    songs.map((song) => ({ key: jacketTextureKey(song), url: song.jacketUrl })),
+    songs.map((song) => ({
+      key: jacketTextureKey(song),
+      url: song.jacketUrl,
+    })),
     'jacket',
   );
 }
@@ -110,6 +113,14 @@ function crossfade(
     return;
   }
   incoming.setAlpha(0);
-  scene.tweens.add({ targets: incoming, alpha: 1, duration: MOTION.mediumMs });
-  scene.tweens.add({ targets: outgoing, alpha: 0, duration: MOTION.mediumMs });
+  scene.tweens.add({
+    targets: incoming,
+    alpha: 1,
+    duration: MOTION.mediumMs,
+  });
+  scene.tweens.add({
+    targets: outgoing,
+    alpha: 0,
+    duration: MOTION.mediumMs,
+  });
 }

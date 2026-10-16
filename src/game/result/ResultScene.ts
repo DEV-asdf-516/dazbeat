@@ -56,11 +56,26 @@ const STATS_Y_PX = 540;
 const MAX_COMBO_VALUE_GAP_PX = 16;
 /** 판정 내역은 세로 표 대신 한 줄의 열로 펼쳐 왼쪽 열 높이를 줄이고, 그만큼을 묶음 사이 여백으로 쓴다. */
 const JUDGMENT_ROWS: readonly { judgment: Judgment; label: string }[] = [
-  { judgment: 'perfect', label: 'PERFECT' },
-  { judgment: 'great', label: 'GREAT' },
-  { judgment: 'good', label: 'GOOD' },
-  { judgment: 'bad', label: 'BAD' },
-  { judgment: 'miss', label: 'MISS' },
+  {
+    judgment: 'perfect',
+    label: 'PERFECT',
+  },
+  {
+    judgment: 'great',
+    label: 'GREAT',
+  },
+  {
+    judgment: 'good',
+    label: 'GOOD',
+  },
+  {
+    judgment: 'bad',
+    label: 'BAD',
+  },
+  {
+    judgment: 'miss',
+    label: 'MISS',
+  },
 ];
 const JUDGMENT_COLUMN_WIDTH_PX = 130;
 const JUDGMENT_LABEL_Y_PX = 640;
@@ -109,10 +124,30 @@ const CONSTELLATION_TIER_ALPHAS: Readonly<
     { nodeCore: number; nodeHalo: number; lineCore: number; lineHalo: number }
   >
 > = {
-  faint: { nodeCore: 0.6, nodeHalo: 0, lineCore: 0.4, lineHalo: 0 },
-  clear: { nodeCore: 0.85, nodeHalo: 0.14, lineCore: 0.55, lineHalo: 0.08 },
-  bright: { nodeCore: 1, nodeHalo: 0.2, lineCore: 0.65, lineHalo: 0.12 },
-  complete: { nodeCore: 1, nodeHalo: 0.26, lineCore: 0.75, lineHalo: 0.16 },
+  faint: {
+    nodeCore: 0.6,
+    nodeHalo: 0,
+    lineCore: 0.4,
+    lineHalo: 0,
+  },
+  clear: {
+    nodeCore: 0.85,
+    nodeHalo: 0.14,
+    lineCore: 0.55,
+    lineHalo: 0.08,
+  },
+  bright: {
+    nodeCore: 1,
+    nodeHalo: 0.2,
+    lineCore: 0.65,
+    lineHalo: 0.12,
+  },
+  complete: {
+    nodeCore: 1,
+    nodeHalo: 0.26,
+    lineCore: 0.75,
+    lineHalo: 0.16,
+  },
 };
 const FULL_COMBO_LABEL_GAP_PX = 32;
 const FULL_COMBO_LABEL_BOTTOM_INSET_PX = 32;
@@ -244,8 +279,14 @@ export class ResultScene extends Phaser.Scene {
       },
     );
     const menu = new MenuFocus<MenuItem>([
-      { item: 'retry', button: retryButton },
-      { item: 'songSelect', button: songSelectButton },
+      {
+        item: 'retry',
+        button: retryButton,
+      },
+      {
+        item: 'songSelect',
+        button: songSelectButton,
+      },
     ]);
     const hint = addMenuKeyHintRow(this, this.i18n.t('result.hint'), LEFT_X_PX);
     playCelestialEntryTransition(this, this.celestial, rankBounds);
@@ -355,11 +396,17 @@ export class ResultScene extends Phaser.Scene {
       case 'retry':
         this.exit = exitScene(this, this.exit, {
           key: 'gameplay',
-          data: { song: data.song, difficulty: this.retryDifficulty },
+          data: {
+            song: data.song,
+            difficulty: this.retryDifficulty,
+          },
         });
         return;
       case 'songSelect':
-        this.exit = exitScene(this, this.exit, { key: 'songSelect', data: undefined });
+        this.exit = exitScene(this, this.exit, {
+          key: 'songSelect',
+          data: undefined,
+        });
         return;
     }
   }
@@ -373,7 +420,10 @@ export class ResultScene extends Phaser.Scene {
   }
 
   private renderTabs(tabs: DifficultyTabs, song: Song): void {
-    tabs.render({ selected: this.retryDifficulty, available: getAvailableDifficulties(song) });
+    tabs.render({
+      selected: this.retryDifficulty,
+      available: getAvailableDifficulties(song),
+    });
   }
 
   private fadeInAt(
@@ -383,7 +433,12 @@ export class ResultScene extends Phaser.Scene {
     durationMs: number = MOTION.mediumMs,
   ): void {
     targets.forEach((target) => target.setAlpha(0));
-    this.tweens.add({ targets, alpha, delay: delayMs, duration: durationMs });
+    this.tweens.add({
+      targets,
+      alpha,
+      delay: delayMs,
+      duration: durationMs,
+    });
   }
 
   /** finish 계획대로 sprite 를 만들고 각 cue 시각에 1회 재생한다. 계획이 비면 아무것도 만들지 않는다. */
@@ -425,7 +480,11 @@ export class ResultScene extends Phaser.Scene {
       );
       this.fadeInAt([star], CONSTELLATION_DIM_ALPHA, CONSTELLATION_DELAY_MS, MOTION.fastMs);
       if (node.igniteAtMs === null) {
-        return { node, star, halo: null };
+        return {
+          node,
+          star,
+          halo: null,
+        };
       }
       const coreSizePx = node.isAccent
         ? CONSTELLATION_ACCENT_CORE_SIZE_PX
@@ -443,7 +502,11 @@ export class ResultScene extends Phaser.Scene {
         });
       });
       if (alphas.nodeHalo === 0) {
-        return { node, star, halo: null };
+        return {
+          node,
+          star,
+          halo: null,
+        };
       }
       const haloSizePx = node.isAccent
         ? CONSTELLATION_ACCENT_HALO_SIZE_PX
@@ -452,7 +515,11 @@ export class ResultScene extends Phaser.Scene {
         .setDisplaySize(haloSizePx, haloSizePx)
         .setTint(accent);
       this.fadeInAt([halo], alphas.nodeHalo, igniteAtMs, MOTION.fastMs);
-      return { node, star, halo };
+      return {
+        node,
+        star,
+        halo,
+      };
     });
 
     const lines = this.add.graphics();
@@ -534,11 +601,20 @@ function getFinishAnchorPosition(
 ): { xPx: number; yPx: number } {
   switch (anchor) {
     case 'node':
-      return { xPx: NODE_X_PX, yPx: NODE_Y_PX };
+      return {
+        xPx: NODE_X_PX,
+        yPx: NODE_Y_PX,
+      };
     case 'rank':
-      return { xPx: rankBounds.centerX, yPx: rankBounds.centerY };
+      return {
+        xPx: rankBounds.centerX,
+        yPx: rankBounds.centerY,
+      };
     case 'jacket':
-      return { xPx: STARFALL_X_PX, yPx: STARFALL_Y_PX };
+      return {
+        xPx: STARFALL_X_PX,
+        yPx: STARFALL_Y_PX,
+      };
     case 'score':
       return {
         xPx: scoreBounds.left + SCORE_SHIMMER_DX_PX,

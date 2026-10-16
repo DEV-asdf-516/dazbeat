@@ -36,9 +36,18 @@ const BUTTON_HEIGHT_PX = 44;
 const BUTTON_PADDING_X_PX = 20;
 const BUTTON_BORDER_PX = 1;
 const BUTTON_HOVER_FILL = 0x1a2740;
-const TITLE_TYPE = { sizePx: 22, weight: 600 } as const;
-const BODY_TYPE = { sizePx: 15, weight: 400 } as const;
-const BUTTON_LABEL_TYPE = { sizePx: 16, weight: 500 } as const;
+const TITLE_TYPE = {
+  sizePx: 22,
+  weight: 600,
+} as const;
+const BODY_TYPE = {
+  sizePx: 15,
+  weight: 400,
+} as const;
+const BUTTON_LABEL_TYPE = {
+  sizePx: 16,
+  weight: 500,
+} as const;
 // Phaser 기본 줄 높이(글자 크기의 약 1.2배)에 더해 제목 약 1.35, 본문 약 1.55 의 줄높이로 맞춘다.
 const TITLE_LINE_SPACING_PX = 4;
 const BODY_LINE_SPACING_PX = 6;
@@ -103,12 +112,18 @@ export class ConfirmDialog {
     this.title = scene.add.text(PADDING_PX, 0, '', {
       ...typeStyle(TITLE_TYPE, EDITOR_COLORS.textPrimary),
       lineSpacing: TITLE_LINE_SPACING_PX,
-      wordWrap: { width: CONTENT_WIDTH_PX, useAdvancedWrap: true },
+      wordWrap: {
+        width: CONTENT_WIDTH_PX,
+        useAdvancedWrap: true,
+      },
     });
     this.body = scene.add.text(PADDING_PX, 0, '', {
       ...typeStyle(BODY_TYPE, EDITOR_COLORS.textSecondary),
       lineSpacing: BODY_LINE_SPACING_PX,
-      wordWrap: { width: CONTENT_WIDTH_PX, useAdvancedWrap: true },
+      wordWrap: {
+        width: CONTENT_WIDTH_PX,
+        useAdvancedWrap: true,
+      },
     });
     this.cancel = new Button(scene, 0, 0, {
       variant: 'quiet',
@@ -175,7 +190,10 @@ export class ConfirmDialog {
     this.accept.setEnabled(true);
     this.scene.tweens.add({
       targets: [this.backdrop, this.container],
-      alpha: { from: 0, to: 1 },
+      alpha: {
+        from: 0,
+        to: 1,
+      },
       duration: MOTION.fastMs,
       ease: 'Sine.Out',
     });

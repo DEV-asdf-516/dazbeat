@@ -34,32 +34,62 @@ describe('toMenuAction', () => {
 
 describe('readMenuAction', () => {
   it.each(MENU_KEYS)('reads non-repeated %s as %s', (code, action) => {
-    expect(readMenuAction({ code, repeat: false })).toBe(action);
+    expect(
+      readMenuAction({
+        code,
+        repeat: false,
+      }),
+    ).toBe(action);
   });
 
   it.each(UNMAPPED_KEYS)('reads non-repeated %j as null', (code) => {
-    expect(readMenuAction({ code, repeat: false })).toBeNull();
+    expect(
+      readMenuAction({
+        code,
+        repeat: false,
+      }),
+    ).toBeNull();
   });
 
   it.each(MENU_KEYS.filter(([, action]) => action !== 'confirm' && action !== 'back'))(
     'keeps repeated %s as %s',
     (code, action) => {
-      expect(readMenuAction({ code, repeat: true })).toBe(action);
+      expect(
+        readMenuAction({
+          code,
+          repeat: true,
+        }),
+      ).toBe(action);
     },
   );
 
   it.each(['Enter', 'Escape', ...UNMAPPED_KEYS])('reads repeated %j as null', (code) => {
-    expect(readMenuAction({ code, repeat: true })).toBeNull();
+    expect(
+      readMenuAction({
+        code,
+        repeat: true,
+      }),
+    ).toBeNull();
   });
 });
 
 describe('readKeyCapture', () => {
   it.each(['Enter', 'KeyF', 'Escape'])('reads non-repeated %s as its code', (code) => {
-    expect(readKeyCapture({ code, repeat: false })).toBe(code);
+    expect(
+      readKeyCapture({
+        code,
+        repeat: false,
+      }),
+    ).toBe(code);
   });
 
   it.each(['Enter', 'KeyF', 'Escape'])('reads repeated %s as null', (code) => {
-    expect(readKeyCapture({ code, repeat: true })).toBeNull();
+    expect(
+      readKeyCapture({
+        code,
+        repeat: true,
+      }),
+    ).toBeNull();
   });
 });
 

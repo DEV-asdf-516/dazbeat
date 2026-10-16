@@ -24,7 +24,12 @@ describe('getLaneEffectIds', () => {
     ['miss', 'holdStart', []],
     ['miss', 'holdEnd', []],
   ] as const)('plays %s %s effects in order', (judgment, kind, expected) => {
-    expect(getLaneEffectIds({ judgment, kind })).toEqual(expected);
+    expect(
+      getLaneEffectIds({
+        judgment,
+        kind,
+      }),
+    ).toEqual(expected);
   });
 });
 

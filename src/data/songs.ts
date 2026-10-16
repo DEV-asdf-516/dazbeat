@@ -65,5 +65,11 @@ export function withChartId(song: Song, difficulty: Difficulty, chartId: string)
   if (song.chartIds[difficulty] === chartId) {
     return song;
   }
-  return { ...song, chartIds: { ...song.chartIds, [difficulty]: chartId } };
+  return {
+    ...song,
+    chartIds: {
+      ...song.chartIds,
+      [difficulty]: chartId,
+    },
+  };
 }

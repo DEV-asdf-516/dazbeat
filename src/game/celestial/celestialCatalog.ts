@@ -54,11 +54,20 @@ const blend = z.literal('NORMAL');
 // 'none; preserve baked palette' 처럼 설명이 붙어도 색을 바꾸지 않는 값만 허용한다.
 const runtimeTint = z.string().startsWith('none');
 
-const atlas = z.object({ image: z.object({ path }), regions: path });
+const atlas = z.object({
+  image: z.object({ path }),
+  regions: path,
+});
 
 const scaleRange = z.union([
-  pair.transform((range) => ({ x: range, y: range })),
-  z.object({ x: pair, y: pair }),
+  pair.transform((range) => ({
+    x: range,
+    y: range,
+  })),
+  z.object({
+    x: pair,
+    y: pair,
+  }),
   // 이미지 role 의 정책 문자열처럼 수치 범위가 아닌 값은 범위가 없는 것으로 본다.
   z.unknown().transform(() => null),
 ]);
@@ -86,14 +95,26 @@ const role = z.discriminatedUnion('kind', [
     blend,
     runtimeTint,
   }),
-  z.object({ kind: z.literal('composed-sequence'), id: z.string(), blend, runtimeTint }),
+  z.object({
+    kind: z.literal('composed-sequence'),
+    id: z.string(),
+    blend,
+    runtimeTint,
+  }),
 ]);
 
 type Role = z.infer<typeof role>;
 type AtlasRole = Extract<Role, { kind: 'atlas-region' | 'atlas-clip' }>;
 
 const manifestSchema = z.object({
-  atlases: z.object({ S: atlas, A: atlas, C: atlas, G: atlas, R: atlas, T: atlas }),
+  atlases: z.object({
+    S: atlas,
+    A: atlas,
+    C: atlas,
+    G: atlas,
+    R: atlas,
+    T: atlas,
+  }),
   roles: z.array(role),
   additionalSemanticState: z.object({
     resource: z.literal(NODE_PLAYED_ID),
@@ -132,8 +153,16 @@ const sequenceChild = z.union([
     startMs: z.number(),
     durationMs: z.number(),
   }),
-  z.object({ role: z.string(), startMs: z.number(), durationMs: z.number() }),
-  z.object({ sequence: z.string(), fallbackSequence: z.string(), startMs: z.number() }),
+  z.object({
+    role: z.string(),
+    startMs: z.number(),
+    durationMs: z.number(),
+  }),
+  z.object({
+    sequence: z.string(),
+    fallbackSequence: z.string(),
+    startMs: z.number(),
+  }),
 ]);
 
 type SequenceChild = z.infer<typeof sequenceChild>;
@@ -141,7 +170,10 @@ type SequenceChild = z.infer<typeof sequenceChild>;
 const sequencesSchema = z.object({
   sequences: z.record(
     z.string(),
-    z.object({ durationMs: z.number(), children: z.array(sequenceChild) }),
+    z.object({
+      durationMs: z.number(),
+      children: z.array(sequenceChild),
+    }),
   ),
 });
 
@@ -230,7 +262,11 @@ function resolveResource(
   if (source === undefined || state === undefined || region === undefined || rest.length > 0) {
     throw invalid(url, `unknown resource ${resource}`);
   }
-  return { textureKey: source.textureKey, state, region };
+  return {
+    textureKey: source.textureKey,
+    state,
+    region,
+  };
 }
 
 function toOrigin(anchorPx: readonly [number, number], region: RegionState): [number, number] {
@@ -367,7 +403,14 @@ function expandFallback(
       if (presentation === undefined) {
         throw new Error(`Unknown sequence role ${child.role}`);
       }
-      return [{ presentationId: child.role, startMs, durationMs: child.durationMs, presentation }];
+      return [
+        {
+          presentationId: child.role,
+          startMs,
+          durationMs: child.durationMs,
+          presentation,
+        },
+      ];
     }
     const fallback = sequences[child.fallbackSequence];
     if (fallback === undefined) {
@@ -471,8 +514,14 @@ export async function loadCelestialCatalog(
 
   return {
     textures: [
-      ...atlasEntries.map(({ imageUrl }) => ({ key: textureKeyOf(imageUrl), url: imageUrl })),
-      ...[...imageTextures].map(([url, key]) => ({ key, url })),
+      ...atlasEntries.map(({ imageUrl }) => ({
+        key: textureKeyOf(imageUrl),
+        url: imageUrl,
+      })),
+      ...[...imageTextures].map(([url, key]) => ({
+        key,
+        url,
+      })),
     ],
     atlasFrames: [...atlases.values()].map(({ textureKey, states }) => ({
       textureKey,

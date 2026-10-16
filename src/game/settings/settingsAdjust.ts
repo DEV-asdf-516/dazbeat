@@ -39,7 +39,12 @@ export function adjustSetting(
   switch (row.kind) {
     case 'volume': {
       const volume = stepInRange(settings[row.field], SETTINGS_LIMITS.volume, direction);
-      return volume === settings[row.field] ? settings : { ...settings, [row.field]: volume };
+      return volume === settings[row.field]
+        ? settings
+        : {
+            ...settings,
+            [row.field]: volume,
+          };
     }
     case 'inputOffset': {
       const inputOffsetMs = stepInRange(
@@ -47,7 +52,12 @@ export function adjustSetting(
         SETTINGS_LIMITS.inputOffsetMs,
         direction,
       );
-      return inputOffsetMs === settings.inputOffsetMs ? settings : { ...settings, inputOffsetMs };
+      return inputOffsetMs === settings.inputOffsetMs
+        ? settings
+        : {
+            ...settings,
+            inputOffsetMs,
+          };
     }
     case 'scrollSpeed': {
       const scrollSpeedPxPerSecond = stepInRange(
@@ -57,15 +67,28 @@ export function adjustSetting(
       );
       return scrollSpeedPxPerSecond === settings.scrollSpeedPxPerSecond
         ? settings
-        : { ...settings, scrollSpeedPxPerSecond };
+        : {
+            ...settings,
+            scrollSpeedPxPerSecond,
+          };
     }
     case 'mvMode': {
       const mvMode = stepItem(MV_MODES, settings.mvMode, direction);
-      return mvMode === settings.mvMode ? settings : { ...settings, mvMode };
+      return mvMode === settings.mvMode
+        ? settings
+        : {
+            ...settings,
+            mvMode,
+          };
     }
     case 'language': {
       const next = stepItem(LANGUAGES, language, direction);
-      return next === language ? settings : { ...settings, language: next };
+      return next === language
+        ? settings
+        : {
+            ...settings,
+            language: next,
+          };
     }
     case 'key':
       return settings;

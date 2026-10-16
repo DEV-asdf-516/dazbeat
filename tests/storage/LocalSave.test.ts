@@ -41,7 +41,13 @@ function makeResult(overrides: Partial<FinishedGameplayResult>): FinishedGamepla
     score: 1000,
     accuracy: 0.5,
     maxCombo: 10,
-    counts: { perfect: 1, great: 0, good: 0, bad: 0, miss: 1 },
+    counts: {
+      perfect: 1,
+      great: 0,
+      good: 0,
+      bad: 0,
+      miss: 1,
+    },
     outcome: 'finished',
     cleared: false,
     ...overrides,
@@ -105,10 +111,10 @@ describe('LocalSave settings', () => {
   it('replaces a non-finite volume with the default', () => {
     storage.setItem(
       SETTINGS_KEY,
-      JSON.stringify({ ...DEFAULT_SETTINGS, masterVolume: 0.5 }).replace(
-        '"masterVolume":0.5',
-        '"masterVolume":1e999',
-      ),
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        masterVolume: 0.5,
+      }).replace('"masterVolume":0.5', '"masterVolume":1e999'),
     );
     expect(save.loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -120,7 +126,13 @@ describe('LocalSave settings', () => {
     ['an empty key', ['KeyA', '', 'KeyD', 'KeyF']],
     ['a duplicate key', ['KeyA', 'KeyS', 'KeyA', 'KeyF']],
   ])('replaces key bindings with %s by the defaults, warning once', (_label, keyBindings) => {
-    storage.setItem(SETTINGS_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, keyBindings }));
+    storage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        keyBindings,
+      }),
+    );
     expect(save.loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
@@ -142,7 +154,10 @@ describe('LocalSave settings', () => {
   });
 
   it.each(MV_MODES)('loads saved MV mode %s without warning', (mvMode) => {
-    const settings: Settings = { ...DEFAULT_SETTINGS, mvMode };
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      mvMode,
+    };
     save.saveSettings(settings);
     expect(save.loadSettings()).toEqual(settings);
     expect(warnSpy).not.toHaveBeenCalled();
@@ -163,12 +178,19 @@ describe('LocalSave settings', () => {
       mvMode,
     };
     storage.setItem(SETTINGS_KEY, JSON.stringify(saved));
-    expect(save.loadSettings()).toEqual({ ...saved, mvMode: 'dim', language: null });
+    expect(save.loadSettings()).toEqual({
+      ...saved,
+      mvMode: 'dim',
+      language: null,
+    });
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it.each(LANGUAGES)('loads saved language %s without warning', (language) => {
-    const settings: Settings = { ...DEFAULT_SETTINGS, language };
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      language,
+    };
     save.saveSettings(settings);
     expect(save.loadSettings()).toEqual(settings);
     expect(warnSpy).not.toHaveBeenCalled();
@@ -178,7 +200,13 @@ describe('LocalSave settings', () => {
     ['a missing language', undefined],
     ['a null language', null],
   ])('treats %s as not chosen without warning', (_label, language) => {
-    storage.setItem(SETTINGS_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, language }));
+    storage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        language,
+      }),
+    );
     expect(save.loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(warnSpy).not.toHaveBeenCalled();
   });
@@ -187,7 +215,13 @@ describe('LocalSave settings', () => {
     ['an unsupported language', 'fr'],
     ['a non-string language', 1],
   ])('replaces %s with null, warning once', (_label, language) => {
-    storage.setItem(SETTINGS_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, language }));
+    storage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        language,
+      }),
+    );
     expect(save.loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
@@ -206,7 +240,15 @@ describe('LocalSave records', () => {
   });
 
   it('loads a saved result', () => {
-    save.saveResult('song-a', 'hard', makeResult({ score: 5000, accuracy: 0.8, cleared: true }));
+    save.saveResult(
+      'song-a',
+      'hard',
+      makeResult({
+        score: 5000,
+        accuracy: 0.8,
+        cleared: true,
+      }),
+    );
     expect(save.loadRecord('song-a', 'hard')).toEqual({
       score: 5000,
       accuracy: 0.8,
@@ -220,12 +262,22 @@ describe('LocalSave records', () => {
     save.saveResult(
       'song-a',
       'normal',
-      makeResult({ score: 9000, accuracy: 0.75, maxCombo: 5, cleared: true }),
+      makeResult({
+        score: 9000,
+        accuracy: 0.75,
+        maxCombo: 5,
+        cleared: true,
+      }),
     );
     save.saveResult(
       'song-a',
       'normal',
-      makeResult({ score: 7000, accuracy: 0.6, maxCombo: 30, cleared: false }),
+      makeResult({
+        score: 7000,
+        accuracy: 0.6,
+        maxCombo: 30,
+        cleared: false,
+      }),
     );
     expect(save.loadRecord('song-a', 'normal')).toEqual({
       score: 9000,
@@ -245,8 +297,18 @@ describe('LocalSave records', () => {
     storage.setItem(
       RECORDS_KEY,
       JSON.stringify({
-        'song-a/easy': { score: '100', accuracy: 0.5, maxCombo: 1, cleared: false },
-        'song-b/easy': { score: 200, accuracy: 0.9, maxCombo: 4, cleared: true },
+        'song-a/easy': {
+          score: '100',
+          accuracy: 0.5,
+          maxCombo: 1,
+          cleared: false,
+        },
+        'song-b/easy': {
+          score: 200,
+          accuracy: 0.9,
+          maxCombo: 4,
+          cleared: true,
+        },
       }),
     );
     expect(save.loadRecord('song-a', 'easy')).toBeNull();
@@ -260,8 +322,18 @@ describe('LocalSave records', () => {
     save.saveResult('song-c', 'expert', makeResult({ score: 300 }));
     const stored: unknown = JSON.parse(storage.getItem(RECORDS_KEY) ?? '');
     expect(stored).toEqual({
-      'song-b/easy': { score: 200, accuracy: 0.9, maxCombo: 4, cleared: true },
-      'song-c/expert': { score: 300, accuracy: 0.5, maxCombo: 10, cleared: false },
+      'song-b/easy': {
+        score: 200,
+        accuracy: 0.9,
+        maxCombo: 4,
+        cleared: true,
+      },
+      'song-c/expert': {
+        score: 300,
+        accuracy: 0.5,
+        maxCombo: 10,
+        cleared: false,
+      },
     });
   });
 

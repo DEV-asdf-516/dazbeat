@@ -11,29 +11,55 @@ import type { Chart, InputEvent, Lane, Note } from '../../src/rhythm/types.js';
 import { simulateClientPlay } from '../rhythm/playSimulation.js';
 
 // 재생 시작 1000ms(리드인 2000ms) → 플레이 길이 9000ms, 최소 소요 시간 8100ms.
-const song: VerificationSong = { key: 'test-song', gameStartMs: 3000, gameEndMs: 10000 };
+const song: VerificationSong = {
+  key: 'test-song',
+  gameStartMs: 3000,
+  gameEndMs: 10000,
+};
 const ISSUED_AT_MS = 1_800_000_000_000;
 const MIN_ELAPSED_MS = 8100;
 const REVISION = 'rev-1';
 
 function tap(lane: Lane, timeMs: number): Note {
-  return { type: 'tap', timeMs, lane };
+  return {
+    type: 'tap',
+    timeMs,
+    lane,
+  };
 }
 
 function hold(lane: Lane, timeMs: number, endTimeMs: number): Note {
-  return { type: 'hold', timeMs, endTimeMs, lane };
+  return {
+    type: 'hold',
+    timeMs,
+    endTimeMs,
+    lane,
+  };
 }
 
 function press(lane: Lane, songTimeMs: number): InputEvent {
-  return { lane, kind: 'press', songTimeMs };
+  return {
+    lane,
+    kind: 'press',
+    songTimeMs,
+  };
 }
 
 function release(lane: Lane, songTimeMs: number): InputEvent {
-  return { lane, kind: 'release', songTimeMs };
+  return {
+    lane,
+    kind: 'release',
+    songTimeMs,
+  };
 }
 
 function makeChart(notes: Note[]): Chart {
-  return { songId: song.key, difficulty: 'normal', offsetMs: 0, notes };
+  return {
+    songId: song.key,
+    difficulty: 'normal',
+    offsetMs: 0,
+    notes,
+  };
 }
 
 const chart = makeChart([tap(0, 3000), hold(1, 3500, 4500), tap(2, 4000), tap(3, 5000)]);
@@ -52,13 +78,19 @@ function makeInput(overrides: Partial<PlayVerificationInput> = {}): PlayVerifica
   return {
     song,
     difficulty: 'normal',
-    chart: { revision: REVISION, data: chart },
+    chart: {
+      revision: REVISION,
+      data: chart,
+    },
     session: {
       chartRevision: REVISION,
       issuedAtMs: ISSUED_AT_MS,
       expiresAtMs: getSessionExpiresAtMs(song, ISSUED_AT_MS),
     },
-    submission: { inputOffsetMs: 0, events },
+    submission: {
+      inputOffsetMs: 0,
+      events,
+    },
     nowMs: ISSUED_AT_MS + MIN_ELAPSED_MS,
     ...overrides,
   };
@@ -70,7 +102,11 @@ describe('getSessionExpiresAtMs', () => {
   });
 
   it('starts the play duration at 0 when gameStartMs is shorter than the lead-in', () => {
-    const earlySong = { key: 'early', gameStartMs: 500, gameEndMs: 8000 };
+    const earlySong = {
+      key: 'early',
+      gameStartMs: 500,
+      gameEndMs: 8000,
+    };
 
     expect(getSessionExpiresAtMs(earlySong, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 8000 + 900_000);
   });
@@ -80,7 +116,10 @@ describe('verifyPlay', () => {
   it('returns the replayed result for a finished play', () => {
     const expected = replayGameplay(chart, events);
 
-    expect(verifyPlay(makeInput())).toEqual({ kind: 'verified', result: expected });
+    expect(verifyPlay(makeInput())).toEqual({
+      kind: 'verified',
+      result: expected,
+    });
     expect(expected.outcome).toBe('finished');
   });
 
@@ -100,8 +139,18 @@ describe('verifyPlay', () => {
     );
 
     expect(
-      verifyPlay(makeInput({ submission: { inputOffsetMs: 0, events: client.inputs } })),
-    ).toEqual({ kind: 'verified', result: client.result });
+      verifyPlay(
+        makeInput({
+          submission: {
+            inputOffsetMs: 0,
+            events: client.inputs,
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: 'verified',
+      result: client.result,
+    });
   });
 
   it('accepts a submission exactly at expiresAtMs and rejects 1ms later', () => {
@@ -123,7 +172,16 @@ describe('verifyPlay', () => {
   });
 
   it('rejects a chart revision that differs from the session', () => {
-    expect(verifyPlay(makeInput({ chart: { revision: 'rev-2', data: chart } }))).toEqual({
+    expect(
+      verifyPlay(
+        makeInput({
+          chart: {
+            revision: 'rev-2',
+            data: chart,
+          },
+        }),
+      ),
+    ).toEqual({
       kind: 'rejected',
       code: 'chart_changed',
     });
@@ -131,22 +189,56 @@ describe('verifyPlay', () => {
 
   it('rejects a stored chart that does not parse', () => {
     expect(
-      verifyPlay(makeInput({ chart: { revision: REVISION, data: { ...chart, notes: [] } } })),
-    ).toEqual({ kind: 'rejected', code: 'chart_invalid' });
+      verifyPlay(
+        makeInput({
+          chart: {
+            revision: REVISION,
+            data: {
+              ...chart,
+              notes: [],
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: 'rejected',
+      code: 'chart_invalid',
+    });
   });
 
   it('rejects a chart stored for another song', () => {
     expect(
       verifyPlay(
-        makeInput({ chart: { revision: REVISION, data: { ...chart, songId: 'other-song' } } }),
+        makeInput({
+          chart: {
+            revision: REVISION,
+            data: {
+              ...chart,
+              songId: 'other-song',
+            },
+          },
+        }),
       ),
-    ).toEqual({ kind: 'rejected', code: 'chart_invalid' });
+    ).toEqual({
+      kind: 'rejected',
+      code: 'chart_invalid',
+    });
   });
 
   it('rejects malformed events', () => {
     expect(
-      verifyPlay(makeInput({ submission: { inputOffsetMs: 0, events: [press(0, 3000), 'x'] } })),
-    ).toEqual({ kind: 'rejected', code: 'invalid_events' });
+      verifyPlay(
+        makeInput({
+          submission: {
+            inputOffsetMs: 0,
+            events: [press(0, 3000), 'x'],
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: 'rejected',
+      code: 'invalid_events',
+    });
   });
 
   it('rejects a play that fails at hp 0', () => {
@@ -157,37 +249,79 @@ describe('verifyPlay', () => {
     expect(
       verifyPlay(
         makeInput({
-          chart: { revision: REVISION, data: failingChart },
-          submission: { inputOffsetMs: 0, events: [] },
+          chart: {
+            revision: REVISION,
+            data: failingChart,
+          },
+          submission: {
+            inputOffsetMs: 0,
+            events: [],
+          },
         }),
       ),
-    ).toEqual({ kind: 'rejected', code: 'not_finished' });
+    ).toEqual({
+      kind: 'rejected',
+      code: 'not_finished',
+    });
   });
 
   it('reports the earliest failing step when several conditions fail', () => {
     const broken = {
-      chart: { revision: 'rev-2', data: { ...chart, notes: [] } },
+      chart: {
+        revision: 'rev-2',
+        data: {
+          ...chart,
+          notes: [],
+        },
+      },
       submission: 'not a submission',
       nowMs: ISSUED_AT_MS,
     };
     const expiresAtMs = getSessionExpiresAtMs(song, ISSUED_AT_MS);
 
-    expect(verifyPlay(makeInput({ ...broken, nowMs: expiresAtMs + 1 }))).toMatchObject({
+    expect(
+      verifyPlay(
+        makeInput({
+          ...broken,
+          nowMs: expiresAtMs + 1,
+        }),
+      ),
+    ).toMatchObject({
       code: 'session_expired',
     });
     expect(verifyPlay(makeInput(broken))).toMatchObject({ code: 'chart_changed' });
     expect(
       verifyPlay(
-        makeInput({ ...broken, chart: { revision: REVISION, data: { ...chart, notes: [] } } }),
+        makeInput({
+          ...broken,
+          chart: {
+            revision: REVISION,
+            data: {
+              ...chart,
+              notes: [],
+            },
+          },
+        }),
       ),
     ).toMatchObject({ code: 'chart_invalid' });
     expect(
-      verifyPlay(makeInput({ ...broken, chart: { revision: REVISION, data: chart } })),
+      verifyPlay(
+        makeInput({
+          ...broken,
+          chart: {
+            revision: REVISION,
+            data: chart,
+          },
+        }),
+      ),
     ).toMatchObject({ code: 'too_short' });
     expect(
       verifyPlay(
         makeInput({
-          chart: { revision: REVISION, data: chart },
+          chart: {
+            revision: REVISION,
+            data: chart,
+          },
           submission: 'not a submission',
         }),
       ),

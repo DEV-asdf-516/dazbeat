@@ -75,7 +75,11 @@ export class EditorNoteLayer {
     if (hasNewNotes || last.currentTimeMs !== currentTimeMs) {
       this.views.forEach((view) => this.place(view, currentTimeMs));
     }
-    this.rendered = { notes, selected, currentTimeMs };
+    this.rendered = {
+      notes,
+      selected,
+      currentTimeMs,
+    };
     this.highlight(selected, currentTimeMs);
   }
 
@@ -114,7 +118,11 @@ export class EditorNoteLayer {
               .setDepth(GAMEPLAY_DEPTH.holdBody),
           }
         : null;
-    return { note, head, hold };
+    return {
+      note,
+      head,
+      hold,
+    };
   }
 
   private place({ note, head, hold }: NoteView, currentTimeMs: number): void {

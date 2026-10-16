@@ -134,7 +134,11 @@ export class StarlightGauge {
   /** 실패 연출의 "게이지 꺼짐". 게이지 전체를 사라지게 한다. */
   extinguish(): void {
     this.setBreathing(false);
-    this.scene.tweens.add({ targets: this.parts, alpha: 0, duration: MOTION.mediumMs });
+    this.scene.tweens.add({
+      targets: this.parts,
+      alpha: 0,
+      duration: MOTION.mediumMs,
+    });
   }
 
   private flashGlint(): void {
@@ -142,7 +146,10 @@ export class StarlightGauge {
     this.scene.tweens.killTweensOf(this.glintGlow);
     this.scene.tweens.add({
       targets: this.glintGlow,
-      scale: { from: scale * DROP_FLASH_SCALE, to: scale },
+      scale: {
+        from: scale * DROP_FLASH_SCALE,
+        to: scale,
+      },
       duration: MOTION.mediumMs,
       ease: 'Cubic.Out',
     });

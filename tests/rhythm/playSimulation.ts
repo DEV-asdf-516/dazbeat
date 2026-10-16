@@ -48,5 +48,8 @@ export function simulateClientPlay(
   const endMs = getLastJudgmentDeadlineMs(chart) + 1;
   updateFramesBefore(endMs);
   session.update(endMs);
-  return { result: session.getResult(), inputs: session.getInputs() };
+  return {
+    result: session.getResult(),
+    inputs: session.getInputs(),
+  };
 }

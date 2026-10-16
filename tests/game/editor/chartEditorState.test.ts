@@ -47,16 +47,30 @@ const song: Song = {
   chartIds: { normal: 'chart_normal' },
 };
 
-const savedSong: Song = { ...song, chartIds: { ...song.chartIds, hard: 'chart_hard' } };
+const savedSong: Song = {
+  ...song,
+  chartIds: {
+    ...song.chartIds,
+    hard: 'chart_hard',
+  },
+};
 
-const LIMITS = { snapThresholdMs: 20, pickToleranceMs: 30 };
+const LIMITS = {
+  snapThresholdMs: 20,
+  pickToleranceMs: 30,
+};
 
 function makeClock(): RhythmClock {
   return new RhythmClock({ currentTime: 0 }, 0, 0);
 }
 
 function makeChart(notes: readonly Note[]): Chart {
-  return { songId: 'test-song', difficulty: 'normal', offsetMs: 0, notes };
+  return {
+    songId: 'test-song',
+    difficulty: 'normal',
+    offsetMs: 0,
+    notes,
+  };
 }
 
 function requireToken(state: ChartEditorState): object {
@@ -100,7 +114,11 @@ describe('selection', () => {
 
     const next = applySelection(playing, song, 'normal');
 
-    expect(next.phase).toEqual({ kind: 'loading', song, difficulty: 'normal' });
+    expect(next.phase).toEqual({
+      kind: 'loading',
+      song,
+      difficulty: 'normal',
+    });
     expect(next.selectionToken).not.toBeNull();
     expect(next.selectionToken).not.toBe(previousToken);
     expect(next.currentTimeMs).toBe(1000);
@@ -129,7 +147,13 @@ describe('selection', () => {
   it('applies load results of the current selection', () => {
     const loading = applySelection(createEditorState(), song, 'normal');
     const token = requireToken(loading);
-    const notes: Note[] = [{ type: 'tap', timeMs: 2000, lane: 1 }];
+    const notes: Note[] = [
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
+    ];
 
     expect(getDraft(completeLoad(loading, token, makeChart(notes))).notes).toEqual(notes);
     expect(failLoad(loading, token).phase).toEqual({
@@ -158,7 +182,11 @@ describe('requestNavigation', () => {
   it('does nothing for the current selection', () => {
     const state = loaded([]);
 
-    const result = requestNavigation(state, { kind: 'select', song, difficulty: 'normal' });
+    const result = requestNavigation(state, {
+      kind: 'select',
+      song,
+      difficulty: 'normal',
+    });
 
     expect(result.state).toBe(state);
     expect(result.proceed).toBeNull();
@@ -167,7 +195,11 @@ describe('requestNavigation', () => {
   it('proceeds for the current selection after a load failure', () => {
     const loading = applySelection(createEditorState(), song, 'normal');
     const failed = failLoad(loading, requireToken(loading));
-    const navigation = { kind: 'select', song, difficulty: 'normal' } as const;
+    const navigation = {
+      kind: 'select',
+      song,
+      difficulty: 'normal',
+    } as const;
 
     expect(requestNavigation(failed, navigation).proceed).toBe(navigation);
   });
@@ -182,7 +214,11 @@ describe('requestNavigation', () => {
   });
 
   it('holds the navigation with unsaved changes and ignores further requests', () => {
-    const navigation = { kind: 'select', song, difficulty: 'hard' } as const;
+    const navigation = {
+      kind: 'select',
+      song,
+      difficulty: 'hard',
+    } as const;
     const result = requestNavigation(addTap(loaded([]), 3000), navigation);
 
     expect(result.proceed).toBeNull();
@@ -208,8 +244,16 @@ describe('requestNavigation', () => {
 
 describe('requestClearNotes', () => {
   const notes: Note[] = [
-    { type: 'tap', timeMs: 2000, lane: 0 },
-    { type: 'tap', timeMs: 2000, lane: 2 },
+    {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 0,
+    },
+    {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 2,
+    },
   ];
 
   it('asks for confirmation even without unsaved changes and clears only on confirm', () => {
@@ -249,7 +293,16 @@ describe('requestClearNotes', () => {
 
 describe('input while the confirm dialog is open', () => {
   function heldWhilePlaying(): ChartEditorState {
-    const dirty = addTap(loaded([{ type: 'tap', timeMs: 2000, lane: 0 }]), 3000);
+    const dirty = addTap(
+      loaded([
+        {
+          type: 'tap',
+          timeMs: 2000,
+          lane: 0,
+        },
+      ]),
+      3000,
+    );
     const playing = startPlayback(dirty, makeClock());
     const { state } = requestNavigation(playing, { kind: 'leave' });
     expect(state.pending).not.toBeNull();
@@ -267,7 +320,10 @@ describe('input while the confirm dialog is open', () => {
     expect(selectTool(held, 'hold')).toBe(held);
     expect(deleteSelected(held)).toBe(held);
     expect(requestPause(held)).toBe(held);
-    expect(startSave(held)).toEqual({ state: held, request: null });
+    expect(startSave(held)).toEqual({
+      state: held,
+      request: null,
+    });
   });
 
   it('does not allow starting playback', () => {
@@ -280,7 +336,16 @@ describe('input while the confirm dialog is open', () => {
 
 describe('navigation during a hold creation drag', () => {
   it('removes the hold being created and proceeds when that was the only change', () => {
-    const clean = selectTool(loaded([{ type: 'tap', timeMs: 2000, lane: 0 }]), 'hold');
+    const clean = selectTool(
+      loaded([
+        {
+          type: 'tap',
+          timeMs: 2000,
+          lane: 0,
+        },
+      ]),
+      'hold',
+    );
     const dragging = continueGesture(
       startGesture(clean, 2, 5000, LIMITS),
       2,
@@ -288,7 +353,11 @@ describe('navigation during a hold creation drag', () => {
       LIMITS.snapThresholdMs,
     );
     expect(getDraft(dragging).notes).toHaveLength(2);
-    const navigation = { kind: 'select', song, difficulty: 'hard' } as const;
+    const navigation = {
+      kind: 'select',
+      song,
+      difficulty: 'hard',
+    } as const;
 
     const result = requestNavigation(dragging, navigation);
 
@@ -334,25 +403,47 @@ describe('hold creation across a save', () => {
 describe('gestures', () => {
   it('adds a tap in an empty spot and moves it while dragging', () => {
     const added = startGesture(loaded([]), 1, 3000, LIMITS);
-    expect(getDraft(added).notes).toEqual([{ type: 'tap', timeMs: 3000, lane: 1 }]);
+    expect(getDraft(added).notes).toEqual([
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 1,
+      },
+    ]);
 
     const moved = continueGesture(added, 2, 4000, LIMITS.snapThresholdMs);
 
-    expect(getDraft(moved).notes).toEqual([{ type: 'tap', timeMs: 4000, lane: 2 }]);
+    expect(getDraft(moved).notes).toEqual([
+      {
+        type: 'tap',
+        timeMs: 4000,
+        lane: 2,
+      },
+    ]);
     expect(endGesture(moved, 4000).gesture).toEqual({ kind: 'none' });
   });
 
   it('creates a hold by dragging past its start', () => {
     const started = startGesture(selectTool(loaded([]), 'hold'), 0, 3000, LIMITS);
     expect(getDraft(started).notes).toEqual([
-      { type: 'hold', timeMs: 3000, endTimeMs: 3001, lane: 0 },
+      {
+        type: 'hold',
+        timeMs: 3000,
+        endTimeMs: 3001,
+        lane: 0,
+      },
     ]);
     const dragged = continueGesture(started, 0, 3500, LIMITS.snapThresholdMs);
 
     const released = endGesture(dragged, 3500);
 
     expect(getDraft(released).notes).toEqual([
-      { type: 'hold', timeMs: 3000, endTimeMs: 3500, lane: 0 },
+      {
+        type: 'hold',
+        timeMs: 3000,
+        endTimeMs: 3500,
+        lane: 0,
+      },
     ]);
     expect(released.gesture).toEqual({ kind: 'none' });
   });
@@ -368,8 +459,16 @@ describe('gestures', () => {
 
   it('moves a picked note head keeping the grab offset and snapping to other lanes', () => {
     const state = loaded([
-      { type: 'tap', timeMs: 3000, lane: 0 },
-      { type: 'tap', timeMs: 5000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 5000,
+        lane: 1,
+      },
     ]);
     const picked = startGesture(state, 1, 5010, LIMITS);
     expect(getDraft(picked).selected).toBe(getDraft(state).notes[1]);
@@ -378,15 +477,32 @@ describe('gestures', () => {
     const moved = continueGesture(picked, 1, 3020, LIMITS.snapThresholdMs);
 
     expect(getDraft(moved).notes).toEqual([
-      { type: 'tap', timeMs: 3000, lane: 0 },
-      { type: 'tap', timeMs: 3000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 1,
+      },
     ]);
   });
 
   it('changes a hold end without snapping', () => {
     const state = loaded([
-      { type: 'tap', timeMs: 4500, lane: 0 },
-      { type: 'hold', timeMs: 3000, endTimeMs: 4000, lane: 2 },
+      {
+        type: 'tap',
+        timeMs: 4500,
+        lane: 0,
+      },
+      {
+        type: 'hold',
+        timeMs: 3000,
+        endTimeMs: 4000,
+        lane: 2,
+      },
     ]);
     const picked = startGesture(state, 2, 4010, LIMITS);
 
@@ -405,8 +521,16 @@ describe('save', () => {
   it('marks an invalid chart, selects the invalid note and seeks to it paused', () => {
     const state = startPlayback(
       loaded([
-        { type: 'tap', timeMs: 3000, lane: 2 },
-        { type: 'tap', timeMs: 3000, lane: 2 },
+        {
+          type: 'tap',
+          timeMs: 3000,
+          lane: 2,
+        },
+        {
+          type: 'tap',
+          timeMs: 3000,
+          lane: 2,
+        },
       ]),
       makeClock(),
     );
@@ -437,7 +561,10 @@ describe('save', () => {
       },
       savedNotes: getDraft(state).notes,
     });
-    expect(startSave(saving)).toEqual({ state: saving, request: null });
+    expect(startSave(saving)).toEqual({
+      state: saving,
+      request: null,
+    });
   });
 
   it('clears dirty when nothing was edited during the save', () => {
@@ -501,7 +628,10 @@ describe('transport', () => {
     const started = startPlayback(atEnd, clock);
 
     expect(started.currentTimeMs).toBe(1000);
-    expect(started.transport).toEqual({ kind: 'starting', clock });
+    expect(started.transport).toEqual({
+      kind: 'starting',
+      clock,
+    });
   });
 
   it('follows player state changes', () => {
@@ -509,7 +639,10 @@ describe('transport', () => {
     const starting = startPlayback(loaded([]), clock);
 
     const playing = handlePlayerState(starting, 'playing');
-    expect(playing.transport).toEqual({ kind: 'playing', clock });
+    expect(playing.transport).toEqual({
+      kind: 'playing',
+      clock,
+    });
     expect(handlePlayerState(playing, 'buffering')).toBe(playing);
     expect(handlePlayerState(playing, 'paused').transport).toEqual({ kind: 'paused' });
     expect(handlePlayerState(starting, 'ended').transport).toEqual({ kind: 'paused' });

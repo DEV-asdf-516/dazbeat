@@ -60,9 +60,18 @@ const DEFAULT_COLORS: ButtonColors = {
 };
 
 const PADDING_PX: Record<ButtonVariant, { xPx: number; yPx: number }> = {
-  primary: { xPx: 44, yPx: 20 },
-  secondary: { xPx: 44, yPx: 20 },
-  quiet: { xPx: 16, yPx: 12 },
+  primary: {
+    xPx: 44,
+    yPx: 20,
+  },
+  secondary: {
+    xPx: 44,
+    yPx: 20,
+  },
+  quiet: {
+    xPx: 16,
+    yPx: 12,
+  },
 };
 const PRIMARY_LABEL_WEIGHT = 700;
 const SECONDARY_BORDER_PX = 2;
@@ -93,7 +102,10 @@ export class Button extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, xPx: number, yPx: number, options: ButtonOptions) {
     super(scene, xPx, yPx);
     this.options = options;
-    this.colors = { ...DEFAULT_COLORS, ...options.colors };
+    this.colors = {
+      ...DEFAULT_COLORS,
+      ...options.colors,
+    };
     ensureLightTextures(scene);
     // quiet 도 hover 배경을 칠할 수 있으므로 모든 variant 가 같은 모서리를 쓴다. 칠하지 않으면 보이지 않는다.
     this.background = scene.add.rectangle(0, 0, 0, 0).setOrigin(0, 0).setRounded(RADIUS.smallPx);
@@ -198,7 +210,10 @@ export class Button extends Phaser.GameObjects.Container {
 
   /** 색 덮어쓰기를 기본색 위에 이 값으로 바꾸고 현재 상태로 다시 칠한다. 생성 때의 colors 는 버린다. */
   setColors(colors: Partial<ButtonColors>): this {
-    this.colors = { ...DEFAULT_COLORS, ...colors };
+    this.colors = {
+      ...DEFAULT_COLORS,
+      ...colors,
+    };
     this.refresh();
     return this;
   }

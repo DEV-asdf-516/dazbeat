@@ -73,15 +73,30 @@ describe('createEditorLayout', () => {
 });
 
 describe('toViewportRect', () => {
-  const rect = { leftPx: 240, topPx: 96, widthPx: 384, heightPx: 216 };
+  const rect = {
+    leftPx: 240,
+    topPx: 96,
+    widthPx: 384,
+    heightPx: 216,
+  };
 
   it('keeps the rect when the canvas is shown at scale 1 without offset', () => {
-    const canvas = { leftPx: 0, topPx: 0, widthPx: SCREEN_WIDTH_PX, heightPx: SCREEN_HEIGHT_PX };
+    const canvas = {
+      leftPx: 0,
+      topPx: 0,
+      widthPx: SCREEN_WIDTH_PX,
+      heightPx: SCREEN_HEIGHT_PX,
+    };
     expect(toViewportRect(rect, canvas, SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX)).toEqual(rect);
   });
 
   it('scales the rect and adds the canvas offset', () => {
-    const canvas = { leftPx: 100, topPx: 20, widthPx: 960, heightPx: 540 };
+    const canvas = {
+      leftPx: 100,
+      topPx: 20,
+      widthPx: 960,
+      heightPx: 540,
+    };
     expect(toViewportRect(rect, canvas, SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX)).toEqual({
       leftPx: 220,
       topPx: 68,
@@ -91,7 +106,12 @@ describe('toViewportRect', () => {
   });
 
   it('does not round non-integer scales', () => {
-    const canvas = { leftPx: 0, topPx: 0, widthPx: 1366, heightPx: 768 };
+    const canvas = {
+      leftPx: 0,
+      topPx: 0,
+      widthPx: 1366,
+      heightPx: 768,
+    };
     const result = toViewportRect(rect, canvas, SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX);
     expect(result.leftPx).toBeCloseTo((240 * 1366) / 1920);
     expect(result.topPx).toBeCloseTo((96 * 768) / 1080);
@@ -125,7 +145,10 @@ describe('getLaneCenterXPx', () => {
 });
 
 describe('getSeekXPx / getSeekTimeMs', () => {
-  const song = { gameStartMs: 1000, gameEndMs: 61000 };
+  const song = {
+    gameStartMs: 1000,
+    gameEndMs: 61000,
+  };
   const { leftPx, widthPx } = layout.seek;
 
   it('maps the song start and end to the seek bar ends', () => {

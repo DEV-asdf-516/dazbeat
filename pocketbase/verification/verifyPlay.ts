@@ -55,7 +55,10 @@ export function getSessionExpiresAtMs(song: VerificationSong, issuedAtMs: number
 }
 
 function rejected(code: PlayRejectionCode): PlayVerification {
-  return { kind: 'rejected', code };
+  return {
+    kind: 'rejected',
+    code,
+  };
 }
 
 /** 세션 정책·채보·제출 본문을 판정하고, 통과하면 입력 기록을 리플레이한 완주 결과를 돌려준다. */
@@ -71,7 +74,11 @@ export function verifyPlay(input: PlayVerificationInput): PlayVerification {
   try {
     parsedChart = parseChart(
       chart.data,
-      { id: song.key, gameStartMs: song.gameStartMs, gameEndMs: song.gameEndMs },
+      {
+        id: song.key,
+        gameStartMs: song.gameStartMs,
+        gameEndMs: song.gameEndMs,
+      },
       difficulty,
     );
   } catch (error) {
@@ -96,5 +103,8 @@ export function verifyPlay(input: PlayVerificationInput): PlayVerification {
   if (result.outcome === 'failed') {
     return rejected('not_finished');
   }
-  return { kind: 'verified', result };
+  return {
+    kind: 'verified',
+    result,
+  };
 }

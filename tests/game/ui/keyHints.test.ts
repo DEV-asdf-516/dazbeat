@@ -7,14 +7,28 @@ import { ko } from '../../../src/i18n/messages/ko.js';
 describe('parseKeyHints', () => {
   it('splits items on runs of spaces and keys on the first space', () => {
     expect(parseKeyHints('Space 재생/일시정지   Delete 노트 삭제   Esc 나가기')).toEqual([
-      { key: 'Space', label: '재생/일시정지' },
-      { key: 'Delete', label: '노트 삭제' },
-      { key: 'Esc', label: '나가기' },
+      {
+        key: 'Space',
+        label: '재생/일시정지',
+      },
+      {
+        key: 'Delete',
+        label: '노트 삭제',
+      },
+      {
+        key: 'Esc',
+        label: '나가기',
+      },
     ]);
   });
 
   it('reads a single item', () => {
-    expect(parseKeyHints('Esc Back')).toEqual([{ key: 'Esc', label: 'Back' }]);
+    expect(parseKeyHints('Esc Back')).toEqual([
+      {
+        key: 'Esc',
+        label: 'Back',
+      },
+    ]);
   });
 
   it('throws on an item without a label', () => {

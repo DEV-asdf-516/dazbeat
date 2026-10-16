@@ -15,7 +15,15 @@ export interface AccountAuth {
 }
 
 export function createAccountState(user: AuthUser | null): AccountState {
-  return user === null ? { kind: 'guest', hasSignInFailed: false } : { kind: 'signedIn', user };
+  return user === null
+    ? {
+        kind: 'guest',
+        hasSignInFailed: false,
+      }
+    : {
+        kind: 'signedIn',
+        user,
+      };
 }
 
 /** 시도는 이 객체의 identity 로 식별하므로 시도마다 새로 만든다. */
@@ -29,17 +37,32 @@ export function completeSignIn(
   attempt: AccountState,
   user: AuthUser,
 ): AccountState {
-  return current === attempt ? { kind: 'signedIn', user } : current;
+  return current === attempt
+    ? {
+        kind: 'signedIn',
+        user,
+      }
+    : current;
 }
 
 /** 시도를 시작한 signingIn 상태가 아직 현재 상태일 때만 취소를 반영한다. 취소는 실패가 아니므로 안내를 띄우지 않는다. */
 export function cancelSignIn(current: AccountState, attempt: AccountState): AccountState {
-  return current === attempt ? { kind: 'guest', hasSignInFailed: false } : current;
+  return current === attempt
+    ? {
+        kind: 'guest',
+        hasSignInFailed: false,
+      }
+    : current;
 }
 
 /** 시도를 시작한 signingIn 상태가 아직 현재 상태일 때만 로그인 실패를 반영한다. */
 export function failSignIn(current: AccountState, attempt: AccountState): AccountState {
-  return current === attempt ? { kind: 'guest', hasSignInFailed: true } : current;
+  return current === attempt
+    ? {
+        kind: 'guest',
+        hasSignInFailed: true,
+      }
+    : current;
 }
 
 /** Editor 메뉴 노출과 Editor 화면 진입이 함께 쓰는 유일한 권한 판정. */

@@ -53,9 +53,11 @@ export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[])
         console.log(`skipped chart ${song.key}/${chart.difficulty}`);
         continue;
       }
-      await pb
-        .collection('charts')
-        .create({ song: songId, difficulty: chart.difficulty, data: chart.data });
+      await pb.collection('charts').create({
+        song: songId,
+        difficulty: chart.difficulty,
+        data: chart.data,
+      });
       console.log(`created chart ${song.key}/${chart.difficulty}`);
     }
   }

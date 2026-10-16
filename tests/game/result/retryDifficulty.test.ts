@@ -13,7 +13,11 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 1000,
   gameEndMs: 10000,
-  chartIds: { easy: 'c-easy', hard: 'c-hard', expert: 'c-expert' },
+  chartIds: {
+    easy: 'c-easy',
+    hard: 'c-hard',
+    expert: 'c-expert',
+  },
 };
 
 describe('stepRetryDifficulty', () => {

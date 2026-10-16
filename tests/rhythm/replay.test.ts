@@ -30,23 +30,45 @@ function makeFrameTimes(chart: Chart, seed: number): number[] {
 }
 
 function makeChart(notes: Note[]): Chart {
-  return { songId: 'test-song', difficulty: 'easy', offsetMs: 0, notes };
+  return {
+    songId: 'test-song',
+    difficulty: 'easy',
+    offsetMs: 0,
+    notes,
+  };
 }
 
 function press(lane: Lane, songTimeMs: number): InputEvent {
-  return { lane, kind: 'press', songTimeMs };
+  return {
+    lane,
+    kind: 'press',
+    songTimeMs,
+  };
 }
 
 function release(lane: Lane, songTimeMs: number): InputEvent {
-  return { lane, kind: 'release', songTimeMs };
+  return {
+    lane,
+    kind: 'release',
+    songTimeMs,
+  };
 }
 
 function tap(lane: Lane, timeMs: number): Note {
-  return { type: 'tap', timeMs, lane };
+  return {
+    type: 'tap',
+    timeMs,
+    lane,
+  };
 }
 
 function hold(lane: Lane, timeMs: number, endTimeMs: number): Note {
-  return { type: 'hold', timeMs, endTimeMs, lane };
+  return {
+    type: 'hold',
+    timeMs,
+    endTimeMs,
+    lane,
+  };
 }
 
 function expectReplayMatchesClient(chart: Chart, inputs: readonly InputEvent[]): void {
@@ -198,7 +220,13 @@ describe('replayGameplay', () => {
       score: 2000,
       accuracy: 2 / 3,
       maxCombo: 1,
-      counts: { perfect: 2, great: 0, good: 0, bad: 0, miss: 1 },
+      counts: {
+        perfect: 2,
+        great: 0,
+        good: 0,
+        bad: 0,
+        miss: 1,
+      },
       outcome: 'finished',
       cleared: false,
     });

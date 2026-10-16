@@ -43,7 +43,13 @@ export class DifficultyTabs {
         xPx,
         topYPx,
         difficulty.toUpperCase(),
-        typeStyle({ ...LABEL_TYPE, weight: SELECTED_WEIGHT }, COLORS.textPrimary),
+        typeStyle(
+          {
+            ...LABEL_TYPE,
+            weight: SELECTED_WEIGHT,
+          },
+          COLORS.textPrimary,
+        ),
       );
       const underline = scene.add
         .rectangle(
@@ -64,7 +70,11 @@ export class DifficultyTabs {
           }
         });
       xPx += text.width + TAB_GAP_PX;
-      return { difficulty, text, underline };
+      return {
+        difficulty,
+        text,
+        underline,
+      };
     });
   }
 

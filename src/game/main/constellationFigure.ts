@@ -39,22 +39,102 @@ const STAR_BLUE = 0xacd9f0;
 const STAR_LILAC = 0xd9c4f2;
 /** 별자리 꼭짓점. 크게 둔 별(코끝·더듬이 머리·귀)이 별자리의 1등성 역할을 한다. */
 const STARS = {
-  ahoge: { x: 455, y: 30, sizePx: 26, color: STAR_GOLD },
-  crown: { x: 592, y: 134, sizePx: 14, color: STAR_WHITE },
-  back: { x: 830, y: 232, sizePx: 16, color: STAR_BLUE },
-  right: { x: 987, y: 507, sizePx: 12, color: STAR_WHITE },
-  rightBottom: { x: 1045, y: 700, sizePx: 18, color: STAR_LILAC },
-  bangs: { x: 66, y: 460, sizePx: 14, color: STAR_BLUE },
-  lash: { x: 300, y: 636, sizePx: 12, color: STAR_WHITE },
-  nose: { x: 204, y: 667, sizePx: 30, color: STAR_GOLD },
-  lips: { x: 218, y: 721, sizePx: 10, color: STAR_WHITE },
-  chin: { x: 247, y: 799, sizePx: 14, color: STAR_BLUE },
-  ear: { x: 573, y: 699, sizePx: 22, color: STAR_LILAC },
-  neck: { x: 443, y: 829, sizePx: 12, color: STAR_WHITE },
-  knot1: { x: 420, y: 962, sizePx: 14, color: STAR_BLUE },
-  knot2: { x: 345, y: 1045, sizePx: 11, color: STAR_WHITE },
-  knot3: { x: 292, y: 1150, sizePx: 10, color: STAR_LILAC },
-  tip: { x: 252, y: 1360, sizePx: 8, color: STAR_BLUE },
+  ahoge: {
+    x: 455,
+    y: 30,
+    sizePx: 26,
+    color: STAR_GOLD,
+  },
+  crown: {
+    x: 592,
+    y: 134,
+    sizePx: 14,
+    color: STAR_WHITE,
+  },
+  back: {
+    x: 830,
+    y: 232,
+    sizePx: 16,
+    color: STAR_BLUE,
+  },
+  right: {
+    x: 987,
+    y: 507,
+    sizePx: 12,
+    color: STAR_WHITE,
+  },
+  rightBottom: {
+    x: 1045,
+    y: 700,
+    sizePx: 18,
+    color: STAR_LILAC,
+  },
+  bangs: {
+    x: 66,
+    y: 460,
+    sizePx: 14,
+    color: STAR_BLUE,
+  },
+  lash: {
+    x: 300,
+    y: 636,
+    sizePx: 12,
+    color: STAR_WHITE,
+  },
+  nose: {
+    x: 204,
+    y: 667,
+    sizePx: 30,
+    color: STAR_GOLD,
+  },
+  lips: {
+    x: 218,
+    y: 721,
+    sizePx: 10,
+    color: STAR_WHITE,
+  },
+  chin: {
+    x: 247,
+    y: 799,
+    sizePx: 14,
+    color: STAR_BLUE,
+  },
+  ear: {
+    x: 573,
+    y: 699,
+    sizePx: 22,
+    color: STAR_LILAC,
+  },
+  neck: {
+    x: 443,
+    y: 829,
+    sizePx: 12,
+    color: STAR_WHITE,
+  },
+  knot1: {
+    x: 420,
+    y: 962,
+    sizePx: 14,
+    color: STAR_BLUE,
+  },
+  knot2: {
+    x: 345,
+    y: 1045,
+    sizePx: 11,
+    color: STAR_WHITE,
+  },
+  knot3: {
+    x: 292,
+    y: 1150,
+    sizePx: 10,
+    color: STAR_LILAC,
+  },
+  tip: {
+    x: 252,
+    y: 1360,
+    sizePx: 8,
+    color: STAR_BLUE,
+  },
 } as const satisfies Record<string, Star>;
 type StarName = keyof typeof STARS;
 /** 별자리 연결선. 윤곽을 그대로 따라가지 않고 요점끼리 직선으로 이어 성도의 보조선처럼 보이게 한다. */
@@ -73,12 +153,18 @@ const SPARKLE_SCALE = 2.8;
 const SPARKLE_TEXTURE_SIZE_PX = 64;
 /** 선 위에 흩어 둔 작은 별가루. 선화 픽셀 중 거의 불투명한 곳에서만 고른다. */
 const DUST_COUNT = 70;
-const DUST_SIZE_PX = { min: 3, max: 7 } as const;
+const DUST_SIZE_PX = {
+  min: 3,
+  max: 7,
+} as const;
 const DUST_COLORS = [0xe9f2fa, 0xacd9f0, 0xf3e2ae] as const;
 const DUST_MIN_SOURCE_ALPHA = 200;
 const DUST_MAX_TRIES = 20000;
 const STAR_MIN_ALPHA = 0.35;
-const STAR_TWINKLE_MS = { min: 1800, max: 3200 } as const;
+const STAR_TWINKLE_MS = {
+  min: 1800,
+  max: 3200,
+} as const;
 const ENTRY_FADE_MS = 1600;
 
 /** 유성이 지나가는 방향(선화 픽셀). 오른쪽 위에서 얼굴이 바라보는 왼쪽 아래로 흐른다. */
@@ -158,7 +244,10 @@ export function addConstellationFigure(
             .setDisplaySize(star.sizePx * SPARKLE_SCALE, star.sizePx * SPARKLE_SCALE)
             .setTint(star.color)
         : null;
-    return { star, images: sparkle === null ? [image] : [image, sparkle] };
+    return {
+      star,
+      images: sparkle === null ? [image] : [image, sparkle],
+    };
   });
   const random = new Phaser.Math.RandomDataGenerator([RANDOM_SEED]);
   const dust = sampleLinePoints(scene, random).map((point) => {
@@ -190,11 +279,19 @@ export function addConstellationFigure(
     duration: ENTRY_FADE_MS,
     ease: 'Sine.easeOut',
   });
-  scene.tweens.add({ targets: lines, alpha: 1, duration: ENTRY_FADE_MS, ease: 'Sine.easeOut' });
+  scene.tweens.add({
+    targets: lines,
+    alpha: 1,
+    duration: ENTRY_FADE_MS,
+    ease: 'Sine.easeOut',
+  });
   twinklers.forEach((targets) => {
     scene.tweens.add({
       targets,
-      alpha: { from: 1, to: STAR_MIN_ALPHA },
+      alpha: {
+        from: 1,
+        to: STAR_MIN_ALPHA,
+      },
       duration: random.between(STAR_TWINKLE_MS.min, STAR_TWINKLE_MS.max),
       // 별마다 반짝임 시작을 엇갈려 한꺼번에 깜빡이지 않게 한다.
       delay: random.between(0, STAR_TWINKLE_MS.max),
@@ -292,7 +389,11 @@ export function addConstellationFigure(
   };
   scene.time.delayedCall(FIRST_PASS_DELAY_MS, () => {
     playPass();
-    scene.time.addEvent({ delay: PASS_INTERVAL_MS, loop: true, callback: playPass });
+    scene.time.addEvent({
+      delay: PASS_INTERVAL_MS,
+      loop: true,
+      callback: playPass,
+    });
   });
 }
 

@@ -121,9 +121,15 @@ export function getSelection(
       return null;
     case 'loading':
     case 'loadFailed':
-      return { song: phase.song, difficulty: phase.difficulty };
+      return {
+        song: phase.song,
+        difficulty: phase.difficulty,
+      };
     case 'editing':
-      return { song: phase.draft.song, difficulty: phase.draft.difficulty };
+      return {
+        song: phase.draft.song,
+        difficulty: phase.draft.difficulty,
+      };
   }
 }
 
@@ -147,8 +153,15 @@ export function applySelection(
     transport: PAUSED,
     phase:
       song.chartIds[difficulty] === undefined
-        ? { kind: 'editing', draft: createEmptyDraft(song, difficulty) }
-        : { kind: 'loading', song, difficulty },
+        ? {
+            kind: 'editing',
+            draft: createEmptyDraft(song, difficulty),
+          }
+        : {
+            kind: 'loading',
+            song,
+            difficulty,
+          },
   };
 }
 
@@ -183,7 +196,13 @@ export function completeLoad(
   if (state.selectionToken !== token || phase.kind !== 'loading') {
     return state;
   }
-  return { ...state, phase: { kind: 'editing', draft: createDraft(phase.song, chart) } };
+  return {
+    ...state,
+    phase: {
+      kind: 'editing',
+      draft: createDraft(phase.song, chart),
+    },
+  };
 }
 
 export function failLoad(state: ChartEditorState, token: object): ChartEditorState {
@@ -193,7 +212,11 @@ export function failLoad(state: ChartEditorState, token: object): ChartEditorSta
   }
   return {
     ...state,
-    phase: { kind: 'loadFailed', song: phase.song, difficulty: phase.difficulty },
+    phase: {
+      kind: 'loadFailed',
+      song: phase.song,
+      difficulty: phase.difficulty,
+    },
   };
 }
 
@@ -203,7 +226,10 @@ export function requestNavigation(
   navigation: Navigation,
 ): { state: ChartEditorState; proceed: Navigation | null } {
   if (state.pending !== null) {
-    return { state, proceed: null };
+    return {
+      state,
+      proceed: null,
+    };
   }
   const settled = finishGesture(state);
   if (navigation.kind === 'select' && settled.phase.kind !== 'loadFailed') {
@@ -213,13 +239,25 @@ export function requestNavigation(
       selection.song.id === navigation.song.id &&
       selection.difficulty === navigation.difficulty
     ) {
-      return { state: settled, proceed: null };
+      return {
+        state: settled,
+        proceed: null,
+      };
     }
   }
   if (hasUnsavedChanges(settled)) {
-    return { state: { ...settled, pending: navigation }, proceed: null };
+    return {
+      state: {
+        ...settled,
+        pending: navigation,
+      },
+      proceed: null,
+    };
   }
-  return { state: settled, proceed: navigation };
+  return {
+    state: settled,
+    proceed: navigation,
+  };
 }
 
 function finishGesture(state: ChartEditorState): ChartEditorState {
@@ -227,7 +265,10 @@ function finishGesture(state: ChartEditorState): ChartEditorState {
   if (gesture.kind === 'none') {
     return state;
   }
-  const ended = { ...state, gesture: NO_GESTURE };
+  const ended = {
+    ...state,
+    gesture: NO_GESTURE,
+  };
   if (gesture.kind !== 'createHold' || phase.kind !== 'editing') {
     return ended;
   }
@@ -241,16 +282,28 @@ export function confirmPending(state: ChartEditorState): {
 } {
   const { pending, phase } = state;
   if (pending === null) {
-    return { state, proceed: null };
+    return {
+      state,
+      proceed: null,
+    };
   }
-  const closed = { ...state, pending: null };
+  const closed = {
+    ...state,
+    pending: null,
+  };
   if (pending.kind !== 'clearNotes') {
-    return { state: closed, proceed: pending };
+    return {
+      state: closed,
+      proceed: pending,
+    };
   }
   if (phase.kind !== 'editing') {
     throw new Error('Clearing notes can be pending only while editing a draft');
   }
-  return { state: withDraft(closed, clearNotes(phase.draft)), proceed: null };
+  return {
+    state: withDraft(closed, clearNotes(phase.draft)),
+    proceed: null,
+  };
 }
 
 /** 지울 노트가 없으면 묻지 않는다. */
@@ -262,11 +315,19 @@ export function requestClearNotes(state: ChartEditorState): ChartEditorState {
   if (settled.phase.kind !== 'editing' || settled.phase.draft.notes.length === 0) {
     return settled;
   }
-  return { ...settled, pending: { kind: 'clearNotes' } };
+  return {
+    ...settled,
+    pending: { kind: 'clearNotes' },
+  };
 }
 
 export function cancelPending(state: ChartEditorState): ChartEditorState {
-  return state.pending === null ? state : { ...state, pending: null };
+  return state.pending === null
+    ? state
+    : {
+        ...state,
+        pending: null,
+      };
 }
 
 export function startGesture(
@@ -285,8 +346,17 @@ export function startGesture(
     const gesture: PointerGesture =
       hit.part === 'end'
         ? { kind: 'resizeHold' }
-        : { kind: 'move', grabOffsetMs: pointerTimeMs - hit.note.timeMs };
-    return withDraft({ ...state, gesture }, selectNote(draft, hit.note));
+        : {
+            kind: 'move',
+            grabOffsetMs: pointerTimeMs - hit.note.timeMs,
+          };
+    return withDraft(
+      {
+        ...state,
+        gesture,
+      },
+      selectNote(draft, hit.note),
+    );
   }
   const startMs = snapStart(
     state,
@@ -298,13 +368,35 @@ export function startGesture(
   );
   if (state.tool === 'tap') {
     return withDraft(
-      { ...state, gesture: { kind: 'move', grabOffsetMs: 0 } },
-      addNote(draft, { type: 'tap', timeMs: startMs, lane }),
+      {
+        ...state,
+        gesture: {
+          kind: 'move',
+          grabOffsetMs: 0,
+        },
+      },
+      addNote(draft, {
+        type: 'tap',
+        timeMs: startMs,
+        lane,
+      }),
     );
   }
   return withDraft(
-    { ...state, gesture: { kind: 'createHold', before: draft, startMs } },
-    addNote(draft, { type: 'hold', timeMs: startMs, endTimeMs: startMs + 1, lane }),
+    {
+      ...state,
+      gesture: {
+        kind: 'createHold',
+        before: draft,
+        startMs,
+      },
+    },
+    addNote(draft, {
+      type: 'hold',
+      timeMs: startMs,
+      endTimeMs: startMs + 1,
+      lane,
+    }),
   );
 }
 
@@ -339,7 +431,10 @@ export function endGesture(state: ChartEditorState, pointerTimeMs: number): Char
   if (state.pending !== null || gesture.kind === 'none') {
     return state;
   }
-  const ended = { ...state, gesture: NO_GESTURE };
+  const ended = {
+    ...state,
+    gesture: NO_GESTURE,
+  };
   if (
     gesture.kind !== 'createHold' ||
     phase.kind !== 'editing' ||
@@ -370,7 +465,10 @@ export function selectTool(state: ChartEditorState, tool: EditTool): ChartEditor
   if (state.pending !== null || state.tool === tool) {
     return state;
   }
-  return { ...state, tool };
+  return {
+    ...state,
+    tool,
+  };
 }
 
 export function deleteSelected(state: ChartEditorState): ChartEditorState {
@@ -390,7 +488,14 @@ function withDraft(state: ChartEditorState, draft: ChartDraft): ChartEditorState
     phase.draft.notes !== draft.notes && state.saveResult.kind !== 'saving'
       ? IDLE
       : state.saveResult;
-  return { ...state, phase: { kind: 'editing', draft }, saveResult };
+  return {
+    ...state,
+    phase: {
+      kind: 'editing',
+      draft,
+    },
+    saveResult,
+  };
 }
 
 /** YouTube 는 재생 중 seek 뒤 상태 이벤트를 항상 보내지 않으므로, 재생 재개는 Play 경로 하나로만 한다. */
@@ -403,7 +508,11 @@ export function seek(state: ChartEditorState, targetMs: number): ChartEditorStat
   if (currentTimeMs === state.currentTimeMs && state.transport.kind === 'paused') {
     return state;
   }
-  return { ...state, currentTimeMs, transport: PAUSED };
+  return {
+    ...state,
+    currentTimeMs,
+    transport: PAUSED,
+  };
 }
 
 export function canStartPlayback(state: ChartEditorState): boolean {
@@ -419,7 +528,10 @@ export function startPlayback(state: ChartEditorState, clock: RhythmClock): Char
   return {
     ...state,
     currentTimeMs: getPlayStartMs(state.currentTimeMs, state.phase.draft.song),
-    transport: { kind: 'starting', clock },
+    transport: {
+      kind: 'starting',
+      clock,
+    },
   };
 }
 
@@ -429,7 +541,12 @@ export function requestPause(state: ChartEditorState): ChartEditorState {
 
 /** player 오류처럼 확인 바와 무관하게 멈춰야 할 때 쓴다. currentTimeMs 는 마지막 값을 유지한다. */
 export function pausePlayback(state: ChartEditorState): ChartEditorState {
-  return state.transport.kind === 'paused' ? state : { ...state, transport: PAUSED };
+  return state.transport.kind === 'paused'
+    ? state
+    : {
+        ...state,
+        transport: PAUSED,
+      };
 }
 
 export function handlePlayerState(
@@ -438,7 +555,13 @@ export function handlePlayerState(
 ): ChartEditorState {
   const { transport } = state;
   if (playerState === 'playing' && transport.kind === 'starting') {
-    return { ...state, transport: { kind: 'playing', clock: transport.clock } };
+    return {
+      ...state,
+      transport: {
+        kind: 'playing',
+        clock: transport.clock,
+      },
+    };
   }
   if (playerState === 'paused' || playerState === 'ended') {
     return pausePlayback(state);
@@ -456,10 +579,19 @@ export function advancePlayback(state: ChartEditorState, playbackMs: number): Ch
   }
   const { song } = phase.draft;
   if (playbackMs >= song.gameEndMs) {
-    return { ...state, currentTimeMs: song.gameEndMs, transport: PAUSED };
+    return {
+      ...state,
+      currentTimeMs: song.gameEndMs,
+      transport: PAUSED,
+    };
   }
   const currentTimeMs = toEditTimeMs(playbackMs, song);
-  return currentTimeMs === state.currentTimeMs ? state : { ...state, currentTimeMs };
+  return currentTimeMs === state.currentTimeMs
+    ? state
+    : {
+        ...state,
+        currentTimeMs,
+      };
 }
 
 /** 미저장 변경이 있고 진행 중인 저장이 없을 때만 SAVE 를 누를 수 있다. */
@@ -474,7 +606,10 @@ export function startSave(state: ChartEditorState): {
 } {
   const { phase, selectionToken } = state;
   if (state.pending !== null || phase.kind !== 'editing' || state.saveResult.kind === 'saving') {
-    return { state, request: null };
+    return {
+      state,
+      request: null,
+    };
   }
   if (selectionToken === null) {
     throw new Error('Editing a draft without a selection token');
@@ -489,17 +624,34 @@ export function startSave(state: ChartEditorState): {
     }
     const invalid: ChartEditorState = {
       ...state,
-      saveResult: { kind: 'invalid', reason: error.message },
+      saveResult: {
+        kind: 'invalid',
+        reason: error.message,
+      },
     };
     const note = findInvalidNote(draft, error);
     if (note === null) {
-      return { state: invalid, request: null };
+      return {
+        state: invalid,
+        request: null,
+      };
     }
-    return { state: seek(withDraft(invalid, selectNote(draft, note)), note.timeMs), request: null };
+    return {
+      state: seek(withDraft(invalid, selectNote(draft, note)), note.timeMs),
+      request: null,
+    };
   }
   return {
-    state: { ...state, saveResult: { kind: 'saving' } },
-    request: { token: selectionToken, song: draft.song, chart, savedNotes: draft.notes },
+    state: {
+      ...state,
+      saveResult: { kind: 'saving' },
+    },
+    request: {
+      token: selectionToken,
+      song: draft.song,
+      chart,
+      savedNotes: draft.notes,
+    },
   };
 }
 
@@ -514,13 +666,21 @@ export function finishSave(
   }
   return {
     ...state,
-    phase: { kind: 'editing', draft: completeSave(phase.draft, request.savedNotes, song) },
+    phase: {
+      kind: 'editing',
+      draft: completeSave(phase.draft, request.savedNotes, song),
+    },
     saveResult: { kind: 'saved' },
   };
 }
 
 export function failSave(state: ChartEditorState, token: object): ChartEditorState {
-  return state.selectionToken === token ? { ...state, saveResult: { kind: 'failed' } } : state;
+  return state.selectionToken === token
+    ? {
+        ...state,
+        saveResult: { kind: 'failed' },
+      }
+    : state;
 }
 
 export function getEditorStatus(state: ChartEditorState): EditorStatus {
@@ -543,7 +703,10 @@ export function getEditorStatus(state: ChartEditorState): EditorStatus {
     case 'failed':
       return { kind: 'saveFailed' };
     case 'invalid':
-      return { kind: 'invalid', reason: saveResult.reason };
+      return {
+        kind: 'invalid',
+        reason: saveResult.reason,
+      };
     case 'idle':
       return hasUnsavedChanges(state) ? { kind: 'unsaved' } : { kind: 'none' };
   }

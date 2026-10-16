@@ -104,7 +104,10 @@ export function planSongConstellation(
     y: y + between(random, -MAX_JITTER, MAX_JITTER),
   }));
   const accentIndex = pickAccent(figure, random());
-  const slackFraction = { x: random(), y: random() };
+  const slackFraction = {
+    x: random(),
+    y: random(),
+  };
   const pacing = between(random, MIN_PACING, MAX_PACING);
 
   const positions = placeInBox(rotate(jittered, rotationRad), box, sizeScale, slackFraction);
@@ -126,7 +129,12 @@ export function planSongConstellation(
     igniteAtMs:
       index === accentIndex ? 0 : (edges.find(({ toIndex }) => toIndex === index)?.endMs ?? null),
   }));
-  return { tier, nodes, edges, finale: getFinale(tier, connectedCount * edgeMs) };
+  return {
+    tier,
+    nodes,
+    edges,
+    finale: getFinale(tier, connectedCount * edgeMs),
+  };
 }
 
 /** 연출 시작 후 elapsedMs 시점에 보이는 선. edge 순서를 따르고 아직 시작하지 않은 edge 는 뺀다. */
@@ -173,9 +181,15 @@ function getConnectedEdgeCount(tier: ConstellationTier, edgeCount: number): numb
 function getFinale(tier: ConstellationTier, atMs: number): ConstellationPlan['finale'] {
   switch (tier) {
     case 'complete':
-      return { kind: 'pulse', atMs };
+      return {
+        kind: 'pulse',
+        atMs,
+      };
     case 'bright':
-      return { kind: 'shimmer', atMs };
+      return {
+        kind: 'shimmer',
+        atMs,
+      };
     case 'clear':
     case 'faint':
       return null;
@@ -210,7 +224,10 @@ function getDrawOrder(
       throw new Error(`Invalid zodiac edge: ${a}-${b}`);
     }
     const from = lit.has(a) ? a : b;
-    order.push({ from, to: from === a ? b : a });
+    order.push({
+      from,
+      to: from === a ? b : a,
+    });
     lit.add(a).add(b);
     remaining.splice(position, 1);
   }
@@ -226,7 +243,10 @@ function rotate(points: readonly UnitPoint[], rotationRad: number): readonly Uni
   return points.map(({ x, y }) => {
     const dx = x - centerX;
     const dy = y - centerY;
-    return { x: centerX + dx * cos - dy * sin, y: centerY + dx * sin + dy * cos };
+    return {
+      x: centerX + dx * cos - dy * sin,
+      y: centerY + dx * sin + dy * cos,
+    };
   });
 }
 

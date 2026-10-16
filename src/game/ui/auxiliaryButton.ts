@@ -8,7 +8,10 @@ const AUXILIARY_BUTTON_COLORS: Partial<ButtonColors> = {
   emphasizedLabel: EDITOR_COLORS.highlight,
   hoverFill: null,
 };
-const AUXILIARY_LABEL_TYPE = { sizePx: 14, weight: 500 } as const;
+const AUXILIARY_LABEL_TYPE = {
+  sizePx: 14,
+  weight: 500,
+} as const;
 const AUXILIARY_BUTTON_HEIGHT_PX = 44;
 // 곡 선택 화면의 SETTINGS 자리를 메뉴형 화면 머리글 보조 버튼의 기준으로 삼는다.
 const HEADER_AUXILIARY_RIGHT_X_PX = 1800;
@@ -41,7 +44,13 @@ export function createHeaderAuxiliaryButton(
   scene: Phaser.Scene,
   options: { label: string; onActivate: () => void },
 ): Button {
-  const probe = scene.make.text({ text: ' ', style: textStyle('primary', 0) }, false);
+  const probe = scene.make.text(
+    {
+      text: ' ',
+      style: textStyle('primary', 0),
+    },
+    false,
+  );
   const centerYPx = SCREEN_LAYOUT.headerYPx + probe.height / 2;
   probe.destroy();
   return createAuxiliaryButton(scene, 0, centerYPx, options).alignX(HEADER_AUXILIARY_RIGHT_X_PX, 1);

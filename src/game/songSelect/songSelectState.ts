@@ -34,7 +34,10 @@ export function getPlayableSelection(
   const song = getCurrentSong(state);
   return song === undefined || state.difficulty === null
     ? null
-    : { song, difficulty: state.difficulty };
+    : {
+        song,
+        difficulty: state.difficulty,
+      };
 }
 
 export function isSameSelection(a: SongSelectState, b: SongSelectState): boolean {
@@ -126,7 +129,11 @@ export function selectSong(state: SongSelectState, index: number): SongSelectSta
   if (song === undefined || index === state.songIndex) {
     return state;
   }
-  return { ...state, songIndex: index, difficulty: pickDifficulty(song, state.difficulty) };
+  return {
+    ...state,
+    songIndex: index,
+    difficulty: pickDifficulty(song, state.difficulty),
+  };
 }
 
 export function moveDifficulty(state: SongSelectState, delta: 1 | -1): SongSelectState {
@@ -138,7 +145,10 @@ export function moveDifficulty(state: SongSelectState, delta: 1 | -1): SongSelec
   if (difficulty === state.difficulty) {
     return state;
   }
-  return { ...state, difficulty };
+  return {
+    ...state,
+    difficulty,
+  };
 }
 
 export function selectDifficulty(state: SongSelectState, difficulty: Difficulty): SongSelectState {
@@ -150,7 +160,10 @@ export function selectDifficulty(state: SongSelectState, difficulty: Difficulty)
   ) {
     return state;
   }
-  return { ...state, difficulty };
+  return {
+    ...state,
+    difficulty,
+  };
 }
 
 export function cycleFilter(state: SongSelectState, delta: 1 | -1): SongSelectState {

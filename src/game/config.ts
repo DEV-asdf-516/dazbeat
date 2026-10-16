@@ -91,7 +91,10 @@ export function createGameConfig(scenes: Phaser.Scene[]): Phaser.Types.Core.Game
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
     transparent: true,
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    scale: {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
     scene: scenes,
     audio: { noAudio: true },
   };

@@ -31,7 +31,13 @@ function makeSong(index: number): Song {
 const songs = Array.from({ length: 10 }, (_, index) => makeSong(index));
 
 function list(focusedIndex: number, topIndex: number): SongListState {
-  return { filter: 'all', songCount: 10, visibleRowCount: 4, focusedIndex, topIndex };
+  return {
+    filter: 'all',
+    songCount: 10,
+    visibleRowCount: 4,
+    focusedIndex,
+    topIndex,
+  };
 }
 
 describe('createSongList', () => {

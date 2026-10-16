@@ -97,6 +97,9 @@ export class CreditsScene extends Phaser.Scene {
   }
 
   private back(): void {
-    this.exit = exitScene(this, this.exit, { key: 'main', data: undefined });
+    this.exit = exitScene(this, this.exit, {
+      key: 'main',
+      data: undefined,
+    });
   }
 }

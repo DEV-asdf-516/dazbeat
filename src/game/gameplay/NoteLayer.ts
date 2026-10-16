@@ -145,7 +145,10 @@ export class NoteLayer {
       .setAlpha(0)
       .setDepth(GAMEPLAY_DEPTH.note);
     if (note.type === 'tap') {
-      return { head, hold: null };
+      return {
+        head,
+        hold: null,
+      };
     }
     // 같은 depth 에서는 만든 순서대로 그려지므로 ribbon → tail 순으로 만든다.
     const hold: HoldView = {
@@ -162,7 +165,10 @@ export class NoteLayer {
         .setAlpha(0)
         .setDepth(GAMEPLAY_DEPTH.holdBody),
     };
-    return { head, hold };
+    return {
+      head,
+      hold,
+    };
   }
 
   private addRibbonPart(xPx: number): Phaser.GameObjects.Image {
