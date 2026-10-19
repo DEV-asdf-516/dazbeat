@@ -67,7 +67,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 개발 Docker PocketBase 는 운영과 같은 `pb_migrations` 와 `pb_hooks` 를 쓴다.
 
-1. `npm run build:hooks` 로 서버 검증 번들 `pocketbase/pb_hooks/lib/verifyPlay.cjs` 를 만든다. 이 파일은 빌드 산출물이라 Git 무시 대상이며, 없으면 플레이 세션 API 가 동작하지 않는다. `src/rhythm/`, `src/data/`, `pocketbase/verification/` 을 바꾼 뒤에도 다시 빌드한다.
+1. `npm run build:hooks` 로 서버 번들 `pocketbase/pb_hooks/lib/verifyPlay.cjs`(결과 검증)와 `pocketbase/pb_hooks/lib/sessionQuota.cjs`(세션 발급 한도 판정)를 만든다. 두 파일은 빌드 산출물이라 Git 무시 대상이며, 없으면 플레이 세션 API 가 동작하지 않는다. `src/rhythm/`, `src/data/`, `pocketbase/verification/` 을 바꾼 뒤에도 다시 빌드한다.
 2. `docker compose up --build` 로 PocketBase 를 띄운다. `127.0.0.1:8090` 에서만 열린다.
    - `./pocketbase/pb_migrations` → `/pb/pb_migrations`, `./pocketbase/pb_hooks` → `/pb/pb_hooks` 로 마운트된다.
    - `DAZBEAT_ALLOWED_ORIGINS` 는 Vite 개발 서버 Origin 인 `http://localhost:5173,http://127.0.0.1:5173` 이다.
@@ -83,11 +83,17 @@ PocketHost 인스턴스의 PocketBase 버전은 `pocketbase/Dockerfile` 의 `PB_
 
 ### 절차
 
-1. **빌드**: 배포할 커밋에서 `npm ci` 후 `npm run build:hooks` 를 실행해 `pocketbase/pb_hooks/lib/verifyPlay.cjs` 를 만든다.
+1. **빌드**: 배포할 커밋에서 `npm ci` 후 `npm run build:hooks` 를 실행해 `pocketbase/pb_hooks/lib/verifyPlay.cjs` 와 `pocketbase/pb_hooks/lib/sessionQuota.cjs` 를 만든다.
 2. **수동 백업**: 관리 UI Settings › Backups 에서 백업을 만들고 zip 을 내려받는다(아래 "백업·복구"). 마이그레이션·hook 배포 전에는 반드시 한다.
-3. **SFTP 업로드**: PocketHost 의 SFTP 로 저장소의 `pocketbase/pb_migrations/` 와 `pocketbase/pb_hooks/`(빌드된 `lib/` 포함)를 인스턴스의 `pb_migrations/`, `pb_hooks/` 에 올린다. rate limit 마이그레이션(`1791532400_enable_dazbeat_rate_limits.js`)은 "클라이언트 IP 와 요청 제한" 의 순서를 따르므로 처음 배포할 때는 빼고 올린다.
+3. **SFTP 업로드**: PocketHost 의 SFTP 로 저장소의 `pocketbase/pb_migrations/` 와 `pocketbase/pb_hooks/`(빌드된 `lib/` 포함)를 인스턴스의 `pb_migrations/`, `pb_hooks/` 에 올린다. rate limit 마이그레이션 두 개(`1791532400_enable_dazbeat_rate_limits.js`, `1792121900_relax_play_session_ip_rate_limits.js`)는 한 묶음으로 다룬다. `1791532400` 이 이미 적용된 인스턴스는 이번 배포에서 `1792121900` 을 함께 올린다. `1791532400` 을 아직 보류 중이면 둘 다 빼고 올렸다가 "클라이언트 IP 와 요청 제한" 의 "배포 순서" 5단계에서 함께 올린다. 아직 적용하지 않은 마이그레이션은 파일 이름 순서로 적용되므로, `1792121900` 만 먼저 올리면 나중에 올린 `1791532400` 이 dazbeat 규칙을 10 요청 / 60초로 다시 덮는다.
 4. **재시작**: PocketHost 대시보드에서 인스턴스를 재시작한다. 새 마이그레이션은 시작할 때 적용된다.
 5. **점검**: 관리 UI Logs 에 hook 로드·마이그레이션 오류가 없는지 보고, 아래 "Origin 허용 목록과 CORS" 의 브라우저 점검과 GitHub Pages 에서의 로그인·곡 조회·랭킹 제출을 확인한다. 관리 UI 에서 `charts` 레코드의 `revision` 이 채워져 있는지도 본다.
+
+서버와 클라이언트를 함께 바꾸는 배포는 서버(마이그레이션·hook·`npm run build:hooks` 산출물)를 위 절차로 먼저 배포하고, 그 뒤 클라이언트를 배포한다. 세션 채보 스냅샷(아래 "세션 채보 스냅샷")을 들이는 배포에서는 다음을 지킨다.
+
+- 마이그레이션 `1792122000_add_play_sessions_chart_data.js` 는 적용 순간의 `play_sessions` 행을 모두 지운다. 그때 플레이 중이던 판은 제출 때 `404 session_not_found` 로 랭킹 없이 끝난다.
+- 새 서버 + 이전 클라이언트는 발급 API 계약이 같아 동작한다. 이전 클라이언트는 발급 `409` 때 재조회하지 않고 랭킹 없이 진행한다.
+- 되돌릴 때는 hook 과 이 마이그레이션을 함께 되돌린다. 마이그레이션 down 은 `chartData` 필드만 지우고 세션 행은 남긴다.
 
 ## Origin 허용 목록과 CORS
 
@@ -139,12 +145,57 @@ curl -i -X OPTIONS '<인스턴스 URL>/api/collections/songs/records' \
 | PocketBase `*:create`                         | 레코드 생성                     | 20 요청 / 5초       |
 | PocketBase `/api/batch`                       | 배치 요청                       | 3 요청 / 1초        |
 | PocketBase `/api/`                            | 일반 API                        | 300 요청 / 10초     |
-| PocketBase `POST /api/dazbeat/play-sessions`  | 랭킹 세션 발급                  | 10 요청 / 60초      |
-| PocketBase `POST /api/dazbeat/play-sessions/` | 결과 제출(접두 일치)            | 10 요청 / 60초      |
+| PocketBase `POST /api/dazbeat/play-sessions`  | 랭킹 세션 발급                  | 30 요청 / 60초      |
+| PocketBase `POST /api/dazbeat/play-sessions/` | 결과 제출(접두 일치)            | 30 요청 / 60초      |
+| PocketBase 발급 hook                          | 사용자당 세션 발급              | 20 발급 / 60초      |
 
-- PocketBase 내장 limiter 의 규칙은 마이그레이션 `1791532400_enable_dazbeat_rate_limits.js` 가 관리한다. 같은 label 의 규칙은 값을 덮고 다른 label 은 보존한다. down 은 두 dazbeat 규칙을 지우고 limiter 를 끈다.
-- 정상 플레이 1판은 곡·채보 목록, 재킷, 채보, 세션 발급, 결과 제출 등 약 10건이라 위 제한 안에 들어간다.
+- PocketBase 내장 limiter 의 규칙은 마이그레이션 `1791532400_enable_dazbeat_rate_limits.js` 가 관리한다. 같은 label 의 규칙은 값을 덮고 다른 label 은 보존한다. down 은 두 dazbeat 규칙을 지우고 limiter 를 끈다. 두 dazbeat 규칙의 값은 이어지는 완화 마이그레이션 `1792121900_relax_play_session_ip_rate_limits.js` 가 10 요청에서 30 요청 / 60초로 바꾼다. 이 마이그레이션은 두 dazbeat label 만 바꾸고 다른 규칙과 limiter 켜짐 여부·제외 IP 는 그대로 두며, down 은 두 label 을 10 요청 / 60초로 되돌린다.
+- 정상 플레이 1판의 PocketBase 요청은 아래 "요청 수와 채보 캐시" 표처럼 0~4건이고(접속 때 곡·채보 목록 2건 별도), 위 제한 안에 들어간다.
 - 초과하면 `429` 를 받는다. PocketBase 내장 limiter 의 `429` 는 PocketBase 표준 JSON 이고 `Retry-After` 가 없다. PocketHost 엣지의 `429` 에는 `Retry-After` 가 있다. 게임 클라이언트는 `429` 를 `rate_limited` 로 `console.warn` 에 남기고 자동 재시도하지 않으며, 그 판은 랭킹 없이 끝난다(로컬 기록은 유지).
+
+### 사용자 단위 세션 발급 제한
+
+IP 제한과 별도로 발급 hook(`pb_hooks/playSessions.pb.js`)이 로그인 사용자마다 세션 발급 횟수를 센다.
+
+- **윈도**: 20회 / 60초 고정 윈도다. 윈도는 그 사용자의 첫 발급 시각부터 60초이고, 지나면 다음 발급 시각에서 새 윈도가 시작된다.
+- **카운트 대상**: 세션이 실제로 발급된 요청만 센다. 비로그인(`401`), `invalid_request`·`chart_not_found`·`chart_changed`, 한도 초과로 거절된 요청은 세지 않는다.
+- **저장소**: 서버 전용 컬렉션 `play_session_quotas`(마이그레이션 `1792121800_create_play_session_quotas.js`). 모든 API rule 이 비어 superuser 와 hook 만 읽고 쓴다. 사용자당 1행을 제자리에서 갱신하므로 행 수는 사용자 수를 넘지 않는다. DB 에 있으므로 인스턴스 재시작·휴면 뒤에도 유지되고, 사용자를 지우면 함께 지워진다. 판정·기록은 세션 교체와 같은 트랜잭션 안에서 하므로 동시 요청으로도 한도를 넘지 않는다.
+- **IP 제한과의 관계**: IP 제한을 대체하지 않고 그 위에 더한다. 내장 limiter 가 먼저 평가되므로 사용자 단위로 거절된 요청도 IP 버킷을 쓴다. 클라이언트 IP 판정과 무관하게 동작하므로, 아래 "실제 IP 를 얻지 못할 때" 처럼 내장 limiter 를 쓰지 않는 경우에도 유지된다.
+- **응답**: 초과하면 `429` `{"status":429,"code":"session_rate_limited",...}` 와 윈도가 끝날 때까지 남은 초를 담은 `Retry-After` 헤더를 돌려준다. 게임은 자동 재시도하지 않고 그 판을 랭킹 없이 진행한다(로컬 기록은 유지).
+- **결과 제출**: 결과 제출 hook 은 첫 요청이 리플레이 전에 세션을 소비(삭제)하고, 소비한 요청만 리플레이한 뒤 별도 트랜잭션에서 최고 기록을 갱신한다. 그래서 세션 하나당 리플레이는 최대 1회이고, 사용자당 리플레이 수는 위 발급 한도를 넘지 않는다. 결과 제출에는 사용자 단위 제한을 따로 두지 않는다. 같은 세션을 다시 제출하면 리플레이 없이 `404 session_not_found` 다.
+
+### 세션 채보 스냅샷
+
+발급 hook 은 요청의 `chartRevision` 과 비교한 바로 그 채보 레코드의 `data` 원문 JSON 을 세션의 `play_sessions.chartData` 에 그대로 저장한다(마이그레이션 `1792122000_add_play_sessions_chart_data.js`).
+
+- **저장소**: json, required, `maxSize` 미지정이라 PocketBase 기본 한도 1MB 다. `charts.data` 와 같은 설정이므로 저장할 수 있는 어떤 채보든 담는다. 컬렉션의 모든 API rule 이 비어 있어 superuser 와 hook 만 읽고 쓴다.
+- **검증**: 결과 제출 hook 은 현재 채보가 아니라 세션 스냅샷으로 리플레이한다. 스냅샷의 sha256 이 세션 `chartRevision` 과 다를 때만 `chart_changed` 로 거절하며, 정상 운영에서는 일어나지 않는다. 그래서 플레이 도중 채보가 바뀌어도 그 판은 플레이한 채보 기준으로 판정된다.
+- **랭킹 반영**: 통과한 결과는 최고 기록 저장 트랜잭션 안에서 읽은 그 채보의 현재 `revision` 행에 저장되어 현재 랭킹에 보인다. 플레이한 revision 은 따로 남기지 않는다.
+- **feature 016 원칙의 예외 범위**: "채보 변경 전 기록은 새 채보 랭킹에 섞지 않는다" 의 예외는 채보가 바뀔 때 진행 중이던 세션의 결과뿐이다. 이미 저장된 옛 revision 기록은 계속 숨겨지고, 채보가 바뀐 뒤 옛 revision 으로 새 세션을 요청하면 여전히 `409 chart_changed` 다.
+
+### 요청 수와 채보 캐시
+
+게임 클라이언트는 플레이할 채보를 탭 메모리에 chart id 당 하나씩 보관한다(`src/backend/ChartCache.ts`). 새로고침하면 비워지고, 브라우저 저장소에는 남기지 않는다.
+
+- **플레이 준비**: 캐시의 채보 revision 으로 세션을 발급받는다. 캐시가 낡아 발급이 `409 chart_changed` 이면 그 채보를 서버에서 다시 받고 새 revision 으로 한 번만 다시 발급한다. 재발급도 실패하면 새 채보로 랭킹 없이 플레이한다. `chart_changed` 가 아닌 발급 실패(`429` 등)는 다시 받지 않고 캐시의 채보로 랭킹 없이 플레이한다.
+- **비로그인**: 발급하지 않으므로 낡은 캐시를 알아챌 계기가 없다. 새로고침 전까지 캐시의 채보로 플레이한다.
+- **에디터**: 채보 열기는 캐시를 쓰지 않고 항상 서버에서 받는다. 에디터 저장은 저장 응답의 채보·서버 revision 으로 그 chart id 의 캐시를 갱신하므로, 저장 뒤 첫 판도 채보 요청이 없다.
+
+| 시점                                          | 캐시 도입 전                                        | 캐시 도입 후                                                  |
+| --------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------- |
+| 접속 1회                                      | 곡 목록 1 + 채보 목록 1 (재킷 파일은 브라우저 캐시) | 같다                                                          |
+| 로그인 사용자, 그 탭에서 처음 플레이하는 채보 | 채보 1 + 발급 1 + 제출 1 = 3                        | 같다                                                          |
+| 로그인 사용자, 같은 채보 반복                 | 3                                                   | 발급 1 + 제출 1 = 2                                           |
+| 로그인 사용자, 캐시가 낡은 판                 | 3 (+ 플레이 도중 바뀌면 결과 거절)                  | 발급(409) 1 + 재조회 1 + 재발급 1 + 제출 1 = 4, 이후 반복은 2 |
+| 비로그인, 같은 채보 반복                      | 1                                                   | 0                                                             |
+| 에디터 채보 열기 / 저장                       | 1 / 1 (새 채보면 곡 조회 +1)                        | 같다                                                          |
+
+PocketHost 한도는 인스턴스당 10,000 요청 / 1시간, IP 당 1,000 요청 / 1시간이고, 요금제를 올려도 인스턴스 한도는 늘지 않는다. 한 접속에서 같은 채보를 20판 하는 로그인 사용자는 캐시 전 접속 2 + 20 × 3 = 62 요청에서 접속 2 + 3 + 19 × 2 = 43 요청이 되어, 같은 인스턴스 한도로 약 1.4~1.5배의 사용자를 받는다.
+
+실측 절차(운영 PocketHost 배포 뒤):
+
+1. `curl -i '<인스턴스 URL>/api/collections/songs/records'` 응답에서 `X-PocketHost-RateLimit-*` 헤더를 확인한다. 헤더의 정확한 이름·의미는 실측 때 본 그대로 이 절에 기록한다.
+2. 로그인한 브라우저에서 같은 채보를 두 번 플레이하고, 개발자 도구 Network 탭에서 두 번째 판에 `charts/records/<id>` 요청이 없고 세션 발급·결과 제출만 있는지 확인한다.
 
 ### IP 기준 제한의 전제
 
@@ -152,7 +203,7 @@ PocketBase 내장 limiter 는 클라이언트 IP 단위로 버킷을 나눈다. 
 
 ### 배포 순서
 
-1. **hooks 배포**: rate limit 마이그레이션 없이 "PocketHost 배포" 절차로 `pb_hooks` 와 나머지 마이그레이션을 배포한다.
+1. **hooks 배포**: rate limit 마이그레이션 두 개(`1791532400`, `1792121900`) 없이 "PocketHost 배포" 절차로 `pb_hooks` 와 나머지 마이그레이션을 배포한다.
 2. **IP 헤더 확인**: superuser 토큰으로 진단 라우트를 호출한다. 일반 사용자 토큰은 `403`, 토큰 없음은 `401` 이다.
 
    ```sh
@@ -164,16 +215,17 @@ PocketBase 내장 limiter 는 클라이언트 IP 단위로 버킷을 나눈다. 
 
 3. **trusted proxy 설정**: 관리 UI Settings › Application 의 trusted proxy(User IP proxy headers)에 2단계에서 찾은 헤더 이름을 넣는다. `X-Forwarded-For` 처럼 여러 IP 가 이어지는 헤더라면 맨 왼쪽 IP 사용 여부를 그 헤더 값의 순서에 맞춰 정한다.
 4. **판정 IP 재확인**: 진단 라우트를 다시 호출해 `realIP` 가 호출한 PC 의 공인 IP 인지 확인한다. 가능하면 다른 네트워크(예: 휴대폰 테더링)에서도 호출해 `realIP` 가 달라지는지 본다.
-5. **rate limit 마이그레이션 배포**: `1791532400_enable_dazbeat_rate_limits.js` 를 SFTP 로 올리고 인스턴스를 재시작한다. 관리 UI Settings › Rate limits 에서 limiter 가 켜져 있고 위 표의 규칙이 들어갔는지 확인한다.
+5. **rate limit 마이그레이션 배포**: `1791532400_enable_dazbeat_rate_limits.js` 와 `1792121900_relax_play_session_ip_rate_limits.js` 를 함께 SFTP 로 올리고 인스턴스를 재시작한다. 하나만 올리지 않는다("PocketHost 배포" 3단계). 관리 UI Settings › Rate limits 에서 limiter 가 켜져 있고 위 표의 규칙이 들어갔는지, 두 dazbeat 규칙이 30 요청 / 60초인지 확인한다.
 
 ### 429 측정
 
-로그인한 테스트 계정의 토큰과 실제 채보의 `id`·`revision` 으로 세션 발급을 60초 안에 11번 보낸다. 10번째까지는 `200`(또는 채보 상태에 따른 `4xx` 업무 오류), 11번째는 `429` 여야 한다. 발급할 때마다 그 사용자의 이전 세션은 교체되므로 운영 데이터에 남는 것은 세션 1개뿐이다.
+IP 규칙은 같은 IP 에서 테스트 계정을 바꿔 가며 실제 채보의 `id`·`revision` 으로 세션 발급을 60초 안에 31번 보내 확인한다. 사용자 단위 제한(20회)에 먼저 걸리지 않도록 한 계정으로 20번까지만 보낸다. 30번째까지는 `200`(또는 채보 상태에 따른 `4xx` 업무 오류), 31번째는 본문에 `code` 가 없는 PocketBase 표준 `429` 여야 한다. 발급할 때마다 그 사용자의 이전 세션은 교체되므로 운영 데이터에 남는 것은 계정마다 세션 1개뿐이다.
 
 ```sh
-for i in $(seq 1 11); do
-  curl -s -o /dev/null -w "%{http_code}\n" -X POST '<인스턴스 URL>/api/dazbeat/play-sessions' \
-    -H 'Authorization: <테스트 계정 토큰>' \
+for i in $(seq 1 31); do
+  if [ "$i" -le 20 ]; then token='<테스트 계정 1 토큰>'; else token='<테스트 계정 2 토큰>'; fi
+  curl -s -w " %{http_code}\n" -X POST '<인스턴스 URL>/api/dazbeat/play-sessions' \
+    -H "Authorization: $token" \
     -H 'Content-Type: application/json' \
     -d '{"chartId":"<채보 id>","chartRevision":"<채보 revision>"}'
 done
@@ -181,9 +233,11 @@ done
 
 측정 뒤 다른 네트워크에서 같은 요청을 1번 보내 `429` 가 아닌지 확인한다. `429` 라면 버킷이 IP 별로 나뉘지 않은 것이므로 아래 처리를 따른다.
 
+사용자 단위 제한은 같은 계정으로 세션 발급을 60초 안에 21번 보내 확인한다. 20번째까지는 `200`, 21번째는 `429` 이고 본문 `code` 가 `session_rate_limited`, 응답에 `Retry-After` 헤더가 있어야 한다(`curl -i` 로 헤더를 본다). IP 규칙이 21회보다 먼저 걸리면 PocketBase 표준 `429`(`code` 없음)가 먼저 나오므로, 본문 `code` 로 둘을 구분한다. 이어서 같은 IP 에서 다른 테스트 계정으로 1번 발급해 IP 버킷이 남아 있는 동안 `200` 인지 확인한다.
+
 ### 실제 IP 를 얻지 못할 때
 
-진단 라우트의 어느 헤더에도 실제 클라이언트 IP 가 오지 않거나 4단계에서 `realIP` 가 실제 IP 가 되지 않으면, 운영에서 PocketBase 내장 limiter 를 쓰지 않는다. rate limit 마이그레이션을 올리지 않고(이미 적용됐다면 관리 UI Settings › Rate limits 에서 limiter 를 끈다) PocketHost 엣지 제한만 남긴다. 이 경우 내장 rate limit 은 "적용 안 됨"으로 보고한다. 사용자당 활성 세션은 유일 인덱스로 1개로 묶여 있어 세션 행 수는 여전히 제한된다.
+진단 라우트의 어느 헤더에도 실제 클라이언트 IP 가 오지 않거나 4단계에서 `realIP` 가 실제 IP 가 되지 않으면, 운영에서 PocketBase 내장 limiter 를 쓰지 않는다. rate limit 마이그레이션 두 개(`1791532400`, `1792121900`)를 모두 올리지 않고(이미 적용됐다면 관리 UI Settings › Rate limits 에서 limiter 를 끈다) PocketHost 엣지 제한만 남긴다. 이 경우 내장 rate limit 은 "적용 안 됨"으로 보고한다. 사용자 단위 발급 제한(20회/60초)은 클라이언트 IP 판정과 무관한 hook 의 제한이라 이 경우에도 그대로 동작한다. 사용자당 활성 세션은 유일 인덱스로 1개로 묶여 있어 세션 행 수는 여전히 제한된다.
 
 ## 백업·복구
 
@@ -239,6 +293,8 @@ done
 - [ ] 실제 브라우저에서 GitHub Pages 의 Google 로그인·곡 조회·랭킹 제출 확인
 - [ ] 비허용 웹 Origin 에서 브라우저 요청이 거부되는지 확인
 - [ ] 진단 라우트로 클라이언트 IP 전달 헤더 확인, trusted proxy 설정과 `realIP` 재확인
-- [ ] rate limit 마이그레이션 배포 후 운영 429 측정(또는 "적용 안 됨" 보고)
+- [ ] rate limit 마이그레이션 `1791532400` 과 `1792121900` 을 같은 배포에서 함께 올렸는지 확인(따로 먼저 올린 `1792121900` 은 나중에 적용된 `1791532400` 이 10 요청으로 되돌린다. "PocketHost 배포" 3단계). 관리 UI Settings › Rate limits 에서 두 dazbeat 규칙이 30 요청 / 60초인지 본다
+- [ ] rate limit 마이그레이션 배포 후 운영 429 측정(사용자 단위 `session_rate_limited` 포함, 또는 내장 limiter "적용 안 됨" 보고)
+- [ ] 운영 PocketHost 에서 요청 수·`X-PocketHost-RateLimit-*` 실측("요청 수와 채보 캐시" 실측 절차)
 - [ ] 자동 백업 설정(cron·보존·S3)과 복구 검증
 - [ ] 로컬 실제 데이터를 `pocketbase/seed/data/` 로 옮기고 옛 경로의 Git 추적 해제

@@ -27,15 +27,40 @@ function parseCursor(value: string): ParsedCursor {
     throw new Error(`Unexpected cursor value: ${value}`);
   }
   const [, path = '', x = '', y = '', fallback = ''] = match;
-  return { path, hotspotXPx: Number(x), hotspotYPx: Number(y), fallback };
+  return {
+    path,
+    hotspotXPx: Number(x),
+    hotspotYPx: Number(y),
+    fallback,
+  };
 }
 
 describe.each([
-  { name: 'DEFAULT_CURSOR', value: DEFAULT_CURSOR, fallback: 'default' },
-  { name: 'HOVER_CURSOR', value: HOVER_CURSOR, fallback: 'pointer' },
-  { name: 'PRESSED_CURSOR', value: PRESSED_CURSOR, fallback: 'pointer' },
-  { name: 'DRAG_CURSOR', value: DRAG_CURSOR, fallback: 'ew-resize' },
-  { name: 'DISABLED_CURSOR', value: DISABLED_CURSOR, fallback: 'not-allowed' },
+  {
+    name: 'DEFAULT_CURSOR',
+    value: DEFAULT_CURSOR,
+    fallback: 'default',
+  },
+  {
+    name: 'HOVER_CURSOR',
+    value: HOVER_CURSOR,
+    fallback: 'pointer',
+  },
+  {
+    name: 'PRESSED_CURSOR',
+    value: PRESSED_CURSOR,
+    fallback: 'pointer',
+  },
+  {
+    name: 'DRAG_CURSOR',
+    value: DRAG_CURSOR,
+    fallback: 'ew-resize',
+  },
+  {
+    name: 'DISABLED_CURSOR',
+    value: DISABLED_CURSOR,
+    fallback: 'not-allowed',
+  },
 ])('$name', ({ value, fallback }) => {
   it('has the url, hotspot and fallback form', () => {
     expect(value).toMatch(CURSOR_PATTERN);

@@ -62,6 +62,8 @@ export interface FailedGameplayResult extends GameplayResultBase {
 
 export type GameplayResult = FinishedGameplayResult | FailedGameplayResult;
 
+export type GameplayProgress = { outcome: 'playing' } | GameplayResult;
+
 export type NoteStatus = 'pending' | 'holding' | 'hit' | 'missed';
 
 export interface JudgmentEvent {

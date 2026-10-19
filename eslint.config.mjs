@@ -33,4 +33,18 @@ export default tseslint.config(
     },
   },
   prettier,
+  {
+    // eslint-config-prettier 가 끄는 규칙을 다시 켠다. Prettier 는 첫 키 앞에 줄바꿈이 있으면
+    // 객체를 여러 줄로 유지하므로(objectWrap: preserve) 두 도구가 충돌하지 않는다.
+    files: ['**/*.ts'],
+    rules: {
+      'object-curly-newline': [
+        'error',
+        {
+          ObjectExpression: { minProperties: 2, consistent: true },
+        },
+      ],
+      'object-property-newline': 'error',
+    },
+  },
 );

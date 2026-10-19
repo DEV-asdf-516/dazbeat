@@ -1,15 +1,14 @@
 import Phaser from 'phaser';
 import { HOVER_CURSOR } from './cursor.js';
 
-/** 여러 대상 중 포인터가 올라가 있는 하나를 기억한다. 호버가 바뀐 대상만 `onChange`로 알린다. */
 export class PointerHover<T> {
   private hovered: T | null = null;
 
   constructor(private readonly onChange: (item: T) => void) {}
 
-  bind(target: Phaser.GameObjects.GameObject, item: T, onDown: () => void): void {
+  bind(target: Phaser.GameObjects.GameObject, item: T, onActivate: () => void): void {
     target.setInteractive({ cursor: HOVER_CURSOR });
-    target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, onDown);
+    target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, onActivate);
     target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => {
       const previous = this.hovered;
       this.hovered = item;

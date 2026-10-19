@@ -1,0 +1,32 @@
+import { LANGUAGE_NAMES } from '../../i18n/language.js';
+import type { Language } from '../../i18n/language.js';
+import type { Lane } from '../../rhythm/types.js';
+import type { Settings } from '../../storage/settings.js';
+import { formatKeyCode } from '../ui/format.js';
+import type { SettingsRow } from './settingsAdjust.js';
+
+export function isChoiceRow(row: SettingsRow): boolean {
+  return row.kind === 'mvMode' || row.kind === 'language';
+}
+
+export function formatRowValue(
+  row: SettingsRow,
+  settings: Settings,
+  language: Language,
+  waitingLane: Lane | null,
+): string {
+  switch (row.kind) {
+    case 'volume':
+      return `${Math.round(settings[row.field] * 100)}%`;
+    case 'inputOffset':
+      return `${settings.inputOffsetMs}ms`;
+    case 'scrollSpeed':
+      return `${settings.scrollSpeedPxPerSecond}px/s`;
+    case 'mvMode':
+      return settings.mvMode.toUpperCase();
+    case 'language':
+      return LANGUAGE_NAMES[language];
+    case 'key':
+      return waitingLane === row.lane ? '...' : formatKeyCode(settings.keyBindings[row.lane]);
+  }
+}

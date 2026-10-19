@@ -1,19 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Song } from '../../../src/data/songs.js';
 import {
-  describeSelection,
-  formatEditorTime,
   getGridTimesMs,
-  getLaneAtX,
   getOpeningTimeMs,
   getPlayStartMs,
-  getTimeAtY,
   pickNote,
   snapStartTimeMs,
   toEditTimeMs,
   toVideoSec,
 } from '../../../src/game/editor/editorTimeline.js';
-import { getNoteY } from '../../../src/rhythm/notePosition.js';
 import type { Note } from '../../../src/rhythm/types.js';
 
 const song: Song = {
@@ -28,35 +23,6 @@ const song: Song = {
   gameEndMs: 10000,
   chartIds: {},
 };
-
-const PLAYHEAD_Y_PX = 760;
-const PX_PER_SECOND = 400;
-const LANES_LEFT_PX = 720;
-const LANE_WIDTH_PX = 120;
-
-describe('getTimeAtY', () => {
-  it.each([
-    [1000, 1000],
-    [2500, 1000],
-    [500, 3000],
-    [4321.5, 4000],
-  ])('inverts getNoteY for note %d at current %d', (noteTimeMs, currentTimeMs) => {
-    const yPx = getNoteY(noteTimeMs, currentTimeMs, PLAYHEAD_Y_PX, PX_PER_SECOND);
-
-    expect(getTimeAtY(yPx, currentTimeMs, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBeCloseTo(noteTimeMs);
-  });
-
-  it('maps y back to the same y through getNoteY', () => {
-    const timeMs = getTimeAtY(300, 2000, PLAYHEAD_Y_PX, PX_PER_SECOND);
-
-    expect(getNoteY(timeMs, 2000, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBeCloseTo(300);
-  });
-
-  it('does not round or clamp', () => {
-    expect(getTimeAtY(PLAYHEAD_Y_PX - 1, 0, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBe(2.5);
-    expect(getTimeAtY(PLAYHEAD_Y_PX + 400, 0, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBe(-1000);
-  });
-});
 
 describe('toEditTimeMs', () => {
   it.each([
@@ -82,36 +48,21 @@ describe('toEditTimeMs', () => {
   });
 });
 
-describe('getLaneAtX', () => {
-  it.each([
-    [720, 0],
-    [839, 0],
-    [840, 1],
-    [959, 1],
-    [960, 2],
-    [1079, 2],
-    [1080, 3],
-    [1199, 3],
-  ])('puts x %d in lane %d', (xPx, lane) => {
-    expect(getLaneAtX(xPx, LANES_LEFT_PX, LANE_WIDTH_PX)).toBe(lane);
-  });
-
-  it.each([
-    [719, 0],
-    [0, 0],
-    [1200, 3],
-    [1920, 3],
-  ])('clamps x %d outside the lanes to lane %d', (xPx, lane) => {
-    expect(getLaneAtX(xPx, LANES_LEFT_PX, LANE_WIDTH_PX)).toBe(lane);
-  });
-});
-
 describe('snapStartTimeMs', () => {
   const THRESHOLD_MS = 20;
   const PLAYHEAD_MS = 1000;
   const notes: Note[] = [
-    { type: 'tap', timeMs: 3000, lane: 0 },
-    { type: 'hold', timeMs: 5000, endTimeMs: 6000, lane: 1 },
+    {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 0,
+    },
+    {
+      type: 'hold',
+      timeMs: 5000,
+      endTimeMs: 6000,
+      lane: 1,
+    },
   ];
 
   function snap(timeMs: number, lane: 0 | 1 | 2 | 3, movingNote: Note | null = null): number {
@@ -157,9 +108,21 @@ describe('snapStartTimeMs', () => {
 
   it('uses the closest candidate and the earlier one on a tie', () => {
     const closeNotes: Note[] = [
-      { type: 'tap', timeMs: 4000, lane: 0 },
-      { type: 'tap', timeMs: 4020, lane: 1 },
-      { type: 'tap', timeMs: 4030, lane: 2 },
+      {
+        type: 'tap',
+        timeMs: 4000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 4020,
+        lane: 1,
+      },
+      {
+        type: 'tap',
+        timeMs: 4030,
+        lane: 2,
+      },
     ];
     const options = {
       notes: closeNotes,
@@ -176,23 +139,50 @@ describe('snapStartTimeMs', () => {
 
 describe('pickNote', () => {
   const TOLERANCE_MS = 30;
-  const hold: Note = { type: 'hold', timeMs: 2000, endTimeMs: 2050, lane: 1 };
-  const tap: Note = { type: 'tap', timeMs: 4000, lane: 1 };
-  const otherLane: Note = { type: 'tap', timeMs: 4000, lane: 2 };
+  const hold: Note = {
+    type: 'hold',
+    timeMs: 2000,
+    endTimeMs: 2050,
+    lane: 1,
+  };
+  const tap: Note = {
+    type: 'tap',
+    timeMs: 4000,
+    lane: 1,
+  };
+  const otherLane: Note = {
+    type: 'tap',
+    timeMs: 4000,
+    lane: 2,
+  };
   const notes: Note[] = [hold, tap, otherLane];
 
   it('prefers the hold end over the head when both are in range', () => {
-    expect(pickNote(notes, 1, 2030, TOLERANCE_MS)).toEqual({ note: hold, part: 'end' });
+    expect(pickNote(notes, 1, 2030, TOLERANCE_MS)).toEqual({
+      note: hold,
+      part: 'end',
+    });
   });
 
   it('picks the head when only the head is in range', () => {
-    expect(pickNote(notes, 1, 1990, TOLERANCE_MS)).toEqual({ note: hold, part: 'head' });
+    expect(pickNote(notes, 1, 1990, TOLERANCE_MS)).toEqual({
+      note: hold,
+      part: 'head',
+    });
   });
 
   it('picks the hold body as the head', () => {
-    const longHold: Note = { type: 'hold', timeMs: 6000, endTimeMs: 8000, lane: 3 };
+    const longHold: Note = {
+      type: 'hold',
+      timeMs: 6000,
+      endTimeMs: 8000,
+      lane: 3,
+    };
 
-    expect(pickNote([longHold], 3, 7000, TOLERANCE_MS)).toEqual({ note: longHold, part: 'head' });
+    expect(pickNote([longHold], 3, 7000, TOLERANCE_MS)).toEqual({
+      note: longHold,
+      part: 'head',
+    });
   });
 
   it.each([
@@ -202,7 +192,12 @@ describe('pickNote', () => {
     [4031, false],
   ])('includes the exact tolerance for a head at %d: %s', (timeMs, isHit) => {
     expect(pickNote(notes, 1, timeMs, TOLERANCE_MS)).toEqual(
-      isHit ? { note: tap, part: 'head' } : null,
+      isHit
+        ? {
+            note: tap,
+            part: 'head',
+          }
+        : null,
     );
   });
 
@@ -211,7 +206,12 @@ describe('pickNote', () => {
     [2081, false],
   ])('includes the exact tolerance for a hold end at %d: %s', (timeMs, isHit) => {
     expect(pickNote(notes, 1, timeMs, TOLERANCE_MS)).toEqual(
-      isHit ? { note: hold, part: 'end' } : null,
+      isHit
+        ? {
+            note: hold,
+            part: 'end',
+          }
+        : null,
     );
   });
 
@@ -226,9 +226,16 @@ describe('pickNote', () => {
   });
 
   it('picks the closest head', () => {
-    const near: Note = { type: 'tap', timeMs: 4020, lane: 1 };
+    const near: Note = {
+      type: 'tap',
+      timeMs: 4020,
+      lane: 1,
+    };
 
-    expect(pickNote([tap, near], 1, 4015, TOLERANCE_MS)).toEqual({ note: near, part: 'head' });
+    expect(pickNote([tap, near], 1, 4015, TOLERANCE_MS)).toEqual({
+      note: near,
+      part: 'head',
+    });
   });
 });
 
@@ -261,43 +268,6 @@ describe('toVideoSec', () => {
   });
 });
 
-describe('formatEditorTime', () => {
-  it('formats minutes, zero-padded seconds and milliseconds', () => {
-    expect(formatEditorTime(0)).toBe('0:00.000');
-    expect(formatEditorTime(889)).toBe('0:00.889');
-    expect(formatEditorTime(59_999)).toBe('0:59.999');
-    expect(formatEditorTime(60_000)).toBe('1:00.000');
-    expect(formatEditorTime(605_007)).toBe('10:05.007');
-    expect(formatEditorTime(-1500)).toBe('-0:01.500');
-  });
-});
-
-describe('describeSelection', () => {
-  it('shows a dash for every row without a selection', () => {
-    expect(describeSelection(null)).toEqual([
-      { label: 'TYPE', value: '—' },
-      { label: 'LANE', value: '—' },
-      { label: 'TIME', value: '—' },
-    ]);
-  });
-
-  it('shows type, lane and start time for a tap', () => {
-    expect(describeSelection({ type: 'tap', timeMs: 12345, lane: 2 })).toEqual([
-      { label: 'TYPE', value: 'TAP' },
-      { label: 'LANE', value: '2' },
-      { label: 'TIME', value: '0:12.345' },
-    ]);
-  });
-
-  it('joins start and end time with an en dash for a hold', () => {
-    expect(describeSelection({ type: 'hold', timeMs: 1000, endTimeMs: 2500, lane: 0 })).toEqual([
-      { label: 'TYPE', value: 'HOLD' },
-      { label: 'LANE', value: '0' },
-      { label: 'TIME', value: '0:01.000\u20130:02.500' },
-    ]);
-  });
-});
-
 describe('getGridTimesMs', () => {
   it('returns step multiples inside the range, including both ends', () => {
     expect(getGridTimesMs(1000, 2000, 250)).toEqual([1000, 1250, 1500, 1750, 2000]);
@@ -313,14 +283,34 @@ describe('getGridTimesMs', () => {
 describe('getOpeningTimeMs', () => {
   it('places the first note leadMs above the playhead', () => {
     const notes: Note[] = [
-      { type: 'tap', timeMs: 3000, lane: 0 },
-      { type: 'tap', timeMs: 4000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 4000,
+        lane: 1,
+      },
     ];
     expect(getOpeningTimeMs(notes, 500, song)).toBe(2500);
   });
 
   it('does not go before the song start and opens at the start without notes', () => {
-    expect(getOpeningTimeMs([{ type: 'tap', timeMs: 1200, lane: 0 }], 500, song)).toBe(1000);
+    expect(
+      getOpeningTimeMs(
+        [
+          {
+            type: 'tap',
+            timeMs: 1200,
+            lane: 0,
+          },
+        ],
+        500,
+        song,
+      ),
+    ).toBe(1000);
     expect(getOpeningTimeMs([], 500, song)).toBe(1000);
   });
 });

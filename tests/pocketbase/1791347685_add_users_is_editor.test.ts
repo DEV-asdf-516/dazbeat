@@ -95,7 +95,13 @@ function makeCollection(name: string, rules: Rules): FakeCollection {
 
 function makeApp(usersRules: Partial<Rules> = {}) {
   const collections = new Map<string, FakeCollection>([
-    ['users', makeCollection('users', { ...DEFAULT_USERS_RULES, ...usersRules })],
+    [
+      'users',
+      makeCollection('users', {
+        ...DEFAULT_USERS_RULES,
+        ...usersRules,
+      }),
+    ],
     ['charts', makeCollection('charts', PUBLIC_READ_RULES)],
     ['songs', makeCollection('songs', PUBLIC_READ_RULES)],
   ]);
@@ -116,10 +122,17 @@ function makeApp(usersRules: Partial<Rules> = {}) {
         updateRule: readRule(collection.updateRule),
         deleteRule: readRule(collection.deleteRule),
       };
-      saved.push({ name: collection.name, rules, fields: [...collection.fields.list] });
+      saved.push({
+        name: collection.name,
+        rules,
+        fields: [...collection.fields.list],
+      });
     },
   };
-  return { app, saved };
+  return {
+    app,
+    saved,
+  };
 }
 
 async function loadMigration(): Promise<{ up: MigrationStep; down: MigrationStep }> {
@@ -139,7 +152,10 @@ async function loadMigration(): Promise<{ up: MigrationStep; down: MigrationStep
   if (steps.length !== 2 || up === undefined || down === undefined) {
     throw new Error('Migration must call migrate(up, down) exactly once');
   }
-  return { up, down };
+  return {
+    up,
+    down,
+  };
 }
 
 function lastSaved(saved: SavedCollection[], name: string): SavedCollection {
@@ -158,7 +174,12 @@ describe('1791347685_add_users_is_editor migration', () => {
     up(app);
 
     const users = lastSaved(saved, 'users');
-    expect(users.fields).toEqual([{ name: 'isEditor', options: { name: 'isEditor' } }]);
+    expect(users.fields).toEqual([
+      {
+        name: 'isEditor',
+        options: { name: 'isEditor' },
+      },
+    ]);
     expect(users.fields[0]?.options.required).toBeUndefined();
     expect(users.rules).toEqual({
       listRule: OWNER_RULE,
@@ -179,7 +200,10 @@ describe('1791347685_add_users_is_editor migration', () => {
 
   it('keeps null users create and update rules null', async () => {
     const { up } = await loadMigration();
-    const { app, saved } = makeApp({ createRule: null, updateRule: null });
+    const { app, saved } = makeApp({
+      createRule: null,
+      updateRule: null,
+    });
 
     up(app);
 
@@ -201,12 +225,21 @@ describe('1791347685_add_users_is_editor migration', () => {
 
   it.each([
     ['default', {}],
-    ['null', { createRule: null, updateRule: null }],
+    [
+      'null',
+      {
+        createRule: null,
+        updateRule: null,
+      },
+    ],
     ['custom', { createRule: 'verified = true' }],
   ] as const)('restores %s users rules and removes isEditor on down', async (_, usersRules) => {
     const { up, down } = await loadMigration();
     const { app, saved } = makeApp(usersRules);
-    const expectedRules = { ...DEFAULT_USERS_RULES, ...usersRules };
+    const expectedRules = {
+      ...DEFAULT_USERS_RULES,
+      ...usersRules,
+    };
 
     up(app);
     down(app);

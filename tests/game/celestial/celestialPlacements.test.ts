@@ -1,13 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import {
-  getAtlasPresentation,
-  loadCelestialCatalog,
-} from '../../../src/game/celestial/celestialCatalog.js';
-import {
-  CELESTIAL_SCREENS,
-  GAMEPLAY_FAILURE_STARS,
-} from '../../../src/game/celestial/celestialPlacements.js';
+import { loadCelestialCatalog } from '../../../src/game/celestial/celestialCatalog.js';
+import { CELESTIAL_SCREENS } from '../../../src/game/celestial/celestialPlacements.js';
 import type {
   AmbientPlacement,
   CelestialScreen,
@@ -18,7 +12,12 @@ const SCREEN_WIDTH_PX = 1920;
 const SCREEN_HEIGHT_PX = 1080;
 const AMBIENT_ROLES = new Set(['R11', 'R12', 'R13', 'R27']);
 // Settings UI(행 라벨·컨트롤 x160–1040, 제목 y96 부터 힌트 y1000 까지)와 겹치면 안 된다.
-const SETTINGS_UI = { left: 160, top: 96, right: 1040, bottom: 1000 };
+const SETTINGS_UI = {
+  left: 160,
+  top: 96,
+  right: 1040,
+  bottom: 1000,
+};
 
 const BOARDS: readonly [CelestialScreen, string, string][] = [
   ['main', 'main', 'Main'],
@@ -56,7 +55,9 @@ function readJson(path: string): Promise<unknown> {
   return readFile(new URL(path, ROOT), 'utf8').then((text): unknown => JSON.parse(text));
 }
 
-async function readBoardAmbient(board: string): Promise<AmbientPlacement[]> {
+type BoardPlacement = Omit<AmbientPlacement, 'id'> & { id: string };
+
+async function readBoardAmbient(board: string): Promise<BoardPlacement[]> {
   const placement = requireObject(
     await readJson(`design/dazbeat/review/screens/${board}-placement.json`),
     board,
@@ -95,9 +96,27 @@ describe('CELESTIAL_SCREENS', () => {
 
   it('secondary ambient keeps the board except the three moved Settings overlaps', async () => {
     const moved = new Map([
-      ['R11@120,254', { xPx: 1760, yPx: 300 }],
-      ['R11@315,929', { xPx: 1380, yPx: 180 }],
-      ['R13@193,145', { xPx: 1700, yPx: 520 }],
+      [
+        'R11@120,254',
+        {
+          xPx: 1760,
+          yPx: 300,
+        },
+      ],
+      [
+        'R11@315,929',
+        {
+          xPx: 1380,
+          yPx: 180,
+        },
+      ],
+      [
+        'R13@193,145',
+        {
+          xPx: 1700,
+          yPx: 520,
+        },
+      ],
     ]);
     const expected = (await readBoardAmbient('secondary')).map((placement) => ({
       ...placement,
@@ -152,7 +171,7 @@ describe('CELESTIAL_SCREENS', () => {
     const catalog = await loadCelestialCatalog((url) => readJson(`public${url}`));
     Object.values(CELESTIAL_SCREENS).forEach(({ ambient }) => {
       ambient.forEach(({ id, scale }) => {
-        const range = getAtlasPresentation(catalog, id).scaleRange;
+        const range = catalog.atlasPresentations[id].scaleRange;
         expect(range, id).not.toBeNull();
         expect(scale, id).toBeGreaterThanOrEqual(range?.x[0] ?? Number.NaN);
         expect(scale, id).toBeLessThanOrEqual(range?.x[1] ?? Number.NaN);
@@ -202,47 +221,6 @@ describe('CELESTIAL_SCREENS', () => {
         yPx >= SETTINGS_UI.top &&
         yPx <= SETTINGS_UI.bottom;
       expect(isInside, `${id}@${xPx},${yPx}`).toBe(false);
-    });
-  });
-});
-
-describe('GAMEPLAY_FAILURE_STARS', () => {
-  it('uses only R11 within its role scale range', async () => {
-    const catalog = await loadCelestialCatalog((url) => readJson(`public${url}`));
-    const range = getAtlasPresentation(catalog, 'R11').scaleRange;
-    expect(range).not.toBeNull();
-    expect(GAMEPLAY_FAILURE_STARS).toHaveLength(10);
-    GAMEPLAY_FAILURE_STARS.forEach(({ id, xPx, yPx, scale }) => {
-      const label = `${id}@${xPx},${yPx}`;
-      expect(id, label).toBe('R11');
-      expect(scale, label).toBeGreaterThanOrEqual(range?.x[0] ?? Number.NaN);
-      expect(scale, label).toBeLessThanOrEqual(range?.x[1] ?? Number.NaN);
-      expect(scale, label).toBeGreaterThanOrEqual(range?.y[0] ?? Number.NaN);
-      expect(scale, label).toBeLessThanOrEqual(range?.y[1] ?? Number.NaN);
-    });
-  });
-
-  it('stays on screen and outside the Gameplay lanes', async () => {
-    const protectedAreas = requireObject(
-      (await readSceneApplication())['protectedScreenFractions'],
-      'protected',
-    );
-    const [left = 0, top = 0, right = 0, bottom = 0] = requireArray(
-      requireObject(protectedAreas['Gameplay'], 'Gameplay')['lanes'],
-      'lanes',
-    ).map((edge) => requireNumber(edge, 'edge'));
-    GAMEPLAY_FAILURE_STARS.forEach(({ id, xPx, yPx }) => {
-      const label = `${id}@${xPx},${yPx}`;
-      expect(xPx, label).toBeGreaterThanOrEqual(0);
-      expect(xPx, label).toBeLessThanOrEqual(SCREEN_WIDTH_PX);
-      expect(yPx, label).toBeGreaterThanOrEqual(0);
-      expect(yPx, label).toBeLessThanOrEqual(SCREEN_HEIGHT_PX);
-      const isInsideLanes =
-        xPx >= left * SCREEN_WIDTH_PX &&
-        xPx <= right * SCREEN_WIDTH_PX &&
-        yPx >= top * SCREEN_HEIGHT_PX &&
-        yPx <= bottom * SCREEN_HEIGHT_PX;
-      expect(isInsideLanes, label).toBe(false);
     });
   });
 });

@@ -27,9 +27,8 @@ export interface PocketBaseServerOptions {
 
 export interface PocketBaseServer {
   url: string;
-  /** SDK client authenticated as a superuser. */
   superuser: PocketBase;
-  /** Stops the process and keeps dataDir, so a later server can start on the same data. */
+  /** Keeps dataDir so a later server can start on the same data. */
   stop(): Promise<void>;
 }
 
@@ -38,7 +37,10 @@ export function createTempDir(prefix: string): Promise<string> {
 }
 
 export function removeTempDir(dir: string): Promise<void> {
-  return rm(dir, { recursive: true, force: true });
+  return rm(dir, {
+    recursive: true,
+    force: true,
+  });
 }
 
 function findFreePort(): Promise<number> {
@@ -96,6 +98,32 @@ export function createClient(url: string): PocketBase {
   return pb;
 }
 
+export async function migrateDown(
+  dataDir: string,
+  count: number,
+  migrationsDir = REPO_MIGRATIONS_DIR,
+): Promise<void> {
+  const binaryPath = await getPocketBaseBinaryPath();
+  const child = spawn(
+    binaryPath,
+    ['migrate', 'down', String(count), `--dir=${dataDir}`, `--migrationsDir=${migrationsDir}`],
+    { stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  let output = '';
+  child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  // The command asks for confirmation and exits 0 without reverting anything unless it reads `y`.
+  child.stdin?.end('y\n');
+  // 'close' rather than 'exit', so the output streams are fully read before checking them.
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', () => resolve());
+  });
+  if (child.exitCode !== 0 || !output.includes('Reverted')) {
+    throw new Error(`PocketBase migrate down ${count} did not revert any migration:\n${output}`);
+  }
+}
+
 export async function startPocketBase(options: PocketBaseServerOptions): Promise<PocketBaseServer> {
   const {
     dataDir,
@@ -125,7 +153,13 @@ export async function startPocketBase(options: PocketBaseServerOptions): Promise
       `--hooksDir=${hooksDir}`,
       '--hooksWatch=false',
     ],
-    { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      env: {
+        ...process.env,
+        ...env,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
   );
   let output = '';
   child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
@@ -139,7 +173,11 @@ export async function startPocketBase(options: PocketBaseServerOptions): Promise
     await waitForHealth(url, child, () => output);
     const superuser = createClient(url);
     await superuser.collection('_superusers').authWithPassword(SUPERUSER_EMAIL, SUPERUSER_PASSWORD);
-    return { url, superuser, stop };
+    return {
+      url,
+      superuser,
+      stop,
+    };
   } catch (error) {
     await stop();
     throw error;

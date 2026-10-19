@@ -1,6 +1,9 @@
 import type { Song } from '../../data/songs.js';
 import { LANES } from '../../rhythm/lanes.js';
+import { getGameFraction } from '../../rhythm/playTiming.js';
 import type { Lane } from '../../rhythm/types.js';
+import { clamp } from '../../range.js';
+import { requireDefined } from '../../invariant.js';
 
 const WORK_AREA_WIDTH_PX = 1440;
 const COLUMN_GAP_PX = 24;
@@ -15,9 +18,8 @@ const WORK_AREA_MARGIN_Y_PX = 24;
 const PLAYER_TEXT_GAP_PX = 12;
 const TITLE_MAX_WIDTH_PX = 400;
 const TITLE_DIFFICULTY_GAP_PX = 32;
-/** PLAY 왼쪽에서 시간 문구까지. PAUSE 라벨 폭에도 겹치지 않는 고정값이다. */
+/** PAUSE 라벨 폭에도 겹치지 않는 고정값이다. */
 const TIME_OFFSET_X_PX = 96;
-/** PLAY 왼쪽에서 seek 시작까지. `m:ss.mmm / m:ss.mmm` 문구 뒤에 둔다. */
 const SEEK_OFFSET_X_PX = 288;
 const PLAYHEAD_ABOVE_BOTTOM_PX = 140;
 const GRID_LABEL_COLUMN_PX = 56;
@@ -36,22 +38,17 @@ export interface EditorLayout {
     readonly heightPx: number;
     readonly centerYPx: number;
   };
-  /** 왼쪽 열 영상 미리보기. 캔버스에서 이 사각형에는 아무것도 그리지 않는다. */
   readonly video: PxRect;
-  /** 영상 player 상태·오류 문구의 왼쪽 위 기준점과 줄바꿈 폭(미리보기 바로 아래). */
   readonly playerText: {
     readonly leftPx: number;
     readonly topYPx: number;
     readonly widthPx: number;
   };
-  /** 키 안내의 왼쪽 x(영상 열 왼쪽). */
   readonly hint: { readonly leftPx: number };
   readonly laneColumn: { readonly leftPx: number; readonly widthPx: number };
   readonly title: { readonly leftPx: number; readonly maxWidthPx: number };
   readonly difficultiesLeftPx: number;
-  /** PLAY 버튼 왼쪽 x(레인 열 왼쪽). */
   readonly playLeftPx: number;
-  /** 현재 시간 문구 왼쪽 x. */
   readonly timeXPx: number;
   readonly seek: { readonly leftPx: number; readonly widthPx: number };
   readonly timeline: {
@@ -64,7 +61,6 @@ export interface EditorLayout {
     readonly laneWidthPx: number;
     readonly widthPx: number;
   };
-  /** 레인 열 왼쪽의 시간 눈금 라벨 폭 */
   readonly gridLabelColumnPx: number;
   readonly tools: {
     readonly leftPx: number;
@@ -74,7 +70,6 @@ export interface EditorLayout {
   };
 }
 
-/** 가운데 작업 영역을 영상·레인·도구 3열로 나눈다. 세 열은 같은 윗선에서 시작한다. */
 export function createEditorLayout(screenWidthPx: number, screenHeightPx: number): EditorLayout {
   const workLeftPx = (screenWidthPx - WORK_AREA_WIDTH_PX) / 2;
   const workTopYPx = TOP_BAR_HEIGHT_PX + WORK_AREA_MARGIN_Y_PX;
@@ -86,7 +81,10 @@ export function createEditorLayout(screenWidthPx: number, screenHeightPx: number
   const lanesWidthPx = laneColumnRightPx - lanesLeftPx;
   const seekLeftPx = laneColumnLeftPx + SEEK_OFFSET_X_PX;
   return {
-    topBar: { heightPx: TOP_BAR_HEIGHT_PX, centerYPx: TOP_BAR_HEIGHT_PX / 2 },
+    topBar: {
+      heightPx: TOP_BAR_HEIGHT_PX,
+      centerYPx: TOP_BAR_HEIGHT_PX / 2,
+    },
     bottomBar: {
       topYPx: bottomBarTopYPx,
       heightPx: BOTTOM_BAR_HEIGHT_PX,
@@ -104,12 +102,21 @@ export function createEditorLayout(screenWidthPx: number, screenHeightPx: number
       widthPx: VIDEO_WIDTH_PX,
     },
     hint: { leftPx: workLeftPx },
-    laneColumn: { leftPx: laneColumnLeftPx, widthPx: LANE_COLUMN_WIDTH_PX },
-    title: { leftPx: laneColumnLeftPx, maxWidthPx: TITLE_MAX_WIDTH_PX },
+    laneColumn: {
+      leftPx: laneColumnLeftPx,
+      widthPx: LANE_COLUMN_WIDTH_PX,
+    },
+    title: {
+      leftPx: laneColumnLeftPx,
+      maxWidthPx: TITLE_MAX_WIDTH_PX,
+    },
     difficultiesLeftPx: laneColumnLeftPx + TITLE_MAX_WIDTH_PX + TITLE_DIFFICULTY_GAP_PX,
     playLeftPx: laneColumnLeftPx,
     timeXPx: laneColumnLeftPx + TIME_OFFSET_X_PX,
-    seek: { leftPx: seekLeftPx, widthPx: laneColumnRightPx - seekLeftPx },
+    seek: {
+      leftPx: seekLeftPx,
+      widthPx: laneColumnRightPx - seekLeftPx,
+    },
     timeline: {
       topYPx: workTopYPx,
       bottomYPx: timelineBottomYPx,
@@ -130,10 +137,7 @@ export function createEditorLayout(screenWidthPx: number, screenHeightPx: number
   };
 }
 
-/**
- * 게임 논리 좌표의 사각형을 캔버스가 실제로 보이는 CSS px 사각형으로 옮긴다.
- * 둘 다 CSS px 이라 DPR 은 곱하지 않는다.
- */
+/** 둘 다 CSS px 이라 DPR 은 곱하지 않는다. */
 export function toViewportRect(
   rect: PxRect,
   canvasBounds: PxRect,
@@ -147,23 +151,27 @@ export function toViewportRect(
     heightPx: (rect.heightPx * canvasBounds.heightPx) / gameHeightPx,
   };
 }
-/** lane 의 가운데 x. 노트 표시 위치와 lane 판정이 같은 값을 쓴다. */
 export function getLaneCenterXPx(layout: EditorLayout, lane: Lane): number {
   const { leftPx, laneWidthPx } = layout.lanes;
   return leftPx + laneWidthPx * lane + laneWidthPx / 2;
 }
 
-/** seek 막대에서 시각의 x. thumb·채움·노트 분포 눈금이 쓴다. */
+export function getLaneAtXPx(layout: EditorLayout, xPx: number): Lane {
+  const { leftPx, laneWidthPx } = layout.lanes;
+  const index = clamp(Math.floor((xPx - leftPx) / laneWidthPx), 0, LANES.length - 1);
+  return requireDefined(LANES[index], 'Invalid lane index', index);
+}
+
 export function getSeekXPx(
   layout: EditorLayout,
   timeMs: number,
   song: Pick<Song, 'gameStartMs' | 'gameEndMs'>,
 ): number {
-  const fraction = (timeMs - song.gameStartMs) / (song.gameEndMs - song.gameStartMs);
+  const fraction = getGameFraction(song.gameStartMs, song.gameEndMs, timeMs);
   return layout.seek.leftPx + fraction * layout.seek.widthPx;
 }
 
-/** getSeekXPx 의 역함수. 범위 밖 x 도 그대로 비례 계산하며 clamp·반올림은 기존 `seek()` 가 한다. */
+/** clamp·반올림은 기존 `seek()` 가 한다. */
 export function getSeekTimeMs(
   layout: EditorLayout,
   xPx: number,

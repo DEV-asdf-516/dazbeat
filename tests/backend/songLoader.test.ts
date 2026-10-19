@@ -28,7 +28,13 @@ function makeSongRecord(id: string, overrides: Record<string, unknown> = {}) {
 
 function listResponse(items: readonly unknown[]): Response {
   return new Response(
-    JSON.stringify({ page: 1, perPage: 1000, totalItems: -1, totalPages: -1, items }),
+    JSON.stringify({
+      page: 1,
+      perPage: 1000,
+      totalItems: -1,
+      totalPages: -1,
+      items,
+    }),
   );
 }
 
@@ -86,10 +92,26 @@ describe('loadSongs', () => {
         makeSongRecord('s3'),
       ]),
       listResponse([
-        { id: 'c1', song: 's1', difficulty: 'hard' },
-        { id: 'c2', song: 's2', difficulty: 'easy' },
-        { id: 'c3', song: 's1', difficulty: 'easy' },
-        { id: 'c4', song: 'missing', difficulty: 'normal' },
+        {
+          id: 'c1',
+          song: 's1',
+          difficulty: 'hard',
+        },
+        {
+          id: 'c2',
+          song: 's2',
+          difficulty: 'easy',
+        },
+        {
+          id: 'c3',
+          song: 's1',
+          difficulty: 'easy',
+        },
+        {
+          id: 'c4',
+          song: 'missing',
+          difficulty: 'normal',
+        },
       ]),
     );
 
@@ -120,7 +142,10 @@ describe('loadSongs', () => {
         constellation: 'gemini',
         gameStartMs: 0,
         gameEndMs: 30000,
-        chartIds: { hard: 'c1', easy: 'c3' },
+        chartIds: {
+          hard: 'c1',
+          easy: 'c3',
+        },
       },
       {
         id: 'key-s3',
@@ -157,7 +182,13 @@ describe('loadSongs', () => {
   it('rejects when a chart record has a difficulty outside the list', async () => {
     stubFetch(
       listResponse([makeSongRecord('s1')]),
-      listResponse([{ id: 'c1', song: 's1', difficulty: 'master' }]),
+      listResponse([
+        {
+          id: 'c1',
+          song: 's1',
+          difficulty: 'master',
+        },
+      ]),
     );
 
     await expect(loadSongs(new PocketBase('http://pb.test'))).rejects.toThrow(
@@ -167,9 +198,16 @@ describe('loadSongs', () => {
 
   it('rejects when the server responds with an HTTP error', async () => {
     stubFetch(
-      new Response(JSON.stringify({ status: 500, message: 'Server error', data: {} }), {
-        status: 500,
-      }),
+      new Response(
+        JSON.stringify({
+          status: 500,
+          message: 'Server error',
+          data: {},
+        }),
+        {
+          status: 500,
+        },
+      ),
       listResponse([]),
     );
 

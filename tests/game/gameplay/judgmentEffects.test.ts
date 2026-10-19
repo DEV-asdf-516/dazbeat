@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  LANE_EFFECT_IDS,
   getHitBloomIntensity,
+  getJudgmentPopScale,
   getLaneEffectIds,
+  hasJudgmentGlow,
   hasJudgmentShimmer,
-  shouldFailPlay,
 } from '../../../src/game/gameplay/judgmentEffects.js';
 
 describe('getLaneEffectIds', () => {
@@ -24,14 +24,12 @@ describe('getLaneEffectIds', () => {
     ['miss', 'holdStart', []],
     ['miss', 'holdEnd', []],
   ] as const)('plays %s %s effects in order', (judgment, kind, expected) => {
-    expect(getLaneEffectIds({ judgment, kind })).toEqual(expected);
-  });
-});
-
-describe('LANE_EFFECT_IDS', () => {
-  it('lists every lane effect exactly once', () => {
-    expect(LANE_EFFECT_IDS).toHaveLength(5);
-    expect(new Set(LANE_EFFECT_IDS)).toEqual(new Set(['R32', 'R33', 'R34', 'R35', 'R36']));
+    expect(
+      getLaneEffectIds({
+        judgment,
+        kind,
+      }),
+    ).toEqual(expected);
   });
 });
 
@@ -44,17 +42,6 @@ describe('hasJudgmentShimmer', () => {
     ['miss', false],
   ] as const)('%s → %s', (judgment, expected) => {
     expect(hasJudgmentShimmer(judgment)).toBe(expected);
-  });
-});
-
-describe('shouldFailPlay', () => {
-  it.each([
-    [true, true, true],
-    [true, false, false],
-    [false, true, false],
-    [false, false, false],
-  ])('playing=%s failed=%s -> %s', (isPlaying, isSessionFailed, expected) => {
-    expect(shouldFailPlay(isPlaying, isSessionFailed)).toBe(expected);
   });
 });
 
@@ -71,5 +58,28 @@ describe('getHitBloomIntensity', () => {
 
   it.each(['bad', 'miss'] as const)('shows no bloom for %s', (judgment) => {
     expect(getHitBloomIntensity(judgment)).toBe(0);
+  });
+});
+
+describe('getJudgmentPopScale', () => {
+  it('pops perfect larger than great', () => {
+    expect(getJudgmentPopScale('perfect')).toBeGreaterThan(getJudgmentPopScale('great'));
+    expect(getJudgmentPopScale('great')).toBeGreaterThan(1);
+  });
+
+  it.each(['good', 'bad', 'miss'] as const)('does not pop %s', (judgment) => {
+    expect(getJudgmentPopScale(judgment)).toBe(1);
+  });
+});
+
+describe('hasJudgmentGlow', () => {
+  it.each([
+    ['perfect', true],
+    ['great', true],
+    ['good', false],
+    ['bad', false],
+    ['miss', false],
+  ] as const)('%s → %s', (judgment, expected) => {
+    expect(hasJudgmentGlow(judgment)).toBe(expected);
   });
 });

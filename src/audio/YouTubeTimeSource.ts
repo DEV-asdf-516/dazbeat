@@ -1,4 +1,5 @@
 import type { YouTubePlayerState } from './YouTubePlayer.js';
+import { msToSec, secToMs } from '../time.js';
 
 export const SYNC_INTERVAL_MS = 250;
 export const HARD_RESYNC_MS = 100;
@@ -6,7 +7,7 @@ export const SOFT_CORRECTION_RATIO = 0.25;
 
 type TimeSourceMode = 'frozen' | 'tracking' | 'freeRunning';
 
-// 재생 중엔 플레이어 시간을 따라가고, 끝난 뒤엔 판정 마감을 위해 혼자 흐르며, 그 외엔 멈춘다.
+// 끝난 뒤엔 판정 마감을 위해 혼자 흐른다.
 function getMode(state: YouTubePlayerState): TimeSourceMode {
   switch (state) {
     case 'playing':
@@ -37,7 +38,7 @@ export class YouTubeTimeSource {
     if (this.mode === 'frozen') {
       return this.anchorSec;
     }
-    return this.anchorSec + (this.now() - this.anchorAtMs) / 1000;
+    return this.anchorSec + msToSec(this.now() - this.anchorAtMs);
   }
 
   handleStateChange(state: YouTubePlayerState): void {
@@ -57,10 +58,10 @@ export class YouTubeTimeSource {
       return;
     }
     this.lastSampleAtMs = t;
-    const predictedSec = this.anchorSec + (t - this.anchorAtMs) / 1000;
+    const predictedSec = this.anchorSec + msToSec(t - this.anchorAtMs);
     const driftSec = this.player.getCurrentTime() - predictedSec;
     this.anchorSec =
-      Math.abs(driftSec) * 1000 > HARD_RESYNC_MS
+      secToMs(Math.abs(driftSec)) > HARD_RESYNC_MS
         ? predictedSec + driftSec
         : predictedSec + driftSec * SOFT_CORRECTION_RATIO;
     this.anchorAtMs = t;

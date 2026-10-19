@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AuthUser } from '../../../src/backend/auth.js';
+import type { AuthUser } from '../../../src/data/account.js';
 import { createAccountState, startSignIn } from '../../../src/game/accountState.js';
 import { getMainMenuItems } from '../../../src/game/main/mainMenu.js';
 
@@ -9,7 +9,11 @@ const PLAYER: AuthUser = {
   name: 'Player',
   isEditor: false,
 };
-const EDITOR: AuthUser = { ...PLAYER, id: 'user-2', isEditor: true };
+const EDITOR: AuthUser = {
+  ...PLAYER,
+  id: 'user-2',
+  isEditor: true,
+};
 
 describe('getMainMenuItems', () => {
   it('shows the player menu to a guest', () => {

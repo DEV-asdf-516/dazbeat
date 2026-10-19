@@ -1,11 +1,10 @@
-import { clamp } from '../range.js';
+import { clamp } from '../../range.js';
 import type { Button } from './Button.js';
+import { requireDefined } from '../../invariant.js';
 
-/** 세로·가로로 늘어선 버튼 중 키보드 포커스를 가진 하나를 관리한다. */
 export class MenuFocus<T> {
   private index: number;
 
-  /** focusedItem 이 entries 에 있으면 그 항목에서, 아니면 첫 항목에서 시작한다. */
   constructor(
     private readonly entries: readonly { item: T; button: Button }[],
     focusedItem?: T,
@@ -23,11 +22,7 @@ export class MenuFocus<T> {
   }
 
   getFocused(): T {
-    const entry = this.entries[this.index];
-    if (entry === undefined) {
-      throw new Error(`Invalid menu index: ${this.index}`);
-    }
-    return entry.item;
+    return requireDefined(this.entries[this.index], 'Invalid menu index', this.index).item;
   }
 
   private render(): void {

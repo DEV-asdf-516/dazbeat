@@ -8,11 +8,10 @@ const USER_PASSWORD = 'user-password';
 export interface TestUser {
   id: string;
   email: string;
-  /** SDK client signed in as this user. */
   client: PocketBase;
 }
 
-/** Superuser-created password account; only a superuser can grant isEditor. */
+/** Only a superuser can grant isEditor. */
 export async function createUser(
   server: { url: string; superuser: PocketBase },
   email: string,
@@ -26,7 +25,11 @@ export async function createUser(
   });
   const client = createClient(server.url);
   await client.collection('users').authWithPassword(email, USER_PASSWORD);
-  return { id: record.id, email, client };
+  return {
+    id: record.id,
+    email,
+    client,
+  };
 }
 
 export function createSong(
@@ -58,8 +61,17 @@ export function fakeChartData(songKey: string, difficulty: string, firstNoteMs =
     difficulty,
     offsetMs: 0,
     notes: [
-      { type: 'tap', timeMs: firstNoteMs, lane: 0 },
-      { type: 'hold', timeMs: firstNoteMs + 1_000, endTimeMs: firstNoteMs + 2_000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: firstNoteMs,
+        lane: 0,
+      },
+      {
+        type: 'hold',
+        timeMs: firstNoteMs + 1_000,
+        endTimeMs: firstNoteMs + 2_000,
+        lane: 1,
+      },
     ],
   };
 }
@@ -70,10 +82,13 @@ export function createChart(
   difficulty: string,
   data: unknown,
 ): Promise<RecordModel> {
-  return client.collection('charts').create({ song: songId, difficulty, data });
+  return client.collection('charts').create({
+    song: songId,
+    difficulty,
+    data,
+  });
 }
 
-/** Keeps the built-in limiter out of tests that are not about rate limits. */
 export async function excludeLoopbackFromRateLimits(superuser: PocketBase): Promise<void> {
   await superuser.settings.update({ rateLimits: { excludedIPs: ['127.0.0.1'] } });
 }

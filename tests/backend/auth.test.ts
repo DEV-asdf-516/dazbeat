@@ -18,21 +18,26 @@ const USER_RECORD_WITHOUT_IS_EDITOR: RecordModel = {
   verified: true,
 };
 
-const USER_RECORD: RecordModel = { ...USER_RECORD_WITHOUT_IS_EDITOR, isEditor: false };
+const USER_RECORD: RecordModel = {
+  ...USER_RECORD_WITHOUT_IS_EDITOR,
+  isEditor: false,
+};
 
 function base64Url(value: object): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
 function makeToken(expSeconds: number): string {
-  return `${base64Url({ alg: 'HS256', typ: 'JWT' })}.${base64Url({ exp: expSeconds })}.signature`;
+  return `${base64Url({
+    alg: 'HS256',
+    typ: 'JWT',
+  })}.${base64Url({ exp: expSeconds })}.signature`;
 }
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-/** abort 되기 전에는 끝나지 않는 fetch: 서버 없이 진행 중인 요청을 만든다. */
 function pendingUntilAbortFetch(_input: unknown, init?: RequestInit): Promise<Response> {
   return new Promise((_resolve, reject) => {
     init?.signal?.addEventListener('abort', () => {
@@ -43,7 +48,11 @@ function pendingUntilAbortFetch(_input: unknown, init?: RequestInit): Promise<Re
 
 function stubBrowser(): { close: () => void } {
   const popup = { close: vi.fn() };
-  vi.stubGlobal('window', { open: () => popup, innerWidth: 1280, innerHeight: 720 });
+  vi.stubGlobal('window', {
+    open: () => popup,
+    innerWidth: 1280,
+    innerHeight: 720,
+  });
   vi.stubGlobal('fetch', pendingUntilAbortFetch);
   return popup;
 }
@@ -81,21 +90,30 @@ describe('getCurrentUser', () => {
 
   it('throws when a field of the auth record is not a string', () => {
     const pb = new PocketBase('http://pb.test');
-    pb.authStore.save(makeToken(nowSeconds() + 3600), { ...USER_RECORD, name: 7 });
+    pb.authStore.save(makeToken(nowSeconds() + 3600), {
+      ...USER_RECORD,
+      name: 7,
+    });
 
     expect(() => getCurrentUser(pb)).toThrow('Invalid users record user1: name');
   });
 
   it('returns isEditor true when the auth record is an editor', () => {
     const pb = new PocketBase('http://pb.test');
-    pb.authStore.save(makeToken(nowSeconds() + 3600), { ...USER_RECORD, isEditor: true });
+    pb.authStore.save(makeToken(nowSeconds() + 3600), {
+      ...USER_RECORD,
+      isEditor: true,
+    });
 
     expect(getCurrentUser(pb)?.isEditor).toBe(true);
   });
 
   it('throws when isEditor of the auth record is not a boolean', () => {
     const pb = new PocketBase('http://pb.test');
-    pb.authStore.save(makeToken(nowSeconds() + 3600), { ...USER_RECORD, isEditor: 'true' });
+    pb.authStore.save(makeToken(nowSeconds() + 3600), {
+      ...USER_RECORD,
+      isEditor: 'true',
+    });
 
     expect(() => getCurrentUser(pb)).toThrow('Invalid users record user1: isEditor');
   });
@@ -141,7 +159,10 @@ describe('signInWithGoogle', () => {
     const pb = new PocketBase('http://pb.test');
     const response: RecordAuthResponse = {
       token: makeToken(nowSeconds() + 3600),
-      record: { ...USER_RECORD, isEditor },
+      record: {
+        ...USER_RECORD,
+        isEditor,
+      },
     };
     vi.spyOn(pb.collection('users'), 'authWithOAuth2').mockResolvedValue(response);
 

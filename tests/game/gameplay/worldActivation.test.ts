@@ -1,86 +1,89 @@
 import { describe, expect, it } from 'vitest';
-import {
-  WorldActivation,
-  getActivationTarget,
-  getFullActivationCombo,
-  reachedFullActivation,
-  stepActivation,
-} from '../../../src/game/gameplay/worldActivation.js';
+import { WorldActivation } from '../../../src/game/gameplay/worldActivation.js';
 
-describe('getFullActivationCombo', () => {
+const STEP_MS = 100;
+
+function getFirstFullCombo(totalJudgments: number): number {
+  const activation = new WorldActivation(totalJudgments, 0);
+  for (let combo = 0; combo <= 1000; combo += 1) {
+    if (activation.advance(combo, combo * STEP_MS).reachedFull) {
+      return combo;
+    }
+  }
+  throw new Error(`Full activation was not reached for ${totalJudgments} judgments`);
+}
+
+function settle(activation: WorldActivation, combo: number, startTimeMs: number): number {
+  let level = 0;
+  for (let step = 1; step <= 25; step += 1) {
+    level = activation.advance(combo, startTimeMs + step * STEP_MS).level;
+  }
+  return level;
+}
+
+describe('full activation combo', () => {
   it('uses 40% of the judgment count', () => {
-    expect(getFullActivationCombo(51)).toBe(20);
-    expect(getFullActivationCombo(94)).toBe(38);
-    expect(getFullActivationCombo(146)).toBe(58);
-    expect(getFullActivationCombo(242)).toBe(97);
+    expect(getFirstFullCombo(51)).toBe(20);
+    expect(getFirstFullCombo(94)).toBe(38);
+    expect(getFirstFullCombo(146)).toBe(58);
+    expect(getFirstFullCombo(242)).toBe(97);
   });
 
   it('clamps to the lower bound', () => {
-    expect(getFullActivationCombo(5)).toBe(10);
+    expect(getFirstFullCombo(5)).toBe(10);
   });
 
   it('clamps to the upper bound', () => {
-    expect(getFullActivationCombo(1000)).toBe(100);
+    expect(getFirstFullCombo(1000)).toBe(100);
   });
 
   it('rounds to the nearest combo', () => {
-    expect(getFullActivationCombo(26)).toBe(10);
-    expect(getFullActivationCombo(30)).toBe(12);
-    expect(getFullActivationCombo(31)).toBe(12);
+    expect(getFirstFullCombo(26)).toBe(10);
+    expect(getFirstFullCombo(30)).toBe(12);
+    expect(getFirstFullCombo(31)).toBe(12);
   });
 });
 
-describe('getActivationTarget', () => {
-  it('grows linearly with combo up to full activation', () => {
-    expect(getActivationTarget(0, 20)).toBe(0);
-    expect(getActivationTarget(10, 20)).toBe(0.5);
-    expect(getActivationTarget(20, 20)).toBe(1);
+describe('activation level', () => {
+  // 판정 51개 → full activation combo 20.
+  const TOTAL_JUDGMENTS = 51;
+
+  it('settles on a target that grows linearly with combo without overshooting', () => {
+    expect(settle(new WorldActivation(TOTAL_JUDGMENTS, 0), 0, 0)).toBe(0);
+    expect(settle(new WorldActivation(TOTAL_JUDGMENTS, 0), 10, 0)).toBe(0.5);
+    expect(settle(new WorldActivation(TOTAL_JUDGMENTS, 0), 20, 0)).toBe(1);
   });
 
   it('stays at 1 past full activation', () => {
-    expect(getActivationTarget(35, 20)).toBe(1);
-  });
-});
-
-describe('stepActivation', () => {
-  it('rises at the rise rate', () => {
-    expect(stepActivation(0, 1, 100)).toBeCloseTo(0.05);
+    expect(settle(new WorldActivation(TOTAL_JUDGMENTS, 0), 35, 0)).toBe(1);
   });
 
   it('falls at the fall rate', () => {
-    expect(stepActivation(1, 0, 100)).toBeCloseTo(0.98);
-  });
-
-  it('does not overshoot the target', () => {
-    expect(stepActivation(0.99, 1, 100)).toBe(1);
-  });
-
-  it('does not move without elapsed time', () => {
-    expect(stepActivation(0.3, 1, 0)).toBe(0.3);
+    const activation = new WorldActivation(TOTAL_JUDGMENTS, 0);
+    settle(activation, 20, 0);
+    expect(activation.advance(0, 2600).level).toBeCloseTo(0.98);
   });
 
   it('does not move for negative elapsed time', () => {
-    expect(stepActivation(0.3, 1, -50)).toBe(0.3);
-    expect(stepActivation(0.3, 0, -50)).toBe(0.3);
+    const activation = new WorldActivation(TOTAL_JUDGMENTS, 1000);
+    const { level } = activation.advance(10, 1100);
+    expect(activation.advance(20, 1050).level).toBe(level);
+    expect(activation.advance(0, 1000).level).toBe(level);
   });
 
   it('limits a long gap to the maximum step', () => {
-    expect(stepActivation(0, 1, 5000)).toBeCloseTo(0.05);
-  });
-});
-
-describe('reachedFullActivation', () => {
-  it('fires when combo crosses full activation', () => {
-    expect(reachedFullActivation(19, 20, 20)).toBe(true);
-    expect(reachedFullActivation(19, 25, 20)).toBe(true);
+    const activation = new WorldActivation(TOTAL_JUDGMENTS, 0);
+    expect(activation.advance(20, 5000).level).toBeCloseTo(0.05);
   });
 
-  it('does not fire once already past full activation', () => {
-    expect(reachedFullActivation(20, 21, 20)).toBe(false);
-  });
+  it('reports full activation when combo crosses it', () => {
+    const exact = new WorldActivation(TOTAL_JUDGMENTS, 0);
+    exact.advance(19, 16);
+    expect(exact.advance(20, 32).reachedFull).toBe(true);
 
-  it('does not fire below full activation', () => {
-    expect(reachedFullActivation(0, 5, 20)).toBe(false);
+    const past = new WorldActivation(TOTAL_JUDGMENTS, 0);
+    past.advance(19, 16);
+    expect(past.advance(25, 32).reachedFull).toBe(true);
   });
 });
 

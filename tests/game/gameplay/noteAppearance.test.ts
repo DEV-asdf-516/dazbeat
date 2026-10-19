@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import {
-  HOLD_RIBBON_TAIL_ALPHA,
-  NOTE_APPROACH_RANGE_PX,
-  NOTE_EMERGE_END_Y_PX,
-  NOTE_FAR_ALPHA,
-  getHoldRibbonSpans,
-  getNoteEmergence,
-  getNoteEmphasis,
-} from '../../../src/game/gameplay/noteAppearance.js';
+import { getHoldRibbonSpans, getNoteEmphasis } from '../../../src/game/gameplay/noteAppearance.js';
 
 const JUDGE_LINE_Y_PX = 920;
+const NOTE_EMERGE_END_Y_PX = 160;
+const NOTE_APPROACH_RANGE_PX = 280;
+const NOTE_FAR_ALPHA = 0.86;
+const HOLD_RIBBON_TAIL_ALPHA = 0.45;
 
-describe('getNoteEmergence', () => {
+/** 판정선 위의 노트는 판정선 접근 배율이 1이라 밝기가 진입 페이드 값과 같다. */
+function getEmergence(yPx: number): number {
+  return getNoteEmphasis(yPx, yPx);
+}
+
+describe('note emergence', () => {
   it.each([
     [-10, 0],
     [0, 0],
@@ -19,11 +20,11 @@ describe('getNoteEmergence', () => {
     [NOTE_EMERGE_END_Y_PX, 1],
     [NOTE_EMERGE_END_Y_PX + 1, 1],
   ])('at y %d is %d', (yPx, expected) => {
-    expect(getNoteEmergence(yPx)).toBeCloseTo(expected);
+    expect(getEmergence(yPx)).toBeCloseTo(expected);
   });
 
   it('rises monotonically through the emerge zone', () => {
-    const values = [1, 40, 80, 120, NOTE_EMERGE_END_Y_PX - 1].map(getNoteEmergence);
+    const values = [1, 40, 80, 120, NOTE_EMERGE_END_Y_PX - 1].map(getEmergence);
     values.slice(1).forEach((value, index) => {
       expect(value).toBeGreaterThan(values[index] ?? Infinity);
     });
@@ -56,14 +57,22 @@ describe('getHoldRibbonSpans', () => {
   it('uses only the body, fading from the head toward the tail', () => {
     const { body, fade } = getHoldRibbonSpans(900, 400);
     expect(fade).toBeNull();
-    expect(body).toMatchObject({ topYPx: 400, bottomYPx: 900, bottomAlpha: 1 });
+    expect(body).toMatchObject({
+      topYPx: 400,
+      bottomYPx: 900,
+      bottomAlpha: 1,
+    });
     expect(body?.topAlpha).toBeCloseTo(HOLD_RIBBON_TAIL_ALPHA);
   });
 
   it('keeps the body when the tail is exactly on the emerge boundary', () => {
     const { body, fade } = getHoldRibbonSpans(900, NOTE_EMERGE_END_Y_PX);
     expect(fade).toBeNull();
-    expect(body).toMatchObject({ topYPx: NOTE_EMERGE_END_Y_PX, bottomYPx: 900, bottomAlpha: 1 });
+    expect(body).toMatchObject({
+      topYPx: NOTE_EMERGE_END_Y_PX,
+      bottomYPx: 900,
+      bottomAlpha: 1,
+    });
     expect(body?.topAlpha).toBeCloseTo(HOLD_RIBBON_TAIL_ALPHA);
   });
 
@@ -81,21 +90,32 @@ describe('getHoldRibbonSpans', () => {
       bottomYPx: NOTE_EMERGE_END_Y_PX,
       bottomAlpha: boundaryAlpha,
     });
-    expect(fade?.topAlpha).toBeCloseTo(getNoteEmergence(40) * HOLD_RIBBON_TAIL_ALPHA);
+    expect(fade?.topAlpha).toBeCloseTo(getEmergence(40) * HOLD_RIBBON_TAIL_ALPHA);
   });
 
   it('clips the part above the screen', () => {
-    expect(getHoldRibbonSpans(900, -300).fade).toMatchObject({ topYPx: 0, topAlpha: 0 });
+    expect(getHoldRibbonSpans(900, -300).fade).toMatchObject({
+      topYPx: 0,
+      topAlpha: 0,
+    });
   });
 
   it('uses only the fade piece while the head is still in the emerge zone', () => {
     expect(getHoldRibbonSpans(100, -50)).toEqual({
       body: null,
-      fade: { topYPx: 0, bottomYPx: 100, topAlpha: 0, bottomAlpha: getNoteEmergence(100) },
+      fade: {
+        topYPx: 0,
+        bottomYPx: 100,
+        topAlpha: 0,
+        bottomAlpha: getEmergence(100),
+      },
     });
   });
 
   it('draws nothing when the ribbon has no length', () => {
-    expect(getHoldRibbonSpans(500, 500)).toEqual({ body: null, fade: null });
+    expect(getHoldRibbonSpans(500, 500)).toEqual({
+      body: null,
+      fade: null,
+    });
   });
 });

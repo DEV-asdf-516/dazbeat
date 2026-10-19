@@ -8,7 +8,12 @@ describe('createI18n', () => {
 
   it('interpolates values without HTML escaping', () => {
     const i18n = createI18n('en');
-    expect(i18n.t('youtubeError.withCode', { message: '<b>&', code: 2 })).toBe('<b>& (error 2)');
+    expect(
+      i18n.t('youtubeError.withCode', {
+        message: '<b>&',
+        code: 2,
+      }),
+    ).toBe('<b>& (error 2)');
   });
 
   it('switches language', async () => {

@@ -5,8 +5,9 @@ import type { Song, SongFilter } from '../../data/songs.js';
 import { canCurrentUserOpenChartEditor } from '../accountState.js';
 import type { AccountAuth } from '../accountState.js';
 import { createEditorLayout } from './chartEditorLayout.js';
-import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS, exitScene, startScene } from '../config.js';
-import type { ChartEditorSelectSceneData, SceneRequest } from '../config.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
+import { SCENE_KEYS, exitScene, startScene } from '../sceneRoutes.js';
+import type { ChartEditorSelectSceneData, SceneRequest } from '../sceneRoutes.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
 import {
@@ -23,13 +24,14 @@ import {
 import type { SongListState } from './songListState.js';
 import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
-import { SegmentedControl } from './SegmentedControl.js';
+import { SEGMENTED_CONTROL_HEIGHT_PX, SegmentedControl } from './SegmentedControl.js';
 import { SongListPanel } from './SongListPanel.js';
-import { EDITOR_KEY_HINT_STYLE, addKeyHintRow } from '../ui/keyHintView.js';
+import { addKeyHintRow } from '../ui/keyHintView.js';
 import type { SongListFrame } from './SongListPanel.js';
-import { EDITOR_COLORS, EDITOR_TYPE_SCALE, typeStyle } from '../ui/theme.js';
+import { CELESTIAL_COLORS, typeStyle } from '../ui/theme.js';
+import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './editorTheme.js';
+import { addBarHairlines } from './hairline.js';
 
-/** 상단·하단 바는 에디터와 같은 자리를 쓴다. */
 const LAYOUT = createEditorLayout(GAME_WIDTH, GAME_HEIGHT);
 const LIST_WIDTH_PX = 720;
 const LIST_ROW_HEIGHT_PX = 56;
@@ -37,12 +39,9 @@ const LIST_PADDING_PX = 16;
 const LIST_MARGIN_PX = 24;
 const LIST_LEFT_PX = (GAME_WIDTH - LIST_WIDTH_PX) / 2;
 const FILTER_TOP_Y_PX = LAYOUT.topBar.heightPx + LIST_MARGIN_PX;
-/** 세 칸이 ORIGINAL 을 담고도 넉넉한 폭 */
 const FILTER_WIDTH_PX = 360;
-/** SegmentedControl 높이와 같다. 목록 윗선을 정하려고 상수로 둔다. */
-const FILTER_HEIGHT_PX = 44;
 const FILTER_LIST_GAP_PX = 16;
-const LIST_TOP_Y_PX = FILTER_TOP_Y_PX + FILTER_HEIGHT_PX + FILTER_LIST_GAP_PX;
+const LIST_TOP_Y_PX = FILTER_TOP_Y_PX + SEGMENTED_CONTROL_HEIGHT_PX + FILTER_LIST_GAP_PX;
 const EMPTY_TEXT_OFFSET_Y_PX = 48;
 const LIST_FRAME: SongListFrame = {
   leftPx: LIST_LEFT_PX,
@@ -55,19 +54,14 @@ const LIST_FRAME: SongListFrame = {
       LIST_ROW_HEIGHT_PX,
   ),
 };
-const HAIRLINE_PX = 1;
-const HAIRLINE_ALPHA = 0.45;
 
 interface ListView {
   panel: SongListPanel;
   filter: SegmentedControl<SongFilter>;
-  /** 고른 카테고리에 곡이 없을 때만 보인다. */
   emptyText: Phaser.GameObjects.Text;
 }
 
-/** 채보를 편집할 곡을 고르는 화면. 고르면 그 곡으로 에디터를 연다. */
 export class ChartEditorSelectScene extends Phaser.Scene {
-  /** 목록 포커스·스크롤의 유일한 원본. 바꿀 때는 setList 를 거친다. */
   private list: SongListState = createSongList([], null, LIST_FRAME.visibleRowCount, 'all');
   private exit: SceneExit<SceneRequest> = STAYING;
 
@@ -96,14 +90,17 @@ export class ChartEditorSelectScene extends Phaser.Scene {
           GAME_WIDTH / 2,
           GAME_HEIGHT / 2,
           this.i18n.t('chartEditor.noSongs'),
-          typeStyle(EDITOR_TYPE_SCALE.body, EDITOR_COLORS.textSecondary),
+          typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
         )
         .setOrigin(0.5, 0.5);
       keyboard.on(
         'keydown',
         handleEachEventOnce((event: KeyboardEvent) => {
           if (readMenuAction(event) === 'back') {
-            this.leave({ key: 'main', data: undefined });
+            this.leave({
+              key: 'main',
+              data: undefined,
+            });
           }
         }),
       );
@@ -112,8 +109,15 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     const view: ListView = {
       filter: new SegmentedControl(
         this,
-        { leftPx: LIST_LEFT_PX, topYPx: FILTER_TOP_Y_PX, widthPx: FILTER_WIDTH_PX },
-        SONG_FILTERS.map((filter) => ({ value: filter, label: filter.toUpperCase() })),
+        {
+          leftPx: LIST_LEFT_PX,
+          topYPx: FILTER_TOP_Y_PX,
+          widthPx: FILTER_WIDTH_PX,
+        },
+        SONG_FILTERS.map((filter) => ({
+          value: filter,
+          label: filter.toUpperCase(),
+        })),
         (filter) => this.setList(view, selectSongListFilter(this.list, this.getSongs(), filter)),
       ),
       panel: new SongListPanel(this, LIST_FRAME, {
@@ -133,7 +137,7 @@ export class ChartEditorSelectScene extends Phaser.Scene {
           LIST_LEFT_PX + LIST_WIDTH_PX / 2,
           LIST_TOP_Y_PX + EMPTY_TEXT_OFFSET_Y_PX,
           this.i18n.t('chartEditorSelect.emptyFilter'),
-          typeStyle(EDITOR_TYPE_SCALE.body, EDITOR_COLORS.textSecondary),
+          typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
         )
         .setOrigin(0.5, 0.5),
     };
@@ -145,26 +149,23 @@ export class ChartEditorSelectScene extends Phaser.Scene {
   }
 
   private createChrome(): void {
-    this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, EDITOR_COLORS.background).setOrigin(0, 0);
-    this.add
-      .rectangle(0, LAYOUT.topBar.heightPx, GAME_WIDTH, HAIRLINE_PX, EDITOR_COLORS.border)
-      .setOrigin(0, 0.5)
-      .setAlpha(HAIRLINE_ALPHA);
-    this.add
-      .rectangle(0, LAYOUT.bottomBar.topYPx, GAME_WIDTH, HAIRLINE_PX, EDITOR_COLORS.border)
-      .setOrigin(0, 0.5)
-      .setAlpha(HAIRLINE_ALPHA);
+    this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, CELESTIAL_COLORS.background).setOrigin(0, 0);
+    addBarHairlines(this, LAYOUT, GAME_WIDTH);
     const centerYPx = LAYOUT.topBar.centerYPx;
     createAuxiliaryButton(this, LAYOUT.video.leftPx, centerYPx, {
       label: 'BACK',
-      onActivate: () => this.leave({ key: 'main', data: undefined }),
+      onActivate: () =>
+        this.leave({
+          key: 'main',
+          data: undefined,
+        }),
     });
     this.add
       .text(
         LAYOUT.title.leftPx,
         centerYPx,
         this.i18n.t('chartEditorSelect.title'),
-        typeStyle(EDITOR_TYPE_SCALE.title, EDITOR_COLORS.textPrimary),
+        typeStyle(EDITOR_TYPE_SCALE.title, CELESTIAL_COLORS.textPrimary),
       )
       .setOrigin(0, 0.5);
     addKeyHintRow(
@@ -176,7 +177,6 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     );
   }
 
-  /** 목록 상태 반영의 유일한 경로. 바뀐 게 없으면 다시 그리지 않는다. */
   private setList(view: ListView, next: SongListState): void {
     if (next === this.list) {
       return;
@@ -205,7 +205,13 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     if (song === undefined) {
       return;
     }
-    this.leave({ key: 'chartEditor', data: { songId: song.id, listFilter: this.list.filter } });
+    this.leave({
+      key: 'chartEditor',
+      data: {
+        songId: song.id,
+        listFilter: this.list.filter,
+      },
+    });
   }
 
   private leave(request: SceneRequest): void {
@@ -216,7 +222,6 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     if (this.exit.kind === 'leaving') {
       return;
     }
-    // 곡 선택 화면과 같은 Q/E 로 카테고리를 돌린다.
     if (event.code === 'KeyQ' || event.code === 'KeyE') {
       const delta = event.code === 'KeyQ' ? -1 : 1;
       this.setList(view, cycleSongListFilter(this.list, this.getSongs(), delta));
@@ -233,7 +238,10 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         this.pick();
         return;
       case 'back':
-        this.leave({ key: 'main', data: undefined });
+        this.leave({
+          key: 'main',
+          data: undefined,
+        });
         return;
       case 'left':
       case 'right':

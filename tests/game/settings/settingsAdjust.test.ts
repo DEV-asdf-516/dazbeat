@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { adjustSetting, assignKey, canAdjust } from '../../../src/game/settings/settingsAdjust.js';
-import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from '../../../src/storage/LocalSave.js';
-import type { Settings } from '../../../src/storage/LocalSave.js';
+import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from '../../../src/storage/settings.js';
+import type { Settings } from '../../../src/storage/settings.js';
 
 function settingsWith(overrides: Partial<Settings>): Settings {
-  return { ...DEFAULT_SETTINGS, ...overrides };
+  return {
+    ...DEFAULT_SETTINGS,
+    ...overrides,
+  };
 }
 
 describe('adjustSetting volume', () => {
-  const row = { kind: 'volume', field: 'musicVolume' } as const;
+  const row = {
+    kind: 'volume',
+    field: 'musicVolume',
+  } as const;
 
   it('steps by 0.1 without floating point drift', () => {
     expect(adjustSetting(settingsWith({ musicVolume: 0.7 }), row, 1, 'ko').musicVolume).toBe(0.8);
@@ -100,9 +106,17 @@ describe('adjustSetting language', () => {
 
 describe('adjustSetting key', () => {
   it('never changes settings', () => {
-    expect(adjustSetting(DEFAULT_SETTINGS, { kind: 'key', lane: 0 }, 1, 'ko')).toBe(
-      DEFAULT_SETTINGS,
-    );
+    expect(
+      adjustSetting(
+        DEFAULT_SETTINGS,
+        {
+          kind: 'key',
+          lane: 0,
+        },
+        1,
+        'ko',
+      ),
+    ).toBe(DEFAULT_SETTINGS);
   });
 });
 
@@ -124,7 +138,10 @@ describe('assignKey', () => {
 });
 
 describe('canAdjust', () => {
-  const row = { kind: 'volume', field: 'musicVolume' } as const;
+  const row = {
+    kind: 'volume',
+    field: 'musicVolume',
+  } as const;
 
   it('is false only in the direction blocked by a bound', () => {
     const atMax = settingsWith({ musicVolume: SETTINGS_LIMITS.volume.max });
@@ -133,6 +150,16 @@ describe('canAdjust', () => {
   });
 
   it('is false for key rows', () => {
-    expect(canAdjust(DEFAULT_SETTINGS, { kind: 'key', lane: 0 }, 1, 'ko')).toBe(false);
+    expect(
+      canAdjust(
+        DEFAULT_SETTINGS,
+        {
+          kind: 'key',
+          lane: 0,
+        },
+        1,
+        'ko',
+      ),
+    ).toBe(false);
   });
 });

@@ -1,15 +1,10 @@
 import Phaser from 'phaser';
 import { HOVER_CURSOR } from '../ui/cursor.js';
-import {
-  EDITOR_COLORS,
-  EDITOR_TYPE_SCALE,
-  MOTION,
-  RADIUS,
-  setTextColor,
-  typeStyle,
-} from '../ui/theme.js';
+import { CELESTIAL_COLORS, MOTION, RADIUS, setTextColor, typeStyle } from '../ui/theme.js';
+import { EDITOR_TYPE_SCALE } from './editorTheme.js';
+import { requireDefined } from '../../invariant.js';
 
-/** 라벨 왼쪽에 붙는 작은 그림. graphics 원점은 그림 왼쪽·세로 가운데다. */
+/** graphics 원점은 그림 왼쪽·세로 가운데다. */
 export interface SegmentGlyph {
   widthPx: number;
   draw: (graphics: Phaser.GameObjects.Graphics, color: number) => void;
@@ -24,21 +19,20 @@ export interface SegmentOption<T> {
 interface Segment<T> {
   option: SegmentOption<T>;
   label: Phaser.GameObjects.Text;
-  glyph: Phaser.GameObjects.Graphics | null;
+  glyph: { graphics: Phaser.GameObjects.Graphics; spec: SegmentGlyph } | null;
   centerXPx: number;
 }
 
-const TRACK_HEIGHT_PX = 44;
+export const SEGMENTED_CONTROL_HEIGHT_PX = 44;
 const TRACK_INSET_PX = 4;
-const LABEL_TYPE = { sizePx: EDITOR_TYPE_SCALE.control.sizePx, weight: 600 } as const;
+const LABEL_TYPE = {
+  sizePx: EDITOR_TYPE_SCALE.control.sizePx,
+  weight: 600,
+} as const;
 const GLYPH_LABEL_GAP_PX = 8;
 
-/**
- * 같은 폭의 칸 중 하나를 고르는 세그먼트 컨트롤. 고른 값은 씬 상태가 소유하고 render 로 받는다.
- * hover 는 표시에만 쓰는 이 위젯의 상태다.
- */
-export class SegmentedControl<T> {
-  readonly heightPx = TRACK_HEIGHT_PX;
+export class SegmentedControl<T extends string | number> {
+  readonly heightPx = SEGMENTED_CONTROL_HEIGHT_PX;
   private readonly scene: Phaser.Scene;
   private readonly indicator: Phaser.GameObjects.Rectangle;
   private readonly segments: Segment<T>[];
@@ -53,10 +47,10 @@ export class SegmentedControl<T> {
   ) {
     this.scene = scene;
     const { leftPx, topYPx, widthPx } = frame;
-    const centerYPx = topYPx + TRACK_HEIGHT_PX / 2;
+    const centerYPx = topYPx + SEGMENTED_CONTROL_HEIGHT_PX / 2;
     const segmentWidthPx = (widthPx - TRACK_INSET_PX * 2) / options.length;
     scene.add
-      .rectangle(leftPx, topYPx, widthPx, TRACK_HEIGHT_PX, EDITOR_COLORS.background)
+      .rectangle(leftPx, topYPx, widthPx, SEGMENTED_CONTROL_HEIGHT_PX, CELESTIAL_COLORS.background)
       .setOrigin(0, 0)
       .setRounded(RADIUS.mediumPx);
     this.indicator = scene.add
@@ -64,31 +58,43 @@ export class SegmentedControl<T> {
         0,
         centerYPx,
         segmentWidthPx,
-        TRACK_HEIGHT_PX - TRACK_INSET_PX * 2,
-        EDITOR_COLORS.surfaceHover,
+        SEGMENTED_CONTROL_HEIGHT_PX - TRACK_INSET_PX * 2,
+        CELESTIAL_COLORS.surfaceHover,
       )
       .setRounded(RADIUS.smallPx);
     this.segments = options.map((option, index) => {
       const segmentLeftPx = leftPx + TRACK_INSET_PX + segmentWidthPx * index;
       const centerXPx = segmentLeftPx + segmentWidthPx / 2;
       const label = scene.add
-        .text(0, centerYPx, option.label, typeStyle(LABEL_TYPE, EDITOR_COLORS.textSecondary))
+        .text(0, centerYPx, option.label, typeStyle(LABEL_TYPE, CELESTIAL_COLORS.textSecondary))
         .setOrigin(0, 0.5);
-      // 그림과 라벨을 한 묶음으로 칸 가운데에 둔다.
       const glyphSpanPx =
         option.glyph === undefined ? 0 : option.glyph.widthPx + GLYPH_LABEL_GAP_PX;
       const groupLeftPx = centerXPx - (glyphSpanPx + label.width) / 2;
       label.setX(groupLeftPx + glyphSpanPx);
       const glyph =
-        option.glyph === undefined ? null : scene.add.graphics({ x: groupLeftPx, y: centerYPx });
+        option.glyph === undefined
+          ? null
+          : {
+              graphics: scene.add.graphics({
+                x: groupLeftPx,
+                y: centerYPx,
+              }),
+              spec: option.glyph,
+            };
       scene.add
-        .zone(segmentLeftPx, topYPx, segmentWidthPx, TRACK_HEIGHT_PX)
+        .zone(segmentLeftPx, topYPx, segmentWidthPx, SEGMENTED_CONTROL_HEIGHT_PX)
         .setOrigin(0, 0)
         .setInteractive({ cursor: HOVER_CURSOR })
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => this.setHovered(option.value))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.setHovered(null))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => onSelect(option.value));
-      return { option, label, glyph, centerXPx };
+      return {
+        option,
+        label,
+        glyph,
+        centerXPx,
+      };
     });
   }
 
@@ -125,24 +131,24 @@ export class SegmentedControl<T> {
     this.segments.forEach(({ option, label, glyph }) => {
       const color = this.segmentColor(option.value);
       setTextColor(label, color);
-      if (glyph !== null && option.glyph !== undefined) {
-        option.glyph.draw(glyph.clear(), color);
+      if (glyph !== null) {
+        glyph.spec.draw(glyph.graphics.clear(), color);
       }
     });
   }
 
   private segmentColor(value: T): number {
     if (value === this.selected) {
-      return EDITOR_COLORS.textPrimary;
+      return CELESTIAL_COLORS.textPrimary;
     }
-    return value === this.hovered ? EDITOR_COLORS.textPrimary : EDITOR_COLORS.textSecondary;
+    return value === this.hovered ? CELESTIAL_COLORS.textPrimary : CELESTIAL_COLORS.textSecondary;
   }
 
   private requireSegment(value: T): Segment<T> {
-    const segment = this.segments.find((candidate) => candidate.option.value === value);
-    if (segment === undefined) {
-      throw new Error(`Missing segment: ${String(value)}`);
-    }
-    return segment;
+    return requireDefined(
+      this.segments.find((candidate) => candidate.option.value === value),
+      'Missing segment',
+      value,
+    );
   }
 }

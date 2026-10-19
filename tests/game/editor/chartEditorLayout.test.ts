@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   createEditorLayout,
+  getLaneAtXPx,
   getLaneCenterXPx,
   getSeekTimeMs,
   getSeekXPx,
   toViewportRect,
 } from '../../../src/game/editor/chartEditorLayout.js';
-import { getLaneAtX } from '../../../src/game/editor/editorTimeline.js';
 import { LANES } from '../../../src/rhythm/lanes.js';
 
 const SCREEN_WIDTH_PX = 1920;
@@ -73,15 +73,30 @@ describe('createEditorLayout', () => {
 });
 
 describe('toViewportRect', () => {
-  const rect = { leftPx: 240, topPx: 96, widthPx: 384, heightPx: 216 };
+  const rect = {
+    leftPx: 240,
+    topPx: 96,
+    widthPx: 384,
+    heightPx: 216,
+  };
 
   it('keeps the rect when the canvas is shown at scale 1 without offset', () => {
-    const canvas = { leftPx: 0, topPx: 0, widthPx: SCREEN_WIDTH_PX, heightPx: SCREEN_HEIGHT_PX };
+    const canvas = {
+      leftPx: 0,
+      topPx: 0,
+      widthPx: SCREEN_WIDTH_PX,
+      heightPx: SCREEN_HEIGHT_PX,
+    };
     expect(toViewportRect(rect, canvas, SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX)).toEqual(rect);
   });
 
   it('scales the rect and adds the canvas offset', () => {
-    const canvas = { leftPx: 100, topPx: 20, widthPx: 960, heightPx: 540 };
+    const canvas = {
+      leftPx: 100,
+      topPx: 20,
+      widthPx: 960,
+      heightPx: 540,
+    };
     expect(toViewportRect(rect, canvas, SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX)).toEqual({
       leftPx: 220,
       topPx: 68,
@@ -91,7 +106,12 @@ describe('toViewportRect', () => {
   });
 
   it('does not round non-integer scales', () => {
-    const canvas = { leftPx: 0, topPx: 0, widthPx: 1366, heightPx: 768 };
+    const canvas = {
+      leftPx: 0,
+      topPx: 0,
+      widthPx: 1366,
+      heightPx: 768,
+    };
     const result = toViewportRect(rect, canvas, SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX);
     expect(result.leftPx).toBeCloseTo((240 * 1366) / 1920);
     expect(result.topPx).toBeCloseTo((96 * 768) / 1080);
@@ -101,31 +121,69 @@ describe('toViewportRect', () => {
   });
 });
 
-describe('getLaneCenterXPx', () => {
+describe('getLaneAtXPx', () => {
+  describe('with lanes at 720px and 120px wide', () => {
+    const fixedLayout = {
+      ...layout,
+      lanes: {
+        ...layout.lanes,
+        leftPx: 720,
+        laneWidthPx: 120,
+      },
+    };
+
+    it.each([
+      [720, 0],
+      [839, 0],
+      [840, 1],
+      [959, 1],
+      [960, 2],
+      [1079, 2],
+      [1080, 3],
+      [1199, 3],
+    ])('puts x %d in lane %d', (xPx, lane) => {
+      expect(getLaneAtXPx(fixedLayout, xPx)).toBe(lane);
+    });
+
+    it.each([
+      [719, 0],
+      [0, 0],
+      [1200, 3],
+      [1920, 3],
+    ])('clamps x %d outside the lanes to lane %d', (xPx, lane) => {
+      expect(getLaneAtXPx(fixedLayout, xPx)).toBe(lane);
+    });
+  });
+
   const { leftPx, laneWidthPx, widthPx } = layout.lanes;
 
   it('maps each lane center back to the same lane', () => {
     for (const lane of LANES) {
-      expect(getLaneAtX(getLaneCenterXPx(layout, lane), leftPx, laneWidthPx)).toBe(lane);
+      expect(getLaneAtXPx(layout, getLaneCenterXPx(layout, lane))).toBe(lane);
     }
   });
 
   it('splits lanes exactly at inner boundaries', () => {
     for (let k = 1; k < LANES.length; k += 1) {
       const boundaryXPx = leftPx + k * laneWidthPx;
-      expect(getLaneAtX(boundaryXPx, leftPx, laneWidthPx)).toBe(LANES[k]);
-      expect(getLaneAtX(boundaryXPx - 1, leftPx, laneWidthPx)).toBe(LANES[k - 1]);
+      expect(getLaneAtXPx(layout, boundaryXPx)).toBe(LANES[k]);
+      expect(getLaneAtXPx(layout, boundaryXPx - 1)).toBe(LANES[k - 1]);
     }
   });
 
   it('clamps x outside the lanes to the edge lanes', () => {
-    expect(getLaneAtX(leftPx - 1, leftPx, laneWidthPx)).toBe(0);
-    expect(getLaneAtX(leftPx + widthPx, leftPx, laneWidthPx)).toBe(LANES[LANES.length - 1]);
+    expect(getLaneAtXPx(layout, leftPx - 1)).toBe(0);
+    expect(getLaneAtXPx(layout, 0)).toBe(0);
+    expect(getLaneAtXPx(layout, leftPx + widthPx)).toBe(LANES[LANES.length - 1]);
+    expect(getLaneAtXPx(layout, SCREEN_WIDTH_PX)).toBe(LANES[LANES.length - 1]);
   });
 });
 
 describe('getSeekXPx / getSeekTimeMs', () => {
-  const song = { gameStartMs: 1000, gameEndMs: 61000 };
+  const song = {
+    gameStartMs: 1000,
+    gameEndMs: 61000,
+  };
   const { leftPx, widthPx } = layout.seek;
 
   it('maps the song start and end to the seek bar ends', () => {

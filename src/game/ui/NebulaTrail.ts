@@ -1,12 +1,21 @@
-import { advanceTrail, emitTrail, getPuffLook } from '../cursorTrail.js';
-import type { PointPx, TrailPuff } from '../cursorTrail.js';
+import { advanceTrail, emitTrail, getPuffLook } from './cursorTrail.js';
+import type { PointPx, TrailPuff } from './cursorTrail.js';
 import { CURSOR_TAIL_OFFSET_PX } from './cursor.js';
 
-/** 옅은 민트 → 청록 → 깊은 바다빛으로 번지는 성운 한 덩이. 흰 심이 없어야 연기처럼 흐리다. */
+/** 흰 심이 없어야 연기처럼 흐리다. */
 const NEBULA_STOPS = [
-  { offset: 0, rgb: '190, 245, 228' },
-  { offset: 0.45, rgb: '96, 212, 196' },
-  { offset: 1, rgb: '40, 118, 128' },
+  {
+    offset: 0,
+    rgb: '190, 245, 228',
+  },
+  {
+    offset: 0.45,
+    rgb: '96, 212, 196',
+  },
+  {
+    offset: 1,
+    rgb: '40, 118, 128',
+  },
 ] as const;
 const SPARK_RGB = '224, 255, 244';
 const SPARK_RADIUS_PX = 0.9;
@@ -15,10 +24,6 @@ const SPARK_ALPHA_SCALE = 7;
 /** 탭 전환 등으로 프레임이 멈췄다 오면 한 번에 다 늙혀 버리지 않도록 자른다. */
 const MAX_FRAME_MS = 50;
 
-/**
- * 포인터가 지나간 자리에 희뿌연 성운 잔상을 남긴다. 게임 캔버스 위에 겹친 DOM 캔버스이며 입력을 가로채지 않는다.
- * 잔상이 다 사라지면 프레임 루프도 멈춘다.
- */
 export class NebulaTrail {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D;
@@ -39,7 +44,6 @@ export class NebulaTrail {
     this.fitToWindow();
     window.addEventListener('resize', () => this.fitToWindow());
     window.addEventListener('pointermove', (event) => this.onPointerMove(event));
-    // 창 밖에서 다시 들어오면 그 사이를 잇지 않는다.
     document.addEventListener('pointerleave', () => {
       this.last = null;
     });
@@ -49,7 +53,6 @@ export class NebulaTrail {
     if (event.pointerType !== 'mouse') {
       return;
     }
-    // 화살표 끝이 아니라 꼬리에서 풀려 나오게 한다.
     const point = {
       xPx: event.clientX + CURSOR_TAIL_OFFSET_PX.xPx,
       yPx: event.clientY + CURSOR_TAIL_OFFSET_PX.yPx,
@@ -96,7 +99,6 @@ export class NebulaTrail {
         radiusPx,
       );
       for (const stop of NEBULA_STOPS) {
-        // 가장자리는 투명으로 끝나 경계 없이 번진다.
         const stopAlpha = stop.offset === 1 ? 0 : alpha * (1 - stop.offset);
         gradient.addColorStop(stop.offset, `rgba(${stop.rgb}, ${stopAlpha})`);
       }

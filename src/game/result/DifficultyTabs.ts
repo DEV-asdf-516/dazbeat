@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
-import { DIFFICULTIES } from '../../data/songs.js';
+import { DIFFICULTIES, findChart } from '../../data/songs.js';
+import type { ChartRef, Song } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
+import { getDifficultyAppearance } from '../difficultyAppearance.js';
+import type { DifficultyAppearance } from '../difficultyAppearance.js';
 import { DEFAULT_CURSOR, DISABLED_CURSOR, HOVER_CURSOR } from '../ui/cursor.js';
 import { COLORS, INDICATOR, TYPE_SCALE, setTextColor, typeStyle } from '../ui/theme.js';
 
@@ -17,25 +20,22 @@ const TAB_GAP_PX = 32;
 
 export interface DifficultyTabsState {
   selected: Difficulty;
-  /** 채보가 있는 난이도. 나머지는 흐리게 두고 누를 수 없다. */
-  available: readonly Difficulty[];
+  song: Song;
 }
 
-/**
- * 곡 선택 화면과 같은 꼴의 난이도 탭. 고른 난이도는 씬이 소유하고 render 로 받는다.
- * hover 는 표시에만 쓰는 이 위젯의 상태다.
- */
 export class DifficultyTabs {
   private readonly tabs: readonly Tab[];
-  private state: DifficultyTabsState | null = null;
+  private state: DifficultyTabsState;
   private hovered: Difficulty | null = null;
 
   constructor(
     scene: Phaser.Scene,
     leftPx: number,
     topYPx: number,
-    onSelect: (difficulty: Difficulty) => void,
+    state: DifficultyTabsState,
+    onSelect: (chart: ChartRef) => void,
   ) {
+    this.state = state;
     let xPx = leftPx;
     this.tabs = DIFFICULTIES.map((difficulty) => {
       // 고르면 굵어지므로 굵은 폭으로 간격과 밑줄을 잡아 탭이 흔들리지 않게 한다.
@@ -43,7 +43,13 @@ export class DifficultyTabs {
         xPx,
         topYPx,
         difficulty.toUpperCase(),
-        typeStyle({ ...LABEL_TYPE, weight: SELECTED_WEIGHT }, COLORS.textPrimary),
+        typeStyle(
+          {
+            ...LABEL_TYPE,
+            weight: SELECTED_WEIGHT,
+          },
+          COLORS.textPrimary,
+        ),
       );
       const underline = scene.add
         .rectangle(
@@ -59,22 +65,27 @@ export class DifficultyTabs {
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => this.setHovered(difficulty))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.setHovered(null))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
-          if (this.isAvailable(difficulty)) {
-            onSelect(difficulty);
+          const chart = findChart(this.state.song, difficulty);
+          if (chart !== undefined) {
+            onSelect(chart);
           }
         });
       xPx += text.width + TAB_GAP_PX;
-      return { difficulty, text, underline };
+      return {
+        difficulty,
+        text,
+        underline,
+      };
     });
+    this.refresh();
   }
 
-  /** 등장 연출이 투명도를 함께 다루도록 보이는 요소를 내준다. */
   getVisuals(): Phaser.GameObjects.Components.AlphaSingle[] {
     return this.tabs.flatMap(({ text, underline }) => [text, underline]);
   }
 
   render(state: DifficultyTabsState): void {
-    if (this.state?.selected === state.selected && this.state.available === state.available) {
+    if (this.state.selected === state.selected && this.state.song === state.song) {
       return;
     }
     this.state = state;
@@ -89,33 +100,43 @@ export class DifficultyTabs {
     this.refresh();
   }
 
-  private isAvailable(difficulty: Difficulty): boolean {
-    return this.state?.available.includes(difficulty) ?? false;
-  }
-
   private refresh(): void {
     this.tabs.forEach(({ difficulty, text, underline }) => {
-      const isSelected = this.state?.selected === difficulty;
-      const isAvailable = this.isAvailable(difficulty);
-      text.setFontStyle(`${isSelected ? SELECTED_WEIGHT : LABEL_TYPE.weight}`);
+      const appearance = getDifficultyAppearance({
+        isSelected: this.state.selected === difficulty,
+        isAvailable: findChart(this.state.song, difficulty) !== undefined,
+        isHovered: this.hovered === difficulty,
+      });
+      text.setFontStyle(`${appearance === 'selected' ? SELECTED_WEIGHT : LABEL_TYPE.weight}`);
       if (text.input !== null) {
-        text.input.cursor = getTabCursor(isAvailable, isSelected);
+        text.input.cursor = getTabCursor(appearance);
       }
-      let color: number = COLORS.textDisabled;
-      if (isSelected || (isAvailable && this.hovered === difficulty)) {
-        color = COLORS.textPrimary;
-      } else if (isAvailable) {
-        color = COLORS.textSecondary;
-      }
-      setTextColor(text, color);
-      underline.setVisible(isSelected);
+      setTextColor(text, getTabColor(appearance));
+      underline.setVisible(appearance === 'selected');
     });
   }
 }
 
-function getTabCursor(isAvailable: boolean, isSelected: boolean): string {
-  if (!isAvailable) {
-    return DISABLED_CURSOR;
+function getTabCursor(appearance: DifficultyAppearance): string {
+  switch (appearance) {
+    case 'disabled':
+      return DISABLED_CURSOR;
+    case 'selected':
+      return DEFAULT_CURSOR;
+    case 'emphasized':
+    case 'normal':
+      return HOVER_CURSOR;
   }
-  return isSelected ? DEFAULT_CURSOR : HOVER_CURSOR;
+}
+
+function getTabColor(appearance: DifficultyAppearance): number {
+  switch (appearance) {
+    case 'disabled':
+      return COLORS.textDisabled;
+    case 'selected':
+    case 'emphasized':
+      return COLORS.textPrimary;
+    case 'normal':
+      return COLORS.textSecondary;
+  }
 }

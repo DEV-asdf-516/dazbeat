@@ -1,19 +1,87 @@
 import { z } from 'zod';
+import { toParseIssue } from '../../data/parseIssue.js';
+import { requireDefined } from '../../invariant.js';
+
+/** 화면 코드가 id 마다 종류(이미지·정적·animation)에 기대므로 이 분류는 코드 쪽 계약이고, 로드할 때 manifest 와 정확히 같은지 확인한다. */
+const IMAGE_ROLE_IDS = ['R01', 'R02', 'R03', 'R04', 'R05', 'R50'] as const;
+const STATIC_ROLE_IDS = [
+  'R06',
+  'R07',
+  'R08',
+  'R09',
+  'R10',
+  'R15',
+  'R16',
+  'R17',
+  'R18',
+  'R19',
+  'R20',
+  'R21',
+  'R22',
+  'R26',
+  'R30',
+  'R31',
+  'R48',
+  'R49',
+] as const;
+const CLIP_ROLE_IDS = [
+  'R11',
+  'R12',
+  'R13',
+  'R14',
+  'R23',
+  'R25',
+  'R27',
+  'R28',
+  'R29',
+  'R32',
+  'R33',
+  'R34',
+  'R35',
+  'R36',
+  'R37',
+  'R38',
+  'R39',
+  'R40',
+  'R41',
+  'R42',
+  'R44',
+  'R45',
+  'R46',
+  'R47',
+] as const;
+const SEQUENCE_ROLE_IDS = ['R24', 'R43'] as const;
+const NODE_PLAYED_ID = 'C:node-played';
+
+export type CelestialImageId = (typeof IMAGE_ROLE_IDS)[number];
+export type CelestialStaticId = (typeof STATIC_ROLE_IDS)[number] | typeof NODE_PLAYED_ID;
+export type CelestialAtlasId = CelestialStaticId | (typeof CLIP_ROLE_IDS)[number];
+
+export interface CelestialFrame {
+  frameName: string;
+  durationMs: number;
+}
+
+export type CelestialPlayback =
+  | { kind: 'static' }
+  | { kind: 'loop'; animationKey: string; frames: readonly CelestialFrame[] }
+  | { kind: 'once'; animationKey: string; frames: readonly CelestialFrame[] };
 
 export interface CelestialAtlasPresentation {
-  kind: 'atlas';
   textureKey: string;
-  animationKey: string;
-  frames: readonly { frameName: string; durationMs: number }[];
-  isLoop: boolean;
+  firstFrameName: string;
+  playback: CelestialPlayback;
   scaleXY: readonly [number, number];
   scaleRange: { x: readonly [number, number]; y: readonly [number, number] } | null;
   originXY: readonly [number, number];
   opacity: number;
 }
 
+export interface CelestialStaticPresentation extends CelestialAtlasPresentation {
+  playback: { kind: 'static' };
+}
+
 export interface CelestialImagePresentation {
-  kind: 'image';
   textureKey: string;
   opacity: number;
 }
@@ -29,6 +97,8 @@ export interface CelestialCatalog {
   textures: readonly { key: string; url: string }[];
   atlasFrames: readonly {
     textureKey: string;
+    standInWidthPx: number;
+    standInHeightPx: number;
     frames: readonly {
       frameName: string;
       xPx: number;
@@ -37,15 +107,17 @@ export interface CelestialCatalog {
       heightPx: number;
     }[];
   }[];
-  presentations: ReadonlyMap<string, CelestialAtlasPresentation | CelestialImagePresentation>;
+  atlasPresentations: Readonly<
+    Record<CelestialStaticId, CelestialStaticPresentation> &
+      Record<CelestialAtlasId, CelestialAtlasPresentation>
+  >;
+  imagePresentations: Readonly<Record<CelestialImageId, CelestialImagePresentation>>;
   nodeOnlyFinish: readonly CelestialSequenceStep[];
 }
 
 const MANIFEST_URL = '/assets/ui/celestial-manifest.json';
 const PUBLIC_PREFIX = 'public/';
-const ROLE_COUNT = 50;
 const FINISH_SEQUENCE = 'constellation-finish';
-const NODE_PLAYED_ID = 'C:node-played';
 const ATLAS_FAMILIES = ['S', 'A', 'C', 'G', 'R', 'T'] as const;
 
 const pair = z.tuple([z.number(), z.number()]);
@@ -54,46 +126,81 @@ const blend = z.literal('NORMAL');
 // 'none; preserve baked palette' 처럼 설명이 붙어도 색을 바꾸지 않는 값만 허용한다.
 const runtimeTint = z.string().startsWith('none');
 
-const atlas = z.object({ image: z.object({ path }), regions: path });
+const atlas = z.object({
+  image: z.object({ path }),
+  regions: path,
+});
 
 const scaleRange = z.union([
-  pair.transform((range) => ({ x: range, y: range })),
-  z.object({ x: pair, y: pair }),
+  pair.transform((range) => ({
+    x: range,
+    y: range,
+  })),
+  z.object({
+    x: pair,
+    y: pair,
+  }),
   // 이미지 role 의 정책 문자열처럼 수치 범위가 아닌 값은 범위가 없는 것으로 본다.
   z.unknown().transform(() => null),
 ]);
 
-const role = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('image'),
-    id: z.string(),
-    path,
-    opacity: z.number(),
-    blend,
-    runtimeTint,
-  }),
-  z.object({
-    kind: z.enum(['atlas-region', 'atlas-clip']),
-    id: z.string(),
-    resource: z.string(),
-    frameDurationsMs: z.array(z.number()).nullable(),
-    durationMs: z.number().nullable(),
-    loop: z.boolean(),
-    opacity: z.number(),
-    scaleXY: pair,
-    scaleRange,
-    anchorPx: pair,
-    blend,
-    runtimeTint,
-  }),
-  z.object({ kind: z.literal('composed-sequence'), id: z.string(), blend, runtimeTint }),
-]);
+const imageRole = z.object({
+  kind: z.literal('image'),
+  id: z.string(),
+  path,
+  opacity: z.number(),
+  blend,
+  runtimeTint,
+});
+
+const atlasRoleFields = {
+  id: z.string(),
+  resource: z.string(),
+  opacity: z.number(),
+  scaleXY: pair,
+  scaleRange,
+  anchorPx: pair,
+  blend,
+  runtimeTint,
+};
+
+const staticRole = z.object({
+  kind: z.literal('atlas-region'),
+  ...atlasRoleFields,
+  frameDurationsMs: z.null(),
+});
+
+const clipRole = z.object({
+  kind: z.literal('atlas-clip'),
+  ...atlasRoleFields,
+  frameDurationsMs: z.array(z.number()),
+  durationMs: z.number(),
+  loop: z.boolean(),
+});
+
+const sequenceRole = z.object({
+  kind: z.literal('composed-sequence'),
+  id: z.string(),
+  blend,
+  runtimeTint,
+});
+
+const role = z.discriminatedUnion('kind', [imageRole, staticRole, clipRole, sequenceRole]);
 
 type Role = z.infer<typeof role>;
-type AtlasRole = Extract<Role, { kind: 'atlas-region' | 'atlas-clip' }>;
+type StaticRole = z.infer<typeof staticRole>;
+type ClipRole = z.infer<typeof clipRole>;
+type AtlasRole = StaticRole | ClipRole;
 
 const manifestSchema = z.object({
-  atlases: z.object({ S: atlas, A: atlas, C: atlas, G: atlas, R: atlas, T: atlas }),
+  atlases: z.object({
+    S: atlas,
+    A: atlas,
+    C: atlas,
+    G: atlas,
+    R: atlas,
+    T: atlas,
+  }),
   roles: z.array(role),
   additionalSemanticState: z.object({
     resource: z.literal(NODE_PLAYED_ID),
@@ -125,48 +232,33 @@ const regionsSchema = z.object({
 
 type RegionState = z.infer<typeof regionsSchema>['states'][string];
 
-const sequenceChild = z.union([
-  z.object({
-    resource: z.string(),
-    presentationRole: z.string(),
-    startMs: z.number(),
-    durationMs: z.number(),
-  }),
-  z.object({ role: z.string(), startMs: z.number(), durationMs: z.number() }),
-  z.object({ sequence: z.string(), fallbackSequence: z.string(), startMs: z.number() }),
-]);
+type SequenceChild =
+  | { kind: 'step'; step: CelestialSequenceStep }
+  | { kind: 'sequence'; startMs: number; sequence: string; fallbackSequence: string };
 
-type SequenceChild = z.infer<typeof sequenceChild>;
-
-const sequencesSchema = z.object({
-  sequences: z.record(
-    z.string(),
-    z.object({ durationMs: z.number(), children: z.array(sequenceChild) }),
-  ),
-});
-
-type Sequences = z.infer<typeof sequencesSchema>['sequences'];
-
-function formatPath(issuePath: readonly PropertyKey[]): string {
-  return issuePath.reduce<string>(
-    (joined, key) => (typeof key === 'number' ? `${joined}[${key}]` : `${joined}.${String(key)}`),
-    '',
-  );
+interface ExpandedSequence {
+  durationMs: number;
+  steps: readonly CelestialSequenceStep[];
 }
 
 function parseJson<T>(schema: z.ZodType<T>, input: unknown, url: string): T {
   const result = schema.safeParse(input);
   if (!result.success) {
-    const [issue] = result.error.issues;
-    throw new Error(
-      `Invalid celestial metadata ${url}: ${formatPath(issue?.path ?? [])} ${issue?.message ?? 'is invalid'}`,
-    );
+    const { path, reason } = toParseIssue(result.error, '');
+    throw new Error(`Invalid celestial metadata ${url}: ${path} ${reason}`);
   }
   return result.data;
 }
 
 function invalid(url: string, reason: string): Error {
   return new Error(`Invalid celestial metadata ${url}: ${reason}`);
+}
+
+function requireKnown<T>(value: T | undefined, url: string, kind: string, id: string): T {
+  if (value === undefined) {
+    throw invalid(url, `unknown ${kind} ${id}`);
+  }
+  return value;
 }
 
 /** manifest 경로는 `public/` 기준으로 기록돼 있고 런타임 URL 은 그 접두를 뗀 경로다. */
@@ -200,23 +292,22 @@ interface ResolvedResource {
   region: RegionState;
 }
 
-function checkRoleIds(roles: readonly Role[]): void {
+function groupRolesByKind(roles: readonly Role[]): Record<Role['kind'], Record<string, Role>> {
+  const groups: Record<Role['kind'], Record<string, Role>> = {
+    image: {},
+    'atlas-region': {},
+    'atlas-clip': {},
+    'composed-sequence': {},
+  };
   const ids = new Set<string>();
-  roles.forEach(({ id }) => {
-    if (ids.has(id)) {
-      throw invalid(MANIFEST_URL, `duplicate role ${id}`);
+  roles.forEach((manifestRole) => {
+    if (ids.has(manifestRole.id)) {
+      throw invalid(MANIFEST_URL, `duplicate role ${manifestRole.id}`);
     }
-    ids.add(id);
+    ids.add(manifestRole.id);
+    groups[manifestRole.kind][manifestRole.id] = manifestRole;
   });
-  for (let index = 1; index <= ROLE_COUNT; index += 1) {
-    const id = `R${String(index).padStart(2, '0')}`;
-    if (!ids.has(id)) {
-      throw invalid(MANIFEST_URL, `missing role ${id}`);
-    }
-  }
-  if (ids.size !== ROLE_COUNT) {
-    throw invalid(MANIFEST_URL, `expected ${ROLE_COUNT} roles, got ${ids.size}`);
-  }
+  return groups;
 }
 
 function resolveResource(
@@ -230,53 +321,85 @@ function resolveResource(
   if (source === undefined || state === undefined || region === undefined || rest.length > 0) {
     throw invalid(url, `unknown resource ${resource}`);
   }
-  return { textureKey: source.textureKey, state, region };
+  return {
+    textureKey: source.textureKey,
+    state,
+    region,
+  };
 }
 
 function toOrigin(anchorPx: readonly [number, number], region: RegionState): [number, number] {
-  const [firstFrame] = region.frames;
-  if (firstFrame === undefined) {
-    throw new Error('Region state has no frames');
-  }
+  const firstFrame = requireDefined(region.frames[0], 'Region state has no frames');
   return [anchorPx[0] / firstFrame.w, anchorPx[1] / firstFrame.h];
 }
 
-function toFrames(
-  resolved: ResolvedResource,
-  durationsMs: readonly number[],
-): CelestialAtlasPresentation['frames'] {
+function toFrames(resolved: ResolvedResource, durationsMs: readonly number[]): CelestialFrame[] {
   return resolved.region.frames.map((_frame, index) => ({
     frameName: frameNameOf(resolved.state, index),
     durationMs: durationsMs[index] ?? 0,
   }));
 }
 
-function toRolePresentation(
-  atlasRole: AtlasRole,
+function toStaticPresentation(
+  resolved: ResolvedResource,
+  anchorPx: readonly [number, number],
+  scaleXY: readonly [number, number],
+  scaleRange: CelestialAtlasPresentation['scaleRange'],
+  opacity: number,
+): CelestialStaticPresentation {
+  return {
+    textureKey: resolved.textureKey,
+    firstFrameName: frameNameOf(resolved.state, 0),
+    playback: { kind: 'static' },
+    scaleXY,
+    scaleRange,
+    originXY: toOrigin(anchorPx, resolved.region),
+    opacity,
+  };
+}
+
+function toStaticRolePresentation(
+  atlasRole: StaticRole,
+  atlases: ReadonlyMap<string, AtlasSource>,
+): CelestialStaticPresentation {
+  const resolved = resolveResource(atlases, atlasRole.resource, MANIFEST_URL);
+  const frameCount = resolved.region.frames.length;
+  if (frameCount !== 1) {
+    throw invalid(MANIFEST_URL, `role ${atlasRole.id} has ${frameCount} frames but no durations`);
+  }
+  return toStaticPresentation(
+    resolved,
+    atlasRole.anchorPx,
+    atlasRole.scaleXY,
+    atlasRole.scaleRange,
+    atlasRole.opacity,
+  );
+}
+
+function toClipRolePresentation(
+  atlasRole: ClipRole,
   atlases: ReadonlyMap<string, AtlasSource>,
 ): CelestialAtlasPresentation {
   const resolved = resolveResource(atlases, atlasRole.resource, MANIFEST_URL);
   const frameCount = resolved.region.frames.length;
   const { frameDurationsMs, durationMs } = atlasRole;
-  if (frameDurationsMs === null) {
-    if (frameCount !== 1) {
-      throw invalid(MANIFEST_URL, `role ${atlasRole.id} has ${frameCount} frames but no durations`);
-    }
-  } else if (frameDurationsMs.length !== frameCount) {
+  if (frameDurationsMs.length !== frameCount) {
     throw invalid(
       MANIFEST_URL,
       `role ${atlasRole.id} has ${frameDurationsMs.length} durations for ${frameCount} frames`,
     );
-  } else if (sum(frameDurationsMs) !== durationMs) {
+  }
+  if (sum(frameDurationsMs) !== durationMs) {
     throw invalid(MANIFEST_URL, `role ${atlasRole.id} frame durations do not sum to durationMs`);
   }
   return {
-    kind: 'atlas',
     textureKey: resolved.textureKey,
-    animationKey: `celestial:${atlasRole.id}`,
-    // 정적 role 은 타이머가 없으므로 importer 의 1000ms 를 옮기지 않는다.
-    frames: toFrames(resolved, frameDurationsMs ?? [0]),
-    isLoop: atlasRole.loop,
+    firstFrameName: frameNameOf(resolved.state, 0),
+    playback: {
+      kind: atlasRole.loop ? 'loop' : 'once',
+      animationKey: `celestial:${atlasRole.id}`,
+      frames: toFrames(resolved, frameDurationsMs),
+    },
     scaleXY: atlasRole.scaleXY,
     scaleRange: atlasRole.scaleRange,
     originXY: toOrigin(atlasRole.anchorPx, resolved.region),
@@ -284,107 +407,6 @@ function toRolePresentation(
   };
 }
 
-function checkSequences(
-  sequences: Sequences,
-  atlases: ReadonlyMap<string, AtlasSource>,
-  atlasRoles: ReadonlyMap<string, AtlasRole>,
-  url: string,
-): void {
-  Object.entries(sequences).forEach(([name, sequence]) => {
-    sequence.children.forEach((child) => {
-      const fail = (reason: string): Error => invalid(url, `sequence ${name} ${reason}`);
-      let endMs: number;
-      if ('resource' in child) {
-        const resolved = resolveResource(atlases, child.resource, url);
-        if (!atlasRoles.has(child.presentationRole)) {
-          throw fail(`references unknown presentationRole ${child.presentationRole}`);
-        }
-        if (sum(resolved.region.frames.map((frame) => frame.duration_ms)) !== child.durationMs) {
-          throw fail(`child ${child.resource} frame durations do not sum to durationMs`);
-        }
-        endMs = child.startMs + child.durationMs;
-      } else if ('role' in child) {
-        if (!atlasRoles.has(child.role)) {
-          throw fail(`references unknown role ${child.role}`);
-        }
-        endMs = child.startMs + child.durationMs;
-      } else {
-        const nested = sequences[child.sequence];
-        const fallback = sequences[child.fallbackSequence];
-        if (nested === undefined || fallback === undefined) {
-          throw fail(`references unknown sequence ${child.sequence}/${child.fallbackSequence}`);
-        }
-        endMs = child.startMs + Math.max(nested.durationMs, fallback.durationMs);
-      }
-      if (endMs > sequence.durationMs) {
-        throw fail(`child ends at ${endMs}ms after ${sequence.durationMs}ms`);
-      }
-    });
-  });
-}
-
-/** 관계 데이터가 없으므로 sequence child 는 fallback sequence 로 펼친다. */
-function expandFallback(
-  children: readonly SequenceChild[],
-  offsetMs: number,
-  sequences: Sequences,
-  atlases: ReadonlyMap<string, AtlasSource>,
-  atlasRoles: ReadonlyMap<string, AtlasRole>,
-  rolePresentations: ReadonlyMap<string, CelestialAtlasPresentation>,
-): CelestialSequenceStep[] {
-  return children.flatMap((child): CelestialSequenceStep[] => {
-    const startMs = offsetMs + child.startMs;
-    if ('resource' in child) {
-      const resolved = resolveResource(atlases, child.resource, MANIFEST_URL);
-      const presentationRole = atlasRoles.get(child.presentationRole);
-      if (presentationRole === undefined) {
-        throw new Error(`Unknown presentationRole ${child.presentationRole}`);
-      }
-      return [
-        {
-          presentationId: presentationRole.id,
-          startMs,
-          durationMs: child.durationMs,
-          presentation: {
-            kind: 'atlas',
-            textureKey: resolved.textureKey,
-            animationKey: `celestial:${child.resource}@${presentationRole.id}`,
-            frames: toFrames(
-              resolved,
-              resolved.region.frames.map((frame) => frame.duration_ms),
-            ),
-            isLoop: false,
-            scaleXY: presentationRole.scaleXY,
-            scaleRange: presentationRole.scaleRange,
-            originXY: toOrigin(presentationRole.anchorPx, resolved.region),
-            opacity: presentationRole.opacity,
-          },
-        },
-      ];
-    }
-    if ('role' in child) {
-      const presentation = rolePresentations.get(child.role);
-      if (presentation === undefined) {
-        throw new Error(`Unknown sequence role ${child.role}`);
-      }
-      return [{ presentationId: child.role, startMs, durationMs: child.durationMs, presentation }];
-    }
-    const fallback = sequences[child.fallbackSequence];
-    if (fallback === undefined) {
-      throw new Error(`Unknown fallback sequence ${child.fallbackSequence}`);
-    }
-    return expandFallback(
-      fallback.children,
-      startMs,
-      sequences,
-      atlases,
-      atlasRoles,
-      rolePresentations,
-    );
-  });
-}
-
-/** celestial 메타데이터(manifest·regions·sequences)를 읽어 검증된 카탈로그로 만든다. */
 export async function loadCelestialCatalog(
   fetchJson: (url: string) => Promise<unknown>,
 ): Promise<CelestialCatalog> {
@@ -409,106 +431,243 @@ export async function loadCelestialCatalog(
       },
     ]),
   );
-  const sequences = parseJson(sequencesSchema, sequencesJson, sequencesUrl).sequences;
 
-  checkRoleIds(manifest.roles);
-  const imageTextures = new Map<string, string>();
-  const presentations = new Map<string, CelestialAtlasPresentation | CelestialImagePresentation>();
-  const rolePresentations = new Map<string, CelestialAtlasPresentation>();
-  const atlasRoles = new Map<string, AtlasRole>();
-  manifest.roles.forEach((manifestRole) => {
-    switch (manifestRole.kind) {
-      case 'image': {
-        const url = toUrl(manifestRole.path);
-        imageTextures.set(url, textureKeyOf(url));
-        presentations.set(manifestRole.id, {
-          kind: 'image',
-          textureKey: textureKeyOf(url),
-          opacity: manifestRole.opacity,
-        });
-        return;
-      }
-      case 'atlas-region':
-      case 'atlas-clip': {
-        const presentation = toRolePresentation(manifestRole, atlases);
-        atlasRoles.set(manifestRole.id, manifestRole);
-        rolePresentations.set(manifestRole.id, presentation);
-        presentations.set(manifestRole.id, presentation);
-        return;
-      }
-      case 'composed-sequence':
-        return;
-    }
-  });
+  // 종류별 id 가 코드의 목록과 정확히 같아야 하므로 enum key record 로 빠짐·남는 id 를 함께 거른다.
+  const rolesById = parseJson(
+    z.object({
+      image: z.record(
+        z.enum(IMAGE_ROLE_IDS),
+        imageRole.transform((imageRoleEntry): CelestialImagePresentation => ({
+          textureKey: textureKeyOf(toUrl(imageRoleEntry.path)),
+          opacity: imageRoleEntry.opacity,
+        })),
+      ),
+      'atlas-region': z.record(
+        z.enum(STATIC_ROLE_IDS),
+        staticRole.transform((staticRoleEntry) =>
+          toStaticRolePresentation(staticRoleEntry, atlases),
+        ),
+      ),
+      'atlas-clip': z.record(
+        z.enum(CLIP_ROLE_IDS),
+        clipRole.transform((clipRoleEntry) => toClipRolePresentation(clipRoleEntry, atlases)),
+      ),
+      'composed-sequence': z.record(z.enum(SEQUENCE_ROLE_IDS), sequenceRole),
+    }),
+    groupRolesByKind(manifest.roles),
+    MANIFEST_URL,
+  );
+  const imageUrls = new Set(
+    manifest.roles.flatMap((manifestRole) =>
+      manifestRole.kind === 'image' ? [toUrl(manifestRole.path)] : [],
+    ),
+  );
+  const atlasRoles = new Map<string, AtlasRole>(
+    manifest.roles.flatMap((manifestRole) =>
+      manifestRole.kind === 'atlas-region' || manifestRole.kind === 'atlas-clip'
+        ? [[manifestRole.id, manifestRole] as const]
+        : [],
+    ),
+  );
+  const rolePresentations = new Map<string, CelestialAtlasPresentation>([
+    ...Object.entries(rolesById['atlas-region']),
+    ...Object.entries(rolesById['atlas-clip']),
+  ]);
 
   const semantic = manifest.additionalSemanticState;
   const semanticResource = resolveResource(atlases, semantic.resource, MANIFEST_URL);
-  presentations.set(NODE_PLAYED_ID, {
-    kind: 'atlas',
-    textureKey: semanticResource.textureKey,
-    animationKey: `celestial:${NODE_PLAYED_ID}`,
-    frames: toFrames(semanticResource, [0]),
-    isLoop: false,
-    scaleXY: semantic.scaleXY,
-    scaleRange: null,
-    originXY: toOrigin(semanticResource.region.anchor_px, semanticResource.region),
-    opacity: semantic.opacity,
-  });
+  const nodePlayed = toStaticPresentation(
+    semanticResource,
+    semanticResource.region.anchor_px,
+    semantic.scaleXY,
+    null,
+    semantic.opacity,
+  );
 
-  checkSequences(sequences, atlases, atlasRoles, sequencesUrl);
-  const finish = sequences[FINISH_SEQUENCE];
-  if (finish === undefined) {
-    throw invalid(sequencesUrl, `missing sequence ${FINISH_SEQUENCE}`);
-  }
-  const nodeOnlyFinish = expandFallback(
-    finish.children,
-    0,
-    sequences,
-    atlases,
-    atlasRoles,
-    rolePresentations,
-  ).sort((left, right) => left.startMs - right.startMs);
+  const sequences = parseJson(
+    z.object({
+      sequences: z.record(
+        z.string(),
+        z.object({
+          durationMs: z.number(),
+          children: z.array(
+            z.union([
+              z
+                .object({
+                  resource: z.string(),
+                  presentationRole: z.string(),
+                  startMs: z.number(),
+                  durationMs: z.number(),
+                })
+                .transform((child): SequenceChild => {
+                  const resolved = resolveResource(atlases, child.resource, sequencesUrl);
+                  const presentationRole = requireKnown(
+                    atlasRoles.get(child.presentationRole),
+                    sequencesUrl,
+                    'presentationRole',
+                    child.presentationRole,
+                  );
+                  const frameDurationsMs = resolved.region.frames.map((frame) => frame.duration_ms);
+                  if (sum(frameDurationsMs) !== child.durationMs) {
+                    throw invalid(
+                      sequencesUrl,
+                      `child ${child.resource} frame durations do not sum to durationMs`,
+                    );
+                  }
+                  return {
+                    kind: 'step',
+                    step: {
+                      presentationId: presentationRole.id,
+                      startMs: child.startMs,
+                      durationMs: child.durationMs,
+                      presentation: {
+                        textureKey: resolved.textureKey,
+                        firstFrameName: frameNameOf(resolved.state, 0),
+                        playback: {
+                          kind: 'once',
+                          animationKey: `celestial:${child.resource}@${presentationRole.id}`,
+                          frames: toFrames(resolved, frameDurationsMs),
+                        },
+                        scaleXY: presentationRole.scaleXY,
+                        scaleRange: presentationRole.scaleRange,
+                        originXY: toOrigin(presentationRole.anchorPx, resolved.region),
+                        opacity: presentationRole.opacity,
+                      },
+                    },
+                  };
+                }),
+              z
+                .object({
+                  role: z.string(),
+                  startMs: z.number(),
+                  durationMs: z.number(),
+                })
+                .transform((child): SequenceChild => {
+                  const presentation = requireKnown(
+                    rolePresentations.get(child.role),
+                    sequencesUrl,
+                    'role',
+                    child.role,
+                  );
+                  return {
+                    kind: 'step',
+                    step: {
+                      presentationId: child.role,
+                      startMs: child.startMs,
+                      durationMs: child.durationMs,
+                      presentation,
+                    },
+                  };
+                }),
+              z
+                .object({
+                  sequence: z.string(),
+                  fallbackSequence: z.string(),
+                  startMs: z.number(),
+                })
+                .transform((child): SequenceChild => ({
+                  kind: 'sequence',
+                  ...child,
+                })),
+            ]),
+          ),
+        }),
+      ),
+    }),
+    sequencesJson,
+    sequencesUrl,
+  ).sequences;
+
+  // 관계 데이터가 없으므로 sequence child 는 fallback sequence 로 펼친다.
+  const expanded = new Map<string, ExpandedSequence>();
+  const expanding = new Set<string>();
+  const expand = (name: string): ExpandedSequence => {
+    const cached = expanded.get(name);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const sequence = requireKnown(sequences[name], sequencesUrl, 'sequence', name);
+    if (expanding.has(name)) {
+      throw invalid(sequencesUrl, `sequence ${name} is in a reference cycle`);
+    }
+    expanding.add(name);
+    const placed = sequence.children.map((child) => {
+      if (child.kind === 'step') {
+        return {
+          endMs: child.step.startMs + child.step.durationMs,
+          steps: [child.step],
+        };
+      }
+      const nested = expand(child.sequence);
+      const fallback = expand(child.fallbackSequence);
+      return {
+        endMs: child.startMs + Math.max(nested.durationMs, fallback.durationMs),
+        steps: fallback.steps.map((step) => ({
+          ...step,
+          startMs: child.startMs + step.startMs,
+        })),
+      };
+    });
+    placed.forEach(({ endMs }) => {
+      if (endMs > sequence.durationMs) {
+        throw invalid(
+          sequencesUrl,
+          `sequence ${name} child ends at ${endMs}ms after ${sequence.durationMs}ms`,
+        );
+      }
+    });
+    expanding.delete(name);
+    const result = {
+      durationMs: sequence.durationMs,
+      steps: placed.flatMap(({ steps }) => steps),
+    };
+    expanded.set(name, result);
+    return result;
+  };
+  Object.keys(sequences).forEach((name) => expand(name));
+  const finish = requireKnown(
+    expanded.get(FINISH_SEQUENCE),
+    sequencesUrl,
+    'sequence',
+    FINISH_SEQUENCE,
+  );
+  const nodeOnlyFinish = [...finish.steps].sort((left, right) => left.startMs - right.startMs);
 
   return {
     textures: [
-      ...atlasEntries.map(({ imageUrl }) => ({ key: textureKeyOf(imageUrl), url: imageUrl })),
-      ...[...imageTextures].map(([url, key]) => ({ key, url })),
+      ...atlasEntries.map(({ imageUrl }) => ({
+        key: textureKeyOf(imageUrl),
+        url: imageUrl,
+      })),
+      ...[...imageUrls].map((url) => ({
+        key: textureKeyOf(url),
+        url,
+      })),
     ],
-    atlasFrames: [...atlases.values()].map(({ textureKey, states }) => ({
-      textureKey,
-      frames: Object.entries(states).flatMap(([state, region]) =>
-        region.frames.map((frame, index) => ({
-          frameName: frameNameOf(state, index),
-          xPx: frame.x,
-          yPx: frame.y,
-          widthPx: frame.w,
-          heightPx: frame.h,
-        })),
-      ),
-    })),
-    presentations,
+    atlasFrames: [...atlases.values()].map(({ textureKey, states }) => {
+      const frames = Object.values(states).flatMap((region) => region.frames);
+      // state 가 없는 atlas 도 canvas 는 1px 이상이어야 한다.
+      return {
+        textureKey,
+        standInWidthPx: Math.max(1, ...frames.map((frame) => frame.w)),
+        standInHeightPx: Math.max(1, ...frames.map((frame) => frame.h)),
+        frames: Object.entries(states).flatMap(([state, region]) =>
+          region.frames.map((frame, index) => ({
+            frameName: frameNameOf(state, index),
+            xPx: frame.x,
+            yPx: frame.y,
+            widthPx: frame.w,
+            heightPx: frame.h,
+          })),
+        ),
+      };
+    }),
+    atlasPresentations: {
+      ...rolesById['atlas-region'],
+      ...rolesById['atlas-clip'],
+      [NODE_PLAYED_ID]: nodePlayed,
+    },
+    imagePresentations: rolesById.image,
     nodeOnlyFinish,
   };
-}
-
-export function getAtlasPresentation(
-  catalog: CelestialCatalog,
-  id: string,
-): CelestialAtlasPresentation {
-  const presentation = catalog.presentations.get(id);
-  if (presentation?.kind !== 'atlas') {
-    throw new Error(`Unknown celestial atlas presentation: ${id}`);
-  }
-  return presentation;
-}
-
-export function getImagePresentation(
-  catalog: CelestialCatalog,
-  id: string,
-): CelestialImagePresentation {
-  const presentation = catalog.presentations.get(id);
-  if (presentation?.kind !== 'image') {
-    throw new Error(`Unknown celestial image presentation: ${id}`);
-  }
-  return presentation;
 }

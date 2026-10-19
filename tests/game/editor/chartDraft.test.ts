@@ -35,17 +35,43 @@ const song: Song = {
 };
 
 function makeChart(notes: readonly Note[]): Chart {
-  return { songId: 'test-song', difficulty: 'normal', offsetMs: 25, notes };
+  return {
+    songId: 'test-song',
+    difficulty: 'normal',
+    offsetMs: 25,
+    notes,
+  };
 }
 
 describe('createDraft', () => {
   it('holds the chart notes in time then lane order without changing the chart', () => {
     const notes: Note[] = [
-      { type: 'tap', timeMs: 1000, lane: 2 },
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'hold', timeMs: 2000, endTimeMs: 3000, lane: 3 },
-      { type: 'tap', timeMs: 2000, lane: 1 },
-      { type: 'tap', timeMs: 2500, lane: 0 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 2,
+      },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'hold',
+        timeMs: 2000,
+        endTimeMs: 3000,
+        lane: 3,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
+      {
+        type: 'tap',
+        timeMs: 2500,
+        lane: 0,
+      },
     ];
     const snapshot = structuredClone(notes);
     const chart = makeChart(notes);
@@ -56,11 +82,32 @@ describe('createDraft', () => {
     expect(draft.difficulty).toBe('normal');
     expect(draft.offsetMs).toBe(25);
     expect(draft.notes).toEqual([
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'tap', timeMs: 1000, lane: 2 },
-      { type: 'tap', timeMs: 2000, lane: 1 },
-      { type: 'hold', timeMs: 2000, endTimeMs: 3000, lane: 3 },
-      { type: 'tap', timeMs: 2500, lane: 0 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 2,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
+      {
+        type: 'hold',
+        timeMs: 2000,
+        endTimeMs: 3000,
+        lane: 3,
+      },
+      {
+        type: 'tap',
+        timeMs: 2500,
+        lane: 0,
+      },
     ]);
     expect(draft.selected).toBeNull();
     expect(isDraftDirty(draft)).toBe(false);
@@ -89,9 +136,22 @@ describe('createEmptyDraft', () => {
 describe('toChart', () => {
   it('builds a chart that passes validation and recreates the same draft notes', () => {
     const chart = makeChart([
-      { type: 'tap', timeMs: 1500, lane: 1 },
-      { type: 'hold', timeMs: 1500, endTimeMs: 2500, lane: 0 },
-      { type: 'tap', timeMs: 3000, lane: 3 },
+      {
+        type: 'tap',
+        timeMs: 1500,
+        lane: 1,
+      },
+      {
+        type: 'hold',
+        timeMs: 1500,
+        endTimeMs: 2500,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 3,
+      },
     ]);
     const draft = createDraft(song, chart);
 
@@ -119,19 +179,51 @@ function roundTrip(draft: ChartDraft): readonly Note[] {
 describe('addNote', () => {
   it('inserts a tap at its time then lane position, selects it and marks the draft dirty', () => {
     const draft = draftWith([
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'tap', timeMs: 2000, lane: 0 },
-      { type: 'tap', timeMs: 2000, lane: 3 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 3,
+      },
     ]);
-    const tap: Note = { type: 'tap', timeMs: 2000, lane: 1 };
+    const tap: Note = {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 1,
+    };
 
     const next = addNote(draft, tap);
 
     expect(next.notes).toEqual([
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'tap', timeMs: 2000, lane: 0 },
-      { type: 'tap', timeMs: 2000, lane: 1 },
-      { type: 'tap', timeMs: 2000, lane: 3 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 3,
+      },
     ]);
     expect(next.selected).toBe(tap);
     expect(isDraftDirty(next)).toBe(true);
@@ -140,12 +232,30 @@ describe('addNote', () => {
   });
 
   it('inserts a hold at the end and selects it', () => {
-    const draft = draftWith([{ type: 'tap', timeMs: 1000, lane: 0 }]);
-    const hold: Note = { type: 'hold', timeMs: 3000, endTimeMs: 4000, lane: 2 };
+    const draft = draftWith([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+    ]);
+    const hold: Note = {
+      type: 'hold',
+      timeMs: 3000,
+      endTimeMs: 4000,
+      lane: 2,
+    };
 
     const next = addNote(draft, hold);
 
-    expect(next.notes).toEqual([{ type: 'tap', timeMs: 1000, lane: 0 }, hold]);
+    expect(next.notes).toEqual([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      hold,
+    ]);
     expect(next.selected).toBe(hold);
     expect(isDraftDirty(next)).toBe(true);
   });
@@ -154,16 +264,41 @@ describe('addNote', () => {
     ['equals', 3000],
     ['is before', 2999],
   ])('ignores a hold whose end %s its start', (_name, endTimeMs) => {
-    const draft = draftWith([{ type: 'tap', timeMs: 1000, lane: 0 }]);
+    const draft = draftWith([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+    ]);
 
-    expect(addNote(draft, { type: 'hold', timeMs: 3000, endTimeMs, lane: 2 })).toBe(draft);
+    expect(
+      addNote(draft, {
+        type: 'hold',
+        timeMs: 3000,
+        endTimeMs,
+        lane: 2,
+      }),
+    ).toBe(draft);
   });
 
   it('adds a hold whose end is one ms after its start', () => {
     const draft = createEmptyDraft(song, 'normal');
 
-    expect(addNote(draft, { type: 'hold', timeMs: 3000, endTimeMs: 3001, lane: 2 }).notes).toEqual([
-      { type: 'hold', timeMs: 3000, endTimeMs: 3001, lane: 2 },
+    expect(
+      addNote(draft, {
+        type: 'hold',
+        timeMs: 3000,
+        endTimeMs: 3001,
+        lane: 2,
+      }).notes,
+    ).toEqual([
+      {
+        type: 'hold',
+        timeMs: 3000,
+        endTimeMs: 3001,
+        lane: 2,
+      },
     ]);
   });
 });
@@ -171,10 +306,22 @@ describe('addNote', () => {
 describe('selectNote', () => {
   it('changes only the selection and keeps the dirty flag', () => {
     const clean = draftWith([
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'tap', timeMs: 2000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
     ]);
-    const dirty = addNote(clean, { type: 'tap', timeMs: 3000, lane: 2 });
+    const dirty = addNote(clean, {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 2,
+    });
     const [first] = dirty.notes;
     if (first === undefined) {
       throw new Error('missing note');
@@ -191,7 +338,13 @@ describe('selectNote', () => {
   });
 
   it('returns the same draft for the same selection', () => {
-    const draft = draftWith([{ type: 'tap', timeMs: 1000, lane: 0 }]);
+    const draft = draftWith([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+    ]);
 
     expect(selectNote(draft, null)).toBe(draft);
     const [note] = draft.notes;
@@ -205,9 +358,22 @@ describe('selectNote', () => {
 
 describe('moveSelectedNote', () => {
   const notes: Note[] = [
-    { type: 'tap', timeMs: 1000, lane: 0 },
-    { type: 'hold', timeMs: 2000, endTimeMs: 2600, lane: 1 },
-    { type: 'tap', timeMs: 3000, lane: 2 },
+    {
+      type: 'tap',
+      timeMs: 1000,
+      lane: 0,
+    },
+    {
+      type: 'hold',
+      timeMs: 2000,
+      endTimeMs: 2600,
+      lane: 1,
+    },
+    {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 2,
+    },
   ];
 
   function selectAt(draft: ChartDraft, index: number): ChartDraft {
@@ -224,14 +390,31 @@ describe('moveSelectedNote', () => {
     const next = moveSelectedNote(draft, 3000, 1);
 
     expect(next.notes).toEqual([
-      { type: 'hold', timeMs: 2000, endTimeMs: 2600, lane: 1 },
-      { type: 'tap', timeMs: 3000, lane: 1 },
-      { type: 'tap', timeMs: 3000, lane: 2 },
+      {
+        type: 'hold',
+        timeMs: 2000,
+        endTimeMs: 2600,
+        lane: 1,
+      },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 1,
+      },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 2,
+      },
     ]);
     expect(next.selected).toBe(next.notes[1]);
     expect(isDraftDirty(next)).toBe(true);
     expect(draft.notes).toEqual(notes);
-    expect(draft.selected).toEqual({ type: 'tap', timeMs: 1000, lane: 0 });
+    expect(draft.selected).toEqual({
+      type: 'tap',
+      timeMs: 1000,
+      lane: 0,
+    });
   });
 
   it('keeps the hold length when moving a hold', () => {
@@ -239,7 +422,12 @@ describe('moveSelectedNote', () => {
 
     const next = moveSelectedNote(draft, 1500, 3);
 
-    expect(next.notes[1]).toEqual({ type: 'hold', timeMs: 1500, endTimeMs: 2100, lane: 3 });
+    expect(next.notes[1]).toEqual({
+      type: 'hold',
+      timeMs: 1500,
+      endTimeMs: 2100,
+      lane: 3,
+    });
     expect(next.selected).toBe(next.notes[1]);
   });
 
@@ -259,18 +447,43 @@ describe('moveSelectedNote', () => {
     const draft = moveSelectedNote(selectAt(draftWith(notes), 1), 4000, 0);
 
     expect(roundTrip(draft)).toEqual([
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'tap', timeMs: 3000, lane: 2 },
-      { type: 'hold', timeMs: 4000, endTimeMs: 4600, lane: 0 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 2,
+      },
+      {
+        type: 'hold',
+        timeMs: 4000,
+        endTimeMs: 4600,
+        lane: 0,
+      },
     ]);
   });
 });
 
 describe('resizeSelectedHold', () => {
-  const hold: Note = { type: 'hold', timeMs: 2000, endTimeMs: 2600, lane: 1 };
+  const hold: Note = {
+    type: 'hold',
+    timeMs: 2000,
+    endTimeMs: 2600,
+    lane: 1,
+  };
 
   function selectedHoldDraft(): ChartDraft {
-    const draft = draftWith([{ type: 'tap', timeMs: 1000, lane: 0 }, hold]);
+    const draft = draftWith([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      hold,
+    ]);
     return selectNote(draft, draft.notes[1] ?? null);
   }
 
@@ -279,7 +492,12 @@ describe('resizeSelectedHold', () => {
 
     const next = resizeSelectedHold(draft, 3200);
 
-    expect(next.notes[1]).toEqual({ type: 'hold', timeMs: 2000, endTimeMs: 3200, lane: 1 });
+    expect(next.notes[1]).toEqual({
+      type: 'hold',
+      timeMs: 2000,
+      endTimeMs: 3200,
+      lane: 1,
+    });
     expect(next.selected).toBe(next.notes[1]);
     expect(isDraftDirty(next)).toBe(true);
     expect(draft.notes[1]).toEqual(hold);
@@ -292,7 +510,12 @@ describe('resizeSelectedHold', () => {
   ])('keeps the end after the start for request %d', (endTimeMs, expected) => {
     const next = resizeSelectedHold(selectedHoldDraft(), endTimeMs);
 
-    expect(next.selected).toEqual({ type: 'hold', timeMs: 2000, endTimeMs: expected, lane: 1 });
+    expect(next.selected).toEqual({
+      type: 'hold',
+      timeMs: 2000,
+      endTimeMs: expected,
+      lane: 1,
+    });
   });
 
   it('returns the same draft when the end is unchanged', () => {
@@ -302,7 +525,14 @@ describe('resizeSelectedHold', () => {
   });
 
   it('returns the same draft when a tap or nothing is selected', () => {
-    const draft = draftWith([{ type: 'tap', timeMs: 1000, lane: 0 }, hold]);
+    const draft = draftWith([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      hold,
+    ]);
     const tapSelected = selectNote(draft, draft.notes[0] ?? null);
 
     expect(resizeSelectedHold(tapSelected, 3000)).toBe(tapSelected);
@@ -313,22 +543,48 @@ describe('resizeSelectedHold', () => {
 describe('deleteSelectedNote', () => {
   it('removes the selected note, clears the selection and marks the draft dirty', () => {
     const draft = draftWith([
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'tap', timeMs: 2000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
     ]);
     const selected = selectNote(draft, draft.notes[0] ?? null);
 
     const next = deleteSelectedNote(selected);
 
-    expect(next.notes).toEqual([{ type: 'tap', timeMs: 2000, lane: 1 }]);
+    expect(next.notes).toEqual([
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
+    ]);
     expect(next.selected).toBeNull();
     expect(isDraftDirty(next)).toBe(true);
     expect(selected.notes).toHaveLength(2);
-    expect(roundTrip(next)).toEqual([{ type: 'tap', timeMs: 2000, lane: 1 }]);
+    expect(roundTrip(next)).toEqual([
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
+    ]);
   });
 
   it('returns the same draft without a selection', () => {
-    const draft = draftWith([{ type: 'tap', timeMs: 1000, lane: 0 }]);
+    const draft = draftWith([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+    ]);
 
     expect(deleteSelectedNote(draft)).toBe(draft);
   });
@@ -337,8 +593,17 @@ describe('deleteSelectedNote', () => {
 describe('clearNotes', () => {
   it('removes every note, clears the selection and marks the draft dirty', () => {
     const draft = draftWith([
-      { type: 'tap', timeMs: 1000, lane: 0 },
-      { type: 'hold', timeMs: 2000, endTimeMs: 3000, lane: 1 },
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+      {
+        type: 'hold',
+        timeMs: 2000,
+        endTimeMs: 3000,
+        lane: 1,
+      },
     ]);
     const selected = selectNote(draft, draft.notes[1] ?? null);
 
@@ -360,12 +625,30 @@ describe('clearNotes', () => {
 describe('editing round trip', () => {
   it('keeps lane, timeMs and endTimeMs of added taps and holds through the chart', () => {
     let draft = createEmptyDraft(song, 'normal');
-    draft = addNote(draft, { type: 'hold', timeMs: 2500, endTimeMs: 4000, lane: 3 });
-    draft = addNote(draft, { type: 'tap', timeMs: 1200, lane: 1 });
+    draft = addNote(draft, {
+      type: 'hold',
+      timeMs: 2500,
+      endTimeMs: 4000,
+      lane: 3,
+    });
+    draft = addNote(draft, {
+      type: 'tap',
+      timeMs: 1200,
+      lane: 1,
+    });
 
     expect(roundTrip(draft)).toEqual([
-      { type: 'tap', timeMs: 1200, lane: 1 },
-      { type: 'hold', timeMs: 2500, endTimeMs: 4000, lane: 3 },
+      {
+        type: 'tap',
+        timeMs: 1200,
+        lane: 1,
+      },
+      {
+        type: 'hold',
+        timeMs: 2500,
+        endTimeMs: 4000,
+        lane: 3,
+      },
     ]);
   });
 });
@@ -389,8 +672,17 @@ describe('simultaneous notes', () => {
     return addNote(
       draft,
       type === 'tap'
-        ? { type: 'tap', timeMs: startMs, lane }
-        : { type: 'hold', timeMs: startMs, endTimeMs: startMs + 500, lane },
+        ? {
+            type: 'tap',
+            timeMs: startMs,
+            lane,
+          }
+        : {
+            type: 'hold',
+            timeMs: startMs,
+            endTimeMs: startMs + 500,
+            lane,
+          },
     );
   }
 
@@ -402,7 +694,12 @@ describe('simultaneous notes', () => {
     ['4 lanes', ['hold', 'tap', 'hold', 'tap']],
   ])('snaps %s to the same timeMs and passes validation', (_name, types) => {
     // 첫 노트 뒤로는 스냅 임계(20ms) 안에서 어긋난 pointer 시각이다.
-    const pointerTimesMs: Record<Lane, number> = { 0: 3000, 1: 3012, 2: 2985, 3: 3020 };
+    const pointerTimesMs: Record<Lane, number> = {
+      0: 3000,
+      1: 3012,
+      2: 2985,
+      3: 3020,
+    };
     let draft = createEmptyDraft(song, 'normal');
     types.forEach((type, index) => {
       const lane = LANES[index];
@@ -419,18 +716,36 @@ describe('simultaneous notes', () => {
 
   it('fails validation at the second note for two taps in the same lane and time', () => {
     let draft = createEmptyDraft(song, 'normal');
-    draft = addNote(draft, { type: 'tap', timeMs: 3000, lane: 2 });
-    draft = addNote(draft, { type: 'tap', timeMs: 3000, lane: 2 });
+    draft = addNote(draft, {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 2,
+    });
+    draft = addNote(draft, {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 2,
+    });
 
     expect(() => parseChart(toChart(draft), song, 'normal')).toThrow('chart.notes[1]');
   });
 });
 
 describe('completeSave', () => {
-  const savedSong: Song = { ...song, chartIds: { ...song.chartIds, hard: 'chart_hard' } };
+  const savedSong: Song = {
+    ...song,
+    chartIds: {
+      ...song.chartIds,
+      hard: 'chart_hard',
+    },
+  };
 
   it('clears dirty and takes the saved song when notes did not change during the save', () => {
-    const draft = addNote(createEmptyDraft(song, 'hard'), { type: 'tap', timeMs: 2000, lane: 1 });
+    const draft = addNote(createEmptyDraft(song, 'hard'), {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 1,
+    });
 
     const completed = completeSave(draft, draft.notes, savedSong);
 
@@ -440,8 +755,16 @@ describe('completeSave', () => {
   });
 
   it('keeps dirty and takes the saved song when notes were edited during the save', () => {
-    const atSave = addNote(createEmptyDraft(song, 'hard'), { type: 'tap', timeMs: 2000, lane: 1 });
-    const edited = addNote(atSave, { type: 'tap', timeMs: 3000, lane: 2 });
+    const atSave = addNote(createEmptyDraft(song, 'hard'), {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 1,
+    });
+    const edited = addNote(atSave, {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 2,
+    });
 
     const completed = completeSave(edited, atSave.notes, savedSong);
 
@@ -452,11 +775,26 @@ describe('completeSave', () => {
 });
 
 describe('restoreNotes', () => {
-  const savedSong: Song = { ...song, chartIds: { ...song.chartIds, hard: 'chart_hard' } };
+  const savedSong: Song = {
+    ...song,
+    chartIds: {
+      ...song.chartIds,
+      hard: 'chart_hard',
+    },
+  };
 
   it('restores notes and selection but keeps the song and save point of the current draft', () => {
-    const before = addNote(createEmptyDraft(song, 'hard'), { type: 'tap', timeMs: 2000, lane: 1 });
-    const withHold = addNote(before, { type: 'hold', timeMs: 3000, endTimeMs: 3001, lane: 2 });
+    const before = addNote(createEmptyDraft(song, 'hard'), {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 1,
+    });
+    const withHold = addNote(before, {
+      type: 'hold',
+      timeMs: 3000,
+      endTimeMs: 3001,
+      lane: 2,
+    });
     const saved = completeSave(withHold, before.notes, savedSong);
 
     const restored = restoreNotes(saved, before);
@@ -469,9 +807,24 @@ describe('restoreNotes', () => {
   });
 
   it('stays dirty when the restored notes are not the save point', () => {
-    const loaded = draftWith([{ type: 'tap', timeMs: 1000, lane: 0 }]);
-    const before = addNote(loaded, { type: 'tap', timeMs: 2000, lane: 1 });
-    const withHold = addNote(before, { type: 'hold', timeMs: 3000, endTimeMs: 3001, lane: 2 });
+    const loaded = draftWith([
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 0,
+      },
+    ]);
+    const before = addNote(loaded, {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 1,
+    });
+    const withHold = addNote(before, {
+      type: 'hold',
+      timeMs: 3000,
+      endTimeMs: 3001,
+      lane: 2,
+    });
 
     const restored = restoreNotes(withHold, before);
 
@@ -480,7 +833,11 @@ describe('restoreNotes', () => {
   });
 
   it('returns the same draft when notes and selection are already the same', () => {
-    const draft = addNote(createEmptyDraft(song, 'hard'), { type: 'tap', timeMs: 2000, lane: 1 });
+    const draft = addNote(createEmptyDraft(song, 'hard'), {
+      type: 'tap',
+      timeMs: 2000,
+      lane: 1,
+    });
 
     expect(restoreNotes(draft, draft)).toBe(draft);
   });
@@ -501,8 +858,16 @@ describe('findInvalidNote', () => {
 
   it('finds the second tap of a duplicate in the same lane and time', () => {
     let draft = createEmptyDraft(song, 'normal');
-    draft = addNote(draft, { type: 'tap', timeMs: 3000, lane: 2 });
-    draft = addNote(draft, { type: 'tap', timeMs: 3000, lane: 2 });
+    draft = addNote(draft, {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 2,
+    });
+    draft = addNote(draft, {
+      type: 'tap',
+      timeMs: 3000,
+      lane: 2,
+    });
 
     expect(findInvalidNote(draft, getChartError(draft))).toBe(draft.notes[1]);
   });
@@ -511,8 +876,17 @@ describe('findInvalidNote', () => {
     const draft = createDraft(
       song,
       makeChart([
-        { type: 'tap', timeMs: 1500, lane: 0 },
-        { type: 'hold', timeMs: 2000, endTimeMs: 2000, lane: 1 },
+        {
+          type: 'tap',
+          timeMs: 1500,
+          lane: 0,
+        },
+        {
+          type: 'hold',
+          timeMs: 2000,
+          endTimeMs: 2000,
+          lane: 1,
+        },
       ]),
     );
     const error = getChartError(draft);

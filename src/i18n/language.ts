@@ -15,7 +15,6 @@ export function parseLanguage(value: unknown): Language | undefined {
   return LANGUAGES.find((language) => language === value);
 }
 
-/** 브라우저 선호 언어 목록(`navigator.languages`)에서 지원 언어를 고른다. */
 export function detectLanguage(preferred: readonly string[]): Language {
   for (const tag of preferred) {
     const language = parseLanguage(tag.split('-')[0]?.toLowerCase());

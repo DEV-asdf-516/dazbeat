@@ -1,16 +1,12 @@
 import type Phaser from 'phaser';
 import type { GameplaySession } from '../../rhythm/GameplaySession.js';
 import { getNoteY } from '../../rhythm/notePosition.js';
-import type { Lane, Note } from '../../rhythm/types.js';
+import type { HoldNote, Lane, Note, TapNote } from '../../rhythm/types.js';
 import { GAME_HEIGHT } from '../config.js';
 import { getHoldRibbonSpans, getNoteEmphasis } from './noteAppearance.js';
 import type { FadingSpan } from './noteAppearance.js';
-import {
-  LIGHT_TEXTURES,
-  addLight,
-  ensureHoldRibbonTexture,
-  ensureStarButtonTexture,
-} from '../ui/lightTextures.js';
+import { ensureHoldRibbonTexture, ensureStarButtonTexture } from './gameplayTextures.js';
+import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
 import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../ui/theme.js';
 
 const HOLD_RIBBON_PENDING_ALPHA = 0.75;
@@ -19,7 +15,6 @@ const HOLD_CONTACT_HEIGHT_PX = 30;
 const HOLD_CONTACT_ALPHA = 0.55;
 const TAP_HIT_FLASH_SCALE_X = 1.4;
 const HOLD_HIT_FLASH_SCALE_X = 1.2;
-// 판정선 쪽으로 납작해지며 수평선의 빛과 하나로 이어진다.
 const HIT_FLASH_SCALE_Y = 0.5;
 const MISS_DRAIN_MS = 260;
 
@@ -30,10 +25,9 @@ interface HoldView {
   tail: Phaser.GameObjects.Image;
 }
 
-interface NoteView {
-  head: Phaser.GameObjects.Image;
-  hold: HoldView | null;
-}
+type NoteView =
+  | { kind: 'tap'; note: TapNote; head: Phaser.GameObjects.Image }
+  | { kind: 'hold'; note: HoldNote; head: Phaser.GameObjects.Image; hold: HoldView };
 
 export interface NoteLayerOptions {
   notes: readonly Note[];
@@ -42,7 +36,6 @@ export interface NoteLayerOptions {
   scrollSpeedPxPerSecond: number;
 }
 
-/** 화면에 들어올 노트만 만들고, 판정이 끝나거나 화면을 벗어난 노트는 지운다. */
 export class NoteLayer {
   private readonly views = new Map<number, NoteView>();
   private readonly capTextureKey: string;
@@ -71,10 +64,6 @@ export class NoteLayer {
 
     this.views.forEach((view, noteIndex) => {
       const status = session.getNoteStatus(noteIndex);
-      const note = notes[noteIndex];
-      if (note === undefined) {
-        throw new Error(`Invalid note index: ${noteIndex}`);
-      }
       if (status === 'hit') {
         this.views.delete(noteIndex);
         this.flashHit(view);
@@ -86,13 +75,13 @@ export class NoteLayer {
         return;
       }
       const isHolding = status === 'holding';
-      const headY = isHolding ? judgeLineYPx : this.getY(note.timeMs, songTimeMs);
+      const headY = isHolding ? judgeLineYPx : this.getY(view.note.timeMs, songTimeMs);
       const headEmphasis = isHolding ? 1 : getNoteEmphasis(headY, judgeLineYPx);
       view.head.setY(headY).setAlpha(headEmphasis);
-      if (note.type === 'hold' && view.hold !== null) {
-        this.renderHold(view.hold, headY, note.endTimeMs, songTimeMs, isHolding);
+      if (view.kind === 'hold') {
+        this.renderHold(view.hold, headY, view.note.endTimeMs, songTimeMs, isHolding);
       }
-      const outline = view.hold?.tail ?? view.head;
+      const outline = view.kind === 'hold' ? view.hold.tail : view.head;
       if (outline.y - outline.displayHeight / 2 > GAME_HEIGHT) {
         this.remove(noteIndex, view);
       }
@@ -145,7 +134,11 @@ export class NoteLayer {
       .setAlpha(0)
       .setDepth(GAMEPLAY_DEPTH.note);
     if (note.type === 'tap') {
-      return { head, hold: null };
+      return {
+        kind: 'tap',
+        note,
+        head,
+      };
     }
     // 같은 depth 에서는 만든 순서대로 그려지므로 ribbon → tail 순으로 만든다.
     const hold: HoldView = {
@@ -162,7 +155,12 @@ export class NoteLayer {
         .setAlpha(0)
         .setDepth(GAMEPLAY_DEPTH.holdBody),
     };
-    return { head, hold };
+    return {
+      kind: 'hold',
+      note,
+      head,
+      hold,
+    };
   }
 
   private addRibbonPart(xPx: number): Phaser.GameObjects.Image {
@@ -173,17 +171,16 @@ export class NoteLayer {
       .setDepth(GAMEPLAY_DEPTH.holdBody);
   }
 
-  /**
-   * 판정선에서 가로로 퍼지고 납작해지며 수평선의 빛으로 사라진다.
-   * HOLD 완료는 tail 이 판정선에 닿은 순간이므로 리본을 바로 지우고 더 작은 flash 로 끝낸다.
-   */
+  // HOLD 완료는 tail 이 판정선에 닿은 순간이므로 리본을 바로 지우고 더 작은 flash 로 끝낸다.
   private flashHit(view: NoteView): void {
-    this.destroyHold(view.hold);
+    if (view.kind === 'hold') {
+      this.destroyHold(view.hold);
+    }
     const { head } = view;
     head.setY(this.options.judgeLineYPx).setAlpha(1);
     this.scene.tweens.add({
       targets: head,
-      scaleX: view.hold === null ? TAP_HIT_FLASH_SCALE_X : HOLD_HIT_FLASH_SCALE_X,
+      scaleX: view.kind === 'tap' ? TAP_HIT_FLASH_SCALE_X : HOLD_HIT_FLASH_SCALE_X,
       scaleY: HIT_FLASH_SCALE_Y,
       alpha: 0,
       duration: MOTION.fastMs,
@@ -191,13 +188,12 @@ export class NoteLayer {
     });
   }
 
-  /** miss 는 그 자리에서 빛이 빠진 청회색으로 바뀌어 꺼진다. 누르던 HOLD 의 접점은 즉시 끈다. */
   private drain(view: NoteView): void {
-    const parts =
-      view.hold === null
-        ? [view.head]
-        : [view.head, view.hold.ribbon, view.hold.ribbonFade, view.hold.tail];
-    view.hold?.contact.destroy();
+    const parts = [view.head];
+    if (view.kind === 'hold') {
+      parts.push(view.hold.ribbon, view.hold.ribbonFade, view.hold.tail);
+      view.hold.contact.destroy();
+    }
     parts.forEach((part) => part.setTint(COLORS.nightTrace));
     this.scene.tweens.add({
       targets: parts,
@@ -209,14 +205,16 @@ export class NoteLayer {
 
   private remove(noteIndex: number, view: NoteView): void {
     view.head.destroy();
-    this.destroyHold(view.hold);
+    if (view.kind === 'hold') {
+      this.destroyHold(view.hold);
+    }
     this.views.delete(noteIndex);
   }
 
-  private destroyHold(hold: HoldView | null): void {
-    hold?.ribbon.destroy();
-    hold?.ribbonFade.destroy();
-    hold?.contact.destroy();
-    hold?.tail.destroy();
+  private destroyHold(hold: HoldView): void {
+    hold.ribbon.destroy();
+    hold.ribbonFade.destroy();
+    hold.contact.destroy();
+    hold.tail.destroy();
   }
 }

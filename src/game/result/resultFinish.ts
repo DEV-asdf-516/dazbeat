@@ -1,4 +1,5 @@
 import type { CelestialSequenceStep } from '../celestial/celestialCatalog.js';
+import { requireDefined } from '../../invariant.js';
 
 export type FinishAnchor = 'node' | 'rank' | 'jacket' | 'score';
 
@@ -12,7 +13,7 @@ export interface FinishCue {
 export const RESULT_NODE_ID = 'R18';
 const SCORE_SHIMMER_ID = 'R40';
 
-/** 점수 카운트업이 끝나는 시각에 score-shimmer 가 오도록 constellation-finish 재생 계획을 만든다. */
+/** 점수 카운트업이 끝나는 시각에 score-shimmer 가 오도록 한다. */
 export function planResultFinish(
   isCleared: boolean,
   steps: readonly CelestialSequenceStep[],
@@ -21,10 +22,11 @@ export function planResultFinish(
   if (!isCleared) {
     return [];
   }
-  const scoreShimmer = steps.find((step) => step.presentationId === SCORE_SHIMMER_ID);
-  if (scoreShimmer === undefined) {
-    throw new Error(`constellation-finish has no ${SCORE_SHIMMER_ID} step`);
-  }
+  const scoreShimmer = requireDefined(
+    steps.find((step) => step.presentationId === SCORE_SHIMMER_ID),
+    'constellation-finish has no step',
+    SCORE_SHIMMER_ID,
+  );
   const finishStartMs = scoreSettledAtMs - scoreShimmer.startMs;
   return steps.map((step) => ({
     step,

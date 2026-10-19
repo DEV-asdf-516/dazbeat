@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { HP_DELTAS, MAX_HP, getNextHp } from '../../src/rhythm/starlight.js';
-
-describe('HP_DELTAS', () => {
-  it('maps each judgment to its hp change', () => {
-    expect(HP_DELTAS).toEqual({ perfect: 1, great: 0.5, good: 0, bad: -5, miss: -10 });
-  });
-});
+import { MAX_HP, getNextHp } from '../../src/rhythm/starlight.js';
 
 describe('getNextHp', () => {
+  it.each([
+    ['perfect', 51],
+    ['great', 50.5],
+    ['good', 50],
+    ['bad', 45],
+    ['miss', 40],
+  ] as const)('changes hp by the %s delta away from the bounds', (judgment, expected) => {
+    expect(getNextHp(50, judgment)).toBe(expected);
+  });
+
   it('starts from a max hp of 100', () => {
     expect(MAX_HP).toBe(100);
   });

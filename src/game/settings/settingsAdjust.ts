@@ -1,9 +1,9 @@
 import { LANGUAGES } from '../../i18n/language.js';
 import type { Language } from '../../i18n/language.js';
 import type { Lane } from '../../rhythm/types.js';
-import { MV_MODES, SETTINGS_LIMITS } from '../../storage/LocalSave.js';
-import type { Settings } from '../../storage/LocalSave.js';
-import { clamp, stepItem } from '../range.js';
+import { MV_MODES, SETTINGS_LIMITS } from '../../storage/settings.js';
+import type { Settings } from '../../storage/settings.js';
+import { clamp, stepItem } from '../../range.js';
 
 export type VolumeField = 'masterVolume' | 'musicVolume' | 'effectVolume';
 
@@ -26,10 +26,6 @@ function stepInRange(
   return Math.round(clamp(value + direction * step, min, max) * STEP_PRECISION) / STEP_PRECISION;
 }
 
-/**
- * 바꿀 수 없으면 같은 `settings` 객체를 그대로 돌려준다.
- * `language`는 설정에서 언어를 고르지 않았을 때 화면에 표시 중인 언어다.
- */
 export function adjustSetting(
   settings: Settings,
   row: SettingsRow,
@@ -39,7 +35,12 @@ export function adjustSetting(
   switch (row.kind) {
     case 'volume': {
       const volume = stepInRange(settings[row.field], SETTINGS_LIMITS.volume, direction);
-      return volume === settings[row.field] ? settings : { ...settings, [row.field]: volume };
+      return volume === settings[row.field]
+        ? settings
+        : {
+            ...settings,
+            [row.field]: volume,
+          };
     }
     case 'inputOffset': {
       const inputOffsetMs = stepInRange(
@@ -47,7 +48,12 @@ export function adjustSetting(
         SETTINGS_LIMITS.inputOffsetMs,
         direction,
       );
-      return inputOffsetMs === settings.inputOffsetMs ? settings : { ...settings, inputOffsetMs };
+      return inputOffsetMs === settings.inputOffsetMs
+        ? settings
+        : {
+            ...settings,
+            inputOffsetMs,
+          };
     }
     case 'scrollSpeed': {
       const scrollSpeedPxPerSecond = stepInRange(
@@ -57,15 +63,28 @@ export function adjustSetting(
       );
       return scrollSpeedPxPerSecond === settings.scrollSpeedPxPerSecond
         ? settings
-        : { ...settings, scrollSpeedPxPerSecond };
+        : {
+            ...settings,
+            scrollSpeedPxPerSecond,
+          };
     }
     case 'mvMode': {
       const mvMode = stepItem(MV_MODES, settings.mvMode, direction);
-      return mvMode === settings.mvMode ? settings : { ...settings, mvMode };
+      return mvMode === settings.mvMode
+        ? settings
+        : {
+            ...settings,
+            mvMode,
+          };
     }
     case 'language': {
       const next = stepItem(LANGUAGES, language, direction);
-      return next === language ? settings : { ...settings, language: next };
+      return next === language
+        ? settings
+        : {
+            ...settings,
+            language: next,
+          };
     }
     case 'key':
       return settings;
@@ -81,7 +100,6 @@ export function canAdjust(
   return adjustSetting(settings, row, direction, language) !== settings;
 }
 
-/** 이미 다른 레인에 쓰인 키면 두 레인의 키를 맞바꾼다. */
 export function assignKey(
   keyBindings: Settings['keyBindings'],
   lane: Lane,
