@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import {
-  HOLD_RIBBON_TAIL_ALPHA,
-  NOTE_APPROACH_RANGE_PX,
-  NOTE_EMERGE_END_Y_PX,
-  NOTE_FAR_ALPHA,
-  getHoldRibbonSpans,
-  getNoteEmergence,
-  getNoteEmphasis,
-} from '../../../src/game/gameplay/noteAppearance.js';
+import { getHoldRibbonSpans, getNoteEmphasis } from '../../../src/game/gameplay/noteAppearance.js';
 
 const JUDGE_LINE_Y_PX = 920;
+const NOTE_EMERGE_END_Y_PX = 160;
+const NOTE_APPROACH_RANGE_PX = 280;
+const NOTE_FAR_ALPHA = 0.86;
+const HOLD_RIBBON_TAIL_ALPHA = 0.45;
 
-describe('getNoteEmergence', () => {
+/** 판정선 위의 노트는 판정선 접근 배율이 1이라 밝기가 진입 페이드 값과 같다. */
+function getEmergence(yPx: number): number {
+  return getNoteEmphasis(yPx, yPx);
+}
+
+describe('note emergence', () => {
   it.each([
     [-10, 0],
     [0, 0],
@@ -19,11 +20,11 @@ describe('getNoteEmergence', () => {
     [NOTE_EMERGE_END_Y_PX, 1],
     [NOTE_EMERGE_END_Y_PX + 1, 1],
   ])('at y %d is %d', (yPx, expected) => {
-    expect(getNoteEmergence(yPx)).toBeCloseTo(expected);
+    expect(getEmergence(yPx)).toBeCloseTo(expected);
   });
 
   it('rises monotonically through the emerge zone', () => {
-    const values = [1, 40, 80, 120, NOTE_EMERGE_END_Y_PX - 1].map(getNoteEmergence);
+    const values = [1, 40, 80, 120, NOTE_EMERGE_END_Y_PX - 1].map(getEmergence);
     values.slice(1).forEach((value, index) => {
       expect(value).toBeGreaterThan(values[index] ?? Infinity);
     });
@@ -89,7 +90,7 @@ describe('getHoldRibbonSpans', () => {
       bottomYPx: NOTE_EMERGE_END_Y_PX,
       bottomAlpha: boundaryAlpha,
     });
-    expect(fade?.topAlpha).toBeCloseTo(getNoteEmergence(40) * HOLD_RIBBON_TAIL_ALPHA);
+    expect(fade?.topAlpha).toBeCloseTo(getEmergence(40) * HOLD_RIBBON_TAIL_ALPHA);
   });
 
   it('clips the part above the screen', () => {
@@ -106,7 +107,7 @@ describe('getHoldRibbonSpans', () => {
         topYPx: 0,
         bottomYPx: 100,
         topAlpha: 0,
-        bottomAlpha: getNoteEmergence(100),
+        bottomAlpha: getEmergence(100),
       },
     });
   });

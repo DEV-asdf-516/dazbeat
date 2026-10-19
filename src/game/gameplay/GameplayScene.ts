@@ -1,54 +1,68 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import { getAtlasPresentation } from '../celestial/celestialCatalog.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { GAMEPLAY_FAILURE_STARS } from '../celestial/celestialPlacements.js';
-import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS, exitScene, startScene } from '../config.js';
-import type { GameplaySceneData, ResultSceneData, SceneRequest } from '../config.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
+import { SCENE_KEYS, exitScene, startScene } from '../sceneRoutes.js';
+import type { GameplaySceneData, ResultSceneData, SceneRequest } from '../sceneRoutes.js';
 import { RhythmClock } from '../../audio/RhythmClock.js';
 import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.js';
 import type { YouTubePlayerState } from '../../audio/YouTubePlayer.js';
 import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
-import type { LoadedChart } from '../../data/chartSchema.js';
-import type { PlaySubmission, VerifiedPlay } from '../../data/playSubmission.js';
-import type { Song } from '../../data/songs.js';
+import type { PreparedChart, VerifiedPlay } from '../../data/playSession.js';
+import type { PlaySubmission } from '../../data/playSubmission.js';
+import type { ChartRef } from '../../data/songs.js';
 import { GameplaySession } from '../../rhythm/GameplaySession.js';
-import { JUDGMENT_WINDOWS, countJudgments } from '../../rhythm/judgment.js';
+import { JUDGMENT_WINDOWS, getJudgmentEventCount } from '../../rhythm/judgment.js';
 import { LANES, mapLanes } from '../../rhythm/lanes.js';
-import { getPlaybackStartMs } from '../../rhythm/playTiming.js';
-import { isFullCombo } from '../../rhythm/score.js';
-import type { Chart, Difficulty, Judgment, JudgmentEvent, Lane } from '../../rhythm/types.js';
-import { DEFAULT_SETTINGS, MV_MODES } from '../../storage/LocalSave.js';
-import type { LocalSave, Settings } from '../../storage/LocalSave.js';
+import { getGameFraction, getPlaybackStartMs } from '../../rhythm/playTiming.js';
+import type {
+  Chart,
+  GameplayResult,
+  GameplayState,
+  JudgmentEvent,
+  Lane,
+} from '../../rhythm/types.js';
+import type { LocalSave } from '../../storage/LocalSave.js';
+import { DEFAULT_SETTINGS, MV_MODES } from '../../storage/settings.js';
+import type { Settings } from '../../storage/settings.js';
+import { playFailureFx, playFullComboFx } from './endingFx.js';
 import { getPlayingStatus, isLoadingStatus } from './gameplayStatus.js';
 import type { GameplayStatus } from './gameplayStatus.js';
-import { getHitBloomIntensity, hasJudgmentShimmer, shouldFailPlay } from './judgmentEffects.js';
+import { addHudEffect, addHudText } from './hudObjects.js';
+import {
+  JUDGMENT_SHIMMER_ID,
+  getHitBloomIntensity,
+  getJudgmentPopScale,
+  hasJudgmentGlow,
+  hasJudgmentShimmer,
+} from './judgmentEffects.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import { clamp, cycleItem } from '../range.js';
+import { clamp, cycleItem } from '../../range.js';
+import { msToSec } from '../../time.js';
 import { Button } from '../ui/Button.js';
 import { addCelestialAtmosphere } from '../celestial/celestialAtmosphere.js';
 import {
-  addCelestialSprite,
   playCelestialOnce,
   queueCelestialTextures,
-  registerCelestialAnimations,
   setCelestialLoopActive,
 } from '../celestial/celestialSprites.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { formatKeyCode, formatScore } from '../ui/format.js';
-import { getGameplayKeyAction, readGameplayKey } from './gameplayInput.js';
-import type { GameplayKeyContext } from './gameplayInput.js';
+import {
+  getErrorKeyAction,
+  getLoadingKeyAction,
+  getPlayingKeyAction,
+  getReadyKeyAction,
+  readGameplayKey,
+} from './gameplayInput.js';
+import type { CommonKeyAction, PlayingKeyAction } from './gameplayInput.js';
 import { LaneFx } from './LaneFx.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { NoteLayer } from './NoteLayer.js';
 import { OrbitTrace } from './OrbitTrace.js';
-import {
-  STARLIGHT_RAIL_INSET_PX,
-  StarlightGauge,
-  addStarlightBacking,
-  addStarlightEmblem,
-} from './StarlightGauge.js';
+import { StarlightGauge } from './StarlightGauge.js';
+import { getRunEnding } from './runEnding.js';
 import {
   COLORS,
   GAMEPLAY_DEPTH,
@@ -56,13 +70,15 @@ import {
   MOTION,
   cssColor,
   textStyle,
-  typeStyle,
 } from '../ui/theme.js';
 import { WorldActivation } from './worldActivation.js';
 
 const LANE_WIDTH_PX = 120;
 const PLAY_AREA_WIDTH_PX = LANE_WIDTH_PX * LANES.length;
 const LANES_LEFT_PX = (GAME_WIDTH - PLAY_AREA_WIDTH_PX) / 2;
+// 판정·콤보는 레인을 따라 놓이고, 안내·종료 문구는 화면 가운데에 놓인다. 지금은 두 값이 같다.
+const LANES_CENTER_X_PX = LANES_LEFT_PX + PLAY_AREA_WIDTH_PX / 2;
+const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
 const LANE_PANEL_ALPHA = 0.85;
 const LANE_BORDER_WIDTH_PX = 1;
 const LANE_BORDER_ALPHA = 0.5;
@@ -70,26 +86,14 @@ const LANE_DIVIDER_WIDTH_PX = 1;
 const LANE_DIVIDER_ALPHA = 0.6;
 const JUDGE_LINE_Y_PX = 920;
 const KEY_LABEL_Y_PX = 968;
-const JUDGMENT_X_PX = 960;
 const JUDGMENT_Y_PX = 780;
 const JUDGMENT_HOLD_MS = 300;
 const JUDGMENT_FADE_MS = 150;
-// 판정 글자는 흐리게 번지지 않고, 같은 모양의 진주빛 글자가 겹쳐 번쩍였다가 판정색으로 가라앉는다.
 const JUDGMENT_FLASH_ALPHA = 0.9;
 const JUDGMENT_FLASH_MS = 140;
-// 뒤의 빛은 PERFECT·GREAT 에만 공기처럼 옅게 남긴다. 세기는 타격 번짐과 같은 값을 곱한다.
 const JUDGMENT_GLOW_ALPHA = 0.2;
-const JUDGMENT_GLOW_MIN_INTENSITY = 0.75;
 const JUDGMENT_GLOW_WIDTH_SCALE = [1.1, 1.4] as const;
 const JUDGMENT_GLOW_HEIGHT_PX = [56, 80] as const;
-const JUDGMENT_POP_SCALE: Record<Judgment, number> = {
-  perfect: 1.18,
-  great: 1.08,
-  good: 1,
-  bad: 1,
-  miss: 1,
-};
-const COMBO_X_PX = 960;
 const COMBO_Y_PX = 360;
 const COMBO_LABEL_Y_PX = 430;
 // 같은 월광색 노트가 레인 가운데의 큰 숫자 위를 지날 때 숫자와 섞이지 않도록 한 단계 물린다.
@@ -100,97 +104,23 @@ const SCORE_Y_PX = 128;
 const PROGRESS_Y_PX = 40;
 // 진행 궤도(y 40)와 SCORE 라벨(y 96) 사이. 오른쪽 끝은 SCORE 와 같은 세로줄에 맞춘다.
 const STARLIGHT_Y_PX = 68;
-const STARLIGHT_EMBLEM_GAP_PX = 8;
-const STARLIGHT_LABEL_GAP_PX = 12;
-const STARLIGHT_WIDTH_PX = 256;
-const STARLIGHT_LABEL_TYPE = {
-  sizePx: 12,
-  weight: 500,
-} as const;
-// 밝은 영상 위에서도 라벨이 읽히도록 글자 바로 뒤에만 좁은 어두운 그림자를 둔다.
-const STARLIGHT_LABEL_SHADOW = {
-  offsetXPx: 0,
-  offsetYPx: 1,
-  color: 'rgba(8, 15, 32, 0.7)',
-  blurPx: 2,
-} as const;
-const INTRO_X_PX = 960;
 const INTRO_TITLE_Y_PX = 440;
 const INTRO_DIFFICULTY_Y_PX = 520;
-const STATUS_X_PX = 960;
 const STATUS_Y_PX = 600;
 const MV_MODE_X_PX = 120;
 const MV_MODE_Y_PX = 144;
 const MV_MODE_HOLD_MS = 700;
 const MV_MODE_FADE_MS = 300;
-const ERROR_X_PX = 960;
 const ERROR_MESSAGE_Y_PX = 480;
 const ERROR_HINT_Y_PX = 540;
 const ERROR_BUTTON_Y_PX = 600;
 const COMBO_GLINT_ID = 'R37';
 // 콤보 자릿수와 무관하게 숫자·라벨 글자와 겹치지 않도록 라벨 바로 아래 고정 위치에 둔다.
 const COMBO_GLINT_Y_PX = COMBO_LABEL_Y_PX + 40;
-const JUDGMENT_SHIMMER_ID = 'R38';
 // 판정 글자의 최대 pop scale 에서도 글자와 겹치지 않는 높이다.
 const JUDGMENT_SHIMMER_Y_PX = JUDGMENT_Y_PX + 56;
 const LOADING_STAR_ID = 'R47';
 const LOADING_STAR_GAP_PX = 24;
-const FAILURE_STAR_APPEAR_MS = 300;
-const FAILURE_STAR_HOLD_MS = 200;
-// 실패 별 10개가 하나씩 사라지도록 소멸 시작을 이 간격으로 늦춘다.
-const FAILURE_STAR_STAGGER_MS = 100;
-const FAILURE_STAR_FADE_MS = 360;
-const FAILED_X_PX = 960;
-const FAILED_Y_PX = 440;
-const FAILED_HOLD_MS = 600;
-const FULL_COMBO_X_PX = 960;
-// 콤보 숫자·COMBO 라벨·반짝임(y 360~470)과 판정 글자(y 780) 사이에 둔다.
-const FULL_COMBO_Y_PX = 600;
-// 판정 글자와 같은 문법이다: 커진 채로 나타나 제자리로 가라앉고, 진주빛 글자가 겹쳐 번쩍였다가 빠진다.
-const FULL_COMBO_POP_SCALE = 1.25;
-const FULL_COMBO_FLASH_MS = 360;
-// 영상이 밝아도 금색 글자가 읽히도록 글자 바로 뒤에 짙은 밤색 그림자를 깐다.
-const FULL_COMBO_SHADOW = {
-  offsetXPx: 0,
-  offsetYPx: 3,
-  color: 'rgba(8, 15, 32, 0.85)',
-  blurPx: 14,
-} as const;
-// 둥근 빛 하나를 가로로 늘리면 큰 타원이 되므로, 둥근 빛 여럿을 글자를 따라 겹쳐 글자 모양대로 번지게 한다.
-// 위치는 글자 반폭에 대한 비율이다. SCREEN 으로 겹쳐 더해지므로 하나의 alpha 는 낮게 둔다.
-const FULL_COMBO_GLOW_POINTS = [-0.8, -0.4, 0, 0.4, 0.8] as const;
-const FULL_COMBO_GLOW_SIZE_PX = [56, 150] as const;
-const FULL_COMBO_GLOW_PEAK_ALPHA = 0.32;
-const FULL_COMBO_GLOW_REST_ALPHA = 0.16;
-// 글자 귀퉁이 바깥에서 십자 별이 차례로 한 번씩 반짝인다. 위치는 글자 반폭·반높이에 대한 비율이다.
-const FULL_COMBO_TWINKLE_ID = 'R28';
-const FULL_COMBO_TWINKLES = [
-  {
-    x: -1.06,
-    y: -0.85,
-    haloSizePx: 44,
-    delayMs: 100,
-  },
-  {
-    x: 1.08,
-    y: -0.6,
-    haloSizePx: 32,
-    delayMs: 260,
-  },
-  {
-    x: 0.98,
-    y: 1.0,
-    haloSizePx: 40,
-    delayMs: 420,
-  },
-] as const;
-// 매니페스트 scaleRange 의 최대값이다. 십자만으로는 작아서 뒤에 금빛 광점을 함께 키웠다 줄인다.
-const FULL_COMBO_TWINKLE_SCALE = 0.25;
-const FULL_COMBO_TWINKLE_HALO_MS = 260;
-// 64px 글자의 아랫선과 겹치지 않는 높이에서 판정 반짝임과 같은 천체 효과를 한 번 튼다.
-const FULL_COMBO_SHIMMER_OFFSET_Y_PX = 64;
-// 결과 화면으로 넘어가기 전에 FULL COMBO 를 읽을 수 있을 만큼 머문다.
-const FULL_COMBO_HOLD_MS = 1100;
 
 const STATUS_MESSAGES = {
   loading: 'gameplay.loading',
@@ -211,9 +141,9 @@ interface LaneView {
 interface GameplayView {
   lanes: Record<Lane, LaneView>;
   laneFx: LaneFx;
-  comboGlint: Phaser.GameObjects.Sprite | null;
-  judgmentShimmer: Phaser.GameObjects.Sprite | null;
-  loadingStar: Phaser.GameObjects.Sprite | null;
+  comboGlint: Phaser.GameObjects.Sprite;
+  judgmentShimmer: Phaser.GameObjects.Sprite;
+  loadingStar: Phaser.GameObjects.Sprite;
   judgmentGlow: Phaser.GameObjects.Image;
   judgmentText: Phaser.GameObjects.Text;
   judgmentFlash: Phaser.GameObjects.Text;
@@ -225,23 +155,17 @@ interface GameplayView {
   introDifficulty: Phaser.GameObjects.Text;
   statusText: Phaser.GameObjects.Text;
   mvModeText: Phaser.GameObjects.Text;
-  /** 플레이 중 Esc 로 여는 나가기 확인창. */
   quitDialog: ConfirmDialog;
 }
 
-/** main.ts 가 로그인 여부와 PocketBase 호출을 묶어 주입하는 랭킹 세션 발급·결과 제출. */
 export interface RankedPlay {
-  /** 비로그인이면 세션 없이 null 이다. */
-  startSession(song: Song, difficulty: Difficulty, chartRevision: string): Promise<string | null>;
   submit(sessionId: string, submission: PlaySubmission): Promise<VerifiedPlay>;
 }
 
-interface PreparedRun {
-  song: Song;
-  difficulty: Difficulty;
+interface PreparedRun extends ChartRef {
   chart: Chart;
-  /** 발급 실패는 이미 경고하고 null 로 바꿔 두었으므로 거부되지 않는다. */
-  rankedSessionId: Promise<string | null>;
+  // 비로그인·발급 실패면 그 판은 랭킹 없이 진행한다.
+  rankedSessionId: string | null;
   view: GameplayView;
   player: YouTubePlayer;
   timeSource: YouTubeTimeSource;
@@ -253,14 +177,13 @@ interface PlayRun extends PreparedRun {
   notes: NoteLayer;
   playerState: YouTubePlayerState;
   activation: WorldActivation;
-  /** 열려 있는 동안 영상은 멈춰 있고 레인 입력은 받지 않는다. */
   isQuitConfirmOpen: boolean;
+  hud: { combo: number; score: number };
 }
 
 type GameplayPhase =
   | { kind: 'loading' }
   | { kind: 'ready'; run: PreparedRun }
-  /** 재생 요청을 이미 보냈고 플레이어가 재생을 시작하기를 기다린다. */
   | { kind: 'starting'; run: PreparedRun }
   | { kind: 'error' }
   | { kind: 'playing'; run: PlayRun }
@@ -271,13 +194,12 @@ export class GameplayScene extends Phaser.Scene {
   private phase: GameplayPhase = { kind: 'loading' };
   private exit: SceneExit<SceneRequest> = STAYING;
   private player: YouTubePlayer | null = null;
-  /** 플레이 중 Tab 으로 MV 모드를 바꾸면 갱신된다. 이 씬의 설정은 여기만 읽는다. */
   private settings: Settings = DEFAULT_SETTINGS;
 
   constructor(
     private readonly save: LocalSave,
     private readonly mvLayer: HTMLElement,
-    private readonly loadChart: (song: Song, difficulty: Difficulty) => Promise<LoadedChart>,
+    private readonly prepareChart: (ref: ChartRef) => Promise<PreparedChart>,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
     private readonly rankedPlay: RankedPlay,
@@ -291,7 +213,6 @@ export class GameplayScene extends Phaser.Scene {
 
   create(data: GameplaySceneData): void {
     this.exit = STAYING;
-    registerCelestialAnimations(this, this.celestial);
     addCelestialAtmosphere(this, this.celestial, 'gameplay');
     const token = {};
     this.runToken = token;
@@ -326,8 +247,15 @@ export class GameplayScene extends Phaser.Scene {
         .setAlpha(LANE_DIVIDER_ALPHA)
         .setDepth(GAMEPLAY_DEPTH.laneDivider);
     });
-    this.addHudText(COMBO_X_PX, COMBO_LABEL_Y_PX, 'COMBO', textStyle('meta', COLORS.textMuted));
-    this.addHudText(
+    addHudText(
+      this,
+      LANES_CENTER_X_PX,
+      COMBO_LABEL_Y_PX,
+      'COMBO',
+      textStyle('meta', COLORS.textMuted),
+    );
+    addHudText(
+      this,
       SCORE_RIGHT_X_PX,
       SCORE_LABEL_Y_PX,
       'SCORE',
@@ -335,26 +263,12 @@ export class GameplayScene extends Phaser.Scene {
     ).setOrigin(1, 0);
     // STARLIGHT 는 SCORE 위에 두어 체력·점수를 우상단 한 묶음으로 읽게 한다.
     // YouTube 임베드가 재생 시작·일시정지 때 띄우는 제목 바(좌상단)·버튼(아래 양 구석)과도 겹치지 않는다.
-    const starlightLeftXPx = SCORE_RIGHT_X_PX - STARLIGHT_RAIL_INSET_PX - STARLIGHT_WIDTH_PX;
-    const { offsetXPx, offsetYPx, color, blurPx } = STARLIGHT_LABEL_SHADOW;
-    const starlightLabel = this.addHudText(
-      starlightLeftXPx - STARLIGHT_RAIL_INSET_PX - STARLIGHT_LABEL_GAP_PX,
-      STARLIGHT_Y_PX,
-      'STARLIGHT',
-      typeStyle(STARLIGHT_LABEL_TYPE, COLORS.noteShade),
-    )
-      .setOrigin(1, 0.5)
-      .setShadow(offsetXPx, offsetYPx, color, blurPx, false, true);
-    const emblem = addStarlightEmblem(
-      this,
-      starlightLabel.x - starlightLabel.width - STARLIGHT_EMBLEM_GAP_PX,
-      STARLIGHT_Y_PX,
-    );
-    addStarlightBacking(this, emblem.x - emblem.width, SCORE_RIGHT_X_PX, STARLIGHT_Y_PX);
+    const starlight = new StarlightGauge(this, SCORE_RIGHT_X_PX, STARLIGHT_Y_PX);
     const keyBindings = this.settings.keyBindings;
     const view: GameplayView = {
       lanes: mapLanes((lane) => ({
-        keyLabel: this.addHudText(
+        keyLabel: addHudText(
+          this,
           getLaneXPx(lane),
           KEY_LABEL_Y_PX,
           formatKeyCode(keyBindings[lane]),
@@ -362,61 +276,81 @@ export class GameplayScene extends Phaser.Scene {
         ),
       })),
       laneFx: new LaneFx(this, this.celestial, mapLanes(getLaneXPx), JUDGE_LINE_Y_PX),
-      comboGlint: this.addHudEffect(COMBO_GLINT_ID, COMBO_X_PX, COMBO_GLINT_Y_PX),
-      judgmentShimmer: this.addHudEffect(JUDGMENT_SHIMMER_ID, JUDGMENT_X_PX, JUDGMENT_SHIMMER_Y_PX),
-      loadingStar: this.addHudEffect(LOADING_STAR_ID, 0, 0),
+      comboGlint: addHudEffect(
+        this,
+        this.celestial,
+        COMBO_GLINT_ID,
+        LANES_CENTER_X_PX,
+        COMBO_GLINT_Y_PX,
+      ),
+      judgmentShimmer: addHudEffect(
+        this,
+        this.celestial,
+        JUDGMENT_SHIMMER_ID,
+        LANES_CENTER_X_PX,
+        JUDGMENT_SHIMMER_Y_PX,
+      ),
+      loadingStar: addHudEffect(this, this.celestial, LOADING_STAR_ID, 0, 0),
       // 같은 depth 에서 글자 아래에 그려지도록 글자보다 먼저 만든다.
-      judgmentGlow: addLight(this, LIGHT_TEXTURES.glow, JUDGMENT_X_PX, JUDGMENT_Y_PX)
+      judgmentGlow: addLight(this, LIGHT_TEXTURES.glow, LANES_CENTER_X_PX, JUDGMENT_Y_PX)
         .setAlpha(0)
         .setDepth(GAMEPLAY_DEPTH.text),
-      judgmentText: this.addHudText(
-        JUDGMENT_X_PX,
+      judgmentText: addHudText(
+        this,
+        LANES_CENTER_X_PX,
         JUDGMENT_Y_PX,
         '',
         textStyle('judgment', COLORS.textPrimary),
       ).setAlpha(0),
       // 글자 위에 겹쳐 그리도록 글자 다음에 만든다.
-      judgmentFlash: this.addHudText(
-        JUDGMENT_X_PX,
+      judgmentFlash: addHudText(
+        this,
+        LANES_CENTER_X_PX,
         JUDGMENT_Y_PX,
         '',
         textStyle('judgment', COLORS.note),
       )
         .setAlpha(0)
         .setBlendMode(Phaser.BlendModes.SCREEN),
-      comboText: this.addHudText(
-        COMBO_X_PX,
+      comboText: addHudText(
+        this,
+        LANES_CENTER_X_PX,
         COMBO_Y_PX,
         '0',
         textStyle('combo', COLORS.textPrimary),
       ).setAlpha(COMBO_ALPHA),
-      scoreText: this.addHudText(
+      scoreText: addHudText(
+        this,
         SCORE_RIGHT_X_PX,
         SCORE_Y_PX,
         formatScore(0),
         textStyle('hudScore', COLORS.textPrimary),
       ).setOrigin(1, 0),
       progress: new OrbitTrace(this, LANES_LEFT_PX, PLAY_AREA_WIDTH_PX, PROGRESS_Y_PX),
-      starlight: new StarlightGauge(this, starlightLeftXPx, STARLIGHT_WIDTH_PX, STARLIGHT_Y_PX),
-      introTitle: this.addHudText(
-        INTRO_X_PX,
+      starlight,
+      introTitle: addHudText(
+        this,
+        SCREEN_CENTER_X_PX,
         INTRO_TITLE_Y_PX,
         data.song.title,
         textStyle('title', COLORS.textPrimary),
       ),
-      introDifficulty: this.addHudText(
-        INTRO_X_PX,
+      introDifficulty: addHudText(
+        this,
+        SCREEN_CENTER_X_PX,
         INTRO_DIFFICULTY_Y_PX,
         data.difficulty.toUpperCase(),
         textStyle('secondary', COLORS.textSecondary),
       ),
-      statusText: this.addHudText(
-        STATUS_X_PX,
+      statusText: addHudText(
+        this,
+        SCREEN_CENTER_X_PX,
         STATUS_Y_PX,
         '',
         textStyle('meta', COLORS.textMuted),
       ),
-      mvModeText: this.addHudText(
+      mvModeText: addHudText(
+        this,
         MV_MODE_X_PX,
         MV_MODE_Y_PX,
         '',
@@ -459,18 +393,17 @@ export class GameplayScene extends Phaser.Scene {
     const run = this.phase.run;
     run.timeSource.sync();
     const songTimeMs = run.clock.getTimeMs();
-    this.applyJudgmentEvents(run.view, run.session.update(songTimeMs));
-    // 실패하면 이 프레임의 활성화·노트·HUD·완주 확인을 하지 않고 그 자리에 멈춘다.
-    if (this.failIfDepleted(run)) {
+    if (this.applyJudgments(run, run.session.update(songTimeMs))) {
       return;
     }
-    const activation = run.activation.advance(run.session.getState().combo, songTimeMs);
+    const state = run.session.getState();
+    const activation = run.activation.advance(state.combo, songTimeMs);
     run.view.laneFx.setActivation(activation.level);
-    if (activation.reachedFull && run.view.comboGlint !== null) {
+    if (activation.reachedFull) {
       playCelestialOnce(run.view.comboGlint);
     }
     run.notes.render(run.session, songTimeMs);
-    this.renderHud(run, songTimeMs);
+    this.renderHud(run, state, songTimeMs);
     if (run.clock.getPlaybackMs() >= run.song.gameStartMs) {
       this.hideIntro(run.view);
     }
@@ -482,41 +415,29 @@ export class GameplayScene extends Phaser.Scene {
     data: GameplaySceneData,
     view: GameplayView,
   ): Promise<void> {
-    const { song, difficulty } = data;
+    const { song, difficulty, chartId } = data;
 
-    let loaded: LoadedChart;
+    let failedMessage = this.i18n.t('gameplay.chartLoadFailed');
+    let prepared: PreparedChart;
     try {
-      loaded = await this.loadChart(song, difficulty);
-    } catch (error) {
-      if (this.isCurrentRun(token)) {
-        this.showLoadError(view, this.i18n.t('gameplay.chartLoadFailed'), error);
+      prepared = await this.prepareChart(data);
+
+      if (!this.isCurrentRun(token)) {
+        return;
       }
-      return;
-    }
 
-    if (!this.isCurrentRun(token)) {
-      return;
-    }
-    const { chart } = loaded;
-    // 플레이 시작은 세션 응답을 기다리지 않는다. 세션이 없으면 그 판은 랭킹 없이 진행한다.
-    const rankedSessionId = this.rankedPlay
-      .startSession(song, difficulty, loaded.revision)
-      .catch((error: unknown) => {
-        console.warn('Failed to start ranked play session', error);
-        return null;
-      });
-
-    try {
+      failedMessage = this.i18n.t('gameplay.playerLoadFailed');
       await loadYouTubeIframeApi();
     } catch (error) {
       if (this.isCurrentRun(token)) {
-        this.showLoadError(view, this.i18n.t('gameplay.playerLoadFailed'), error);
+        this.showLoadError(view, failedMessage, error);
       }
       return;
     }
     if (!this.isCurrentRun(token)) {
       return;
     }
+    const { chart, rankedSessionId } = prepared;
 
     let player: YouTubePlayer;
 
@@ -532,6 +453,7 @@ export class GameplayScene extends Phaser.Scene {
             run: {
               song,
               difficulty,
+              chartId,
               chart,
               rankedSessionId,
               view,
@@ -580,7 +502,6 @@ export class GameplayScene extends Phaser.Scene {
   private isCurrentRun(token: object): boolean {
     return this.runToken === token;
   }
-
   private handlePlayerStateChange(state: YouTubePlayerState): void {
     switch (this.phase.kind) {
       case 'ready':
@@ -603,15 +524,10 @@ export class GameplayScene extends Phaser.Scene {
     }
   }
 
-  /** 상태 문구를 바꾸면서 loading star 도 그 상태가 대기 상태인지로 함께 켜고 끈다. */
   private setStatus(view: GameplayView, status: GameplayStatus): void {
     view.statusText.setText(status === 'none' ? '' : this.i18n.t(STATUS_MESSAGES[status]));
-    if (view.loadingStar === null) {
-      return;
-    }
     const isLoading = isLoadingStatus(status);
     if (isLoading) {
-      // 문구마다 폭이 달라 켤 때마다 텍스트 왼쪽 끝을 다시 따라간다.
       const bounds = view.statusText.getBounds();
       view.loadingStar.setPosition(bounds.left - LOADING_STAR_GAP_PX, bounds.centerY);
     }
@@ -621,8 +537,15 @@ export class GameplayScene extends Phaser.Scene {
   private beginPlay(prepared: PreparedRun): void {
     const { chart } = prepared;
     const session = new GameplaySession(chart, JUDGMENT_WINDOWS);
-    const clock = new RhythmClock(prepared.timeSource, this.settings.inputOffsetMs, chart.offsetMs);
-    clock.start(0, 0);
+    const clock = new RhythmClock(
+      prepared.timeSource,
+      this.settings.inputOffsetMs,
+      chart.offsetMs,
+      {
+        audioStartTimeSec: 0,
+        songStartMs: 0,
+      },
+    );
     this.setStatus(prepared.view, 'none');
     this.phase = {
       kind: 'playing',
@@ -638,7 +561,11 @@ export class GameplayScene extends Phaser.Scene {
         }),
         playerState: 'playing',
         isQuitConfirmOpen: false,
-        activation: new WorldActivation(countJudgments(chart.notes), clock.getTimeMs()),
+        hud: {
+          combo: 0,
+          score: 0,
+        },
+        activation: new WorldActivation(getJudgmentEventCount(chart.notes), clock.getTimeMs()),
       },
     };
   }
@@ -647,19 +574,18 @@ export class GameplayScene extends Phaser.Scene {
     console.error(message, error);
     view.quitDialog.hide();
     this.hideIntro(view);
-    view.statusText.setVisible(false);
-    if (view.loadingStar !== null) {
-      setCelestialLoopActive(view.loadingStar, false);
-    }
-    this.addHudText(
-      ERROR_X_PX,
+    this.setStatus(view, 'none');
+    addHudText(
+      this,
+      SCREEN_CENTER_X_PX,
       ERROR_MESSAGE_Y_PX,
       message,
       textStyle('heading', COLORS.textPrimary),
     );
     if (hint !== undefined) {
-      this.addHudText(
-        ERROR_X_PX,
+      addHudText(
+        this,
+        SCREEN_CENTER_X_PX,
         ERROR_HINT_Y_PX,
         hint,
         textStyle('secondary', COLORS.textSecondary),
@@ -670,28 +596,13 @@ export class GameplayScene extends Phaser.Scene {
       label: this.i18n.t('gameplay.backToSongSelect'),
       onActivate: () => this.backToSongSelect(),
     });
-    button.alignX(ERROR_X_PX, 0.5).setFocused(true).setDepth(GAMEPLAY_DEPTH.text);
+    button.alignX(SCREEN_CENTER_X_PX, 0.5).setFocused(true).setDepth(GAMEPLAY_DEPTH.text);
     this.phase = { kind: 'error' };
   }
 
   private hideIntro(view: GameplayView): void {
     view.introTitle.setVisible(false);
     view.introDifficulty.setVisible(false);
-  }
-
-  /** 기본은 가운데 정렬. 다른 정렬이 필요하면 반환값에 setOrigin 을 다시 건다. */
-  private addHudText(
-    xPx: number,
-    yPx: number,
-    text: string,
-    style: Phaser.Types.GameObjects.Text.TextStyle,
-  ): Phaser.GameObjects.Text {
-    return this.add.text(xPx, yPx, text, style).setOrigin(0.5).setDepth(GAMEPLAY_DEPTH.text);
-  }
-
-  private addHudEffect(id: string, xPx: number, yPx: number): Phaser.GameObjects.Sprite | null {
-    const sprite = addCelestialSprite(this, getAtlasPresentation(this.celestial, id), xPx, yPx);
-    return sprite === null ? null : sprite.setDepth(GAMEPLAY_DEPTH.text);
   }
 
   private handleKeyDown(event: KeyboardEvent, view: GameplayView): void {
@@ -703,15 +614,38 @@ export class GameplayScene extends Phaser.Scene {
       event.preventDefault();
     }
     const key = readGameplayKey(event.code, this.settings.keyBindings);
-    const context: GameplayKeyContext =
-      this.phase.kind === 'playing'
-        ? {
-            phase: 'playing',
-            isQuitConfirmOpen: this.phase.run.isQuitConfirmOpen,
-            playerState: this.phase.run.playerState,
-          }
-        : { phase: this.phase.kind };
-    const action = getGameplayKeyAction(context, key, event.repeat);
+    switch (this.phase.kind) {
+      case 'loading':
+      case 'starting':
+        this.applyCommonKeyAction(getLoadingKeyAction(key, event.repeat), view);
+        return;
+      case 'ready': {
+        const action = getReadyKeyAction(key, event.repeat);
+        if (action.kind === 'start') {
+          this.requestStart(this.phase.run);
+          return;
+        }
+        this.applyCommonKeyAction(action, view);
+        return;
+      }
+      case 'error':
+        this.applyCommonKeyAction(getErrorKeyAction(key, event.repeat), view);
+        return;
+      case 'ending':
+        return;
+      case 'playing': {
+        const run = this.phase.run;
+        this.applyPlayingKeyAction(
+          run,
+          getPlayingKeyAction(run.isQuitConfirmOpen, run.playerState, key, event.repeat),
+          view,
+        );
+        return;
+      }
+    }
+  }
+
+  private applyCommonKeyAction(action: CommonKeyAction, view: GameplayView): void {
     switch (action.kind) {
       case 'none':
         return;
@@ -721,51 +655,41 @@ export class GameplayScene extends Phaser.Scene {
       case 'cycleMvMode':
         this.cycleMvMode(view);
         return;
-      case 'start': {
-        const run = this.requireReadyRun();
-        run.player.requestPlay(getPlaybackStartMs(run.song.gameStartMs) / 1000);
-        this.setStatus(run.view, 'preparing');
-        this.phase = {
-          kind: 'starting',
-          run,
-        };
-        return;
-      }
+    }
+  }
+
+  private requestStart(run: PreparedRun): void {
+    run.player.requestPlay(msToSec(getPlaybackStartMs(run.song.gameStartMs)));
+    this.setStatus(run.view, 'preparing');
+    this.phase = {
+      kind: 'starting',
+      run,
+    };
+  }
+
+  private applyPlayingKeyAction(run: PlayRun, action: PlayingKeyAction, view: GameplayView): void {
+    switch (action.kind) {
       case 'openQuitConfirm':
-        this.openQuitConfirm(this.requirePlayRun());
+        this.openQuitConfirm(run);
         return;
       case 'closeQuitConfirm':
-        this.closeQuitConfirm(this.requirePlayRun());
+        this.closeQuitConfirm(run);
         return;
       case 'resume':
-        this.requirePlayRun().player.resume();
+        run.player.resume();
         return;
-      case 'pressLane': {
-        const run = this.requirePlayRun();
+      case 'pressLane':
         run.view.laneFx.press(action.lane);
         this.flashKeyLabel(run.view.lanes[action.lane].keyLabel);
-        this.applyJudgmentEvents(run.view, run.session.press(action.lane, run.clock.getTimeMs()));
-        this.failIfDepleted(run);
+        this.applyJudgments(run, run.session.press(action.lane, run.clock.getTimeMs()));
         return;
-      }
+      default:
+        this.applyCommonKeyAction(action, view);
+        return;
     }
   }
 
-  private requireReadyRun(): PreparedRun {
-    if (this.phase.kind !== 'ready') {
-      throw new Error(`Expected ready phase, got ${this.phase.kind}`);
-    }
-    return this.phase.run;
-  }
-
-  private requirePlayRun(): PlayRun {
-    if (this.phase.kind !== 'playing') {
-      throw new Error(`Expected playing phase, got ${this.phase.kind}`);
-    }
-    return this.phase.run;
-  }
-
-  /** 영상을 멈춰 판정 시계도 함께 멈춘다. 뒤의 일시정지 안내는 Enter 의 뜻이 달라지므로 가린다. */
+  // 뒤의 일시정지 안내는 Enter 의 뜻이 달라지므로 가린다.
   private openQuitConfirm(run: PlayRun): void {
     run.isQuitConfirmOpen = true;
     run.player.pause();
@@ -828,8 +752,7 @@ export class GameplayScene extends Phaser.Scene {
     if (lane === null) {
       return;
     }
-    this.applyJudgmentEvents(run.view, run.session.release(lane, run.clock.getTimeMs()));
-    this.failIfDepleted(run);
+    this.applyJudgments(run, run.session.release(lane, run.clock.getTimeMs()));
   }
 
   private flashKeyLabel(keyLabel: Phaser.GameObjects.Text): void {
@@ -844,6 +767,11 @@ export class GameplayScene extends Phaser.Scene {
     });
   }
 
+  private applyJudgments(run: PlayRun, events: readonly JudgmentEvent[]): boolean {
+    this.applyJudgmentEvents(run.view, events);
+    return this.failIfDepleted(run);
+  }
+
   private applyJudgmentEvents(view: GameplayView, events: readonly JudgmentEvent[]): void {
     events.forEach((event) => view.laneFx.judge(event));
     const lastEvent = events.at(-1);
@@ -854,7 +782,7 @@ export class GameplayScene extends Phaser.Scene {
     const { judgment } = lastEvent;
     const color = JUDGMENT_COLORS[judgment];
     const intensity = getHitBloomIntensity(judgment);
-    const popScale = JUDGMENT_POP_SCALE[judgment];
+    const popScale = getJudgmentPopScale(judgment);
     this.tweens.killTweensOf([judgmentText, judgmentFlash, judgmentGlow]);
     judgmentText
       .setText(judgment.toUpperCase())
@@ -872,7 +800,7 @@ export class GameplayScene extends Phaser.Scene {
       scale: 1,
       duration: MOTION.fastMs,
     });
-    // 맞힌 판정만 번쩍인다. 글자와 같은 크기로 줄어들며 사라져 획이 어긋나 보이지 않는다.
+    // 글자와 같은 크기로 줄어들며 사라져 획이 어긋나 보이지 않는다.
     judgmentFlash
       .setText(judgmentText.text)
       .setAlpha(JUDGMENT_FLASH_ALPHA * intensity)
@@ -885,7 +813,7 @@ export class GameplayScene extends Phaser.Scene {
       ease: 'Quad.Out',
     });
     judgmentGlow.setAlpha(0);
-    if (intensity >= JUDGMENT_GLOW_MIN_INTENSITY) {
+    if (hasJudgmentGlow(judgment)) {
       judgmentGlow
         .setTint(color)
         .setAlpha(JUDGMENT_GLOW_ALPHA * intensity)
@@ -902,146 +830,51 @@ export class GameplayScene extends Phaser.Scene {
         ease: 'Cubic.Out',
       });
     }
-    if (hasJudgmentShimmer(lastEvent.judgment) && view.judgmentShimmer !== null) {
+    if (hasJudgmentShimmer(lastEvent.judgment)) {
       playCelestialOnce(view.judgmentShimmer);
     }
   }
 
-  private renderHud(run: PlayRun, songTimeMs: number): void {
-    const state = run.session.getState();
+  private renderHud(run: PlayRun, state: GameplayState, songTimeMs: number): void {
     const progress = clamp(
-      (songTimeMs - run.song.gameStartMs) / (run.song.gameEndMs - run.song.gameStartMs),
+      getGameFraction(run.song.gameStartMs, run.song.gameEndMs, songTimeMs),
       0,
       1,
     );
-    run.view.comboText.setText(`${state.combo}`);
-    run.view.scoreText.setText(formatScore(state.score));
+    const { hud } = run;
+    if (state.combo !== hud.combo) {
+      hud.combo = state.combo;
+      run.view.comboText.setText(`${state.combo}`);
+    }
+    if (state.score !== hud.score) {
+      hud.score = state.score;
+      run.view.scoreText.setText(formatScore(state.score));
+    }
     run.view.progress.setProgress(progress);
     run.view.starlight.setHp(state.hp);
   }
 
   private finishIfEnded(run: PlayRun): void {
-    if (run.clock.getPlaybackMs() < run.song.gameEndMs || !run.session.isFinished()) {
+    const ending = getRunEnding(
+      run.clock.getPlaybackMs(),
+      run.song.gameEndMs,
+      run.session.getProgress(),
+    );
+    if (ending.kind === 'continue') {
       return;
     }
     this.phase = { kind: 'ending' };
-    if (isFullCombo(run.session.getResult().counts)) {
-      this.playFullCombo(run);
+    if (ending.kind === 'fullCombo') {
+      playFullComboFx(this, this.celestial, () => this.showResult(run, ending.result));
       return;
     }
-    this.showResult(run);
+    this.showResult(run, ending.result);
   }
 
-  /** 미스·배드 없이 완주하면 FULL COMBO 를 띄운 뒤 결과 화면으로 넘어간다. */
-  private playFullCombo(run: PlayRun): void {
-    const color = JUDGMENT_COLORS.perfect;
-    // 같은 depth 에서 글로우 → 글자 → 플래시 순으로 겹치도록 만드는 순서를 지킨다.
-    // 글로우 위치는 글자 폭을 알아야 정해지므로 글자를 만든 뒤 옮긴다.
-    const glows = FULL_COMBO_GLOW_POINTS.map((point) => ({
-      point,
-      image: addLight(this, LIGHT_TEXTURES.glow, FULL_COMBO_X_PX, FULL_COMBO_Y_PX)
-        .setDepth(GAMEPLAY_DEPTH.text)
-        .setTint(color)
-        .setDisplaySize(FULL_COMBO_GLOW_SIZE_PX[0], FULL_COMBO_GLOW_SIZE_PX[0])
-        .setAlpha(0),
-    }));
-    const { offsetXPx, offsetYPx, color: shadowColor, blurPx } = FULL_COMBO_SHADOW;
-    const label = this.addHudText(
-      FULL_COMBO_X_PX,
-      FULL_COMBO_Y_PX,
-      'FULL COMBO',
-      textStyle('title', color),
-    )
-      .setShadow(offsetXPx, offsetYPx, shadowColor, blurPx, false, true)
-      .setAlpha(0)
-      .setScale(FULL_COMBO_POP_SCALE);
-    const flash = this.addHudText(
-      FULL_COMBO_X_PX,
-      FULL_COMBO_Y_PX,
-      'FULL COMBO',
-      textStyle('title', COLORS.note),
-    )
-      .setBlendMode(Phaser.BlendModes.SCREEN)
-      .setScale(FULL_COMBO_POP_SCALE);
-    const halfWidthPx = label.width / 2;
-    const halfHeightPx = label.height / 2;
-    // 플래시가 글자와 같은 크기로 줄어들어야 획이 어긋나 겹쳐 보이지 않는다.
-    this.tweens.add({
-      targets: [label, flash],
-      scale: 1,
-      duration: MOTION.mediumMs,
-      ease: 'Back.Out',
-    });
-    this.tweens.add({
-      targets: label,
-      alpha: 1,
-      duration: MOTION.fastMs,
-    });
-    this.tweens.add({
-      targets: flash,
-      alpha: 0,
-      duration: FULL_COMBO_FLASH_MS,
-      ease: 'Quad.Out',
-    });
-    glows.forEach(({ point, image }) => image.setX(FULL_COMBO_X_PX + point * halfWidthPx));
-    this.tweens.chain({
-      targets: glows.map(({ image }) => image),
-      tweens: [
-        {
-          alpha: FULL_COMBO_GLOW_PEAK_ALPHA,
-          displayWidth: FULL_COMBO_GLOW_SIZE_PX[1],
-          displayHeight: FULL_COMBO_GLOW_SIZE_PX[1],
-          duration: MOTION.mediumMs,
-          ease: 'Cubic.Out',
-        },
-        {
-          alpha: FULL_COMBO_GLOW_REST_ALPHA,
-          duration: MOTION.mediumMs,
-        },
-      ],
-    });
-    FULL_COMBO_TWINKLES.forEach(({ x, y, haloSizePx, delayMs }) => {
-      const xPx = FULL_COMBO_X_PX + x * halfWidthPx;
-      const yPx = FULL_COMBO_Y_PX + y * halfHeightPx;
-      const halo = addLight(this, LIGHT_TEXTURES.star, xPx, yPx)
-        .setDepth(GAMEPLAY_DEPTH.text)
-        .setTint(color)
-        .setDisplaySize(0, 0);
-      this.tweens.add({
-        targets: halo,
-        displayWidth: haloSizePx,
-        displayHeight: haloSizePx,
-        delay: delayMs,
-        duration: FULL_COMBO_TWINKLE_HALO_MS,
-        ease: 'Quad.Out',
-        yoyo: true,
-      });
-      const twinkle = this.addHudEffect(FULL_COMBO_TWINKLE_ID, xPx, yPx);
-      if (twinkle !== null) {
-        twinkle.setScale(FULL_COMBO_TWINKLE_SCALE);
-        // 광점이 가장 클 때 십자가 번쩍이도록 광점이 커지는 시간만큼 늦춘다.
-        this.time.delayedCall(delayMs + FULL_COMBO_TWINKLE_HALO_MS, () =>
-          playCelestialOnce(twinkle),
-        );
-      }
-    });
-    const shimmer = this.addHudEffect(
-      JUDGMENT_SHIMMER_ID,
-      FULL_COMBO_X_PX,
-      FULL_COMBO_Y_PX + FULL_COMBO_SHIMMER_OFFSET_Y_PX,
-    );
-    if (shimmer !== null) {
-      playCelestialOnce(shimmer);
-    }
-    this.time.delayedCall(MOTION.mediumMs + FULL_COMBO_HOLD_MS, () => this.showResult(run));
-  }
-
-  /**
-   * 판정 반영 직후 부른다. 세션이 방금 실패했으면 실패 연출을 한 번만 시작하고 true 를 돌려준다.
-   * 확인창이 열려 있어도 keyup 판정으로 실패할 수 있으므로 재생 재개 없이 확인창만 숨긴다.
-   */
+  // 확인창이 열려 있어도 keyup 판정으로 실패할 수 있으므로 재생 재개 없이 확인창만 숨긴다.
   private failIfDepleted(run: PlayRun): boolean {
-    if (!shouldFailPlay(this.phase.kind === 'playing', run.session.isFailed())) {
+    const progress = run.session.getProgress();
+    if (progress.outcome !== 'failed') {
       return false;
     }
     this.phase = { kind: 'ending' };
@@ -1049,68 +882,11 @@ export class GameplayScene extends Phaser.Scene {
       run.view.quitDialog.hide();
     }
     run.player.pause();
-    this.playFailure(run);
+    playFailureFx(this, this.celestial, run.view.starlight, () => this.showResult(run, progress));
     return true;
   }
 
-  /** 게이지 꺼짐 → 실패 별이 하나씩 사라짐 → FAILED → 결과 화면 순서다. */
-  private playFailure(run: PlayRun): void {
-    run.view.starlight.extinguish();
-    // 게이지 소멸(StarlightGauge.extinguish 의 MOTION.mediumMs)이 끝난 뒤에 별이 등장한다.
-    const gaugeGoneMs = MOTION.mediumMs;
-    const starsFadedMs =
-      gaugeGoneMs +
-      FAILURE_STAR_APPEAR_MS +
-      FAILURE_STAR_HOLD_MS +
-      FAILURE_STAR_STAGGER_MS * (GAMEPLAY_FAILURE_STARS.length - 1) +
-      FAILURE_STAR_FADE_MS;
-    GAMEPLAY_FAILURE_STARS.forEach(({ id, xPx, yPx, scale, phaseFraction }, index) => {
-      const star = addCelestialSprite(
-        this,
-        getAtlasPresentation(this.celestial, id),
-        xPx,
-        yPx,
-        phaseFraction,
-      );
-      if (star === null) {
-        return;
-      }
-      const alpha = star.alpha;
-      star.setScale(scale).setDepth(GAMEPLAY_DEPTH.text).setAlpha(0);
-      this.tweens.chain({
-        targets: star,
-        tweens: [
-          {
-            alpha,
-            delay: gaugeGoneMs,
-            duration: FAILURE_STAR_APPEAR_MS,
-          },
-          {
-            alpha: 0,
-            delay: FAILURE_STAR_HOLD_MS + FAILURE_STAR_STAGGER_MS * index,
-            duration: FAILURE_STAR_FADE_MS,
-          },
-        ],
-      });
-    });
-    const failed = this.addHudText(
-      FAILED_X_PX,
-      FAILED_Y_PX,
-      'FAILED',
-      textStyle('title', JUDGMENT_COLORS.miss),
-    ).setAlpha(0);
-    this.tweens.add({
-      targets: failed,
-      alpha: 1,
-      delay: starsFadedMs,
-      duration: MOTION.mediumMs,
-      onComplete: () => this.time.delayedCall(FAILED_HOLD_MS, () => this.showResult(run)),
-    });
-  }
-
-  /** 완주·실패 공용 종료 경로. 완주 결과만 기록에 남긴다. */
-  private showResult(run: PlayRun): void {
-    const result = run.session.getResult();
+  private showResult(run: PlayRun, result: GameplayResult): void {
     if (result.outcome === 'finished') {
       try {
         this.save.saveResult(run.song.id, run.difficulty, result);
@@ -1124,6 +900,7 @@ export class GameplayScene extends Phaser.Scene {
     const data: ResultSceneData = {
       song: run.song,
       difficulty: run.difficulty,
+      chartId: run.chartId,
       result,
     };
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
@@ -1132,18 +909,16 @@ export class GameplayScene extends Phaser.Scene {
     this.cameras.main.fadeOut(MOTION.mediumMs);
   }
 
-  /** 완주한 판의 입력 기록을 백그라운드로 제출한다. 결과는 화면에 쓰지 않는다. */
   private async submitRankedPlay(run: PlayRun): Promise<void> {
-    // RhythmClock 에 준 값과 같다. 플레이 중에는 바뀌지 않지만, 발급을 기다리는 동안 다음 씬이
+    // RhythmClock 에 준 값과 같다. 플레이 중에는 바뀌지 않지만, 제출을 기다리는 동안 다음 씬이
     // this.settings 를 바꿀 수 있어 await 전에 고정한다.
     const submission: PlaySubmission = {
       inputOffsetMs: this.settings.inputOffsetMs,
       events: run.session.getInputs(),
     };
-    const sessionId = await run.rankedSessionId;
-    if (sessionId === null) {
+    if (run.rankedSessionId === null) {
       return;
     }
-    await this.rankedPlay.submit(sessionId, submission);
+    await this.rankedPlay.submit(run.rankedSessionId, submission);
   }
 }

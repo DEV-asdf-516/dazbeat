@@ -10,16 +10,18 @@ function step(presentationId: string, startMs: number, durationMs: number): Cele
     startMs,
     durationMs,
     presentation: {
-      kind: 'atlas',
       textureKey: `texture-${presentationId}`,
-      animationKey: `animation-${presentationId}`,
-      frames: [
-        {
-          frameName: `${presentationId}-0`,
-          durationMs,
-        },
-      ],
-      isLoop: false,
+      firstFrameName: `${presentationId}-0`,
+      playback: {
+        kind: 'once',
+        animationKey: `animation-${presentationId}`,
+        frames: [
+          {
+            frameName: `${presentationId}-0`,
+            durationMs,
+          },
+        ],
+      },
       scaleXY: [1, 1],
       scaleRange: null,
       originXY: [0.5, 0.5],

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   createEditorLayout,
+  getLaneAtXPx,
   getLaneCenterXPx,
   getSeekTimeMs,
   getSeekXPx,
   toViewportRect,
 } from '../../../src/game/editor/chartEditorLayout.js';
-import { getLaneAtX } from '../../../src/game/editor/editorTimeline.js';
 import { LANES } from '../../../src/rhythm/lanes.js';
 
 const SCREEN_WIDTH_PX = 1920;
@@ -121,26 +121,61 @@ describe('toViewportRect', () => {
   });
 });
 
-describe('getLaneCenterXPx', () => {
+describe('getLaneAtXPx', () => {
+  describe('with lanes at 720px and 120px wide', () => {
+    const fixedLayout = {
+      ...layout,
+      lanes: {
+        ...layout.lanes,
+        leftPx: 720,
+        laneWidthPx: 120,
+      },
+    };
+
+    it.each([
+      [720, 0],
+      [839, 0],
+      [840, 1],
+      [959, 1],
+      [960, 2],
+      [1079, 2],
+      [1080, 3],
+      [1199, 3],
+    ])('puts x %d in lane %d', (xPx, lane) => {
+      expect(getLaneAtXPx(fixedLayout, xPx)).toBe(lane);
+    });
+
+    it.each([
+      [719, 0],
+      [0, 0],
+      [1200, 3],
+      [1920, 3],
+    ])('clamps x %d outside the lanes to lane %d', (xPx, lane) => {
+      expect(getLaneAtXPx(fixedLayout, xPx)).toBe(lane);
+    });
+  });
+
   const { leftPx, laneWidthPx, widthPx } = layout.lanes;
 
   it('maps each lane center back to the same lane', () => {
     for (const lane of LANES) {
-      expect(getLaneAtX(getLaneCenterXPx(layout, lane), leftPx, laneWidthPx)).toBe(lane);
+      expect(getLaneAtXPx(layout, getLaneCenterXPx(layout, lane))).toBe(lane);
     }
   });
 
   it('splits lanes exactly at inner boundaries', () => {
     for (let k = 1; k < LANES.length; k += 1) {
       const boundaryXPx = leftPx + k * laneWidthPx;
-      expect(getLaneAtX(boundaryXPx, leftPx, laneWidthPx)).toBe(LANES[k]);
-      expect(getLaneAtX(boundaryXPx - 1, leftPx, laneWidthPx)).toBe(LANES[k - 1]);
+      expect(getLaneAtXPx(layout, boundaryXPx)).toBe(LANES[k]);
+      expect(getLaneAtXPx(layout, boundaryXPx - 1)).toBe(LANES[k - 1]);
     }
   });
 
   it('clamps x outside the lanes to the edge lanes', () => {
-    expect(getLaneAtX(leftPx - 1, leftPx, laneWidthPx)).toBe(0);
-    expect(getLaneAtX(leftPx + widthPx, leftPx, laneWidthPx)).toBe(LANES[LANES.length - 1]);
+    expect(getLaneAtXPx(layout, leftPx - 1)).toBe(0);
+    expect(getLaneAtXPx(layout, 0)).toBe(0);
+    expect(getLaneAtXPx(layout, leftPx + widthPx)).toBe(LANES[LANES.length - 1]);
+    expect(getLaneAtXPx(layout, SCREEN_WIDTH_PX)).toBe(LANES[LANES.length - 1]);
   });
 });
 

@@ -1,9 +1,7 @@
 import type { Judgment, JudgmentEvent } from '../../rhythm/types.js';
+import type { CelestialAtlasId } from '../celestial/celestialCatalog.js';
 
 export type LaneEffectId = 'R32' | 'R33' | 'R34' | 'R35' | 'R36';
-
-// LaneFx 가 이 순서로 sprite 를 만들므로 같은 depth 의 겹침 순서가 이 순서를 따른다.
-export const LANE_EFFECT_IDS: readonly LaneEffectId[] = ['R34', 'R35', 'R36', 'R32', 'R33'];
 
 const HIT_EFFECT_IDS: Record<Judgment, readonly LaneEffectId[]> = {
   perfect: ['R34', 'R35', 'R36'],
@@ -13,7 +11,7 @@ const HIT_EFFECT_IDS: Record<Judgment, readonly LaneEffectId[]> = {
   miss: [],
 };
 
-/** 판정 하나가 lane 에 재생할 celestial 효과. 반환 순서가 재생 순서다. */
+// 반환 순서가 재생 순서다.
 export function getLaneEffectIds(
   event: Pick<JudgmentEvent, 'kind' | 'judgment'>,
 ): readonly LaneEffectId[] {
@@ -39,16 +37,31 @@ const HIT_BLOOM_INTENSITY: Record<Judgment, number> = {
   miss: 0,
 };
 
-/** 타격 빛 번짐의 세기(0~1). 0 이면 번짐을 띄우지 않는다. */
 export function getHitBloomIntensity(judgment: Judgment): number {
   return HIT_BLOOM_INTENSITY[judgment];
 }
+
+export const JUDGMENT_SHIMMER_ID = 'R38' satisfies CelestialAtlasId;
 
 export function hasJudgmentShimmer(judgment: Judgment): boolean {
   return judgment !== 'bad' && judgment !== 'miss';
 }
 
-/** 판정을 반영한 뒤 플레이 중이던 판이 실패로 끝나는지. 이미 끝난 판은 다시 전이하지 않는다. */
-export function shouldFailPlay(isPlaying: boolean, isSessionFailed: boolean): boolean {
-  return isPlaying && isSessionFailed;
+const JUDGMENT_POP_SCALE: Record<Judgment, number> = {
+  perfect: 1.18,
+  great: 1.08,
+  good: 1,
+  bad: 1,
+  miss: 1,
+};
+
+export function getJudgmentPopScale(judgment: Judgment): number {
+  return JUDGMENT_POP_SCALE[judgment];
+}
+
+// 뒤의 빛은 PERFECT·GREAT 에만 공기처럼 옅게 남긴다.
+const JUDGMENT_GLOW_MIN_INTENSITY = 0.75;
+
+export function hasJudgmentGlow(judgment: Judgment): boolean {
+  return getHitBloomIntensity(judgment) >= JUDGMENT_GLOW_MIN_INTENSITY;
 }

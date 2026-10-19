@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AuthUser } from '../../../src/backend/auth.js';
+import type { AuthUser } from '../../../src/data/account.js';
 import { createAccountState, startSignIn } from '../../../src/game/accountState.js';
 import { getMainMenuItems } from '../../../src/game/main/mainMenu.js';
 

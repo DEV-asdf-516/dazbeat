@@ -16,10 +16,7 @@ const ANCHOR_RADIUS_PX = 3;
 const ANCHOR_ALPHA = 0.8;
 const STAR_SIZE_PX = 24;
 
-/**
- * 곡의 진행을 가는 궤도 위를 지나는 작은 별빛으로 보여 준다. 지나간 경로만 은은하게 밝아진다.
- * 시간 정보라 노트보다 낮은 에너지로 그리고 스스로 반짝이지 않는다.
- */
+// 시간 정보라 노트보다 낮은 에너지로 그리고 스스로 반짝이지 않는다.
 export class OrbitTrace {
   private readonly passed: Phaser.GameObjects.Rectangle;
   private readonly passedGlow: Phaser.GameObjects.Rectangle;
@@ -64,7 +61,6 @@ export class OrbitTrace {
       .setDepth(depth);
   }
 
-  /** progress 는 0~1 로 이미 정규화된 곡 진행률이다. 같은 값이면 다시 그리지 않는다. */
   setProgress(progress: number): void {
     if (progress === this.progress) {
       return;

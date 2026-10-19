@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Song } from '../../../src/data/songs.js';
-import type { ChartRecord } from '../../../src/storage/LocalSave.js';
+import type { Difficulty } from '../../../src/rhythm/types.js';
+import type { ChartRecord } from '../../../src/storage/chartRecords.js';
 import {
   createSongSelectState,
   cycleFilter,
-  getCurrentSong,
-  getDifficultyAppearance,
   getPlayableSelection,
-  getRowRecordDifficulty,
   getSongPage,
+  getSongRows,
+  getSongDifficultyAppearance,
   getSongRowNodeId,
   hasNewCurrentSong,
   isSameSelection,
@@ -18,6 +18,7 @@ import {
   selectFilter,
   selectSong,
 } from '../../../src/game/songSelect/songSelectState.js';
+import type { SongRowView, SongSelectState } from '../../../src/game/songSelect/songSelectState.js';
 
 function makeSong(id: string, category: Song['category'], chartIds: Song['chartIds']): Song {
   return {
@@ -34,6 +35,18 @@ function makeSong(id: string, category: Song['category'], chartIds: Song['chartI
   };
 }
 
+function songOf(state: SongSelectState): Song | undefined {
+  return state.current.kind === 'song' ? state.current.song : undefined;
+}
+
+function indexOf(state: SongSelectState): number | null {
+  return state.current.kind === 'song' ? state.current.index : null;
+}
+
+function difficultyOf(state: SongSelectState): Difficulty | null {
+  return getPlayableSelection(state)?.difficulty ?? null;
+}
+
 const FULL_SONG = makeSong('full', 'original', {
   easy: 'easy.json',
   normal: 'normal.json',
@@ -48,6 +61,7 @@ const COVER_SONG = makeSong('cover', 'cover', {
   normal: 'normal.json',
   hard: 'hard.json',
 });
+const NO_CHART_SONG = makeSong('no-chart', 'original', {});
 const SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG, COVER_SONG];
 const ORIGINAL_SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG];
 
@@ -56,17 +70,15 @@ describe('createSongSelectState', () => {
     const state = createSongSelectState([EASY_HARD_SONG, FULL_SONG]);
 
     expect(state.filter).toBe('all');
-    expect(state.songIndex).toBe(0);
-    expect(state.difficulty).toBe('easy');
-    expect(getCurrentSong(state)).toBe(EASY_HARD_SONG);
+    expect(indexOf(state)).toBe(0);
+    expect(difficultyOf(state)).toBe('easy');
+    expect(songOf(state)).toBe(EASY_HARD_SONG);
   });
 
   it('has no song or difficulty when there are no songs', () => {
     const state = createSongSelectState([]);
 
-    expect(state.songIndex).toBe(0);
-    expect(state.difficulty).toBeNull();
-    expect(getCurrentSong(state)).toBeUndefined();
+    expect(state.current).toEqual({ kind: 'none' });
   });
 });
 
@@ -74,22 +86,22 @@ describe('moveSong', () => {
   it('stops at the top and bottom of the list', () => {
     const initial = createSongSelectState(SONGS);
 
-    expect(moveSong(initial, -1).songIndex).toBe(0);
+    expect(indexOf(moveSong(initial, -1))).toBe(0);
     const last = moveSong(moveSong(initial, 1), 1);
-    expect(last.songIndex).toBe(2);
-    expect(moveSong(last, 1).songIndex).toBe(2);
+    expect(indexOf(last)).toBe(2);
+    expect(indexOf(moveSong(last, 1))).toBe(2);
   });
 
   it('keeps the current difficulty when the new song has it', () => {
     const onHard = selectDifficulty(createSongSelectState(SONGS), 'hard');
 
-    expect(moveSong(onHard, 1).difficulty).toBe('hard');
+    expect(difficultyOf(moveSong(onHard, 1))).toBe('hard');
   });
 
   it('switches to the first available difficulty when the new song lacks the current one', () => {
     const onNormal = selectDifficulty(createSongSelectState(SONGS), 'normal');
 
-    expect(moveSong(onNormal, 1).difficulty).toBe('easy');
+    expect(difficultyOf(moveSong(onNormal, 1))).toBe('easy');
   });
 });
 
@@ -105,8 +117,8 @@ describe('selectSong', () => {
     const onExpert = selectDifficulty(createSongSelectState(SONGS), 'expert');
     const state = selectSong(onExpert, 2);
 
-    expect(getCurrentSong(state)).toBe(COVER_SONG);
-    expect(state.difficulty).toBe('normal');
+    expect(songOf(state)).toBe(COVER_SONG);
+    expect(difficultyOf(state)).toBe('normal');
   });
 });
 
@@ -114,11 +126,36 @@ describe('moveDifficulty', () => {
   it('skips difficulties without a chart and stops at the ends', () => {
     const state = selectSong(createSongSelectState(SONGS), 1);
 
-    expect(state.difficulty).toBe('easy');
-    expect(moveDifficulty(state, -1).difficulty).toBe('easy');
+    expect(difficultyOf(state)).toBe('easy');
+    expect(difficultyOf(moveDifficulty(state, -1))).toBe('easy');
     const hard = moveDifficulty(state, 1);
-    expect(hard.difficulty).toBe('hard');
-    expect(moveDifficulty(hard, 1).difficulty).toBe('hard');
+    expect(difficultyOf(hard)).toBe('hard');
+    expect(difficultyOf(moveDifficulty(hard, 1))).toBe('hard');
+  });
+});
+
+describe('song without charts', () => {
+  it('is selected without a chart and ignores difficulty changes', () => {
+    const state = createSongSelectState([NO_CHART_SONG, FULL_SONG]);
+
+    expect(state.current).toEqual({
+      kind: 'song',
+      index: 0,
+      song: NO_CHART_SONG,
+      chart: null,
+    });
+    expect(getPlayableSelection(state)).toBeNull();
+    expect(moveDifficulty(state, 1)).toBe(state);
+    expect(selectDifficulty(state, 'easy')).toBe(state);
+    expect(getSongDifficultyAppearance(state, 'easy', true)).toBe('disabled');
+  });
+
+  it('picks the first chart of the next song after passing a song without charts', () => {
+    const onExpert = selectDifficulty(createSongSelectState([FULL_SONG, NO_CHART_SONG]), 'expert');
+    const noChart = moveSong(onExpert, 1);
+
+    expect(difficultyOf(noChart)).toBeNull();
+    expect(difficultyOf(moveSong(noChart, -1))).toBe('easy');
   });
 });
 
@@ -132,7 +169,7 @@ describe('selectDifficulty', () => {
   it('selects an available difficulty', () => {
     const state = selectSong(createSongSelectState(SONGS), 1);
 
-    expect(selectDifficulty(state, 'hard').difficulty).toBe('hard');
+    expect(difficultyOf(selectDifficulty(state, 'hard'))).toBe('hard');
   });
 });
 
@@ -143,7 +180,7 @@ describe('cycleFilter', () => {
 
     expect(original.filter).toBe('original');
     expect(original.songs).toEqual(ORIGINAL_SONGS);
-    expect(original.songIndex).toBe(0);
+    expect(indexOf(original)).toBe(0);
     const cover = cycleFilter(original, 1);
     expect(cover.filter).toBe('cover');
     expect(cover.songs).toEqual([COVER_SONG]);
@@ -154,7 +191,7 @@ describe('cycleFilter', () => {
     const state = cycleFilter(createSongSelectState(SONGS), -1);
 
     expect(state.filter).toBe('cover');
-    expect(state.songIndex).toBe(0);
+    expect(indexOf(state)).toBe(0);
   });
 });
 
@@ -163,11 +200,11 @@ describe('selectFilter', () => {
     const empty = selectFilter(createSongSelectState(ORIGINAL_SONGS), 'cover');
 
     expect(empty.songs).toEqual([]);
-    expect(empty.difficulty).toBeNull();
-    expect(getCurrentSong(empty)).toBeUndefined();
+    expect(difficultyOf(empty)).toBeNull();
+    expect(songOf(empty)).toBeUndefined();
     const all = selectFilter(empty, 'all');
-    expect(getCurrentSong(all)).toBe(FULL_SONG);
-    expect(all.difficulty).toBe('easy');
+    expect(songOf(all)).toBe(FULL_SONG);
+    expect(difficultyOf(all)).toBe('easy');
   });
 });
 
@@ -192,6 +229,7 @@ describe('getPlayableSelection', () => {
     expect(getPlayableSelection(createSongSelectState(SONGS))).toEqual({
       song: FULL_SONG,
       difficulty: 'easy',
+      chartId: 'easy.json',
     });
   });
 
@@ -261,17 +299,103 @@ describe('getSongRowNodeId', () => {
   });
 });
 
-describe('getRowRecordDifficulty', () => {
-  it('has no record difficulty when no difficulty is selected', () => {
-    expect(getRowRecordDifficulty(FULL_SONG, null)).toBeNull();
+describe('getSongRows', () => {
+  const songs = (count: number): readonly Song[] =>
+    Array.from({ length: count }, (_, index) =>
+      makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+    );
+  const songAndSelection = (rows: readonly SongRowView[]) =>
+    rows.map((row) => (row.kind === 'song' ? [row.song, row.isSelected] : null));
+
+  it('is all empty rows when there are no songs', () => {
+    expect(getSongRows(createSongSelectState([]), 3)).toEqual([
+      { kind: 'empty' },
+      { kind: 'empty' },
+      { kind: 'empty' },
+    ]);
   });
 
-  it('has no record difficulty when the song lacks the selected difficulty', () => {
-    expect(getRowRecordDifficulty(EASY_HARD_SONG, 'normal')).toBeNull();
+  it('selects the first row and fills the rest of a short page with empty rows', () => {
+    expect(getSongRows(createSongSelectState([FULL_SONG, EASY_HARD_SONG]), 3)).toEqual([
+      {
+        kind: 'song',
+        song: FULL_SONG,
+        isSelected: true,
+        recordChart: {
+          song: FULL_SONG,
+          difficulty: 'easy',
+          chartId: 'easy.json',
+        },
+      },
+      {
+        kind: 'song',
+        song: EASY_HARD_SONG,
+        isSelected: false,
+        recordChart: {
+          song: EASY_HARD_SONG,
+          difficulty: 'easy',
+          chartId: 'easy.json',
+        },
+      },
+      { kind: 'empty' },
+    ]);
   });
 
-  it('uses the selected difficulty when the song has it', () => {
-    expect(getRowRecordDifficulty(EASY_HARD_SONG, 'hard')).toBe('hard');
+  it('keeps the selected last row of a full page on that page', () => {
+    const list = songs(4);
+
+    expect(songAndSelection(getSongRows(selectSong(createSongSelectState(list), 2), 3))).toEqual([
+      [list[0], false],
+      [list[1], false],
+      [list[2], true],
+    ]);
+  });
+
+  it('shows the next page with the selected row first and empty rows after the last song', () => {
+    const list = songs(4);
+
+    expect(songAndSelection(getSongRows(selectSong(createSongSelectState(list), 3), 3))).toEqual([
+      [list[3], true],
+      null,
+      null,
+    ]);
+  });
+
+  it('uses the selected difficulty chart of each row song, or null when the song lacks it', () => {
+    const onNormal = selectDifficulty(createSongSelectState(SONGS), 'normal');
+
+    expect(
+      getSongRows(onNormal, 3).map((row) => (row.kind === 'song' ? row.recordChart : null)),
+    ).toEqual([
+      {
+        song: FULL_SONG,
+        difficulty: 'normal',
+        chartId: 'normal.json',
+      },
+      null,
+      {
+        song: COVER_SONG,
+        difficulty: 'normal',
+        chartId: 'normal.json',
+      },
+    ]);
+  });
+
+  it('has no record chart in any row while a song without charts is selected', () => {
+    expect(getSongRows(createSongSelectState([NO_CHART_SONG, FULL_SONG]), 2)).toEqual([
+      {
+        kind: 'song',
+        song: NO_CHART_SONG,
+        isSelected: true,
+        recordChart: null,
+      },
+      {
+        kind: 'song',
+        song: FULL_SONG,
+        isSelected: false,
+        recordChart: null,
+      },
+    ]);
   });
 });
 
@@ -355,28 +479,16 @@ describe('getSongPage', () => {
   });
 });
 
-describe('getDifficultyAppearance', () => {
+describe('getSongDifficultyAppearance', () => {
   it('is disabled when there is no song', () => {
-    expect(getDifficultyAppearance(createSongSelectState([]), 'easy', true)).toBe('disabled');
+    expect(getSongDifficultyAppearance(createSongSelectState([]), 'easy', true)).toBe('disabled');
   });
 
-  it('is disabled for a difficulty without a chart even when hovered', () => {
+  it('reads selection and chart availability from the current song', () => {
     const state = createSongSelectState([EASY_HARD_SONG]);
 
-    expect(getDifficultyAppearance(state, 'normal', true)).toBe('disabled');
-  });
-
-  it('is selected for the selected difficulty regardless of hover', () => {
-    const state = createSongSelectState([EASY_HARD_SONG]);
-
-    expect(getDifficultyAppearance(state, 'easy', false)).toBe('selected');
-    expect(getDifficultyAppearance(state, 'easy', true)).toBe('selected');
-  });
-
-  it('is emphasized when hovered and normal otherwise for other charted difficulties', () => {
-    const state = createSongSelectState([EASY_HARD_SONG]);
-
-    expect(getDifficultyAppearance(state, 'hard', true)).toBe('emphasized');
-    expect(getDifficultyAppearance(state, 'hard', false)).toBe('normal');
+    expect(getSongDifficultyAppearance(state, 'normal', true)).toBe('disabled');
+    expect(getSongDifficultyAppearance(state, 'easy', false)).toBe('selected');
+    expect(getSongDifficultyAppearance(state, 'hard', true)).toBe('emphasized');
   });
 });

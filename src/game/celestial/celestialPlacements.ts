@@ -1,8 +1,9 @@
+import type { CelestialAtlasId, CelestialImageId } from './celestialCatalog.js';
+
 export type CelestialScreen = 'main' | 'songSelect' | 'gameplay' | 'result' | 'secondary';
 
-/** 화면 좌표는 sprite anchor 위치, scale 은 균일 배율, phase 는 loop 시작 위상(총 시간 대비 비율)이다. */
 export interface AmbientPlacement {
-  id: string;
+  id: CelestialAtlasId;
   xPx: number;
   yPx: number;
   scale: number;
@@ -10,7 +11,7 @@ export interface AmbientPlacement {
 }
 
 export interface CelestialScreenLayers {
-  backgroundId: string | null;
+  backgroundId: CelestialImageId | null;
   hasGrain: boolean;
   dustOpacity: number;
   ambient: readonly AmbientPlacement[];
@@ -447,80 +448,3 @@ export const CELESTIAL_SCREENS: Readonly<Record<CelestialScreen, CelestialScreen
     ],
   },
 };
-
-/**
- * STARLIGHT 실패 연출에서만 잠시 띄우는 R11 별이다. 평소 플레이 화면은 별 0개라 CELESTIAL_SCREENS 에 넣지 않는다.
- * 레인 왼쪽·오른쪽을 번갈아 나열하며, 배열 순서가 하나씩 사라지는 순서다.
- */
-export const GAMEPLAY_FAILURE_STARS: readonly AmbientPlacement[] = [
-  {
-    id: 'R11',
-    xPx: 300,
-    yPx: 220,
-    scale: 0.0625,
-    phaseFraction: 0,
-  },
-  {
-    id: 'R11',
-    xPx: 1380,
-    yPx: 260,
-    scale: 0.0625,
-    phaseFraction: 0.89,
-  },
-  {
-    id: 'R11',
-    xPx: 560,
-    yPx: 330,
-    scale: 0.046875,
-    phaseFraction: 0.13,
-  },
-  {
-    id: 'R11',
-    xPx: 1660,
-    yPx: 380,
-    scale: 0.078125,
-    phaseFraction: 0,
-  },
-  {
-    id: 'R11',
-    xPx: 180,
-    yPx: 470,
-    scale: 0.078125,
-    phaseFraction: 0.3,
-  },
-  {
-    id: 'R11',
-    xPx: 1450,
-    yPx: 540,
-    scale: 0.046875,
-    phaseFraction: 0.13,
-  },
-  {
-    id: 'R11',
-    xPx: 470,
-    yPx: 610,
-    scale: 0.0625,
-    phaseFraction: 0.47,
-  },
-  {
-    id: 'R11',
-    xPx: 1760,
-    yPx: 690,
-    scale: 0.0625,
-    phaseFraction: 0.3,
-  },
-  {
-    id: 'R11',
-    xPx: 260,
-    yPx: 820,
-    scale: 0.046875,
-    phaseFraction: 0.65,
-  },
-  {
-    id: 'R11',
-    xPx: 1540,
-    yPx: 880,
-    scale: 0.078125,
-    phaseFraction: 0.47,
-  },
-];

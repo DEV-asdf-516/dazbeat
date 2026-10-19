@@ -4,14 +4,14 @@ import {
   adjustRow,
   applyPointer,
   bindWaitingKey,
-  cancelWaiting,
   createSettingsEditorState,
   focusRow,
   isWaitingKey,
   moveFocus,
+  pressBack,
   startWaiting,
 } from '../../../src/game/settings/settingsEditorState.js';
-import { DEFAULT_SETTINGS } from '../../../src/storage/LocalSave.js';
+import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 
 const ROWS: readonly SettingsRow[] = [
   {
@@ -111,13 +111,6 @@ describe('bindWaitingKey', () => {
   });
 });
 
-describe('cancelWaiting', () => {
-  it('returns the same state when not waiting', () => {
-    const state = initial();
-    expect(cancelWaiting(state)).toBe(state);
-  });
-});
-
 describe('applyPointer', () => {
   it('applies the transition when not waiting', () => {
     expect(applyPointer(initial(), (state) => focusRow(state, 2)).rowIndex).toBe(2);
@@ -127,5 +120,22 @@ describe('applyPointer', () => {
     const state = applyPointer(startWaiting(initial(), 1), (current) => focusRow(current, 2));
     expect(isWaitingKey(state)).toBe(false);
     expect(state.rowIndex).toBe(1);
+  });
+});
+
+describe('pressBack', () => {
+  it('leaves when not waiting', () => {
+    expect(pressBack(initial())).toEqual({ kind: 'leave' });
+  });
+
+  it('stays and only cancels waiting while waiting for a key', () => {
+    const waiting = startWaiting(initial(), 1);
+    const outcome = pressBack(waiting);
+    if (outcome.kind !== 'stay') {
+      throw new Error('expected to stay');
+    }
+    expect(isWaitingKey(outcome.state)).toBe(false);
+    expect(outcome.state.rowIndex).toBe(1);
+    expect(outcome.state.settings).toBe(waiting.settings);
   });
 });

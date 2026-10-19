@@ -35,7 +35,6 @@ describe('parseKeyHints', () => {
     expect(() => parseKeyHints('Space 재생   Esc')).toThrow('Esc');
   });
 
-  // 힌트 줄을 그리는 모든 화면의 문구가 키·설명 형식을 지켜야 한다.
   it('parses every screen hint in every language', () => {
     for (const messages of [ko, ja, en]) {
       const hints = [

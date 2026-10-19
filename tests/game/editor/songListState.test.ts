@@ -168,7 +168,6 @@ describe('getSongListRows', () => {
 });
 
 describe('song list filter', () => {
-  // 짝수 번은 original, 홀수 번은 cover 인 목록
   const mixed = songs.map((song, index) => ({
     ...song,
     category: index % 2 === 0 ? ('original' as const) : ('cover' as const),

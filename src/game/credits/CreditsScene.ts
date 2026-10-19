@@ -2,8 +2,8 @@ import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import type { Song } from '../../data/songs.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { SCENE_KEYS, exitScene } from '../config.js';
-import type { SceneRequest } from '../config.js';
+import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
+import type { SceneRequest } from '../sceneRoutes.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
 import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
@@ -11,10 +11,7 @@ import {
   addCelestialAtmosphere,
   playCelestialEntryTransition,
 } from '../celestial/celestialAtmosphere.js';
-import {
-  queueCelestialTextures,
-  registerCelestialAnimations,
-} from '../celestial/celestialSprites.js';
+import { queueCelestialTextures } from '../celestial/celestialSprites.js';
 import { addMenuKeyHintRow } from '../ui/keyHintView.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import { COLORS, SCREEN_LAYOUT, textStyle } from '../ui/theme.js';
@@ -40,7 +37,6 @@ export class CreditsScene extends Phaser.Scene {
 
   create(): void {
     this.exit = STAYING;
-    registerCelestialAnimations(this, this.celestial);
     addCelestialAtmosphere(this, this.celestial, 'secondary');
     const keyboard = requireKeyboard(this);
     const title = this.add.text(

@@ -1,5 +1,11 @@
 import type Phaser from 'phaser';
-import type { CelestialAtlasPresentation, CelestialCatalog } from './celestialCatalog.js';
+import type {
+  CelestialAtlasPresentation,
+  CelestialCatalog,
+  CelestialFrame,
+  CelestialStaticPresentation,
+} from './celestialCatalog.js';
+import { createCanvasTexture } from '../ui/canvasTexture.js';
 import { queueImageLoads } from '../ui/imageLoad.js';
 
 export function queueCelestialTextures(scene: Phaser.Scene, catalog: CelestialCatalog): void {
@@ -8,73 +14,70 @@ export function queueCelestialTextures(scene: Phaser.Scene, catalog: CelestialCa
 
 /** 텍스처·animation 관리자는 게임 전역이므로 이미 등록된 frame·animation 은 다시 만들지 않는다. */
 export function registerCelestialAnimations(scene: Phaser.Scene, catalog: CelestialCatalog): void {
-  catalog.atlasFrames.forEach(({ textureKey, frames }) => {
-    if (!scene.textures.exists(textureKey)) {
-      return;
+  catalog.atlasFrames.forEach(({ textureKey, standInWidthPx, standInHeightPx, frames }) => {
+    // 선택 리소스라 로드 실패는 loader 가 이미 경고했다. 같은 key 의 투명 텍스처에 같은 이름·크기의
+    // frame 을 두면 sprite 와 animation 은 그대로 만들어지고 보이지만 않는다. 이후 씬은 이 텍스처가
+    // 있으므로 다시 로드·경고하지 않는다.
+    const isStandIn = !scene.textures.exists(textureKey);
+    if (isStandIn) {
+      createCanvasTexture(scene, textureKey, standInWidthPx, standInHeightPx, () => undefined);
     }
     const texture = scene.textures.get(textureKey);
     frames.forEach(({ frameName, xPx, yPx, widthPx, heightPx }) => {
       if (!texture.has(frameName)) {
-        texture.add(frameName, 0, xPx, yPx, widthPx, heightPx);
+        texture.add(frameName, 0, isStandIn ? 0 : xPx, isStandIn ? 0 : yPx, widthPx, heightPx);
       }
     });
   });
+  // 이미지 role 은 frame 이 없으므로 1px 투명 텍스처면 같은 자리에 아무것도 보이지 않는다.
+  Object.values(catalog.imagePresentations).forEach(({ textureKey }) => {
+    createCanvasTexture(scene, textureKey, 1, 1, () => undefined);
+  });
   const presentations = [
-    ...catalog.presentations.values(),
+    ...Object.values(catalog.atlasPresentations),
     ...catalog.nodeOnlyFinish.map((step) => step.presentation),
   ];
-  presentations.forEach((presentation) => {
-    if (
-      presentation.kind !== 'atlas' ||
-      presentation.frames.length < 2 ||
-      !scene.textures.exists(presentation.textureKey) ||
-      scene.anims.exists(presentation.animationKey)
-    ) {
+  presentations.forEach(({ textureKey, playback }) => {
+    if (playback.kind === 'static' || scene.anims.exists(playback.animationKey)) {
       return;
     }
     // animation 수준 frameRate·duration 을 주지 않아야 frame 별 duration 이 그대로 다음 frame 시점이 된다.
     scene.anims.create({
-      key: presentation.animationKey,
-      frames: presentation.frames.map(({ frameName, durationMs }) => ({
-        key: presentation.textureKey,
+      key: playback.animationKey,
+      frames: playback.frames.map(({ frameName, durationMs }) => ({
+        key: textureKey,
         frame: frameName,
         duration: durationMs,
       })),
-      repeat: presentation.isLoop ? -1 : 0,
+      repeat: playback.kind === 'loop' ? -1 : 0,
     });
   });
 }
 
-/**
- * 텍스처가 없으면 null. 정적 role 은 보이는 정적 sprite, loop 는 위상 frame 부터 재생 중인 sprite,
- * one-shot 은 숨긴 채 재생을 기다리는 sprite 를 만든다.
- */
 export function addCelestialSprite(
   scene: Phaser.Scene,
   presentation: CelestialAtlasPresentation,
   xPx: number,
   yPx: number,
   phaseFraction = 0,
-): Phaser.GameObjects.Sprite | null {
-  if (!scene.textures.exists(presentation.textureKey)) {
-    return null;
-  }
+): Phaser.GameObjects.Sprite {
   const sprite = scene.add.sprite(xPx, yPx, presentation.textureKey);
   applyPresentation(sprite, presentation);
-  if (presentation.frames.length === 1) {
-    return sprite;
+  const { playback } = presentation;
+  switch (playback.kind) {
+    case 'static':
+      return sprite;
+    case 'loop':
+      return sprite.play({
+        key: playback.animationKey,
+        startFrame: getPhaseFrameIndex(playback.frames, phaseFraction),
+      });
+    case 'once':
+      // 재생 전 animation 을 붙여 두려고 시작 직후 멈춘다.
+      return sprite.play(playback.animationKey).stop().setVisible(false);
   }
-  if (presentation.isLoop) {
-    return sprite.play({
-      key: presentation.animationKey,
-      startFrame: getPhaseFrameIndex(presentation, phaseFraction),
-    });
-  }
-  // 재생 전 animation 을 붙여 두려고 시작 직후 멈춘다. 재생은 playCelestialOnce 가 처음부터 한다.
-  return sprite.play(presentation.animationKey).stop().setVisible(false);
 }
 
-/** 보이게 하고 첫 frame 부터 재생한 뒤 끝나면 숨긴다. 재생 중이면 처음부터 다시 시작한다. */
 export function playCelestialOnce(sprite: Phaser.GameObjects.Sprite): void {
   sprite.setVisible(true).play({
     key: requireAnimationKey(sprite),
@@ -93,14 +96,10 @@ export function setCelestialLoopActive(sprite: Phaser.GameObjects.Sprite, isActi
   }
 }
 
-/** 정적 presentation 의 frame·scale·origin·opacity 로 바꾼다(상태 전환용). */
 export function applyCelestialPresentation(
   sprite: Phaser.GameObjects.Sprite,
-  presentation: CelestialAtlasPresentation,
+  presentation: CelestialStaticPresentation,
 ): void {
-  if (presentation.frames.length !== 1) {
-    throw new Error(`Celestial presentation ${presentation.animationKey} is not static`);
-  }
   applyPresentation(sprite, presentation);
 }
 
@@ -108,12 +107,8 @@ function applyPresentation(
   sprite: Phaser.GameObjects.Sprite,
   presentation: CelestialAtlasPresentation,
 ): void {
-  const [firstFrame] = presentation.frames;
-  if (firstFrame === undefined) {
-    throw new Error(`Celestial presentation ${presentation.animationKey} has no frames`);
-  }
   sprite
-    .setTexture(presentation.textureKey, firstFrame.frameName)
+    .setTexture(presentation.textureKey, presentation.firstFrameName)
     .setScale(...presentation.scaleXY)
     .setOrigin(...presentation.originXY)
     .setAlpha(presentation.opacity);
@@ -127,15 +122,11 @@ function requireAnimationKey(sprite: Phaser.GameObjects.Sprite): string {
   return animation.key;
 }
 
-/** 위상(총 시간 대비 비율)에 해당하는 시각이 속한 frame 을 누적 frame 시간으로 찾는다. */
-function getPhaseFrameIndex(
-  presentation: CelestialAtlasPresentation,
-  phaseFraction: number,
-): number {
-  const totalMs = presentation.frames.reduce((total, { durationMs }) => total + durationMs, 0);
+function getPhaseFrameIndex(frames: readonly CelestialFrame[], phaseFraction: number): number {
+  const totalMs = frames.reduce((total, { durationMs }) => total + durationMs, 0);
   const phaseMs = phaseFraction * totalMs;
   let elapsedMs = 0;
-  const index = presentation.frames.findIndex(({ durationMs }) => {
+  const index = frames.findIndex(({ durationMs }) => {
     elapsedMs += durationMs;
     return phaseMs < elapsedMs;
   });

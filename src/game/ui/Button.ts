@@ -1,63 +1,122 @@
 import Phaser from 'phaser';
 import { DISABLED_CURSOR, HOVER_CURSOR } from './cursor.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from './lightTextures.js';
-import { COLORS, EDITOR_COLORS, MOTION, RADIUS, TYPE_SCALE, cssColor, typeStyle } from './theme.js';
+import {
+  COLORS,
+  CELESTIAL_COLORS,
+  MOTION,
+  RADIUS,
+  TYPE_SCALE,
+  cssColor,
+  typeStyle,
+} from './theme.js';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'quiet';
 
-/** 상태별 색. 화면이 일부만 덮어쓰고 나머지는 기본값을 쓴다. */
-export interface ButtonColors {
+export interface PrimaryButtonColors {
+  fill: number;
+  hoverFill: number;
+  pressedFill: number;
+  disabledFill: number;
   label: number;
-  emphasizedLabel: number;
+  disabledLabel: number;
+}
+
+export interface SecondaryButtonColors {
+  label: number;
   disabledLabel: number;
   border: number;
   hoverBorder: number;
-  /** secondary variant 의 비활성 경계 색. 생략하면 border 와 같다. */
-  disabledBorder?: number;
+  disabledBorder: number;
   pressedFill: number;
-  /** secondary variant 의 idle 면 색. null 이면 칠하지 않는다. */
   fill: number | null;
-  /** null 이면 hover 배경을 칠하지 않는다. */
   hoverFill: number | null;
-  primaryFill: number;
-  primaryHoverFill: number;
-  primaryPressedFill: number;
-  primaryDisabledFill: number;
-  primaryLabel: number;
 }
 
-export interface ButtonOptions {
-  variant: ButtonVariant;
+export interface QuietButtonColors {
+  label: number;
+  emphasizedLabel: number;
+  disabledLabel: number;
+  hoverFill: number | null;
+}
+
+interface ButtonContentOptions {
   label: string;
   onActivate: () => void;
   widthPx?: number;
   heightPx?: number;
-  colors?: Partial<ButtonColors>;
-  /** 라벨 크기·굵기. 생략하면 primary 역할이다. primary variant 는 크기만 따르고 굵기는 고정이다. */
-  labelType?: { sizePx: number; weight: number };
-  /** secondary variant 의 경계 두께. 생략하면 SECONDARY_BORDER_PX 다. */
-  borderWidthPx?: number;
-  /** true 이면 focus 를 버튼 바깥 outline 으로 표시하고, quiet 라벨 이동과 glow flash 는 쓰지 않는다. */
-  hasFocusOutline?: boolean;
-  /** widthPx 가 없을 때 variant 기본 좌우 여백 대신 쓴다. */
   paddingXPx?: number;
 }
 
-const DEFAULT_COLORS: ButtonColors = {
-  label: COLORS.textSecondary,
-  emphasizedLabel: COLORS.textPrimary,
-  disabledLabel: COLORS.textDisabled,
-  border: COLORS.border,
-  hoverBorder: COLORS.textSecondary,
-  pressedFill: COLORS.surfaceRaised,
-  fill: null,
-  hoverFill: null,
-  primaryFill: COLORS.textPrimary,
-  primaryHoverFill: COLORS.primaryHover,
-  primaryPressedFill: COLORS.primaryPressed,
-  primaryDisabledFill: COLORS.border,
-  primaryLabel: COLORS.background,
+interface LabelType {
+  sizePx: number;
+  weight: number;
+}
+
+export type ButtonOptions = ButtonContentOptions &
+  (
+    | {
+        variant: 'primary';
+        labelSizePx?: number;
+      }
+    | {
+        variant: 'secondary';
+        focus: 'outline' | 'glow';
+        colors?: Partial<SecondaryButtonColors>;
+        labelType?: LabelType;
+        borderWidthPx?: number;
+      }
+    | {
+        variant: 'quiet';
+        focus: 'outline' | 'slide';
+        colors?: Partial<QuietButtonColors>;
+        labelType?: LabelType;
+      }
+  );
+
+const DEFAULT_COLORS: {
+  primary: PrimaryButtonColors;
+  secondary: SecondaryButtonColors;
+  quiet: QuietButtonColors;
+} = {
+  primary: {
+    fill: COLORS.textPrimary,
+    hoverFill: COLORS.primaryHover,
+    pressedFill: COLORS.primaryPressed,
+    disabledFill: COLORS.border,
+    label: COLORS.background,
+    disabledLabel: COLORS.textDisabled,
+  },
+  secondary: {
+    label: COLORS.textPrimary,
+    disabledLabel: COLORS.textDisabled,
+    border: COLORS.border,
+    hoverBorder: COLORS.textSecondary,
+    disabledBorder: COLORS.border,
+    pressedFill: COLORS.surfaceRaised,
+    fill: null,
+    hoverFill: null,
+  },
+  quiet: {
+    label: COLORS.textSecondary,
+    emphasizedLabel: COLORS.textPrimary,
+    disabledLabel: COLORS.textDisabled,
+    hoverFill: null,
+  },
 };
+
+type ButtonPaint =
+  | { variant: 'primary'; colors: PrimaryButtonColors }
+  | { variant: 'secondary'; colors: SecondaryButtonColors; borderWidthPx: number }
+  | { variant: 'quiet'; colors: QuietButtonColors };
+
+type ButtonFocus =
+  { kind: 'outline'; rect: Phaser.GameObjects.Rectangle } | { kind: 'glow' } | { kind: 'slide' };
+
+export const QUIET_PADDING_PX = {
+  xPx: 16,
+  yPx: 12,
+} as const;
 
 const PADDING_PX: Record<ButtonVariant, { xPx: number; yPx: number }> = {
   primary: {
@@ -68,10 +127,7 @@ const PADDING_PX: Record<ButtonVariant, { xPx: number; yPx: number }> = {
     xPx: 44,
     yPx: 20,
   },
-  quiet: {
-    xPx: 16,
-    yPx: 12,
-  },
+  quiet: QUIET_PADDING_PX,
 };
 const PRIMARY_LABEL_WEIGHT = 700;
 const SECONDARY_BORDER_PX = 2;
@@ -81,15 +137,64 @@ const ICON_IDLE_ALPHA = 0.85;
 const FOCUS_OUTLINE_GAP_PX = 3;
 const FOCUS_OUTLINE_WIDTH_PX = 2;
 
+function resolveStyle(options: ButtonOptions): {
+  paint: ButtonPaint;
+  labelStyle: Phaser.Types.GameObjects.Text.TextStyle;
+} {
+  switch (options.variant) {
+    case 'primary': {
+      const colors = DEFAULT_COLORS.primary;
+      return {
+        paint: {
+          variant: 'primary',
+          colors,
+        },
+        labelStyle: typeStyle(
+          {
+            sizePx: options.labelSizePx ?? TYPE_SCALE.primary.sizePx,
+            weight: PRIMARY_LABEL_WEIGHT,
+          },
+          colors.label,
+        ),
+      };
+    }
+    case 'secondary': {
+      const colors = {
+        ...DEFAULT_COLORS.secondary,
+        ...options.colors,
+      };
+      return {
+        paint: {
+          variant: 'secondary',
+          colors,
+          borderWidthPx: options.borderWidthPx ?? SECONDARY_BORDER_PX,
+        },
+        labelStyle: typeStyle(options.labelType ?? TYPE_SCALE.primary, colors.label),
+      };
+    }
+    case 'quiet': {
+      const colors = {
+        ...DEFAULT_COLORS.quiet,
+        ...options.colors,
+      };
+      return {
+        paint: {
+          variant: 'quiet',
+          colors,
+        },
+        labelStyle: typeStyle(options.labelType ?? TYPE_SCALE.primary, colors.emphasizedLabel),
+      };
+    }
+  }
+}
+
 export class Button extends Phaser.GameObjects.Container {
   private readonly options: ButtonOptions;
-  private colors: ButtonColors;
+  private paint: ButtonPaint;
+  private readonly focus: ButtonFocus;
   private readonly background: Phaser.GameObjects.Rectangle;
   private readonly focusGlow: Phaser.GameObjects.Image;
-  /** hasFocusOutline 인 버튼에만 있다. hit area 밖에 그린다. */
-  private readonly focusOutline: Phaser.GameObjects.Rectangle | null;
   private readonly labelText: Phaser.GameObjects.Text;
-  /** 있으면 라벨 대신 표시한다. */
   private icon: Phaser.GameObjects.Image | null = null;
   private readonly hitArea = new Phaser.Geom.Rectangle();
   private hovered = false;
@@ -102,41 +207,29 @@ export class Button extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, xPx: number, yPx: number, options: ButtonOptions) {
     super(scene, xPx, yPx);
     this.options = options;
-    this.colors = {
-      ...DEFAULT_COLORS,
-      ...options.colors,
-    };
+    const { paint, labelStyle } = resolveStyle(options);
+    this.paint = paint;
     ensureLightTextures(scene);
-    // quiet 도 hover 배경을 칠할 수 있으므로 모든 variant 가 같은 모서리를 쓴다. 칠하지 않으면 보이지 않는다.
     this.background = scene.add.rectangle(0, 0, 0, 0).setOrigin(0, 0).setRounded(RADIUS.smallPx);
     this.focusGlow = addLight(scene, LIGHT_TEXTURES.glow, 0, 0).setAlpha(0);
-    this.focusOutline =
-      options.hasFocusOutline === true
-        ? scene.add
-            .rectangle(-FOCUS_OUTLINE_GAP_PX, -FOCUS_OUTLINE_GAP_PX, 0, 0)
-            .setOrigin(0, 0)
-            .setRounded(RADIUS.smallPx + FOCUS_OUTLINE_GAP_PX)
-            .setStrokeStyle(FOCUS_OUTLINE_WIDTH_PX, EDITOR_COLORS.highlight)
-        : null;
-    this.labelText = scene.add
-      .text(
-        0,
-        0,
-        options.label,
-        options.variant === 'primary'
-          ? typeStyle(
-              {
-                sizePx: options.labelType?.sizePx ?? TYPE_SCALE.primary.sizePx,
-                weight: PRIMARY_LABEL_WEIGHT,
-              },
-              this.colors.primaryLabel,
-            )
-          : typeStyle(options.labelType ?? TYPE_SCALE.primary, this.colors.emphasizedLabel),
-      )
-      .setOrigin(0.5);
+    this.labelText = scene.add.text(0, 0, options.label, labelStyle).setOrigin(0.5);
     this.add([this.background, this.focusGlow, this.labelText]);
-    if (this.focusOutline !== null) {
-      this.add(this.focusOutline);
+    const focusKind = options.variant === 'primary' ? 'glow' : options.focus;
+    if (focusKind === 'outline') {
+      const rect = scene.add
+        .rectangle(-FOCUS_OUTLINE_GAP_PX, -FOCUS_OUTLINE_GAP_PX, 0, 0)
+        .setOrigin(0, 0)
+        .setRounded(RADIUS.smallPx + FOCUS_OUTLINE_GAP_PX)
+        .setStrokeStyle(FOCUS_OUTLINE_WIDTH_PX, CELESTIAL_COLORS.highlight);
+      this.add(rect);
+      this.focus = {
+        kind: 'outline',
+        rect,
+      };
+    } else {
+      this.focus = {
+        kind: focusKind,
+      };
     }
     this.layout();
 
@@ -208,11 +301,16 @@ export class Button extends Phaser.GameObjects.Container {
     return this;
   }
 
-  /** 색 덮어쓰기를 기본색 위에 이 값으로 바꾸고 현재 상태로 다시 칠한다. 생성 때의 colors 는 버린다. */
-  setColors(colors: Partial<ButtonColors>): this {
-    this.colors = {
-      ...DEFAULT_COLORS,
-      ...colors,
+  setSecondaryColors(colors: Partial<SecondaryButtonColors>): this {
+    if (this.paint.variant !== 'secondary') {
+      throw new Error(`setSecondaryColors called on a ${this.paint.variant} button`);
+    }
+    this.paint = {
+      ...this.paint,
+      colors: {
+        ...DEFAULT_COLORS.secondary,
+        ...colors,
+      },
     };
     this.refresh();
     return this;
@@ -253,17 +351,19 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   private layout(): void {
-    const padding = PADDING_PX[this.options.variant];
+    const padding = PADDING_PX[this.paint.variant];
     const paddingXPx = this.options.paddingXPx ?? padding.xPx;
     const content = this.content();
     const widthPx = this.options.widthPx ?? content.displayWidth + paddingXPx * 2;
     const heightPx = this.options.heightPx ?? content.displayHeight + padding.yPx * 2;
     this.setSize(widthPx, heightPx);
     this.background.setSize(widthPx, heightPx);
-    this.focusOutline?.setSize(
-      widthPx + FOCUS_OUTLINE_GAP_PX * 2,
-      heightPx + FOCUS_OUTLINE_GAP_PX * 2,
-    );
+    if (this.focus.kind === 'outline') {
+      this.focus.rect.setSize(
+        widthPx + FOCUS_OUTLINE_GAP_PX * 2,
+        heightPx + FOCUS_OUTLINE_GAP_PX * 2,
+      );
+    }
     this.scene.tweens.killTweensOf(content);
     content.setPosition(this.labelX(), heightPx / 2);
     this.focusGlow.setDisplaySize(content.displayWidth, content.displayHeight);
@@ -272,22 +372,18 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   private labelX(): number {
-    const offsetPx =
-      this.options.variant === 'quiet' && this.focused && this.focusOutline === null
-        ? QUIET_FOCUS_OFFSET_PX
-        : 0;
+    const offsetPx = this.focus.kind === 'slide' && this.focused ? QUIET_FOCUS_OFFSET_PX : 0;
     return this.width / 2 + offsetPx;
   }
 
   private animateFocus(): void {
-    // outline 버튼은 refresh 에서 outline 보이기만 바꾼다.
-    if (this.focusOutline !== null) {
+    if (this.focus.kind === 'outline') {
       return;
     }
     const tweens = this.scene.tweens;
     const content = this.content();
     tweens.killTweensOf([content, this.focusGlow]);
-    if (this.options.variant === 'quiet') {
+    if (this.focus.kind === 'slide') {
       tweens.add({
         targets: content,
         x: this.labelX(),
@@ -309,27 +405,28 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   private refresh(): void {
-    const colors = this.colors;
-    this.focusOutline?.setVisible(this.focused);
-    switch (this.options.variant) {
-      case 'primary':
-        this.background.setFillStyle(this.primaryFill());
-        this.labelText.setColor(
-          cssColor(this.enabled ? colors.primaryLabel : colors.disabledLabel),
-        );
+    if (this.focus.kind === 'outline') {
+      this.focus.rect.setVisible(this.focused);
+    }
+    const paint = this.paint;
+    switch (paint.variant) {
+      case 'primary': {
+        const { colors } = paint;
+        this.background.setFillStyle(this.primaryFill(colors));
+        this.labelText.setColor(cssColor(this.enabled ? colors.label : colors.disabledLabel));
         return;
-      case 'secondary':
-        this.background.setStrokeStyle(
-          this.options.borderWidthPx ?? SECONDARY_BORDER_PX,
-          this.secondaryBorder(),
-        );
-        this.setBackgroundFill(this.secondaryFill());
-        this.labelText.setColor(
-          cssColor(this.enabled ? colors.emphasizedLabel : colors.disabledLabel),
-        );
-        this.icon?.setTint(this.enabled ? colors.emphasizedLabel : colors.disabledLabel);
+      }
+      case 'secondary': {
+        const { colors } = paint;
+        this.background.setStrokeStyle(paint.borderWidthPx, this.secondaryBorder(colors));
+        this.setBackgroundFill(this.secondaryFill(colors));
+        const labelColor = this.enabled ? colors.label : colors.disabledLabel;
+        this.labelText.setColor(cssColor(labelColor));
+        this.icon?.setTint(labelColor);
         return;
-      case 'quiet':
+      }
+      case 'quiet': {
+        const { colors } = paint;
         this.setBackgroundFill(
           this.enabled && (this.hovered || this.pressed) ? colors.hoverFill : null,
         );
@@ -337,8 +434,9 @@ export class Button extends Phaser.GameObjects.Container {
           this.icon.setAlpha(this.isEmphasized() ? 1 : ICON_IDLE_ALPHA);
           return;
         }
-        this.labelText.setColor(cssColor(this.quietLabelColor()));
+        this.labelText.setColor(cssColor(this.quietLabelColor(colors)));
         return;
+      }
     }
   }
 
@@ -350,39 +448,38 @@ export class Button extends Phaser.GameObjects.Container {
     }
   }
 
-  private secondaryBorder(): number {
-    const { border, hoverBorder, disabledBorder } = this.colors;
+  private secondaryBorder(colors: SecondaryButtonColors): number {
     if (!this.enabled) {
-      return disabledBorder ?? border;
+      return colors.disabledBorder;
     }
-    return this.hovered ? hoverBorder : border;
+    return this.hovered ? colors.hoverBorder : colors.border;
   }
 
-  private secondaryFill(): number | null {
+  private secondaryFill(colors: SecondaryButtonColors): number | null {
     if (!this.enabled) {
       return null;
     }
     if (this.pressed) {
-      return this.colors.pressedFill;
+      return colors.pressedFill;
     }
-    return this.hovered ? this.colors.hoverFill : this.colors.fill;
+    return this.hovered ? colors.hoverFill : colors.fill;
   }
 
-  private primaryFill(): number {
+  private primaryFill(colors: PrimaryButtonColors): number {
     if (!this.enabled) {
-      return this.colors.primaryDisabledFill;
+      return colors.disabledFill;
     }
     if (this.pressed) {
-      return this.colors.primaryPressedFill;
+      return colors.pressedFill;
     }
-    return this.hovered ? this.colors.primaryHoverFill : this.colors.primaryFill;
+    return this.hovered ? colors.hoverFill : colors.fill;
   }
 
-  private quietLabelColor(): number {
+  private quietLabelColor(colors: QuietButtonColors): number {
     if (!this.enabled) {
-      return this.colors.disabledLabel;
+      return colors.disabledLabel;
     }
-    return this.isEmphasized() ? this.colors.emphasizedLabel : this.colors.label;
+    return this.isEmphasized() ? colors.emphasizedLabel : colors.label;
   }
 
   private isEmphasized(): boolean {

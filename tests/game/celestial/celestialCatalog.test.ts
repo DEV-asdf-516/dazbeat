@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import {
-  getAtlasPresentation,
-  getImagePresentation,
-  loadCelestialCatalog,
+import { loadCelestialCatalog } from '../../../src/game/celestial/celestialCatalog.js';
+import type {
+  CelestialAtlasId,
+  CelestialAtlasPresentation,
+  CelestialCatalog,
+  CelestialFrame,
+  CelestialImageId,
+  CelestialStaticId,
 } from '../../../src/game/celestial/celestialCatalog.js';
-import type { CelestialCatalog } from '../../../src/game/celestial/celestialCatalog.js';
 
 const ROOT = new URL('../../../', import.meta.url);
 const MANIFEST_URL = '/assets/ui/celestial-manifest.json';
@@ -69,7 +72,6 @@ async function readRegionFrameCount(regionsUrl: string, state: string): Promise<
   return requireArray(region['frames'], 'frames').length;
 }
 
-/** url 의 실제 JSON 을 `edit` 으로 바꾼 사본을 돌려주는 fetchJson 을 만든다. */
 function fetchWithEdit(
   targetUrl: string,
   edit: (json: JsonObject) => void,
@@ -133,6 +135,21 @@ function loadCatalog(): Promise<CelestialCatalog> {
   return loadCelestialCatalog(readPublicJson);
 }
 
+/** 코드의 id 와 달리 타입으로 보장되지 않으므로 없으면 실패한다. */
+function findAtlasPresentation(catalog: CelestialCatalog, id: string): CelestialAtlasPresentation {
+  const presentation = new Map<string, CelestialAtlasPresentation>(
+    Object.entries(catalog.atlasPresentations),
+  ).get(id);
+  if (presentation === undefined) {
+    throw new Error(`Missing atlas presentation ${id}`);
+  }
+  return presentation;
+}
+
+function framesOf({ playback }: CelestialAtlasPresentation): readonly CelestialFrame[] {
+  return playback.kind === 'static' ? [] : playback.frames;
+}
+
 describe('loadCelestialCatalog', () => {
   it('matches the SHA256 of every file listed in the manifest', async () => {
     const { manifest } = await readManifestRoles();
@@ -149,16 +166,25 @@ describe('loadCelestialCatalog', () => {
 
   it('builds presentations for R01–R50 except composed sequences, plus C:node-played', async () => {
     const catalog = await loadCatalog();
-    const expectedIds = [
+    const imageIds = ['R01', 'R02', 'R03', 'R04', 'R05', 'R50'];
+    const expectedAtlasIds = [
       ...Array.from({ length: 50 }, (_unused, index) => `R${String(index + 1).padStart(2, '0')}`),
       'C:node-played',
-    ].filter((id) => id !== 'R24' && id !== 'R43');
-    expect([...catalog.presentations.keys()].sort()).toEqual(expectedIds.sort());
-    const imageIds = [...catalog.presentations]
-      .filter(([, presentation]) => presentation.kind === 'image')
-      .map(([id]) => id)
-      .sort();
-    expect(imageIds).toEqual(['R01', 'R02', 'R03', 'R04', 'R05', 'R50']);
+    ].filter((id) => id !== 'R24' && id !== 'R43' && !imageIds.includes(id));
+    expect(Object.keys(catalog.atlasPresentations).sort()).toEqual(expectedAtlasIds.sort());
+    expect(Object.keys(catalog.imagePresentations).sort()).toEqual(imageIds);
+  });
+
+  it('keys presentations by role kind so other ids do not type-check', () => {
+    // @ts-expect-error R01 은 이미지 role 이라 atlas id 가 아니다.
+    const imageAsAtlas: CelestialAtlasId = 'R01';
+    // @ts-expect-error R11 은 animation role 이라 정적 id 가 아니다.
+    const clipAsStatic: CelestialStaticId = 'R11';
+    // @ts-expect-error R43 은 composed sequence 라 presentation 이 없다.
+    const sequenceAsAtlas: CelestialAtlasId = 'R43';
+    // @ts-expect-error R99 는 없는 role 이다.
+    const unknownImage: CelestialImageId = 'R99';
+    expect([imageAsAtlas, clipAsStatic, sequenceAsAtlas, unknownImage]).toHaveLength(4);
   });
 
   it('lists 12 textures with unique URLs and keys', async () => {
@@ -166,9 +192,8 @@ describe('loadCelestialCatalog', () => {
     expect(catalog.textures).toHaveLength(12);
     expect(new Set(catalog.textures.map(({ url }) => url)).size).toBe(12);
     expect(new Set(catalog.textures.map(({ key }) => key)).size).toBe(12);
-    // manifest 의 네 배경 이미지는 각자 다른 파일이다.
-    const backgroundKeys = ['R01', 'R02', 'R03', 'R04'].map(
-      (id) => getImagePresentation(catalog, id).textureKey,
+    const backgroundKeys = (['R01', 'R02', 'R03', 'R04'] as const).map(
+      (id) => catalog.imagePresentations[id].textureKey,
     );
     expect(new Set(backgroundKeys).size).toBe(4);
     catalog.textures.forEach(({ url }) => expect(url.startsWith('/assets/ui/')).toBe(true));
@@ -177,7 +202,7 @@ describe('loadCelestialCatalog', () => {
   it('uses the actual region frame order and the role frame durations', async () => {
     const catalog = await loadCatalog();
     const { roles } = await readManifestRoles();
-    const cases: readonly [string, string, string, readonly number[]][] = [
+    const cases: readonly [CelestialAtlasId, string, string, readonly number[]][] = [
       ['R28', REGIONS_URLS.A, 'twinkle-cross', [13, 14, 13, 13, 14, 13, 13, 14, 13, 13, 14, 13]],
       ['R32', REGIONS_URLS.A, 'twinkle-cross', Array<number>(12).fill(10)],
       ['R25', REGIONS_URLS.A, 'glint-sweep', Array<number>(8).fill(30)],
@@ -194,14 +219,15 @@ describe('loadCelestialCatalog', () => {
       ],
     ];
     for (const [id, regionsUrl, state, durationsMs] of cases) {
-      const presentation = getAtlasPresentation(catalog, id);
+      const presentation = catalog.atlasPresentations[id];
+      const frames = framesOf(presentation);
       const frameCount = await readRegionFrameCount(regionsUrl, state);
       expect(
-        presentation.frames.map(({ durationMs }) => durationMs),
+        frames.map(({ durationMs }) => durationMs),
         id,
       ).toEqual(durationsMs);
-      expect(presentation.frames).toHaveLength(frameCount);
-      const frameNames = presentation.frames.map(({ frameName }) => frameName);
+      expect(frames).toHaveLength(frameCount);
+      const frameNames = frames.map(({ frameName }) => frameName);
       const atlasFrames = catalog.atlasFrames.find(
         ({ textureKey }) => textureKey === presentation.textureKey,
       );
@@ -232,18 +258,25 @@ describe('loadCelestialCatalog', () => {
         requireObject(source?.states[String(state)], `${id} state`)['frames'],
         `${id} frames`,
       );
-      const presentation = getAtlasPresentation(catalog, id);
+      const presentation = findAtlasPresentation(catalog, id);
       const textureKey = catalog.textures.find(({ url }) => url === source?.imageUrl)?.key;
       expect(presentation.textureKey, id).toBe(textureKey);
+      expect(presentation.firstFrameName, id).toBe(`${String(state)}#0`);
+      const durationsMs = atlasRole['frameDurationsMs'];
+      if (durationsMs === null) {
+        expect(presentation.playback, id).toEqual({ kind: 'static' });
+        expect(regionFrames, id).toHaveLength(1);
+        continue;
+      }
+      const frames = framesOf(presentation);
       expect(
-        presentation.frames.map(({ frameName }) => frameName),
+        frames.map(({ frameName }) => frameName),
         id,
       ).toEqual(regionFrames.map((_frame, index) => `${String(state)}#${index}`));
-      const durationsMs = atlasRole['frameDurationsMs'];
       expect(
-        presentation.frames.map(({ durationMs }) => durationMs),
+        frames.map(({ durationMs }) => durationMs),
         id,
-      ).toEqual(durationsMs === null ? [0] : requireNumbers(durationsMs, `${id} durations`));
+      ).toEqual(requireNumbers(durationsMs, `${id} durations`));
     }
   });
 
@@ -308,46 +341,70 @@ describe('loadCelestialCatalog', () => {
 
   it('distinguishes loop, one-shot and static roles', async () => {
     const catalog = await loadCatalog();
-    const loopIds = [...catalog.presentations]
-      .filter(([, presentation]) => presentation.kind === 'atlas' && presentation.isLoop)
-      .map(([id]) => id)
-      .sort();
-    expect(loopIds).toEqual(['R11', 'R12', 'R13', 'R14', 'R27', 'R29', 'R47']);
-    ['R06', 'R15', 'R18', 'R20', 'R26', 'R30', 'R49', 'C:node-played'].forEach((id) => {
-      expect(getAtlasPresentation(catalog, id).frames, id).toHaveLength(1);
-    });
-    expect(getAtlasPresentation(catalog, 'R25').isLoop).toBe(false);
-    expect(getAtlasPresentation(catalog, 'R25').frames.length).toBeGreaterThan(1);
+    const idsOf = (kind: CelestialAtlasPresentation['playback']['kind']): string[] =>
+      Object.entries(catalog.atlasPresentations)
+        .filter(([, presentation]) => presentation.playback.kind === kind)
+        .map(([id]) => id)
+        .sort();
+    expect(idsOf('loop')).toEqual(['R11', 'R12', 'R13', 'R14', 'R27', 'R29', 'R47']);
+    expect(idsOf('static')).toEqual(
+      [
+        'C:node-played',
+        'R06',
+        'R07',
+        'R08',
+        'R09',
+        'R10',
+        'R15',
+        'R16',
+        'R17',
+        'R18',
+        'R19',
+        'R20',
+        'R21',
+        'R22',
+        'R26',
+        'R30',
+        'R31',
+        'R48',
+        'R49',
+      ].sort(),
+    );
+    expect(idsOf('once')).toContain('R25');
+    const glint = catalog.atlasPresentations.R25.playback;
+    expect(glint.kind === 'once' && glint.animationKey).toBe('celestial:R25');
+    expect(framesOf(catalog.atlasPresentations.R25).length).toBeGreaterThan(1);
+    expect(catalog.atlasPresentations.R18.firstFrameName).toBe('node-cleared#0');
   });
 
   it('derives origin, scale and opacity from the role contract', async () => {
     const catalog = await loadCatalog();
-    ['R20', 'R21', 'R22', 'R23'].forEach((id) => {
-      expect(getAtlasPresentation(catalog, id).originXY, id).toEqual([8 / 256, 128 / 256]);
+    (['R20', 'R21', 'R22', 'R23'] as const).forEach((id) => {
+      expect(catalog.atlasPresentations[id].originXY, id).toEqual([8 / 256, 128 / 256]);
     });
-    expect(getAtlasPresentation(catalog, 'R33').originXY).toEqual([129 / 256, 224 / 256]);
-    expect(getAtlasPresentation(catalog, 'R34').originXY).toEqual([128 / 256, 142 / 256]);
-    ['R06', 'R07', 'R08', 'R09', 'R10', 'R48'].forEach((id) => {
-      expect(getAtlasPresentation(catalog, id).originXY, id).toEqual([0.5, 0.5]);
+    expect(catalog.atlasPresentations.R33.originXY).toEqual([129 / 256, 224 / 256]);
+    expect(catalog.atlasPresentations.R34.originXY).toEqual([128 / 256, 142 / 256]);
+    (['R06', 'R07', 'R08', 'R09', 'R10', 'R48'] as const).forEach((id) => {
+      expect(catalog.atlasPresentations[id].originXY, id).toEqual([0.5, 0.5]);
     });
-    ['R26', 'R44', 'R45', 'R46'].forEach((id) => {
-      expect(getAtlasPresentation(catalog, id).originXY, id).toEqual([0.5, 0.5]);
+    (['R26', 'R44', 'R45', 'R46'] as const).forEach((id) => {
+      expect(catalog.atlasPresentations[id].originXY, id).toEqual([0.5, 0.5]);
     });
-    expect(getAtlasPresentation(catalog, 'R17').scaleXY).toEqual([0.171875, 0.171875]);
-    expect(getAtlasPresentation(catalog, 'R20').scaleXY).toEqual([1, 1]);
-    expect(getAtlasPresentation(catalog, 'R20').scaleRange).toEqual({
+    expect(catalog.atlasPresentations.R17.scaleXY).toEqual([0.171875, 0.171875]);
+    expect(catalog.atlasPresentations.R20.scaleXY).toEqual([1, 1]);
+    expect(catalog.atlasPresentations.R20.scaleRange).toEqual({
       x: [0.25, 3],
       y: [0.75, 1.5],
     });
-    expect(getAtlasPresentation(catalog, 'R11').scaleRange).toEqual({
+    expect(catalog.atlasPresentations.R11.scaleRange).toEqual({
       x: [0.046875, 0.125],
       y: [0.046875, 0.125],
     });
-    const played = getAtlasPresentation(catalog, 'C:node-played');
+    const played = catalog.atlasPresentations['C:node-played'];
     expect(played.scaleXY).toEqual([0.140625, 0.140625]);
     expect(played.opacity).toBe(1);
     expect(played.originXY).toEqual([0.5, 0.5]);
-    expect(getImagePresentation(catalog, 'R50').opacity).toBe(0.018);
+    expect(catalog.imagePresentations.R50.opacity).toBe(0.018);
   });
 
   it('expands constellation-finish with the node-only fallback', async () => {
@@ -369,11 +426,10 @@ describe('loadCelestialCatalog', () => {
       1240,
     );
     const ignite = catalog.nodeOnlyFinish[0]?.presentation;
-    expect(ignite?.frames).toHaveLength(8);
-    expect(ignite?.frames.every(({ durationMs }) => durationMs === 25)).toBe(true);
-    expect(ignite?.frames.every(({ frameName }) => frameName.startsWith('node-ignite#'))).toBe(
-      true,
-    );
+    const igniteFrames = ignite === undefined ? [] : framesOf(ignite);
+    expect(igniteFrames).toHaveLength(8);
+    expect(igniteFrames.every(({ durationMs }) => durationMs === 25)).toBe(true);
+    expect(igniteFrames.every(({ frameName }) => frameName.startsWith('node-ignite#'))).toBe(true);
     expect(
       catalog.nodeOnlyFinish.map(({ presentationId, presentation }) => [
         presentationId,
@@ -387,15 +443,17 @@ describe('loadCelestialCatalog', () => {
       ['R41', 1, 0.6],
       ['R40', 1, 0.5],
     ]);
-    catalog.nodeOnlyFinish.forEach(({ presentation }) => expect(presentation.isLoop).toBe(false));
+    catalog.nodeOnlyFinish.forEach(({ presentation }) =>
+      expect(presentation.playback.kind).toBe('once'),
+    );
   });
 
-  it('throws for unknown or mismatched lookups', async () => {
+  it('sizes each atlas stand-in to hold its largest frame at the origin', async () => {
     const catalog = await loadCatalog();
-    expect(() => getAtlasPresentation(catalog, 'R01')).toThrow();
-    expect(() => getImagePresentation(catalog, 'R11')).toThrow();
-    expect(() => getAtlasPresentation(catalog, 'R43')).toThrow();
-    expect(() => getAtlasPresentation(catalog, 'R99')).toThrow();
+    catalog.atlasFrames.forEach(({ textureKey, standInWidthPx, standInHeightPx, frames }) => {
+      expect(standInWidthPx, textureKey).toBe(Math.max(...frames.map(({ widthPx }) => widthPx)));
+      expect(standInHeightPx, textureKey).toBe(Math.max(...frames.map(({ heightPx }) => heightPx)));
+    });
   });
 
   describe('boundary failures', () => {
@@ -418,6 +476,37 @@ describe('loadCelestialCatalog', () => {
         fetchWithEdit(MANIFEST_URL, (manifest) => {
           manifest['roles'] = requireArray(manifest['roles'], 'roles').slice(1);
         }),
+      ],
+      [
+        'role id outside R01–R50',
+        fetchWithEdit(MANIFEST_URL, (manifest) => {
+          const roles = requireArray(manifest['roles'], 'roles');
+          roles.push({
+            ...requireObject(structuredClone(roles[10]), 'role'),
+            id: 'R51',
+          });
+        }),
+      ],
+      [
+        'role of a different kind than its id',
+        fetchWithEdit(
+          MANIFEST_URL,
+          editRole('R15', (role) => {
+            role['kind'] = 'atlas-clip';
+            role['frameDurationsMs'] = [1000];
+            role['durationMs'] = 1000;
+            role['loop'] = false;
+          }),
+        ),
+      ],
+      [
+        'static role with frame durations',
+        fetchWithEdit(
+          MANIFEST_URL,
+          editRole('R15', (role) => {
+            role['frameDurationsMs'] = [1000];
+          }),
+        ),
       ],
       [
         'unknown resource',
@@ -505,6 +594,24 @@ describe('loadCelestialCatalog', () => {
           const finish = requireObject(sequences['constellation-finish'], 'finish');
           const child = requireObject(requireArray(finish['children'], 'children')[0], 'child');
           child['fallbackSequence'] = 'missing';
+        }),
+      ],
+      [
+        'fallback sequence that references itself',
+        fetchWithEdit(SEQUENCES_URL, (json) => {
+          const sequences = requireObject(json['sequences'], 'sequences');
+          const finish = requireObject(sequences['constellation-finish'], 'finish');
+          const child = requireObject(requireArray(finish['children'], 'children')[0], 'child');
+          child['fallbackSequence'] = 'constellation-finish';
+        }),
+      ],
+      [
+        'nested sequence that references itself',
+        fetchWithEdit(SEQUENCES_URL, (json) => {
+          const sequences = requireObject(json['sequences'], 'sequences');
+          const finish = requireObject(sequences['constellation-finish'], 'finish');
+          const child = requireObject(requireArray(finish['children'], 'children')[0], 'child');
+          child['sequence'] = 'constellation-finish';
         }),
       ],
       [

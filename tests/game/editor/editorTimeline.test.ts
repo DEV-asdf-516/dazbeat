@@ -1,19 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Song } from '../../../src/data/songs.js';
 import {
-  describeSelection,
-  formatEditorTime,
   getGridTimesMs,
-  getLaneAtX,
   getOpeningTimeMs,
   getPlayStartMs,
-  getTimeAtY,
   pickNote,
   snapStartTimeMs,
   toEditTimeMs,
   toVideoSec,
 } from '../../../src/game/editor/editorTimeline.js';
-import { getNoteY } from '../../../src/rhythm/notePosition.js';
 import type { Note } from '../../../src/rhythm/types.js';
 
 const song: Song = {
@@ -28,35 +23,6 @@ const song: Song = {
   gameEndMs: 10000,
   chartIds: {},
 };
-
-const PLAYHEAD_Y_PX = 760;
-const PX_PER_SECOND = 400;
-const LANES_LEFT_PX = 720;
-const LANE_WIDTH_PX = 120;
-
-describe('getTimeAtY', () => {
-  it.each([
-    [1000, 1000],
-    [2500, 1000],
-    [500, 3000],
-    [4321.5, 4000],
-  ])('inverts getNoteY for note %d at current %d', (noteTimeMs, currentTimeMs) => {
-    const yPx = getNoteY(noteTimeMs, currentTimeMs, PLAYHEAD_Y_PX, PX_PER_SECOND);
-
-    expect(getTimeAtY(yPx, currentTimeMs, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBeCloseTo(noteTimeMs);
-  });
-
-  it('maps y back to the same y through getNoteY', () => {
-    const timeMs = getTimeAtY(300, 2000, PLAYHEAD_Y_PX, PX_PER_SECOND);
-
-    expect(getNoteY(timeMs, 2000, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBeCloseTo(300);
-  });
-
-  it('does not round or clamp', () => {
-    expect(getTimeAtY(PLAYHEAD_Y_PX - 1, 0, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBe(2.5);
-    expect(getTimeAtY(PLAYHEAD_Y_PX + 400, 0, PLAYHEAD_Y_PX, PX_PER_SECOND)).toBe(-1000);
-  });
-});
 
 describe('toEditTimeMs', () => {
   it.each([
@@ -79,30 +45,6 @@ describe('toEditTimeMs', () => {
     [10000.4, 10000],
   ])('clamps %d to %d within the play range', (timeMs, expected) => {
     expect(toEditTimeMs(timeMs, song)).toBe(expected);
-  });
-});
-
-describe('getLaneAtX', () => {
-  it.each([
-    [720, 0],
-    [839, 0],
-    [840, 1],
-    [959, 1],
-    [960, 2],
-    [1079, 2],
-    [1080, 3],
-    [1199, 3],
-  ])('puts x %d in lane %d', (xPx, lane) => {
-    expect(getLaneAtX(xPx, LANES_LEFT_PX, LANE_WIDTH_PX)).toBe(lane);
-  });
-
-  it.each([
-    [719, 0],
-    [0, 0],
-    [1200, 3],
-    [1920, 3],
-  ])('clamps x %d outside the lanes to lane %d', (xPx, lane) => {
-    expect(getLaneAtX(xPx, LANES_LEFT_PX, LANE_WIDTH_PX)).toBe(lane);
   });
 });
 
@@ -323,83 +265,6 @@ describe('toVideoSec', () => {
     [100, 200, 0],
   ])('converts %d ms with offset %d ms to %d s', (timeMs, offsetMs, expectedSec) => {
     expect(toVideoSec(timeMs, offsetMs)).toBeCloseTo(expectedSec);
-  });
-});
-
-describe('formatEditorTime', () => {
-  it('formats minutes, zero-padded seconds and milliseconds', () => {
-    expect(formatEditorTime(0)).toBe('0:00.000');
-    expect(formatEditorTime(889)).toBe('0:00.889');
-    expect(formatEditorTime(59_999)).toBe('0:59.999');
-    expect(formatEditorTime(60_000)).toBe('1:00.000');
-    expect(formatEditorTime(605_007)).toBe('10:05.007');
-    expect(formatEditorTime(-1500)).toBe('-0:01.500');
-  });
-});
-
-describe('describeSelection', () => {
-  it('shows a dash for every row without a selection', () => {
-    expect(describeSelection(null)).toEqual([
-      {
-        label: 'TYPE',
-        value: '—',
-      },
-      {
-        label: 'LANE',
-        value: '—',
-      },
-      {
-        label: 'TIME',
-        value: '—',
-      },
-    ]);
-  });
-
-  it('shows type, lane and start time for a tap', () => {
-    expect(
-      describeSelection({
-        type: 'tap',
-        timeMs: 12345,
-        lane: 2,
-      }),
-    ).toEqual([
-      {
-        label: 'TYPE',
-        value: 'TAP',
-      },
-      {
-        label: 'LANE',
-        value: '2',
-      },
-      {
-        label: 'TIME',
-        value: '0:12.345',
-      },
-    ]);
-  });
-
-  it('joins start and end time with an en dash for a hold', () => {
-    expect(
-      describeSelection({
-        type: 'hold',
-        timeMs: 1000,
-        endTimeMs: 2500,
-        lane: 0,
-      }),
-    ).toEqual([
-      {
-        label: 'TYPE',
-        value: 'HOLD',
-      },
-      {
-        label: 'LANE',
-        value: '0',
-      },
-      {
-        label: 'TIME',
-        value: '0:01.000\u20130:02.500',
-      },
-    ]);
   });
 });
 

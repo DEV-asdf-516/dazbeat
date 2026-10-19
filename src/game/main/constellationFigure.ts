@@ -1,13 +1,9 @@
 import Phaser from 'phaser';
+import { clamp } from '../../range.js';
+import { createCanvasTexture } from '../ui/canvasTexture.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 
-/**
- * 흰 선화를 성도(星圖)에 그려진 별자리 그림처럼 밤하늘에 띄운다.
- * 선은 차가운 별빛으로 은은하게 두고 땋은 머리 끝은 하늘로 흩어지게 한다. 이목구비·머리 윤곽의
- * 요점에는 별을 박고 가는 직선으로 이어 별자리로 읽히게 한다.
- * 이따금 유성이 오른쪽 위에서 시선 방향(왼쪽 아래)으로 지나가며, 지나간 자리의 선과 별을 잠시 따뜻하게 밝힌다.
- * 좌표는 모두 선화(1122×1402) 픽셀 기준이고 크기만 화면 픽셀이다.
- */
+/** 좌표는 모두 선화(1122×1402) 픽셀 기준이고 크기만 화면 픽셀이다. */
 const CORE_TEXTURE_KEY = 'main:constellation-core';
 const HALO_TEXTURE_KEY = 'main:constellation-halo';
 const BAND_TEXTURE_KEY = 'main:constellation-band';
@@ -19,16 +15,12 @@ const CORE_TINT = 0xd4e0ff;
 const CORE_ALPHA = 0.66;
 const HALO_COLOR = 'rgba(110, 160, 255, 1)';
 const HALO_BLUR_PX = 18;
-/** 그림자를 겹쳐 그려 번짐을 진하게 한다. */
 const HALO_PASSES = 2;
 const HALO_ALPHA = 0.9;
-/** 선을 별가루 알갱이로 보이게 칸마다 밝기를 달리 깎는다. */
 const GRAIN_CELL_PX = 3;
 const GRAIN_MIN_ALPHA = 0.4;
 const GRAIN_TILE_PX = 128;
-/** 매번 같은 별가루 배치를 얻기 위한 고정 seed */
 const RANDOM_SEED = 'dazbee-constellation';
-/** 이 높이(0~1)부터 아래로 갈수록 선이 옅어져 땋은 머리 끝이 하늘로 흩어진다. */
 const DISSOLVE_START = 0.62;
 const DISSOLVE_END_ALPHA = 0.08;
 
@@ -37,7 +29,6 @@ const STAR_GOLD = 0xf3e2ae;
 const STAR_WHITE = 0xe9f2fa;
 const STAR_BLUE = 0xacd9f0;
 const STAR_LILAC = 0xd9c4f2;
-/** 별자리 꼭짓점. 크게 둔 별(코끝·더듬이 머리·귀)이 별자리의 1등성 역할을 한다. */
 const STARS = {
   ahoge: {
     x: 455,
@@ -137,7 +128,7 @@ const STARS = {
   },
 } as const satisfies Record<string, Star>;
 type StarName = keyof typeof STARS;
-/** 별자리 연결선. 윤곽을 그대로 따라가지 않고 요점끼리 직선으로 이어 성도의 보조선처럼 보이게 한다. */
+/** 윤곽을 그대로 따라가지 않고 요점끼리 직선으로 이어 성도의 보조선처럼 보이게 한다. */
 const CONSTELLATION_PATHS: readonly (readonly StarName[])[] = [
   ['bangs', 'ahoge', 'crown', 'back', 'right', 'rightBottom'],
   ['lash', 'nose', 'lips', 'chin', 'neck', 'knot1', 'knot2', 'knot3', 'tip'],
@@ -147,11 +138,9 @@ const LINE_COLOR = 0xbcd0ff;
 const LINE_ALPHA = 0.28;
 const LINE_WIDTH_PX = 1.5;
 
-/** 이 크기 이상의 별은 십자 광채를 더해 1등성으로 보이게 한다. */
 const BRIGHT_STAR_MIN_SIZE_PX = 20;
 const SPARKLE_SCALE = 2.8;
 const SPARKLE_TEXTURE_SIZE_PX = 64;
-/** 선 위에 흩어 둔 작은 별가루. 선화 픽셀 중 거의 불투명한 곳에서만 고른다. */
 const DUST_COUNT = 70;
 const DUST_SIZE_PX = {
   min: 3,
@@ -167,25 +156,21 @@ const STAR_TWINKLE_MS = {
 } as const;
 const ENTRY_FADE_MS = 1600;
 
-/** 유성이 지나가는 방향(선화 픽셀). 오른쪽 위에서 얼굴이 바라보는 왼쪽 아래로 흐른다. */
+/** 오른쪽 위에서 얼굴이 바라보는 왼쪽 아래로 흐른다. */
 const PASS_DIRECTION = new Phaser.Math.Vector2(-1, 0.62).normalize();
 const PASS_DURATION_MS = 2600;
 const PASS_INTERVAL_MS = 11000;
 const FIRST_PASS_DELAY_MS = 900;
-/** 유성이 지나간 자리가 밝아지는 빛. 별빛보다 따뜻한 금빛이다. */
 const GLINT_TINT = 0xfff0cf;
 const GLINT_ALPHA = 0.95;
-/** 지나가는 빛 띠의 폭(선화 픽셀). 띠는 진행 방향에 수직으로 선다. */
 const BAND_WIDTH_PX = 360;
 const BAND_TEXTURE_SIZE_PX = 64;
-/** 유성 꼬리. 머리가 가장 밝고 뒤로 갈수록 사라진다. */
 const TRAIL_TEXTURE_WIDTH_PX = 256;
 const TRAIL_TEXTURE_HEIGHT_PX = 6;
 const TRAIL_LENGTH_PX = 320;
 const TRAIL_HEAD_SIZE_PX = 22;
 /** 유성 경로를 선화 바깥으로 늘여 화면 밖처럼 먼 곳에서 들어와 사라지게 한다. */
 const TRAIL_PATH_MARGIN_PX = 260;
-/** 유성이 별을 지날 때 별이 커지는 배율 */
 const STAR_FLARE_SCALE = 1.9;
 const STAR_FLARE_MS = 520;
 
@@ -259,7 +244,6 @@ export function addConstellationFigure(
   });
   const twinklers = [...starEntries.map(({ images }) => images), ...dust.map((image) => [image])];
 
-  // 움직임 줄이기를 켠 사용자에게는 별자리를 고정된 밝기로만 보여 준다.
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     halo.setAlpha(HALO_ALPHA);
     core.setAlpha(CORE_ALPHA);
@@ -293,7 +277,6 @@ export function addConstellationFigure(
         to: STAR_MIN_ALPHA,
       },
       duration: random.between(STAR_TWINKLE_MS.min, STAR_TWINKLE_MS.max),
-      // 별마다 반짝임 시작을 엇갈려 한꺼번에 깜빡이지 않게 한다.
       delay: random.between(0, STAR_TWINKLE_MS.max),
       ease: 'Sine.easeInOut',
       yoyo: true,
@@ -330,14 +313,12 @@ export function addConstellationFigure(
     .setTint(GLINT_TINT)
     .setVisible(false);
 
-  // 경로는 선화 중심을 지나는 직선이며, 각 별은 그 직선 위로 투영한 지점에 유성이 닿을 때 반짝인다.
   const halfPathPx = diagonalPx / 2 + TRAIL_PATH_MARGIN_PX;
   const projectOnPath = (xPx: number, yPx: number): number =>
     ((xPx - widthPx / 2) * PASS_DIRECTION.x +
       (yPx - heightPx / 2) * PASS_DIRECTION.y +
       halfPathPx) /
     (halfPathPx * 2);
-  /** 유성 머리의 선화 픽셀 위치 */
   const passPoint = (progress: number): Phaser.Math.Vector2 => {
     const distancePx = progress * halfPathPx * 2 - halfPathPx;
     return new Phaser.Math.Vector2(
@@ -399,11 +380,10 @@ export function addConstellationFigure(
 
 /** 유성이 Sine.easeInOut 으로 움직이므로, 경로상 위치에 닿는 시각 비율을 되돌려 구한다. */
 function easeInOutSineInverse(progress: number): number {
-  const clamped = Phaser.Math.Clamp(progress, 0, 1);
+  const clamped = clamp(progress, 0, 1);
   return Math.acos(1 - 2 * clamped) / Math.PI;
 }
 
-/** 선화에서 별빛 선·번짐·빛 띠·유성 꼬리 텍스처를 한 번만 만든다. */
 function createFigureTextures(
   scene: Phaser.Scene,
   source: HTMLImageElement | HTMLCanvasElement,
@@ -445,7 +425,6 @@ function createFigureTextures(
     SPARKLE_TEXTURE_SIZE_PX,
     SPARKLE_TEXTURE_SIZE_PX,
     (context) => {
-      // 가운데에서 가장 밝고 끝으로 갈수록 사라지는 가는 빛줄기 두 개를 십자로 겹친다.
       const center = SPARKLE_TEXTURE_SIZE_PX / 2;
       const ray = context.createLinearGradient(0, 0, SPARKLE_TEXTURE_SIZE_PX, 0);
       ray.addColorStop(0, 'rgba(255, 255, 255, 0)');
@@ -471,7 +450,6 @@ function createFigureTextures(
       along.addColorStop(1, 'rgba(255, 255, 255, 1)');
       context.fillStyle = along;
       context.fillRect(0, 0, TRAIL_TEXTURE_WIDTH_PX, TRAIL_TEXTURE_HEIGHT_PX);
-      // 꼬리 단면도 가운데만 밝게 남겨 가는 빛줄기로 보이게 한다.
       const across = context.createLinearGradient(0, 0, 0, TRAIL_TEXTURE_HEIGHT_PX);
       across.addColorStop(0, 'rgba(255, 255, 255, 0)');
       across.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
@@ -483,7 +461,6 @@ function createFigureTextures(
   );
 }
 
-/** 선화에서 거의 불투명한 픽셀만 골라 별가루 자리로 쓴다. 아래쪽 흩어지는 구간은 피한다. */
 function sampleLinePoints(
   scene: Phaser.Scene,
   random: Phaser.Math.RandomDataGenerator,
@@ -511,10 +488,6 @@ function sampleLinePoints(
   return points;
 }
 
-/**
- * 칸마다 다른 불투명도를 곱해 선이 고른 붓선이 아니라 별가루 알갱이로 보이게 한다.
- * 작은 노이즈 타일을 한 번 만들어 무늬로 깔아 큰 선화도 한 번에 덮는다.
- */
 function applyGrain(context: CanvasRenderingContext2D, widthPx: number, heightPx: number): void {
   const random = new Phaser.Math.RandomDataGenerator([RANDOM_SEED]);
   const tile = document.createElement('canvas');
@@ -538,9 +511,7 @@ function applyGrain(context: CanvasRenderingContext2D, widthPx: number, heightPx
   }
   context.save();
   context.globalCompositeOperation = 'destination-in';
-  // 타일 한 칸을 GRAIN_CELL_PX 로 키워 알갱이가 선 굵기에 비해 너무 잘지 않게 한다.
   context.scale(GRAIN_CELL_PX, GRAIN_CELL_PX);
-  // 확대해도 알갱이 경계가 번지지 않도록 보간을 끈다.
   context.imageSmoothingEnabled = false;
   context.fillStyle = pattern;
   context.fillRect(0, 0, widthPx / GRAIN_CELL_PX, heightPx / GRAIN_CELL_PX);
@@ -561,22 +532,4 @@ function dissolveBottom(
   context.fillStyle = gradient;
   context.fillRect(0, 0, widthPx, heightPx);
   context.restore();
-}
-
-function createCanvasTexture(
-  scene: Phaser.Scene,
-  key: string,
-  widthPx: number,
-  heightPx: number,
-  paint: (context: CanvasRenderingContext2D) => void,
-): void {
-  if (scene.textures.exists(key)) {
-    return;
-  }
-  const texture = scene.textures.createCanvas(key, widthPx, heightPx);
-  if (texture === null) {
-    throw new Error(`Failed to create canvas texture ${key}`);
-  }
-  paint(texture.getContext());
-  texture.refresh();
 }

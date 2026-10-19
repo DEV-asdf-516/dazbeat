@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { getGameplayKeyAction, readGameplayKey } from '../../../src/game/gameplay/gameplayInput.js';
-import type { GameplayKey, GameplayKeyContext } from '../../../src/game/gameplay/gameplayInput.js';
-import type { Settings } from '../../../src/storage/LocalSave.js';
+import {
+  getErrorKeyAction,
+  getLoadingKeyAction,
+  getPlayingKeyAction,
+  getReadyKeyAction,
+  readGameplayKey,
+} from '../../../src/game/gameplay/gameplayInput.js';
+import type { GameplayKey } from '../../../src/game/gameplay/gameplayInput.js';
+import type { Settings } from '../../../src/storage/settings.js';
 
 const BINDINGS: Settings['keyBindings'] = ['KeyD', 'KeyF', 'KeyJ', 'KeyK'];
 
@@ -77,101 +83,110 @@ const LANE_1: GameplayKey = {
   command: null,
 };
 
-function playing(
-  isQuitConfirmOpen: boolean,
-  playerState: 'playing' | 'buffering' | 'paused' = 'playing',
-): GameplayKeyContext {
-  return {
-    phase: 'playing',
-    isQuitConfirmOpen,
-    playerState,
-  };
-}
-
-describe('getGameplayKeyAction', () => {
-  it.each(['loading', 'starting'] as const)('handles keys while %s', (phase) => {
-    const context: GameplayKeyContext = { phase };
-    expect(getGameplayKeyAction(context, BACK, false)).toEqual({ kind: 'leave' });
-    expect(getGameplayKeyAction(context, MV_MODE, false)).toEqual({ kind: 'cycleMvMode' });
-    expect(getGameplayKeyAction(context, CONFIRM, false)).toEqual({ kind: 'none' });
-    expect(getGameplayKeyAction(context, LANE_1, false)).toEqual({ kind: 'none' });
+describe('getLoadingKeyAction', () => {
+  it('leaves on back and cycles the MV mode, ignoring confirm and lanes', () => {
+    expect(getLoadingKeyAction(BACK, false)).toEqual({ kind: 'leave' });
+    expect(getLoadingKeyAction(MV_MODE, false)).toEqual({ kind: 'cycleMvMode' });
+    expect(getLoadingKeyAction(CONFIRM, false)).toEqual({ kind: 'none' });
+    expect(getLoadingKeyAction(LANE_1, false)).toEqual({ kind: 'none' });
   });
 
-  it('starts, leaves or cycles the MV mode when ready', () => {
-    const context: GameplayKeyContext = { phase: 'ready' };
-    expect(getGameplayKeyAction(context, CONFIRM, false)).toEqual({ kind: 'start' });
-    expect(getGameplayKeyAction(context, BACK, false)).toEqual({ kind: 'leave' });
-    expect(getGameplayKeyAction(context, MV_MODE, false)).toEqual({ kind: 'cycleMvMode' });
-    expect(getGameplayKeyAction(context, LANE_1, false)).toEqual({ kind: 'none' });
+  it('accepts a repeated back like a fresh press', () => {
+    expect(getLoadingKeyAction(BACK, true)).toEqual({ kind: 'leave' });
   });
 
-  it('leaves on confirm or back after an error', () => {
-    const context: GameplayKeyContext = { phase: 'error' };
-    expect(getGameplayKeyAction(context, CONFIRM, false)).toEqual({ kind: 'leave' });
-    expect(getGameplayKeyAction(context, BACK, false)).toEqual({ kind: 'leave' });
-    expect(getGameplayKeyAction(context, MV_MODE, false)).toEqual({ kind: 'none' });
+  it.each([CONFIRM, MV_MODE, LANE_1])('ignores repeated %o', (key) => {
+    expect(getLoadingKeyAction(key, true)).toEqual({ kind: 'none' });
+  });
+});
+
+describe('getReadyKeyAction', () => {
+  it('starts, leaves or cycles the MV mode', () => {
+    expect(getReadyKeyAction(CONFIRM, false)).toEqual({ kind: 'start' });
+    expect(getReadyKeyAction(BACK, false)).toEqual({ kind: 'leave' });
+    expect(getReadyKeyAction(MV_MODE, false)).toEqual({ kind: 'cycleMvMode' });
+    expect(getReadyKeyAction(LANE_1, false)).toEqual({ kind: 'none' });
   });
 
-  it.each([BACK, CONFIRM, LANE_1])('ignores %o while ending', (key) => {
-    expect(getGameplayKeyAction({ phase: 'ending' }, key, false)).toEqual({ kind: 'none' });
+  it('accepts a repeated back like a fresh press', () => {
+    expect(getReadyKeyAction(BACK, true)).toEqual({ kind: 'leave' });
   });
 
-  it('accepts a repeated back outside play like a fresh press', () => {
-    expect(getGameplayKeyAction({ phase: 'loading' }, BACK, true)).toEqual({ kind: 'leave' });
+  it.each([CONFIRM, MV_MODE, LANE_1])('ignores repeated %o', (key) => {
+    expect(getReadyKeyAction(key, true)).toEqual({ kind: 'none' });
+  });
+});
+
+describe('getErrorKeyAction', () => {
+  it('leaves on confirm or back', () => {
+    expect(getErrorKeyAction(CONFIRM, false)).toEqual({ kind: 'leave' });
+    expect(getErrorKeyAction(BACK, false)).toEqual({ kind: 'leave' });
+    expect(getErrorKeyAction(MV_MODE, false)).toEqual({ kind: 'none' });
+    expect(getErrorKeyAction(LANE_1, false)).toEqual({ kind: 'none' });
   });
 
-  it.each([CONFIRM, MV_MODE, LANE_1])('ignores repeated %o outside play', (key) => {
-    expect(getGameplayKeyAction({ phase: 'ready' }, key, true)).toEqual({ kind: 'none' });
+  it('accepts only a repeated back', () => {
+    expect(getErrorKeyAction(BACK, true)).toEqual({ kind: 'leave' });
+    expect(getErrorKeyAction(CONFIRM, true)).toEqual({ kind: 'none' });
+  });
+});
+
+describe('getPlayingKeyAction', () => {
+  const playing = (
+    isQuitConfirmOpen: boolean,
+    key: GameplayKey,
+    playerState: 'playing' | 'buffering' | 'paused' = 'playing',
+    isRepeat = false,
+  ) => getPlayingKeyAction(isQuitConfirmOpen, playerState, key, isRepeat);
+
+  it.each([BACK, LANE_1])('ignores repeated %o', (key) => {
+    expect(playing(false, key, 'playing', true)).toEqual({ kind: 'none' });
   });
 
-  it.each([BACK, LANE_1])('ignores repeated %o during play', (key) => {
-    expect(getGameplayKeyAction(playing(false), key, true)).toEqual({ kind: 'none' });
-  });
-
-  describe('during play with the quit confirm closed', () => {
+  describe('with the quit confirm closed', () => {
     it('opens the quit confirm on back', () => {
-      expect(getGameplayKeyAction(playing(false), BACK, false)).toEqual({
+      expect(playing(false, BACK)).toEqual({
         kind: 'openQuitConfirm',
       });
     });
 
     it('presses the lane while the video plays', () => {
-      expect(getGameplayKeyAction(playing(false), LANE_1, false)).toEqual({
+      expect(playing(false, LANE_1)).toEqual({
         kind: 'pressLane',
         lane: 1,
       });
     });
 
     it.each(['buffering', 'paused'] as const)('ignores lane keys while %s', (playerState) => {
-      expect(getGameplayKeyAction(playing(false, playerState), LANE_1, false)).toEqual({
+      expect(playing(false, LANE_1, playerState)).toEqual({
         kind: 'none',
       });
     });
 
     it('resumes on confirm only while paused', () => {
-      expect(getGameplayKeyAction(playing(false, 'paused'), CONFIRM, false)).toEqual({
+      expect(playing(false, CONFIRM, 'paused')).toEqual({
         kind: 'resume',
       });
-      expect(getGameplayKeyAction(playing(false), CONFIRM, false)).toEqual({ kind: 'none' });
+      expect(playing(false, CONFIRM)).toEqual({ kind: 'none' });
     });
 
     it('cycles the MV mode', () => {
-      expect(getGameplayKeyAction(playing(false), MV_MODE, false)).toEqual({
+      expect(playing(false, MV_MODE)).toEqual({
         kind: 'cycleMvMode',
       });
     });
   });
 
-  describe('during play with the quit confirm open', () => {
+  describe('with the quit confirm open', () => {
     it('leaves on confirm and closes the confirm on back', () => {
-      expect(getGameplayKeyAction(playing(true), CONFIRM, false)).toEqual({ kind: 'leave' });
-      expect(getGameplayKeyAction(playing(true), BACK, false)).toEqual({
+      expect(playing(true, CONFIRM)).toEqual({ kind: 'leave' });
+      expect(playing(true, BACK)).toEqual({
         kind: 'closeQuitConfirm',
       });
     });
 
     it.each([LANE_1, MV_MODE])('ignores %o', (key) => {
-      expect(getGameplayKeyAction(playing(true), key, false)).toEqual({ kind: 'none' });
+      expect(playing(true, key)).toEqual({ kind: 'none' });
     });
   });
 
@@ -182,14 +197,14 @@ describe('getGameplayKeyAction', () => {
     };
 
     it('presses the lane while the video plays', () => {
-      expect(getGameplayKeyAction(playing(false), enterLane, false)).toEqual({
+      expect(playing(false, enterLane)).toEqual({
         kind: 'pressLane',
         lane: 2,
       });
     });
 
     it('resumes while paused', () => {
-      expect(getGameplayKeyAction(playing(false, 'paused'), enterLane, false)).toEqual({
+      expect(playing(false, enterLane, 'paused')).toEqual({
         kind: 'resume',
       });
     });

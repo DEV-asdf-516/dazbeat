@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  MAX_TRAIL_PUFFS,
-  SCATTER_PX,
-  advanceTrail,
-  emitTrail,
-  getPuffLook,
-} from '../../src/game/cursorTrail.js';
-import type { TrailPuff } from '../../src/game/cursorTrail.js';
+import { advanceTrail, emitTrail, getPuffLook } from '../../../src/game/ui/cursorTrail.js';
+import type { TrailPuff } from '../../../src/game/ui/cursorTrail.js';
 
+const SCATTER_PX = 12;
 const half = (): number => 0.5;
 const origin = {
   xPx: 0,
@@ -130,7 +125,7 @@ describe('emitTrail', () => {
         half,
       );
     }
-    expect(puffs).toHaveLength(MAX_TRAIL_PUFFS);
+    expect(puffs).toHaveLength(90);
     const newest = puffs.at(-1);
     expect(Math.abs((newest?.xPx ?? 0) - 30 * 84)).toBeLessThanOrEqual(SCATTER_PX);
   });

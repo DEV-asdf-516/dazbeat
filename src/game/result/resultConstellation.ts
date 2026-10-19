@@ -4,7 +4,8 @@ import { isFullCombo } from '../../rhythm/score.js';
 import type { GameplayResult } from '../../rhythm/types.js';
 import { ZODIAC_FIGURES } from './zodiacFigures.js';
 import type { ZodiacFigure } from './zodiacFigures.js';
-import { clamp } from '../range.js';
+import { getProgress, lerp } from '../../range.js';
+import { requireDefined } from '../../invariant.js';
 
 export type ConstellationTier = 'faint' | 'clear' | 'bright' | 'complete';
 
@@ -15,29 +16,79 @@ export interface ConstellationBox {
   heightPx: number;
 }
 
-/** igniteAtMs 가 null 이면 끝까지 어두운 점으로 남는다. 시각은 별자리 연출 시작 기준이다. */
-export interface ConstellationNodePlan {
+export interface ConstellationPoint {
   xPx: number;
   yPx: number;
-  isAccent: boolean;
-  igniteAtMs: number | null;
 }
+
+export interface ConstellationFigurePoint extends ConstellationPoint {
+  index: number;
+}
+
+export type ConstellationNode = ConstellationFigurePoint &
+  ({ kind: 'lit'; igniteAtMs: number } | { kind: 'dark' });
 
 export interface ConstellationEdgePlan {
   fromIndex: number;
   toIndex: number;
+  from: ConstellationPoint;
+  to: ConstellationPoint;
   startMs: number;
   endMs: number;
 }
 
 export interface ConstellationPlan {
   tier: ConstellationTier;
-  /** figure 의 모든 node 를 figure index 순서로 담는다. */
-  nodes: readonly ConstellationNodePlan[];
-  /** 연결되는 edge 만 그리기 순서로 담는다. */
+  accent: ConstellationFigurePoint;
+  others: readonly ConstellationNode[];
   edges: readonly ConstellationEdgePlan[];
-  finale: { kind: 'shimmer' | 'pulse'; atMs: number } | null;
+  drawEndMs: number;
 }
+
+export interface ConstellationLook {
+  nodeCore: number;
+  lineCore: number;
+  glow: {
+    nodeHalo: number;
+    lineHalo: number;
+    finale: 'shimmer' | 'pulse' | null;
+  } | null;
+}
+
+export const CONSTELLATION_LOOKS: Readonly<Record<ConstellationTier, ConstellationLook>> = {
+  faint: {
+    nodeCore: 0.6,
+    lineCore: 0.4,
+    glow: null,
+  },
+  clear: {
+    nodeCore: 0.85,
+    lineCore: 0.55,
+    glow: {
+      nodeHalo: 0.14,
+      lineHalo: 0.08,
+      finale: null,
+    },
+  },
+  bright: {
+    nodeCore: 1,
+    lineCore: 0.65,
+    glow: {
+      nodeHalo: 0.2,
+      lineHalo: 0.12,
+      finale: 'shimmer',
+    },
+  },
+  complete: {
+    nodeCore: 1,
+    lineCore: 0.75,
+    glow: {
+      nodeHalo: 0.26,
+      lineHalo: 0.16,
+      finale: 'pulse',
+    },
+  },
+};
 
 export interface ConstellationLine {
   fromXPx: number;
@@ -46,15 +97,9 @@ export interface ConstellationLine {
   toYPx: number;
 }
 
-/** 단위 없는 값. figure 정규화 좌표이거나 여백을 나누는 0~1 비율이다. */
 interface UnitPoint {
   x: number;
   y: number;
-}
-
-interface PixelPoint {
-  xPx: number;
-  yPx: number;
 }
 
 const FULL_DRAW_MS = 900;
@@ -97,59 +142,71 @@ export function planSongConstellation(
   const figure = ZODIAC_FIGURES[zodiac];
   // 같은 id 가 항상 같은 결과를 내도록 값을 꺼내는 순서를 바꾸지 않는다.
   const random = mulberry32(fnv1a(songId));
-  const rotationRad = between(random, -MAX_ROTATION_RAD, MAX_ROTATION_RAD);
-  const sizeScale = between(random, MIN_SIZE_SCALE, MAX_SIZE_SCALE);
+  const rotationRad = lerp(-MAX_ROTATION_RAD, MAX_ROTATION_RAD, random());
+  const sizeScale = lerp(MIN_SIZE_SCALE, MAX_SIZE_SCALE, random());
   const jittered = figure.nodes.map(([x, y]) => ({
-    x: x + between(random, -MAX_JITTER, MAX_JITTER),
-    y: y + between(random, -MAX_JITTER, MAX_JITTER),
+    x: x + lerp(-MAX_JITTER, MAX_JITTER, random()),
+    y: y + lerp(-MAX_JITTER, MAX_JITTER, random()),
   }));
   const accentIndex = pickAccent(figure, random());
   const slackFraction = {
     x: random(),
     y: random(),
   };
-  const pacing = between(random, MIN_PACING, MAX_PACING);
+  const pacing = lerp(MIN_PACING, MAX_PACING, random());
 
   const positions = placeInBox(rotate(jittered, rotationRad), box, sizeScale, slackFraction);
+  const accent = requireDefined(positions[accentIndex], 'Invalid zodiac accent', accentIndex);
   const edgeCount = figure.edges.length;
   const edgeMs = (FULL_DRAW_MS * pacing) / edgeCount;
   const connectedCount = getConnectedEdgeCount(tier, edgeCount);
-  const edges = getDrawOrder(figure, accentIndex)
+  const edges = getDrawOrder(figure, positions, accentIndex)
     .slice(0, connectedCount)
-    .map(({ from, to }, index) => ({
-      fromIndex: from,
-      toIndex: to,
+    .map((edge, index) => ({
+      ...edge,
       startMs: index * edgeMs,
       endMs: (index + 1) * edgeMs,
     }));
-  const nodes = positions.map(({ xPx, yPx }, index) => ({
-    xPx,
-    yPx,
-    isAccent: index === accentIndex,
-    igniteAtMs:
-      index === accentIndex ? 0 : (edges.find(({ toIndex }) => toIndex === index)?.endMs ?? null),
-  }));
+  const others = positions.flatMap(({ xPx, yPx }, index): ConstellationNode[] => {
+    if (index === accentIndex) {
+      return [];
+    }
+    const arrival = edges.find(({ toIndex }) => toIndex === index);
+    return [
+      arrival === undefined
+        ? {
+            index,
+            xPx,
+            yPx,
+            kind: 'dark',
+          }
+        : {
+            index,
+            xPx,
+            yPx,
+            kind: 'lit',
+            igniteAtMs: arrival.endMs,
+          },
+    ];
+  });
   return {
     tier,
-    nodes,
+    accent: {
+      index: accentIndex,
+      ...accent,
+    },
+    others,
     edges,
-    finale: getFinale(tier, connectedCount * edgeMs),
+    drawEndMs: connectedCount * edgeMs,
   };
 }
 
-/** 연출 시작 후 elapsedMs 시점에 보이는 선. edge 순서를 따르고 아직 시작하지 않은 edge 는 뺀다. */
 export function getConstellationLines(
   plan: ConstellationPlan,
   elapsedMs: number,
 ): readonly ConstellationLine[] {
-  // 각 edge 는 자기 시간 구간 안의 진행도만큼 from 에서 to 로 그린다.
-  return plan.edges.flatMap(({ fromIndex, toIndex, startMs, endMs }) => {
-    const from = plan.nodes[fromIndex];
-    const to = plan.nodes[toIndex];
-    if (from === undefined || to === undefined) {
-      throw new Error(`Invalid constellation edge: ${fromIndex}-${toIndex}`);
-    }
-    const segment = clamp((elapsedMs - startMs) / (endMs - startMs), 0, 1);
+  return plan.edges.flatMap(({ from, to, startMs, endMs }) => {
+    const segment = getProgress(elapsedMs, startMs, endMs);
     if (segment === 0) {
       return [];
     }
@@ -157,8 +214,8 @@ export function getConstellationLines(
       {
         fromXPx: from.xPx,
         fromYPx: from.yPx,
-        toXPx: from.xPx + (to.xPx - from.xPx) * segment,
-        toYPx: from.yPx + (to.yPx - from.yPx) * segment,
+        toXPx: lerp(from.xPx, to.xPx, segment),
+        toYPx: lerp(from.yPx, to.yPx, segment),
       },
     ];
   });
@@ -178,55 +235,34 @@ function getConnectedEdgeCount(tier: ConstellationTier, edgeCount: number): numb
   }
 }
 
-function getFinale(tier: ConstellationTier, atMs: number): ConstellationPlan['finale'] {
-  switch (tier) {
-    case 'complete':
-      return {
-        kind: 'pulse',
-        atMs,
-      };
-    case 'bright':
-      return {
-        kind: 'shimmer',
-        atMs,
-      };
-    case 'clear':
-    case 'faint':
-      return null;
-  }
-}
-
 function pickAccent(figure: ZodiacFigure, unit: number): number {
   const candidates = figure.accentNodeIndices;
-  const accentIndex = candidates[Math.floor(unit * candidates.length)];
-  if (accentIndex === undefined || figure.nodes[accentIndex] === undefined) {
-    throw new Error(`Invalid zodiac accent: ${String(accentIndex)}`);
-  }
-  return accentIndex;
+  return requireDefined(
+    candidates[Math.floor(unit * candidates.length)],
+    'Zodiac figure has no accent candidate',
+  );
 }
 
-/** accent 에서 시작해 base edge 목록 순서로 이미 점등된 node 에 닿는 첫 edge 를 반복해 고른다. */
 function getDrawOrder(
   figure: ZodiacFigure,
+  positions: readonly ConstellationPoint[],
   accentIndex: number,
-): readonly { from: number; to: number }[] {
+): readonly Pick<ConstellationEdgePlan, 'fromIndex' | 'toIndex' | 'from' | 'to'>[] {
   const lit = new Set([accentIndex]);
   const remaining = [...figure.edges];
-  const order: { from: number; to: number }[] = [];
+  const order: Pick<ConstellationEdgePlan, 'fromIndex' | 'toIndex' | 'from' | 'to'>[] = [];
   while (remaining.length > 0) {
     const position = remaining.findIndex(([a, b]) => lit.has(a) || lit.has(b));
-    const edge = remaining[position];
-    if (edge === undefined) {
-      throw new Error('Zodiac figure is not connected');
-    }
-    const [a, b] = edge;
-    if (figure.nodes[a] === undefined || figure.nodes[b] === undefined) {
-      throw new Error(`Invalid zodiac edge: ${a}-${b}`);
-    }
-    const from = lit.has(a) ? a : b;
+    const [a, b] = requireDefined(remaining[position], 'Zodiac figure is not connected');
+    const fromIndex = lit.has(a) ? a : b;
+    const toIndex = fromIndex === a ? b : a;
+    const from = requireDefined(positions[fromIndex], 'Invalid zodiac edge node', fromIndex);
+    const to = requireDefined(positions[toIndex], 'Invalid zodiac edge node', toIndex);
     order.push({
+      fromIndex,
+      toIndex,
       from,
-      to: from === a ? b : a,
+      to,
     });
     lit.add(a).add(b);
     remaining.splice(position, 1);
@@ -250,13 +286,12 @@ function rotate(points: readonly UnitPoint[], rotationRad: number): readonly Uni
   });
 }
 
-/** 가로세로 비율을 지키며 영역에 맞춘 뒤 sizeScale 만큼 줄이고, 남는 여백을 slackFraction 비율로 나눠 옮긴다. */
 function placeInBox(
   points: readonly UnitPoint[],
   box: ConstellationBox,
   sizeScale: number,
   slackFraction: UnitPoint,
-): readonly PixelPoint[] {
+): readonly ConstellationPoint[] {
   const { minX, minY, maxX, maxY } = getBounds(points);
   const pxPerUnit = Math.min(box.widthPx / (maxX - minX), box.heightPx / (maxY - minY)) * sizeScale;
   const slackXPx = box.widthPx - (maxX - minX) * pxPerUnit;
@@ -286,11 +321,7 @@ function getBounds(points: readonly UnitPoint[]): {
   };
 }
 
-function between(random: () => number, min: number, max: number): number {
-  return min + (max - min) * random();
-}
-
-/** FNV-1a 32bit. 문자열의 UTF-16 code unit 을 차례로 섞는다. */
+/** FNV-1a 32bit. */
 function fnv1a(text: string): number {
   let hash = FNV_OFFSET_BASIS;
   for (let index = 0; index < text.length; index += 1) {
@@ -299,7 +330,7 @@ function fnv1a(text: string): number {
   return hash;
 }
 
-/** mulberry32: 32bit 시드로 [0, 1) 값을 차례로 내는 결정론적 PRNG. */
+/** mulberry32 */
 function mulberry32(seed: number): () => number {
   let state = seed;
   return () => {

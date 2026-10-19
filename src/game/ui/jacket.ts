@@ -8,7 +8,7 @@ import { COLORS, MOTION, RADIUS } from './theme.js';
 const SQUARE_FRAME = 'square';
 const PLACEHOLDER_GLOW_ALPHA = 0.3;
 
-export function jacketTextureKey(song: Song): string {
+function jacketTextureKey(song: Song): string {
   return `jacket:${song.id}`;
 }
 
@@ -23,7 +23,6 @@ export function queueJacketLoads(scene: Phaser.Scene, songs: readonly Song[]): v
   );
 }
 
-/** 곡이 바뀌면 새 내용을 앞 레이어에 그려 이전 내용 위로 crossfade 한다. */
 abstract class SongCrossfade extends Phaser.GameObjects.Container {
   private front: Phaser.GameObjects.Container;
   private back: Phaser.GameObjects.Container;

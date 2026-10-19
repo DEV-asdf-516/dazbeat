@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { adjustSetting, assignKey, canAdjust } from '../../../src/game/settings/settingsAdjust.js';
-import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from '../../../src/storage/LocalSave.js';
-import type { Settings } from '../../../src/storage/LocalSave.js';
+import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from '../../../src/storage/settings.js';
+import type { Settings } from '../../../src/storage/settings.js';
 
 function settingsWith(overrides: Partial<Settings>): Settings {
   return {

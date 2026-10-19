@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AuthUser } from '../../src/backend/auth.js';
+import type { AuthUser } from '../../src/data/account.js';
 import {
   cancelSignIn,
   canCurrentUserOpenChartEditor,

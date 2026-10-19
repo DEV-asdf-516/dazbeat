@@ -1,10 +1,10 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import { SCENE_KEYS, exitScene } from '../config.js';
-import type { ResultSceneData, SceneRequest } from '../config.js';
+import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
+import type { ResultSceneData, SceneRequest } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { getAtlasPresentation } from '../celestial/celestialCatalog.js';
 import {
+  CONSTELLATION_LOOKS,
   getConstellationLines,
   getConstellationTier,
   planSongConstellation,
@@ -12,19 +12,17 @@ import {
 import type {
   ConstellationBox,
   ConstellationPlan,
-  ConstellationTier,
+  ConstellationPoint,
 } from './resultConstellation.js';
 import { DifficultyTabs } from './DifficultyTabs.js';
 import { RESULT_NODE_ID, planResultFinish } from './resultFinish.js';
-import { stepRetryDifficulty } from './retryDifficulty.js';
 import type { FinishAnchor, FinishCue } from './resultFinish.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import { getAvailableDifficulties } from '../../data/songs.js';
+import { stepChart } from '../../data/songs.js';
+import type { ChartRef } from '../../data/songs.js';
 import type { Song } from '../../data/songs.js';
-import type { Difficulty } from '../../rhythm/types.js';
 import { getRank } from '../../rhythm/rank.js';
-import { isFullCombo } from '../../rhythm/score.js';
 import type { Judgment } from '../../rhythm/types.js';
 import { Button } from '../ui/Button.js';
 import {
@@ -35,7 +33,6 @@ import {
   addCelestialSprite,
   playCelestialOnce,
   queueCelestialTextures,
-  registerCelestialAnimations,
 } from '../celestial/celestialSprites.js';
 import { formatAccuracy, formatScore } from '../ui/format.js';
 import { JacketView, queueJacketLoads } from '../ui/jacket.js';
@@ -85,10 +82,10 @@ const MAX_COMBO_X_PX = LEFT_X_PX + JUDGMENT_COLUMN_WIDTH_PX * 2;
 const JACKET_X_PX = 1400;
 const JACKET_Y_PX = 160;
 const JACKET_SIZE_PX = 400;
-/** RETRY 바로 위 난이도 탭. 판정 표와는 넓게, RETRY 와는 좁게 띄워 한 묶음으로 보이게 한다. */
+/** 판정 표와는 넓게, RETRY 와는 좁게 띄워 한 묶음으로 보이게 한다. */
 const DIFFICULTY_TABS_Y_PX = 840;
 const BUTTON_Y_PX = 880;
-/** quiet 버튼의 안쪽 가로 여백. 그만큼 당겨 RETRY 라벨을 탭·판정 표와 같은 왼쪽 선에 맞춘다. */
+/** quiet 버튼의 안쪽 가로 여백만큼 당겨 RETRY 라벨을 탭·판정 표와 같은 왼쪽 선에 맞춘다. */
 const QUIET_BUTTON_PADDING_X_PX = 16;
 const BUTTON_GAP_PX = 48;
 const HEADER_REVEAL_DELAY_MS = 150;
@@ -100,7 +97,6 @@ const SCORE_COUNT_DURATION_MS = 700;
 const STATS_REVEAL_DELAY_MS = 800;
 const MENU_REVEAL_DELAY_MS = 950;
 const FULL_COMBO_DELAY_MS = 1100;
-// 왼쪽 정보 열과 재킷 사이의 빈 영역이다. 연출은 FULL COMBO 라벨과 같은 시각에 시작한다.
 const CONSTELLATION_BOX: ConstellationBox = {
   leftPx: 740,
   topPx: 210,
@@ -110,60 +106,29 @@ const CONSTELLATION_BOX: ConstellationBox = {
 const CONSTELLATION_DELAY_MS = FULL_COMBO_DELAY_MS;
 const CONSTELLATION_DIM_SIZE_PX = 8;
 const CONSTELLATION_DIM_ALPHA = 0.3;
-const CONSTELLATION_CORE_SIZE_PX = 12;
-const CONSTELLATION_ACCENT_CORE_SIZE_PX = 18;
-const CONSTELLATION_HALO_SIZE_PX = 40;
-const CONSTELLATION_ACCENT_HALO_SIZE_PX = 56;
+const CONSTELLATION_ACCENT_SIZE = {
+  corePx: 18,
+  haloPx: 56,
+};
+const CONSTELLATION_LIT_SIZE = {
+  corePx: 12,
+  haloPx: 40,
+};
 const CONSTELLATION_LINE_CORE_WIDTH_PX = 1.5;
 const CONSTELLATION_LINE_HALO_WIDTH_PX = 5;
 const CONSTELLATION_SHIMMER_ALPHA = 0.15;
 const CONSTELLATION_PULSE_SCALE = 1.6;
-const CONSTELLATION_TIER_ALPHAS: Readonly<
-  Record<
-    ConstellationTier,
-    { nodeCore: number; nodeHalo: number; lineCore: number; lineHalo: number }
-  >
-> = {
-  faint: {
-    nodeCore: 0.6,
-    nodeHalo: 0,
-    lineCore: 0.4,
-    lineHalo: 0,
-  },
-  clear: {
-    nodeCore: 0.85,
-    nodeHalo: 0.14,
-    lineCore: 0.55,
-    lineHalo: 0.08,
-  },
-  bright: {
-    nodeCore: 1,
-    nodeHalo: 0.2,
-    lineCore: 0.65,
-    lineHalo: 0.12,
-  },
-  complete: {
-    nodeCore: 1,
-    nodeHalo: 0.26,
-    lineCore: 0.75,
-    lineHalo: 0.16,
-  },
-};
 const FULL_COMBO_LABEL_GAP_PX = 32;
 const FULL_COMBO_LABEL_BOTTOM_INSET_PX = 32;
-// cleared node 는 재킷 왼쪽 아래, starfall 은 재킷 아래에 둔다.
 const NODE_X_PX = JACKET_X_PX - 80;
 const NODE_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 86;
 const STARFALL_X_PX = JACKET_X_PX + 260;
 const STARFALL_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 144;
-// score 텍스트의 왼쪽 끝·아래 끝 기준 상대 위치.
 const SCORE_SHIMMER_DX_PX = 128;
 const SCORE_SHIMMER_DY_PX = 12;
 
 export class ResultScene extends Phaser.Scene {
   private exit: SceneExit<SceneRequest> = STAYING;
-  /** RETRY 로 플레이할 난이도의 유일한 원본. 처음에는 방금 플레이한 난이도다. 바꿀 때는 setRetryDifficulty 를 거친다. */
-  private retryDifficulty: Difficulty = 'easy';
 
   constructor(
     private readonly songs: readonly Song[],
@@ -180,11 +145,15 @@ export class ResultScene extends Phaser.Scene {
 
   create(data: ResultSceneData): void {
     this.exit = STAYING;
-    this.retryDifficulty = data.difficulty;
-    registerCelestialAnimations(this, this.celestial);
     addCelestialAtmosphere(this, this.celestial, 'result');
     const keyboard = requireKeyboard(this);
-    const { song, difficulty, result } = data;
+    const { song, difficulty, chartId, result } = data;
+    let retryChart: ChartRef = {
+      song,
+      difficulty,
+      chartId,
+    };
+    const activate = (item: MenuItem): void => this.activate(item, retryChart);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const titleText = this.add.text(
@@ -200,15 +169,17 @@ export class ResultScene extends Phaser.Scene {
       textStyle('meta', COLORS.textMuted),
     );
     // 랭크용 display 서체는 별자리 영역과 겹치므로 FAILED 는 더 작은 title 서체로 같은 자리에 둔다.
-    const rankText =
+    const rank =
       result.outcome === 'failed'
-        ? this.add.text(LEFT_X_PX, RANK_Y_PX, 'FAILED', textStyle('title', JUDGMENT_COLORS.miss))
-        : this.add.text(
-            LEFT_X_PX,
-            RANK_Y_PX,
-            getRank(result.accuracy),
-            textStyle('display', COLORS.textPrimary),
-          );
+        ? {
+            label: 'FAILED',
+            style: textStyle('title', JUDGMENT_COLORS.miss),
+          }
+        : {
+            label: getRank(result.accuracy),
+            style: textStyle('display', COLORS.textPrimary),
+          };
+    const rankText = this.add.text(LEFT_X_PX, RANK_Y_PX, rank.label, rank.style);
     const rankBounds = rankText.getBounds();
     // scale 강조가 글자 중심에서 일어나도록 원점만 중심으로 옮긴다. 표시 위치는 그대로다.
     rankText.setOrigin(0.5).setPosition(rankBounds.centerX, rankBounds.centerY);
@@ -261,21 +232,39 @@ export class ResultScene extends Phaser.Scene {
 
     const retryButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, BUTTON_Y_PX, {
       variant: 'quiet',
+      focus: 'slide',
       label: 'RETRY',
-      onActivate: () => this.activate('retry', data),
+      onActivate: () => activate('retry'),
     });
-    const tabs = new DifficultyTabs(this, LEFT_X_PX, DIFFICULTY_TABS_Y_PX, (difficulty) =>
-      this.setRetryDifficulty(tabs, song, difficulty),
+    const selectRetryChart = (next: ChartRef): void => {
+      if (this.exit.kind === 'leaving' || next.difficulty === retryChart.difficulty) {
+        return;
+      }
+      retryChart = next;
+      tabs.render({
+        selected: next.difficulty,
+        song,
+      });
+    };
+    const tabs = new DifficultyTabs(
+      this,
+      LEFT_X_PX,
+      DIFFICULTY_TABS_Y_PX,
+      {
+        selected: difficulty,
+        song,
+      },
+      selectRetryChart,
     );
-    this.renderTabs(tabs, song);
     const songSelectButton = new Button(
       this,
       retryButton.x + retryButton.width + BUTTON_GAP_PX,
       BUTTON_Y_PX,
       {
         variant: 'quiet',
+        focus: 'slide',
         label: 'TRACKS',
-        onActivate: () => this.activate('songSelect', data),
+        onActivate: () => activate('songSelect'),
       },
     );
     const menu = new MenuFocus<MenuItem>([
@@ -328,48 +317,40 @@ export class ResultScene extends Phaser.Scene {
       1,
       MENU_REVEAL_DELAY_MS,
     );
+    const tier = getConstellationTier(result);
     this.revealConstellation(
-      planSongConstellation(
-        song.id,
-        song.constellation,
-        getConstellationTier(result),
-        CONSTELLATION_BOX,
-      ),
+      planSongConstellation(song.id, song.constellation, tier, CONSTELLATION_BOX),
       song.accentColor,
     );
-    if (isFullCombo(result.counts)) {
+    // 실패는 HP 가 BAD·MISS 로만 깎여 0 이 될 때뿐이라 FULL COMBO 와 겹치지 않는다. complete 가 곧 FULL COMBO 다.
+    if (tier === 'complete') {
       this.revealFullCombo(rankBounds, song.accentColor);
     }
     keyboard.on(
       'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, data, menu, tabs)),
+      handleEachEventOnce((event: KeyboardEvent) =>
+        this.handleKey(event, menu, activate, (delta) =>
+          selectRetryChart(stepChart(retryChart, delta)),
+        ),
+      ),
     );
   }
 
   private handleKey(
     event: KeyboardEvent,
-    data: ResultSceneData,
     menu: MenuFocus<MenuItem>,
-    tabs: DifficultyTabs,
+    activate: (item: MenuItem) => void,
+    stepRetryChart: (delta: 1 | -1) => void,
   ): void {
     if (this.exit.kind === 'leaving') {
       return;
     }
     // 곡 선택 화면처럼 ←→ 는 난이도, 메뉴 이동은 ↑↓ 다.
-    switch (readMenuAction(event)) {
+    const action = readMenuAction(event);
+    switch (action) {
       case 'left':
-        this.setRetryDifficulty(
-          tabs,
-          data.song,
-          stepRetryDifficulty(data.song, this.retryDifficulty, -1),
-        );
-        break;
       case 'right':
-        this.setRetryDifficulty(
-          tabs,
-          data.song,
-          stepRetryDifficulty(data.song, this.retryDifficulty, 1),
-        );
+        stepRetryChart(action === 'left' ? -1 : 1);
         break;
       case 'up':
         menu.move(-1);
@@ -378,17 +359,17 @@ export class ResultScene extends Phaser.Scene {
         menu.move(1);
         break;
       case 'confirm':
-        this.activate(menu.getFocused(), data);
+        activate(menu.getFocused());
         break;
       case 'back':
-        this.activate('songSelect', data);
+        activate('songSelect');
         break;
       default:
         break;
     }
   }
 
-  private activate(item: MenuItem, data: ResultSceneData): void {
+  private activate(item: MenuItem, retryChart: ChartRef): void {
     if (this.exit.kind === 'leaving') {
       return;
     }
@@ -396,10 +377,7 @@ export class ResultScene extends Phaser.Scene {
       case 'retry':
         this.exit = exitScene(this, this.exit, {
           key: 'gameplay',
-          data: {
-            song: data.song,
-            difficulty: this.retryDifficulty,
-          },
+          data: retryChart,
         });
         return;
       case 'songSelect':
@@ -409,21 +387,6 @@ export class ResultScene extends Phaser.Scene {
         });
         return;
     }
-  }
-
-  private setRetryDifficulty(tabs: DifficultyTabs, song: Song, next: Difficulty): void {
-    if (this.exit.kind === 'leaving' || next === this.retryDifficulty) {
-      return;
-    }
-    this.retryDifficulty = next;
-    this.renderTabs(tabs, song);
-  }
-
-  private renderTabs(tabs: DifficultyTabs, song: Song): void {
-    tabs.render({
-      selected: this.retryDifficulty,
-      available: getAvailableDifficulties(song),
-    });
   }
 
   private fadeInAt(
@@ -441,7 +404,6 @@ export class ResultScene extends Phaser.Scene {
     });
   }
 
-  /** finish 계획대로 sprite 를 만들고 각 cue 시각에 1회 재생한다. 계획이 비면 아무것도 만들지 않는다. */
   private playFinish(
     cues: readonly FinishCue[],
     rankBounds: Phaser.Geom.Rectangle,
@@ -452,123 +414,130 @@ export class ResultScene extends Phaser.Scene {
     }
     const node = addCelestialSprite(
       this,
-      getAtlasPresentation(this.celestial, RESULT_NODE_ID),
+      this.celestial.atlasPresentations[RESULT_NODE_ID],
       NODE_X_PX,
       NODE_Y_PX,
-    )?.setVisible(false);
+    ).setVisible(false);
     cues.forEach((cue) => {
       const { xPx, yPx } = getFinishAnchorPosition(cue.anchor, rankBounds, scoreBounds);
       const sprite = addCelestialSprite(this, cue.step.presentation, xPx, yPx);
-      if (sprite === null) {
-        return;
-      }
       if (cue.isNodeIgnite) {
-        sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => node?.setVisible(true));
+        sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => node.setVisible(true));
       }
       this.time.delayedCall(cue.playAtMs, () => playCelestialOnce(sprite));
     });
   }
 
-  /** 어두운 silhouette 을 띄운 뒤 계획 시각대로 node 를 점등하고 edge 를 이어 그린다. */
   private revealConstellation(plan: ConstellationPlan, accent: number): void {
     ensureLightTextures(this);
-    const alphas = CONSTELLATION_TIER_ALPHAS[plan.tier];
-    const lights = plan.nodes.map((node) => {
-      const star = addLight(this, LIGHT_TEXTURES.star, node.xPx, node.yPx).setDisplaySize(
+    const { nodeCore, lineCore, glow } = CONSTELLATION_LOOKS[plan.tier];
+    const addStar = ({ xPx, yPx }: ConstellationPoint): Phaser.GameObjects.Image => {
+      const star = addLight(this, LIGHT_TEXTURES.star, xPx, yPx).setDisplaySize(
         CONSTELLATION_DIM_SIZE_PX,
         CONSTELLATION_DIM_SIZE_PX,
       );
       this.fadeInAt([star], CONSTELLATION_DIM_ALPHA, CONSTELLATION_DELAY_MS, MOTION.fastMs);
-      if (node.igniteAtMs === null) {
-        return {
-          node,
-          star,
-          halo: null,
-        };
-      }
-      const coreSizePx = node.isAccent
-        ? CONSTELLATION_ACCENT_CORE_SIZE_PX
-        : CONSTELLATION_CORE_SIZE_PX;
-      const igniteAtMs = CONSTELLATION_DELAY_MS + node.igniteAtMs;
+      return star;
+    };
+    const ignite = (
+      star: Phaser.GameObjects.Image,
+      nodeIgniteAtMs: number,
+      corePx: number,
+    ): void => {
       // dim fade-in 과 alpha tween 이 겹치지 않도록 그 node 의 tween 을 끊고 점등한다.
-      this.time.delayedCall(igniteAtMs, () => {
+      this.time.delayedCall(CONSTELLATION_DELAY_MS + nodeIgniteAtMs, () => {
         this.tweens.killTweensOf(star);
         this.tweens.add({
           targets: star,
-          alpha: alphas.nodeCore,
-          displayWidth: coreSizePx,
-          displayHeight: coreSizePx,
+          alpha: nodeCore,
+          displayWidth: corePx,
+          displayHeight: corePx,
           duration: MOTION.fastMs,
         });
       });
-      if (alphas.nodeHalo === 0) {
-        return {
-          node,
-          star,
-          halo: null,
-        };
-      }
-      const haloSizePx = node.isAccent
-        ? CONSTELLATION_ACCENT_HALO_SIZE_PX
-        : CONSTELLATION_HALO_SIZE_PX;
-      const halo = addLight(this, LIGHT_TEXTURES.glow, node.xPx, node.yPx)
-        .setDisplaySize(haloSizePx, haloSizePx)
+    };
+    const addHalo = (
+      { xPx, yPx }: ConstellationPoint,
+      nodeIgniteAtMs: number,
+      haloPx: number,
+      alpha: number,
+    ): Phaser.GameObjects.Image => {
+      const halo = addLight(this, LIGHT_TEXTURES.glow, xPx, yPx)
+        .setDisplaySize(haloPx, haloPx)
         .setTint(accent);
-      this.fadeInAt([halo], alphas.nodeHalo, igniteAtMs, MOTION.fastMs);
-      return {
-        node,
-        star,
-        halo,
-      };
+      this.fadeInAt([halo], alpha, CONSTELLATION_DELAY_MS + nodeIgniteAtMs, MOTION.fastMs);
+      return halo;
+    };
+
+    // 별빛은 모두 SCREEN 합성이라 만드는 순서가 겹친 모습에 영향을 주지 않는다. 선만 그 위에 둔다.
+    const accentStar = addStar(plan.accent);
+    ignite(accentStar, 0, CONSTELLATION_ACCENT_SIZE.corePx);
+    const litNodes = plan.others.flatMap((node) => {
+      const star = addStar(node);
+      if (node.kind === 'dark') {
+        return [];
+      }
+      ignite(star, node.igniteAtMs, CONSTELLATION_LIT_SIZE.corePx);
+      return [node];
     });
+    if (glow !== null) {
+      const accentHalo = addHalo(plan.accent, 0, CONSTELLATION_ACCENT_SIZE.haloPx, glow.nodeHalo);
+      litNodes.forEach((node) =>
+        addHalo(node, node.igniteAtMs, CONSTELLATION_LIT_SIZE.haloPx, glow.nodeHalo),
+      );
+      if (glow.finale !== null) {
+        this.playConstellationFinale(
+          accentStar,
+          accentHalo,
+          glow.nodeHalo,
+          glow.finale,
+          plan.drawEndMs,
+        );
+      }
+    }
 
     const lines = this.add.graphics();
     const drawLines = (elapsedMs: number): void => {
       lines.clear();
       getConstellationLines(plan, elapsedMs).forEach(({ fromXPx, fromYPx, toXPx, toYPx }) => {
-        if (alphas.lineHalo > 0) {
+        if (glow !== null) {
           lines
-            .lineStyle(CONSTELLATION_LINE_HALO_WIDTH_PX, accent, alphas.lineHalo)
+            .lineStyle(CONSTELLATION_LINE_HALO_WIDTH_PX, accent, glow.lineHalo)
             .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
         }
         lines
-          .lineStyle(CONSTELLATION_LINE_CORE_WIDTH_PX, COLORS.note, alphas.lineCore)
+          .lineStyle(CONSTELLATION_LINE_CORE_WIDTH_PX, COLORS.note, lineCore)
           .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
       });
     };
-    const lastEdge = plan.edges.at(-1);
-    if (lastEdge === undefined) {
-      throw new Error('Constellation plan has no connected edge');
-    }
     this.tweens.addCounter({
       from: 0,
-      to: lastEdge.endMs,
-      duration: lastEdge.endMs,
+      to: plan.drawEndMs,
+      duration: plan.drawEndMs,
       delay: CONSTELLATION_DELAY_MS,
       onUpdate: (_tween, _target, _key, current: number) => drawLines(current),
-      onComplete: () => drawLines(lastEdge.endMs),
+      onComplete: () => drawLines(plan.drawEndMs),
     });
+  }
 
-    if (plan.finale === null) {
-      return;
-    }
-    const accentLight = lights.find(({ node }) => node.isAccent);
-    if (accentLight === undefined || accentLight.halo === null) {
-      throw new Error('Constellation finale needs a lit accent halo');
-    }
-    const { star, halo } = accentLight;
-    const { kind, atMs } = plan.finale;
+  private playConstellationFinale(
+    star: Phaser.GameObjects.Image,
+    halo: Phaser.GameObjects.Image,
+    haloAlpha: number,
+    kind: 'shimmer' | 'pulse',
+    atMs: number,
+  ): void {
     // 점등 시 그 node 의 tween 을 끊으므로 finale tween 은 그 시각에 만든다.
     this.time.delayedCall(CONSTELLATION_DELAY_MS + atMs, () => {
       this.tweens.add({
         targets: halo,
-        alpha: alphas.nodeHalo + CONSTELLATION_SHIMMER_ALPHA,
+        alpha: haloAlpha + CONSTELLATION_SHIMMER_ALPHA,
         duration: MOTION.fastMs,
         yoyo: true,
         repeat: 0,
       });
       if (kind === 'pulse') {
-        const pulseSizePx = CONSTELLATION_ACCENT_CORE_SIZE_PX * CONSTELLATION_PULSE_SCALE;
+        const pulseSizePx = CONSTELLATION_ACCENT_SIZE.corePx * CONSTELLATION_PULSE_SCALE;
         this.tweens.add({
           targets: star,
           displayWidth: pulseSizePx,

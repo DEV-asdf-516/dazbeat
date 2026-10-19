@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  handleEachEventOnce,
-  readKeyCapture,
-  readMenuAction,
-  toMenuAction,
-} from '../../../src/game/ui/menuInput.js';
+import { handleEachEventOnce, readMenuAction } from '../../../src/game/ui/menuInput.js';
 import type { MenuAction } from '../../../src/game/ui/menuInput.js';
 
 const MENU_KEYS: readonly [string, MenuAction][] = [
@@ -21,16 +16,6 @@ const MENU_KEYS: readonly [string, MenuAction][] = [
 ];
 
 const UNMAPPED_KEYS = ['KeyQ', 'KeyE', 'Tab', 'KeyF', 'Space', ''];
-
-describe('toMenuAction', () => {
-  it.each(MENU_KEYS)('maps %s to %s', (code, action) => {
-    expect(toMenuAction(code)).toBe(action);
-  });
-
-  it.each(UNMAPPED_KEYS)('maps %j to null', (code) => {
-    expect(toMenuAction(code)).toBeNull();
-  });
-});
 
 describe('readMenuAction', () => {
   it.each(MENU_KEYS)('reads non-repeated %s as %s', (code, action) => {
@@ -66,26 +51,6 @@ describe('readMenuAction', () => {
   it.each(['Enter', 'Escape', ...UNMAPPED_KEYS])('reads repeated %j as null', (code) => {
     expect(
       readMenuAction({
-        code,
-        repeat: true,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe('readKeyCapture', () => {
-  it.each(['Enter', 'KeyF', 'Escape'])('reads non-repeated %s as its code', (code) => {
-    expect(
-      readKeyCapture({
-        code,
-        repeat: false,
-      }),
-    ).toBe(code);
-  });
-
-  it.each(['Enter', 'KeyF', 'Escape'])('reads repeated %s as null', (code) => {
-    expect(
-      readKeyCapture({
         code,
         repeat: true,
       }),

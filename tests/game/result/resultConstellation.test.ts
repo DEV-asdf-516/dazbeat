@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { ZODIACS } from '../../../src/data/songs.js';
 import type { Zodiac } from '../../../src/data/songs.js';
 import {
+  CONSTELLATION_LOOKS,
   getConstellationLines,
   getConstellationTier,
   planSongConstellation,
 } from '../../../src/game/result/resultConstellation.js';
 import type {
   ConstellationBox,
+  ConstellationFigurePoint,
   ConstellationPlan,
   ConstellationTier,
 } from '../../../src/game/result/resultConstellation.js';
@@ -41,14 +43,8 @@ function plan(songId: string, zodiac: Zodiac, tier: ConstellationTier): Constell
   return planSongConstellation(songId, zodiac, tier, BOX);
 }
 
-function getAccentIndex(result: ConstellationPlan): number {
-  const accents = result.nodes.flatMap((node, index) => (node.isAccent ? [index] : []));
-  expect(accents).toHaveLength(1);
-  const [accent] = accents;
-  if (accent === undefined) {
-    throw new Error('No accent node');
-  }
-  return accent;
+function allNodes(result: ConstellationPlan): ConstellationFigurePoint[] {
+  return [result.accent, ...result.others].sort((a, b) => a.index - b.index);
 }
 
 describe('getConstellationTier', () => {
@@ -156,17 +152,19 @@ describe('planSongConstellation', () => {
     expect(bright.edges.length).toBeLessThan(complete.edges.length);
     expect(complete.edges).toHaveLength(figure.edges.length);
     [faint, clear, bright, complete].forEach((result) => {
-      expect(result.nodes).toHaveLength(figure.nodes.length);
+      expect(allNodes(result).map(({ index }) => index)).toEqual(
+        figure.nodes.map((_node, index) => index),
+      );
     });
   });
 
   it.each(ZODIACS)('lights exactly the accent and connected edge ends for %s', (zodiac) => {
     TIERS.forEach((tier) => {
       const result = plan('s1', zodiac, tier);
-      const lit = new Set([getAccentIndex(result)]);
+      const lit = new Set([result.accent.index]);
       result.edges.forEach(({ fromIndex, toIndex }) => lit.add(fromIndex).add(toIndex));
-      result.nodes.forEach((node, index) => {
-        expect(node.igniteAtMs !== null).toBe(lit.has(index));
+      result.others.forEach((node) => {
+        expect(node.kind === 'lit').toBe(lit.has(node.index));
       });
     });
   });
@@ -178,8 +176,8 @@ describe('planSongConstellation', () => {
   it.each(ZODIACS)('varies layout but keeps topology between song ids for %s', (zodiac) => {
     const a = plan('song-a', zodiac, 'complete');
     const b = plan('song-b', zodiac, 'complete');
-    expect(a.nodes.map(({ xPx, yPx }) => [xPx, yPx])).not.toEqual(
-      b.nodes.map(({ xPx, yPx }) => [xPx, yPx]),
+    expect(allNodes(a).map(({ xPx, yPx }) => [xPx, yPx])).not.toEqual(
+      allNodes(b).map(({ xPx, yPx }) => [xPx, yPx]),
     );
     const pairs = (result: ConstellationPlan): string[] =>
       result.edges.map(({ fromIndex, toIndex }) => edgeKey(fromIndex, toIndex)).sort();
@@ -189,7 +187,7 @@ describe('planSongConstellation', () => {
   it('places every node inside the box', () => {
     ZODIACS.forEach((zodiac) => {
       SONG_IDS.slice(0, 50).forEach((songId) => {
-        plan(songId, zodiac, 'faint').nodes.forEach(({ xPx, yPx }) => {
+        allNodes(plan(songId, zodiac, 'faint')).forEach(({ xPx, yPx }) => {
           expect(xPx).toBeGreaterThanOrEqual(BOX.leftPx);
           expect(xPx).toBeLessThanOrEqual(BOX.leftPx + BOX.widthPx);
           expect(yPx).toBeGreaterThanOrEqual(BOX.topPx);
@@ -205,13 +203,22 @@ describe('planSongConstellation', () => {
     const accentsSeen = new Set<number>();
     SONG_IDS.forEach((songId) => {
       const result = plan(songId, zodiac, 'complete');
-      const accent = getAccentIndex(result);
+      const accent = result.accent.index;
       accentsSeen.add(accent);
       const lit = new Set([accent]);
       expect(result.edges[0]?.fromIndex).toBe(accent);
-      result.edges.forEach(({ fromIndex, toIndex }) => {
+      const nodes = allNodes(result);
+      result.edges.forEach(({ fromIndex, toIndex, from, to }) => {
         expect(lit.has(fromIndex)).toBe(true);
         lit.add(toIndex);
+        expect(from).toEqual({
+          xPx: nodes[fromIndex]?.xPx,
+          yPx: nodes[fromIndex]?.yPx,
+        });
+        expect(to).toEqual({
+          xPx: nodes[toIndex]?.xPx,
+          yPx: nodes[toIndex]?.yPx,
+        });
       });
       expect(
         result.edges.map(({ fromIndex, toIndex }) => edgeKey(fromIndex, toIndex)).sort(),
@@ -234,13 +241,9 @@ describe('planSongConstellation', () => {
             expect(edge.startMs).toBeCloseTo(previous.endMs);
           }
         });
-        result.nodes.forEach((node, index) => {
-          if (node.isAccent) {
-            expect(node.igniteAtMs).toBe(0);
-            return;
-          }
-          const arrival = result.edges.find(({ toIndex }) => toIndex === index);
-          expect(node.igniteAtMs).toBe(arrival?.endMs ?? null);
+        result.others.forEach((node) => {
+          const arrival = result.edges.find(({ toIndex }) => toIndex === node.index);
+          expect(node.kind === 'lit' ? node.igniteAtMs : null).toBe(arrival?.endMs ?? null);
         });
       });
     },
@@ -256,48 +259,61 @@ describe('planSongConstellation', () => {
     });
   });
 
+  it.each(TIERS)('ends the %s drawing at the last edge end', (tier) => {
+    const result = plan('sample', 'leo', tier);
+    expect(result.drawEndMs).toBe(result.edges.at(-1)?.endMs);
+  });
+});
+
+describe('CONSTELLATION_LOOKS', () => {
   it.each([
     ['faint', null],
     ['clear', null],
     ['bright', 'shimmer'],
     ['complete', 'pulse'],
-  ] as const)('ends %s with finale %s after the last edge', (tier, kind) => {
-    const result = plan('sample', 'leo', tier);
-    const lastEndMs = result.edges.at(-1)?.endMs;
-    expect(result.finale).toEqual(
-      kind === null
-        ? null
-        : {
-            kind,
-            atMs: lastEndMs,
-          },
-    );
+  ] as const)('gives %s the finale %s', (tier, finale) => {
+    expect(CONSTELLATION_LOOKS[tier].glow?.finale ?? null).toBe(finale);
   });
 });
 
 describe('getConstellationLines', () => {
-  function node(xPx: number, yPx: number): ConstellationPlan['nodes'][number] {
+  function edge(
+    from: [number, number],
+    to: [number, number],
+    startMs: number,
+    endMs: number,
+  ): ConstellationPlan['edges'][number] {
     return {
-      xPx,
-      yPx,
-      isAccent: false,
-      igniteAtMs: null,
+      fromIndex: 0,
+      toIndex: 1,
+      from: {
+        xPx: from[0],
+        yPx: from[1],
+      },
+      to: {
+        xPx: to[0],
+        yPx: to[1],
+      },
+      startMs,
+      endMs,
     };
   }
 
-  const singleEdge: ConstellationPlan = {
-    tier: 'complete',
-    nodes: [node(0, 0), node(100, 200)],
-    edges: [
-      {
-        fromIndex: 0,
-        toIndex: 1,
-        startMs: 100,
-        endMs: 300,
+  function linesPlan(edges: ConstellationPlan['edges']): ConstellationPlan {
+    return {
+      tier: 'complete',
+      accent: {
+        index: 0,
+        xPx: 0,
+        yPx: 0,
       },
-    ],
-    finale: null,
-  };
+      others: [],
+      edges,
+      drawEndMs: edges.at(-1)?.endMs ?? 0,
+    };
+  }
+
+  const singleEdge = linesPlan([edge([0, 0], [100, 200], 100, 300)]);
 
   it.each([50, 99, 100])('returns no line before or at the edge start (%i ms)', (elapsedMs) => {
     expect(getConstellationLines(singleEdge, elapsedMs)).toEqual([]);
@@ -351,31 +367,11 @@ describe('getConstellationLines', () => {
   );
 
   it('keeps edge order and drops only edges that have not started', () => {
-    const multi: ConstellationPlan = {
-      tier: 'complete',
-      nodes: [node(0, 0), node(100, 0), node(100, 100), node(0, 100)],
-      edges: [
-        {
-          fromIndex: 2,
-          toIndex: 3,
-          startMs: 0,
-          endMs: 100,
-        },
-        {
-          fromIndex: 0,
-          toIndex: 1,
-          startMs: 100,
-          endMs: 200,
-        },
-        {
-          fromIndex: 1,
-          toIndex: 2,
-          startMs: 200,
-          endMs: 300,
-        },
-      ],
-      finale: null,
-    };
+    const multi = linesPlan([
+      edge([100, 100], [0, 100], 0, 100),
+      edge([0, 0], [100, 0], 100, 200),
+      edge([100, 0], [100, 100], 200, 300),
+    ]);
     expect(getConstellationLines(multi, 150)).toEqual([
       {
         fromXPx: 100,
@@ -390,20 +386,5 @@ describe('getConstellationLines', () => {
         toYPx: 0,
       },
     ]);
-  });
-
-  it('throws when an edge points at a missing node', () => {
-    const broken: ConstellationPlan = {
-      ...singleEdge,
-      edges: [
-        {
-          fromIndex: 0,
-          toIndex: 5,
-          startMs: 0,
-          endMs: 100,
-        },
-      ],
-    };
-    expect(() => getConstellationLines(broken, 50)).toThrow('Invalid constellation edge: 0-5');
   });
 });
