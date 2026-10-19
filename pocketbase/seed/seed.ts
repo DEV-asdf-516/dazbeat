@@ -38,10 +38,8 @@ export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[])
         jacket: new File([song.jacket.bytes], song.jacket.fileName, { type: song.jacket.type }),
       });
       songId = created.id;
-      console.log(`created song ${song.key}`);
     } else {
       songId = existingSong.id;
-      console.log(`skipped song ${song.key}`);
     }
 
     const existingCharts = await pb.collection('charts').getFullList({
@@ -50,7 +48,6 @@ export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[])
     });
     for (const chart of song.charts) {
       if (existingCharts.some((existing) => existing['difficulty'] === chart.difficulty)) {
-        console.log(`skipped chart ${song.key}/${chart.difficulty}`);
         continue;
       }
       await pb.collection('charts').create({
@@ -58,7 +55,6 @@ export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[])
         difficulty: chart.difficulty,
         data: chart.data,
       });
-      console.log(`created chart ${song.key}/${chart.difficulty}`);
     }
   }
 }

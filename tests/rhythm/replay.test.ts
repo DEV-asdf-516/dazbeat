@@ -6,7 +6,6 @@ import { getLastJudgmentDeadlineMs, simulateClientPlay } from './playSimulation.
 const FRAME_SEEDS = [1, 7, 42, 2024, 99991];
 const MAX_FRAME_STEP_MS = 40;
 
-/** mulberry32: 고정 시드로 재현 가능한 [0, 1) 난수. */
 function createRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
@@ -18,7 +17,6 @@ function createRandom(seed: number): () => number {
   };
 }
 
-/** 0 부터 판정 마감까지 1~MAX_FRAME_STEP_MS 간격의 무작위 프레임 시각. */
 function makeFrameTimes(chart: Chart, seed: number): number[] {
   const random = createRandom(seed);
   const endMs = getLastJudgmentDeadlineMs(chart);

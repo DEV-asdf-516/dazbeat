@@ -1,5 +1,3 @@
-// 사용자 단위 플레이 세션 발급 한도. 첫 발급 시각부터 60초 고정 윈도 안에서 20회까지 발급한다.
-
 export const SESSION_ISSUE_LIMIT = 20;
 export const SESSION_ISSUE_WINDOW_MS = 60_000;
 
@@ -11,7 +9,6 @@ export interface SessionQuota {
 export type SessionIssueDecision =
   { kind: 'allowed'; quota: SessionQuota } | { kind: 'limited'; retryAfterSeconds: number };
 
-/** quota 는 그 사용자의 저장된 행 값, 행이 없으면 null. */
 export function decideSessionIssue(
   quota: SessionQuota | null,
   nowMs: number,

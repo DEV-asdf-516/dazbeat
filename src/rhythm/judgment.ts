@@ -1,3 +1,4 @@
+import { getDistance } from '../range.js';
 import type { Judgment, JudgmentWindows, Note } from './types.js';
 
 export const JUDGMENT_WINDOWS: JudgmentWindows = {
@@ -12,7 +13,7 @@ export function judgeTap(
   inputTimeMs: number,
   windows: JudgmentWindows,
 ): Judgment {
-  const diffMs = Math.abs(inputTimeMs - noteTimeMs);
+  const diffMs = getDistance(inputTimeMs, noteTimeMs);
   if (diffMs <= windows.perfectMs) {
     return 'perfect';
   }
@@ -36,7 +37,6 @@ export function judgeHoldRelease(
   return releaseTimeMs >= endTimeMs - windows.badMs ? 'perfect' : 'miss';
 }
 
-/** hold 노트는 시작(holdStart)과 끝(holdEnd)에서 각각 판정된다. */
-export function countJudgments(notes: readonly Note[]): number {
+export function getJudgmentEventCount(notes: readonly Note[]): number {
   return notes.reduce((total, note) => total + (note.type === 'hold' ? 2 : 1), 0);
 }

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { LANGUAGES } from '../../src/i18n/language.js';
-import { DEFAULT_SETTINGS, LocalSave, MV_MODES } from '../../src/storage/LocalSave.js';
-import type { Settings } from '../../src/storage/LocalSave.js';
+import { getChartRecord } from '../../src/storage/chartRecords.js';
+import { LocalSave } from '../../src/storage/LocalSave.js';
+import { DEFAULT_SETTINGS, MV_MODES } from '../../src/storage/settings.js';
+import type { Settings } from '../../src/storage/settings.js';
 import type { FinishedGameplayResult } from '../../src/rhythm/types.js';
 
 const SETTINGS_KEY = 'dazbeat:settings:v1';
@@ -235,8 +237,19 @@ describe('LocalSave settings', () => {
 });
 
 describe('LocalSave records', () => {
+  it('reads storage once per loadRecords and answers lookups from that snapshot', () => {
+    save.saveResult('song-a', 'easy', makeResult({ score: 100 }));
+    save.saveResult('song-b', 'hard', makeResult({ score: 200 }));
+    const getItemSpy = vi.spyOn(storage, 'getItem');
+    const records = save.loadRecords();
+    expect(getChartRecord(records, 'song-a', 'easy')?.score).toBe(100);
+    expect(getChartRecord(records, 'song-b', 'hard')?.score).toBe(200);
+    expect(getChartRecord(records, 'song-b', 'easy')).toBeNull();
+    expect(getItemSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('returns null when there is no record', () => {
-    expect(save.loadRecord('song-a', 'easy')).toBeNull();
+    expect(getChartRecord(save.loadRecords(), 'song-a', 'easy')).toBeNull();
   });
 
   it('loads a saved result', () => {
@@ -249,13 +262,13 @@ describe('LocalSave records', () => {
         cleared: true,
       }),
     );
-    expect(save.loadRecord('song-a', 'hard')).toEqual({
+    expect(getChartRecord(save.loadRecords(), 'song-a', 'hard')).toEqual({
       score: 5000,
       accuracy: 0.8,
       maxCombo: 10,
       cleared: true,
     });
-    expect(save.loadRecord('song-a', 'easy')).toBeNull();
+    expect(getChartRecord(save.loadRecords(), 'song-a', 'easy')).toBeNull();
   });
 
   it('merges each field with its best value and ORs cleared', () => {
@@ -279,7 +292,7 @@ describe('LocalSave records', () => {
         cleared: false,
       }),
     );
-    expect(save.loadRecord('song-a', 'normal')).toEqual({
+    expect(getChartRecord(save.loadRecords(), 'song-a', 'normal')).toEqual({
       score: 9000,
       accuracy: 0.75,
       maxCombo: 30,
@@ -289,7 +302,7 @@ describe('LocalSave records', () => {
 
   it('returns null and warns when the records JSON is broken', () => {
     storage.setItem(RECORDS_KEY, '{oops');
-    expect(save.loadRecord('song-a', 'easy')).toBeNull();
+    expect(getChartRecord(save.loadRecords(), 'song-a', 'easy')).toBeNull();
     expect(warnSpy).toHaveBeenCalled();
   });
 
@@ -311,8 +324,8 @@ describe('LocalSave records', () => {
         },
       }),
     );
-    expect(save.loadRecord('song-a', 'easy')).toBeNull();
-    expect(save.loadRecord('song-b', 'easy')).toEqual({
+    expect(getChartRecord(save.loadRecords(), 'song-a', 'easy')).toBeNull();
+    expect(getChartRecord(save.loadRecords(), 'song-b', 'easy')).toEqual({
       score: 200,
       accuracy: 0.9,
       maxCombo: 4,

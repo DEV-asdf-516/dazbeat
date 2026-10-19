@@ -125,7 +125,7 @@ export class YouTubePlayer {
         },
         onError: (event) => {
           const code = typeof event.data === 'number' ? event.data : UNKNOWN_ERROR_CODE;
-          handlers.onError(getYouTubeErrorKind(code), code);
+          handlers.onError(ERROR_KINDS.get(code) ?? 'unknown', code);
         },
       },
     });
@@ -160,8 +160,4 @@ export class YouTubePlayer {
     this.player.destroy();
     this.placeholder.remove();
   }
-}
-
-export function getYouTubeErrorKind(code: number): YouTubeErrorKind {
-  return ERROR_KINDS.get(code) ?? 'unknown';
 }

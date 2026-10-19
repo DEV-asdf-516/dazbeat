@@ -38,7 +38,6 @@ function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-/** abort 되기 전에는 끝나지 않는 fetch: 서버 없이 진행 중인 요청을 만든다. */
 function pendingUntilAbortFetch(_input: unknown, init?: RequestInit): Promise<Response> {
   return new Promise((_resolve, reject) => {
     init?.signal?.addEventListener('abort', () => {

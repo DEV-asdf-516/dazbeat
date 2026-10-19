@@ -19,7 +19,6 @@ import {
   fakeChartData,
 } from './testData.js';
 
-// The schema as it was before this feature, i.e. what existing deployments already applied.
 const PRE_FEATURE_MIGRATIONS = [
   '1791331200_create_songs_and_charts.js',
   '1791347685_add_users_is_editor.js',
@@ -27,10 +26,11 @@ const PRE_FEATURE_MIGRATIONS = [
   '1791436800_add_songs_constellation.js',
 ];
 
-// The migrations this feature adds; reverting them must restore the schema and rules before it.
+// The migrations not deployed yet; reverting them must restore the deployed schema and rules.
 const FEATURE_MIGRATIONS = [
   '1792121800_create_play_session_quotas.js',
   '1792121900_relax_play_session_ip_rate_limits.js',
+  '1792122000_add_play_sessions_chart_data.js',
 ];
 const DAZBEAT_LABELS = ['POST /api/dazbeat/play-sessions', 'POST /api/dazbeat/play-sessions/'];
 
@@ -119,7 +119,15 @@ describe('migrations', () => {
         type: 'date',
         required: true,
       },
+      {
+        name: 'chartData',
+        type: 'json',
+        required: true,
+      },
     ]);
+    expect(playSessions.fields.find((field) => field.name === 'chartData')?.['maxSize']).toBe(
+      charts.fields.find((field) => field.name === 'data')?.['maxSize'],
+    );
     expect(playSessions).toMatchObject({
       listRule: null,
       viewRule: null,
@@ -319,15 +327,20 @@ describe('migrations', () => {
       expect((await superuser.collection('charts').getOne(chart.id))['revision']).toBe(
         chartRevision,
       );
-      expect(await superuser.collection('play_sessions').getOne(session.id)).toMatchObject({
-        user: user.id,
-        chart: chart.id,
-      });
       expect((await superuser.collection('scores').getOne(score.id))['score']).toBe(900_000);
     };
+    const hasChartData = async (superuser: PocketBase): Promise<boolean> =>
+      fieldSummary(await superuser.collections.getOne('play_sessions')).some(
+        (field) => field.name === 'chartData',
+      );
 
     const upgraded = await start({ dataDir });
     await expectExistingData(upgraded.superuser);
+    // Sessions issued before the upgrade have no chart snapshot, so the migration removes them.
+    await expect(
+      upgraded.superuser.collection('play_sessions').getOne(session.id),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(await hasChartData(upgraded.superuser)).toBe(true);
     await upgraded.superuser.collections.getOne('play_session_quotas');
     await expectDazbeatRules(upgraded.superuser, 30);
     await upgraded.stop();
@@ -339,11 +352,13 @@ describe('migrations', () => {
       rolledBack.superuser.collections.getOne('play_session_quotas'),
     ).rejects.toMatchObject({ status: 404 });
     await expectDazbeatRules(rolledBack.superuser, 10);
+    expect(await hasChartData(rolledBack.superuser)).toBe(false);
     await expectExistingData(rolledBack.superuser);
     await rolledBack.stop();
 
     const reapplied = await start({ dataDir });
     await reapplied.superuser.collections.getOne('play_session_quotas');
     await expectDazbeatRules(reapplied.superuser, 30);
+    expect(await hasChartData(reapplied.superuser)).toBe(true);
   });
 });

@@ -38,6 +38,7 @@ type Role = 'guest' | 'user' | 'editor';
 let dataDir: string;
 let server: PocketBaseServer;
 let song: RecordModel;
+const chartData = fakeChartData('perm', 'easy');
 let chart: RecordModel;
 let scoredChart: RecordModel;
 let currentScore: RecordModel;
@@ -91,7 +92,7 @@ beforeAll(async () => {
   editor = await createUser(server, 'editor@example.com', true);
   scorer = await createUser(server, 'scorer@example.com');
   song = await createSong(superuser, 'perm');
-  chart = await createChart(superuser, song.id, 'easy', fakeChartData('perm', 'easy'));
+  chart = await createChart(superuser, song.id, 'easy', chartData);
   scoredChart = await createChart(superuser, song.id, 'normal', fakeChartData('perm', 'normal'));
   currentScore = await superuser
     .collection('scores')
@@ -102,6 +103,7 @@ beforeAll(async () => {
     user: user.id,
     chart: chart.id,
     chartRevision: String(chart['revision']),
+    chartData,
     issuedAt: new Date(nowMs).toISOString(),
     expiresAt: new Date(nowMs + 60_000).toISOString(),
   });
@@ -165,15 +167,23 @@ describe.each<Role>(['guest', 'user', 'editor'])('%s', (role) => {
         user: user.id,
         chart: chart.id,
         chartRevision: 'x',
+        chartData,
         issuedAt: new Date().toISOString(),
         expiresAt: new Date().toISOString(),
       }),
       SUPERUSER_ONLY,
     );
-    await expectStatus(sessions.update(playSession.id, { chartRevision: 'x' }), SUPERUSER_ONLY);
+    await expectStatus(
+      sessions.update(playSession.id, {
+        chartRevision: 'x',
+        chartData: { forged: true },
+      }),
+      SUPERUSER_ONLY,
+    );
     await expectStatus(sessions.delete(playSession.id), SUPERUSER_ONLY);
     const stored = await server.superuser.collection('play_sessions').getOne(playSession.id);
     expect(stored['chartRevision']).toBe(playSession['chartRevision']);
+    expect(stored['chartData']).toEqual(chartData);
   });
 
   it('cannot reach play_session_quotas at all', async () => {

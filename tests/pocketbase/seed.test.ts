@@ -77,7 +77,6 @@ async function writeDataFile(relativePath: string, content: string | Uint8Array)
   await writeFile(target, content);
 }
 
-// 가짜 곡 하나(재킷·easy·expert 채보)와 그 곡을 담은 manifest 를 만든다.
 async function writeFakeSongFiles(key: string): Promise<void> {
   await writeDataFile(`${key}/jacket.png`, PNG_BYTES);
   for (const difficulty of ['easy', 'expert']) {
@@ -191,7 +190,6 @@ function stubPocketBase(store: Record<'songs' | 'charts', StoredRecord[]>) {
 }
 
 beforeEach(async () => {
-  vi.spyOn(console, 'log').mockImplementation(() => undefined);
   dataDirPath = await mkdtemp(join(tmpdir(), 'dazbeat-seed-'));
   dataDir = pathToFileURL(`${dataDirPath}/`);
 });

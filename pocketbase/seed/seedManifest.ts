@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { formatPath, parseChart } from '../../src/data/chartSchema.js';
+import { parseChart } from '../../src/data/chartSchema.js';
+import { formatPath } from '../../src/data/parseIssue.js';
 import {
   DIFFICULTIES,
   SONG_CATEGORIES,
@@ -83,7 +84,6 @@ const manifestSchema = z.strictObject({
 
 type ManifestSong = z.infer<typeof manifestSchema>['songs'][number];
 
-// 스키마 오류가 곡 안에서 났으면 원본 입력에서 그 곡의 key 를 찾아 위치에 붙인다.
 function describeIssueLocation(input: unknown, path: readonly PropertyKey[]): string {
   const location = formatPath(path, 'manifest');
   const [root, index] = path;
@@ -102,10 +102,8 @@ function describeIssueLocation(input: unknown, path: readonly PropertyKey[]): st
   return typeof key === 'string' ? `${location} (song "${key}")` : location;
 }
 
-// 데이터 디렉터리 밖(.., 절대 경로, 다른 URL)을 가리키는 경로는 파일을 읽기 전에 거절한다.
 function resolveDataPath(dataDir: URL, relativePath: string, location: string): URL {
   const isRelative = !isAbsolute(relativePath) && !URL.canParse(relativePath);
-  // 해석할 수 없는 경로(예: "http://[")도 TypeError 대신 같은 시드 오류로 거절한다.
   const resolved = URL.parse(relativePath, dataDir);
   if (!isRelative || resolved === null || !resolved.href.startsWith(dataDir.href)) {
     throw new InvalidSeedDataError(
@@ -116,7 +114,6 @@ function resolveDataPath(dataDir: URL, relativePath: string, location: string): 
   return resolved;
 }
 
-// 거절된 경로가 가리키는 파일을 알릴 수 있으면 그 절대 경로를, 아니면 manifest 에 적힌 값을 쓴다.
 // 인코딩된 구분자가 든 file URL 은 파일 경로로 바꿀 수 없어 fileURLToPath 가 던지므로 원래 입력으로 돌아간다.
 function describeRejectedPath(resolved: URL | null, relativePath: string): string {
   if (resolved?.protocol !== 'file:') {

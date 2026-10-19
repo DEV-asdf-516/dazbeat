@@ -3,7 +3,6 @@ migrate(
   (app) => {
     const collection = app.findCollectionByNameOrId('_pb_users_auth_');
 
-    // update field
     collection.fields.addAt(
       4,
       new Field({
@@ -23,7 +22,6 @@ migrate(
   (app) => {
     const collection = app.findCollectionByNameOrId('_pb_users_auth_');
 
-    // update field
     collection.fields.addAt(
       4,
       new Field({

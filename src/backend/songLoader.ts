@@ -1,27 +1,15 @@
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { DIFFICULTIES, SONG_CATEGORIES, ZODIACS } from '../data/songs.js';
-import type { Song, SongCategory, Zodiac } from '../data/songs.js';
-import type { Difficulty } from '../rhythm/types.js';
-import { isString, readRecordField } from './recordField.js';
+import type { Song } from '../data/songs.js';
+import { isFiniteNumber, isOneOf, isString } from '../typeGuards.js';
+import { readRecordField } from './recordField.js';
+
+const isCategory = isOneOf(SONG_CATEGORIES);
+const isZodiac = isOneOf(ZODIACS);
+const isDifficulty = isOneOf(DIFFICULTIES);
 
 type ChartIds = Song['chartIds'];
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
-function isCategory(value: unknown): value is SongCategory {
-  return SONG_CATEGORIES.some((category) => category === value);
-}
-
-function isZodiac(value: unknown): value is Zodiac {
-  return ZODIACS.some((zodiac) => zodiac === value);
-}
-
-function isDifficulty(value: unknown): value is Difficulty {
-  return DIFFICULTIES.some((difficulty) => difficulty === value);
-}
 
 function isCredit(value: unknown): value is string[] | null {
   return value === null || (Array.isArray(value) && value.every(isString));

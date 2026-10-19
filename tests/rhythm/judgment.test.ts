@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   JUDGMENT_WINDOWS,
-  countJudgments,
+  getJudgmentEventCount,
   judgeHoldRelease,
   judgeTap,
 } from '../../src/rhythm/judgment.js';
@@ -41,7 +41,7 @@ describe('judgeHoldRelease', () => {
   });
 });
 
-describe('countJudgments', () => {
+describe('getJudgmentEventCount', () => {
   it('counts a tap as one judgment and a hold as two', () => {
     const notes: Note[] = [
       {
@@ -61,10 +61,10 @@ describe('countJudgments', () => {
         lane: 2,
       },
     ];
-    expect(countJudgments(notes)).toBe(4);
+    expect(getJudgmentEventCount(notes)).toBe(4);
   });
 
   it('returns 0 for an empty chart', () => {
-    expect(countJudgments([])).toBe(0);
+    expect(getJudgmentEventCount([])).toBe(0);
   });
 });

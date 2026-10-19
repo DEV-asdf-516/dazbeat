@@ -8,11 +8,10 @@ const USER_PASSWORD = 'user-password';
 export interface TestUser {
   id: string;
   email: string;
-  /** SDK client signed in as this user. */
   client: PocketBase;
 }
 
-/** Superuser-created password account; only a superuser can grant isEditor. */
+/** Only a superuser can grant isEditor. */
 export async function createUser(
   server: { url: string; superuser: PocketBase },
   email: string,
@@ -90,7 +89,6 @@ export function createChart(
   });
 }
 
-/** Keeps the built-in limiter out of tests that are not about rate limits. */
 export async function excludeLoopbackFromRateLimits(superuser: PocketBase): Promise<void> {
   await superuser.settings.update({ rateLimits: { excludedIPs: ['127.0.0.1'] } });
 }

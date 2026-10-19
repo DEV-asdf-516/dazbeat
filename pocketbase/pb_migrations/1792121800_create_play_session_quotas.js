@@ -3,7 +3,7 @@ migrate(
   (app) => {
     const users = app.findCollectionByNameOrId('users');
 
-    // Per-user session issue window; only superusers and server hooks touch it.
+    // Only superusers and server hooks touch it.
     const playSessionQuotas = new Collection({
       type: 'base',
       name: 'play_session_quotas',

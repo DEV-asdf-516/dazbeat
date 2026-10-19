@@ -1,7 +1,7 @@
 import PocketBase from 'pocketbase';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadChart, saveChart } from '../../src/backend/chartLoader.js';
-import type { Song } from '../../src/data/songs.js';
+import { loadChart, saveChart } from '../../src/backend/charts.js';
+import type { ChartRef, Song } from '../../src/data/songs.js';
 import type { Chart } from '../../src/rhythm/types.js';
 
 const song: Song = {
@@ -15,6 +15,12 @@ const song: Song = {
   gameStartMs: 0,
   gameEndMs: 10000,
   chartIds: { normal: 'chart_normal' },
+};
+
+const normalChart: ChartRef = {
+  song,
+  difficulty: 'normal',
+  chartId: 'chart_normal',
 };
 
 const validChart = {
@@ -53,7 +59,7 @@ describe('loadChart', () => {
       ),
     );
 
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).resolves.toEqual({
+    await expect(loadChart(new PocketBase('http://pb.test'), normalChart)).resolves.toEqual({
       chart: validChart,
       revision: REVISION,
     });
@@ -67,7 +73,7 @@ describe('loadChart', () => {
   it('rejects when the revision is missing', async () => {
     stubFetch(new Response(JSON.stringify({ data: validChart })));
 
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
+    await expect(loadChart(new PocketBase('http://pb.test'), normalChart)).rejects.toThrow(
       'revision',
     );
   });
@@ -82,23 +88,9 @@ describe('loadChart', () => {
       ),
     );
 
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
+    await expect(loadChart(new PocketBase('http://pb.test'), normalChart)).rejects.toThrow(
       'revision',
     );
-  });
-
-  it('rejects without requesting when the difficulty has no chart id', async () => {
-    const fetchMock = stubFetch(
-      new Response(
-        JSON.stringify({
-          data: validChart,
-          revision: REVISION,
-        }),
-      ),
-    );
-
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'hard')).rejects.toThrow(Error);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects when the server responds with HTTP 404', async () => {
@@ -115,7 +107,7 @@ describe('loadChart', () => {
       ),
     );
 
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow();
+    await expect(loadChart(new PocketBase('http://pb.test'), normalChart)).rejects.toThrow();
   });
 
   it('rejects with the validation message when songId does not match', async () => {
@@ -131,7 +123,7 @@ describe('loadChart', () => {
       ),
     );
 
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
+    await expect(loadChart(new PocketBase('http://pb.test'), normalChart)).rejects.toThrow(
       'songId',
     );
   });
@@ -146,9 +138,7 @@ describe('loadChart', () => {
       ),
     );
 
-    await expect(loadChart(new PocketBase('http://pb.test'), song, 'normal')).rejects.toThrow(
-      Error,
-    );
+    await expect(loadChart(new PocketBase('http://pb.test'), normalChart)).rejects.toThrow(Error);
   });
 });
 
@@ -211,19 +201,24 @@ describe('saveChart', () => {
     difficulty: 'hard',
   };
 
-  it('updates the existing chart record once and resolves its id', async () => {
+  it('updates the existing chart record once and resolves its id with the saved chart and revision', async () => {
     const fetchMock = stubFetchSequence([
       new Response(
         JSON.stringify({
           id: 'chart_normal',
           data: normalChart,
+          revision: REVISION,
         }),
       ),
     ]);
 
-    await expect(saveChart(new PocketBase('http://pb.test'), song, normalChart)).resolves.toBe(
-      'chart_normal',
-    );
+    await expect(saveChart(new PocketBase('http://pb.test'), song, normalChart)).resolves.toEqual({
+      chartId: 'chart_normal',
+      loaded: {
+        chart: normalChart,
+        revision: REVISION,
+      },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = getCall(fetchMock, 0);
     expect(request.method).toBe('PATCH');
@@ -240,12 +235,22 @@ describe('saveChart', () => {
           items: [{ id: 'song_record' }],
         }),
       ),
-      new Response(JSON.stringify({ id: 'chart_hard' })),
+      new Response(
+        JSON.stringify({
+          id: 'chart_hard',
+          data: hardChart,
+          revision: REVISION,
+        }),
+      ),
     ]);
 
-    await expect(saveChart(new PocketBase('http://pb.test'), song, hardChart)).resolves.toBe(
-      'chart_hard',
-    );
+    await expect(saveChart(new PocketBase('http://pb.test'), song, hardChart)).resolves.toEqual({
+      chartId: 'chart_hard',
+      loaded: {
+        chart: hardChart,
+        revision: REVISION,
+      },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const lookup = getCall(fetchMock, 0);
     expect(lookup.url.pathname).toBe('/api/collections/songs/records');
@@ -258,6 +263,57 @@ describe('saveChart', () => {
       difficulty: 'hard',
       data: hardChart,
     });
+  });
+
+  it('rejects when the save response has no revision', async () => {
+    stubFetchSequence([
+      new Response(
+        JSON.stringify({
+          id: 'chart_normal',
+          data: normalChart,
+        }),
+      ),
+    ]);
+
+    await expect(saveChart(new PocketBase('http://pb.test'), song, normalChart)).rejects.toThrow(
+      'revision',
+    );
+  });
+
+  it('rejects when the save response data is not a chart', async () => {
+    stubFetchSequence([
+      new Response(
+        JSON.stringify({
+          id: 'chart_normal',
+          data: { notes: 'x' },
+          revision: REVISION,
+        }),
+      ),
+    ]);
+
+    await expect(saveChart(new PocketBase('http://pb.test'), song, normalChart)).rejects.toThrow();
+  });
+
+  it('rejects when the created chart response has no revision', async () => {
+    stubFetchSequence([
+      new Response(
+        JSON.stringify({
+          page: 1,
+          perPage: 1,
+          items: [{ id: 'song_record' }],
+        }),
+      ),
+      new Response(
+        JSON.stringify({
+          id: 'chart_hard',
+          data: hardChart,
+        }),
+      ),
+    ]);
+
+    await expect(saveChart(new PocketBase('http://pb.test'), song, hardChart)).rejects.toThrow(
+      'revision',
+    );
   });
 
   it('rejects when the update responds with HTTP 403', async () => {

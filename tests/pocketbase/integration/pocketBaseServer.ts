@@ -27,9 +27,8 @@ export interface PocketBaseServerOptions {
 
 export interface PocketBaseServer {
   url: string;
-  /** SDK client authenticated as a superuser. */
   superuser: PocketBase;
-  /** Stops the process and keeps dataDir, so a later server can start on the same data. */
+  /** Keeps dataDir so a later server can start on the same data. */
   stop(): Promise<void>;
 }
 
@@ -99,7 +98,6 @@ export function createClient(url: string): PocketBase {
   return pb;
 }
 
-/** Reverts the last `count` applied migrations of a stopped server's dataDir. */
 export async function migrateDown(
   dataDir: string,
   count: number,

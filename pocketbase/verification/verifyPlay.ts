@@ -2,8 +2,7 @@ import { InvalidChartError, parseChart } from '../../src/data/chartSchema.js';
 import { InvalidPlaySubmissionError, parsePlaySubmission } from '../../src/data/playSubmission.js';
 import { getPlayDurationMs } from '../../src/rhythm/playTiming.js';
 import { replayGameplay } from '../../src/rhythm/replay.js';
-import type { Chart, Difficulty, FinishedGameplayResult } from '../../src/rhythm/types.js';
-import type { PlaySubmission } from '../../src/data/playSubmission.js';
+import type { Difficulty, FinishedGameplayResult } from '../../src/rhythm/types.js';
 
 /** 로딩·버퍼링·일시정지를 허용하는, 플레이 길이 이후의 세션 유효 시간. */
 export const SESSION_GRACE_MS = 15 * 60 * 1000;
@@ -24,13 +23,34 @@ export type PlayRejectionCode =
   | 'invalid_events'
   | 'not_finished';
 
-export const PLAY_REJECTION_STATUS: Record<PlayRejectionCode, number> = {
-  session_expired: 410,
-  chart_changed: 409,
-  chart_invalid: 500,
-  too_short: 422,
-  invalid_events: 400,
-  not_finished: 422,
+export const PLAY_REJECTION_RESPONSES: Record<
+  PlayRejectionCode,
+  { status: number; message: string }
+> = {
+  session_expired: {
+    status: 410,
+    message: 'The play session has expired.',
+  },
+  chart_changed: {
+    status: 409,
+    message: 'The chart has changed since the play session was issued.',
+  },
+  chart_invalid: {
+    status: 500,
+    message: 'The stored chart is invalid.',
+  },
+  too_short: {
+    status: 422,
+    message: 'The result was submitted sooner than the play could finish.',
+  },
+  invalid_events: {
+    status: 400,
+    message: 'The submitted input events are invalid.',
+  },
+  not_finished: {
+    status: 422,
+    message: 'The replayed play did not finish.',
+  },
 };
 
 export type PlayVerification =
@@ -61,7 +81,6 @@ function rejected(code: PlayRejectionCode): PlayVerification {
   };
 }
 
-/** 세션 정책·채보·제출 본문을 판정하고, 통과하면 입력 기록을 리플레이한 완주 결과를 돌려준다. */
 export function verifyPlay(input: PlayVerificationInput): PlayVerification {
   const { song, difficulty, chart, session, submission, nowMs } = input;
   if (nowMs > session.expiresAtMs) {
@@ -70,9 +89,8 @@ export function verifyPlay(input: PlayVerificationInput): PlayVerification {
   if (chart.revision !== session.chartRevision) {
     return rejected('chart_changed');
   }
-  let parsedChart: Chart;
   try {
-    parsedChart = parseChart(
+    const parsedChart = parseChart(
       chart.data,
       {
         id: song.key,
@@ -81,30 +99,25 @@ export function verifyPlay(input: PlayVerificationInput): PlayVerification {
       },
       difficulty,
     );
+    if (nowMs - session.issuedAtMs < MIN_PLAY_ELAPSED_RATIO * getSongPlayDurationMs(song)) {
+      return rejected('too_short');
+    }
+    const { events } = parsePlaySubmission(submission, song, parsedChart);
+    const result = replayGameplay(parsedChart, events);
+    if (result.outcome === 'failed') {
+      return rejected('not_finished');
+    }
+    return {
+      kind: 'verified',
+      result,
+    };
   } catch (error) {
     if (error instanceof InvalidChartError) {
       return rejected('chart_invalid');
     }
-    throw error;
-  }
-  if (nowMs - session.issuedAtMs < MIN_PLAY_ELAPSED_RATIO * getSongPlayDurationMs(song)) {
-    return rejected('too_short');
-  }
-  let parsedSubmission: PlaySubmission;
-  try {
-    parsedSubmission = parsePlaySubmission(submission, song, parsedChart);
-  } catch (error) {
     if (error instanceof InvalidPlaySubmissionError) {
       return rejected('invalid_events');
     }
     throw error;
   }
-  const result = replayGameplay(parsedChart, parsedSubmission.events);
-  if (result.outcome === 'failed') {
-    return rejected('not_finished');
-  }
-  return {
-    kind: 'verified',
-    result,
-  };
 }

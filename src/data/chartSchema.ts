@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toParseIssue } from './parseIssue.js';
 import type { Song } from './songs.js';
 import { LANES } from '../rhythm/lanes.js';
 import type { Chart, Difficulty, Note } from '../rhythm/types.js';
@@ -11,12 +12,6 @@ export class InvalidChartError extends Error {
     super(`Invalid chart: ${path} ${reason}`);
     this.path = path;
   }
-}
-
-export interface LoadedChart {
-  chart: Chart;
-  /** 랭킹 세션 발급 때 서버 채보와 같은지 확인하는 값. */
-  revision: string;
 }
 
 // 채보 검증에 필요한 곡 정보만 받아, 시드·서버 검증도 전체 Song 없이 채보를 파싱할 수 있다.
@@ -43,7 +38,6 @@ const note = z.discriminatedUnion('type', [
     }),
 ]);
 
-// 노트 단위 스키마로는 알 수 없는, 곡 구간·노트 간 관계에 대한 불변 조건.
 function checkPlayableTimeline(
   notes: readonly Note[],
   song: ChartSong,
@@ -85,21 +79,11 @@ function chartSchema(song: ChartSong, difficulty: Difficulty) {
     .superRefine((chart, ctx) => checkPlayableTimeline(chart.notes, song, ctx));
 }
 
-export function formatPath(path: readonly PropertyKey[], rootName: string): string {
-  return path.reduce<string>(
-    (joined, key) => (typeof key === 'number' ? `${joined}[${key}]` : `${joined}.${String(key)}`),
-    rootName,
-  );
-}
-
 export function parseChart(input: unknown, song: ChartSong, difficulty: Difficulty): Chart {
   const result = chartSchema(song, difficulty).safeParse(input);
   if (!result.success) {
-    const [issue] = result.error.issues;
-    throw new InvalidChartError(
-      formatPath(issue?.path ?? [], 'chart'),
-      issue?.message ?? 'is invalid',
-    );
+    const { path, reason } = toParseIssue(result.error, 'chart');
+    throw new InvalidChartError(path, reason);
   }
   return result.data;
 }

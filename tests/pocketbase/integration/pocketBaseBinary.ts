@@ -62,10 +62,8 @@ function findChecksum(checksums: string, assetName: string): string {
   return checksum;
 }
 
-/** Downloads, verifies and caches the binary unless a verified copy is already cached. */
 export async function ensurePocketBaseBinary(): Promise<string> {
   const binaryPath = await getPocketBaseBinaryPath();
-  // Only a verified binary is ever moved to binaryPath.
   if (existsSync(binaryPath)) {
     return binaryPath;
   }

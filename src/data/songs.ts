@@ -1,4 +1,6 @@
 import type { Difficulty } from '../rhythm/types.js';
+import { requireDefined } from '../invariant.js';
+import { clamp } from '../range.js';
 
 export type SongCategory = 'original' | 'cover';
 export type SongFilter = 'all' | SongCategory;
@@ -56,20 +58,73 @@ export function filterSongs(songs: readonly Song[], filter: SongFilter): Song[] 
   return songs.filter((song) => song.category === filter);
 }
 
-export function getAvailableDifficulties(song: Song): Difficulty[] {
-  return DIFFICULTIES.filter((difficulty) => song.chartIds[difficulty] !== undefined);
+/**
+ * 채보가 있음이 확인된 곡·난이도와 그 chart id. 채보 유무를 판단하는 곳(getAvailableCharts, 에디터 선택)에서만
+ * 만들고, 받는 쪽은 chart id 를 다시 찾지 않는다.
+ */
+export interface ChartRef {
+  readonly song: Song;
+  readonly difficulty: Difficulty;
+  readonly chartId: string;
 }
 
-/** 저장으로 그 난이도의 chart id 가 정해진 곡. 이미 같은 id 면 입력 곡을 그대로 돌려준다. */
-export function withChartId(song: Song, difficulty: Difficulty, chartId: string): Song {
-  if (song.chartIds[difficulty] === chartId) {
-    return song;
+/** 호출마다 새 값을 만드므로 비교는 difficulty 로 한다. */
+export function getAvailableCharts(song: Song): ChartRef[] {
+  return DIFFICULTIES.flatMap((difficulty) => {
+    const chartId = song.chartIds[difficulty];
+    return chartId === undefined
+      ? []
+      : [
+          {
+            song,
+            difficulty,
+            chartId,
+          },
+        ];
+  });
+}
+
+export function getAvailableDifficulties(song: Song): Difficulty[] {
+  return getAvailableCharts(song).map((chart) => chart.difficulty);
+}
+
+export function findChart(song: Song, difficulty: Difficulty): ChartRef | undefined {
+  return getAvailableCharts(song).find((chart) => chart.difficulty === difficulty);
+}
+
+export function stepChart(current: ChartRef, delta: number): ChartRef {
+  const charts = getAvailableCharts(current.song);
+  const index = charts.findIndex((chart) => chart.difficulty === current.difficulty);
+  const next = charts[clamp(index + delta, 0, charts.length - 1)];
+  return next === undefined || next.difficulty === current.difficulty ? current : next;
+}
+
+export function withSavedChart(
+  songs: readonly Song[],
+  songId: string,
+  difficulty: Difficulty,
+  chartId: string,
+): { songs: readonly Song[]; saved: Song } {
+  const current = requireDefined(
+    songs.find((listed) => listed.id === songId),
+    'Saved chart song is not in the current song list',
+    songId,
+  );
+  if (current.chartIds[difficulty] === chartId) {
+    return {
+      songs,
+      saved: current,
+    };
   }
-  return {
-    ...song,
+  const saved: Song = {
+    ...current,
     chartIds: {
-      ...song.chartIds,
+      ...current.chartIds,
       [difficulty]: chartId,
     },
+  };
+  return {
+    songs: songs.map((listed) => (listed.id === songId ? saved : listed)),
+    saved,
   };
 }

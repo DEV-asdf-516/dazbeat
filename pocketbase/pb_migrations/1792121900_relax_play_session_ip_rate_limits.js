@@ -17,7 +17,6 @@ function readRules(settings) {
   }));
 }
 
-// Leaves rateLimits.enabled and excludedIPs out of the patch so they keep their stored values.
 function replaceDazbeatRules(app, maxRequests) {
   const settings = app.settings();
   const kept = readRules(settings).filter((rule) => !DAZBEAT_LABELS.includes(rule.label));

@@ -118,7 +118,16 @@ const failingChart = chartOf(
     lane: 0 as const,
   })),
 );
-const mutableChart = chartOf(MUTABLE_SONG_KEY, 'easy', tapChart.notes);
+// Ten taps after the last tap of tapChart, so inputs for tapChart hit none of them and fail.
+const lateFailingNotes: Chart['notes'] = Array.from({ length: 10 }, (_, index) => ({
+  type: 'tap' as const,
+  timeMs: 3_000 + index * 100,
+  lane: 0 as const,
+}));
+// Each test that saves a chart gets its own record so no test depends on another's edit.
+const snapshotPassingChart = chartOf(MUTABLE_SONG_KEY, 'easy', tapChart.notes);
+const snapshotFailingChart = chartOf(MUTABLE_SONG_KEY, 'normal', lateFailingNotes);
+const staleIssueChart = chartOf(MUTABLE_SONG_KEY, 'hard', tapChart.notes);
 
 const tapPerfectInputs: InputEvent[] = tapChart.notes.flatMap((note) => [
   {
@@ -267,10 +276,12 @@ beforeAll(async () => {
   for (const chart of [tapChart, holdChart, mixedChart, failingChart]) {
     chartRecords.set(chart, await createChart(editor.client, song.id, chart.difficulty, chart));
   }
-  chartRecords.set(
-    mutableChart,
-    await createChart(editor.client, mutableSong.id, mutableChart.difficulty, mutableChart),
-  );
+  for (const chart of [snapshotPassingChart, snapshotFailingChart, staleIssueChart]) {
+    chartRecords.set(
+      chart,
+      await createChart(editor.client, mutableSong.id, chart.difficulty, chart),
+    );
+  }
 });
 
 afterAll(async () => {
@@ -290,6 +301,7 @@ describe('POST /api/dazbeat/play-sessions', () => {
       user: player.id,
       chart: record.id,
       chartRevision: revisionOf(record),
+      chartData: tapChart,
     });
     // Play duration 5 s + 15 min grace.
     const expiresAtMs = Date.parse(response.expiresAt);
@@ -662,26 +674,85 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     expect(await findScores(owner.id, tapChart)).toHaveLength(1);
   });
 
-  it('rejects a submission after the chart content changed', async () => {
+  it('verifies a play on the issued chart after the chart changed and ranks it on the current revision', async () => {
     const player = await newPlayer();
-    const before = recordOf(mutableChart);
-    const sessionId = await startRankedPlay(player, mutableChart);
-    await editor.client.collection('charts').update(before.id, {
-      data: {
-        ...mutableChart,
-        offsetMs: 10,
-      },
+    const viewer = await newPlayer();
+    const record = recordOf(snapshotPassingChart);
+    const changedChart = {
+      ...snapshotPassingChart,
+      notes: lateFailingNotes,
+    };
+    const play = simulateClientPlay(snapshotPassingChart, tapPerfectInputs, FRAME_TIMES_MS);
+    const { outcome, ...expected } = play.result;
+    expect(outcome).toBe('finished');
+    expect(simulateClientPlay(changedChart, tapPerfectInputs, FRAME_TIMES_MS).result.outcome).toBe(
+      'failed',
+    );
+
+    const sessionId = await startRankedPlay(player, snapshotPassingChart);
+    const changed = await editor.client
+      .collection('charts')
+      .update(record.id, { data: changedChart });
+    const response = await submitResult(player.client, sessionId, {
+      inputOffsetMs: 0,
+      events: play.inputs,
     });
+
+    expect(response).toEqual({
+      ...expected,
+      bestScore: expected.score,
+    });
+    expect(await sessionExists(sessionId)).toBe(false);
+    const [stored, ...others] = await findScores(player.id, snapshotPassingChart);
+    expect(others).toEqual([]);
+    expect(stored).toMatchObject({
+      ...expected,
+      chartRevision: revisionOf(changed),
+    });
+    const ranking = await viewer.client.collection('scores').getFullList({
+      filter: viewer.client.filter('chart = {:chart}', { chart: record.id }),
+    });
+    expect(ranking.map((score) => score.id)).toEqual([stored?.id]);
+  });
+
+  it('rejects a play that only finishes on the changed chart', async () => {
+    const player = await newPlayer();
+    const record = recordOf(snapshotFailingChart);
+    const changedChart = {
+      ...snapshotFailingChart,
+      notes: tapChart.notes,
+    };
+    expect(
+      simulateClientPlay(snapshotFailingChart, tapPerfectInputs, FRAME_TIMES_MS).result.outcome,
+    ).toBe('failed');
+    expect(simulateClientPlay(changedChart, tapPerfectInputs, FRAME_TIMES_MS).result.outcome).toBe(
+      'finished',
+    );
+
+    const sessionId = await startRankedPlay(player, snapshotFailingChart);
+    await editor.client.collection('charts').update(record.id, { data: changedChart });
 
     await expectRejection(
       submitResult(player.client, sessionId, {
         inputOffsetMs: 0,
         events: tapPerfectInputs,
       }),
-      409,
-      'chart_changed',
+      422,
+      'not_finished',
     );
-    expect(await sessionExists(sessionId)).toBe(false);
+    expect(await findScores(player.id, snapshotFailingChart)).toEqual([]);
+  });
+
+  it('rejects a new session on a revision older than the current chart', async () => {
+    const player = await newPlayer();
+    const before = recordOf(staleIssueChart);
+    await editor.client.collection('charts').update(before.id, {
+      data: {
+        ...staleIssueChart,
+        offsetMs: 10,
+      },
+    });
+
     await expectRejection(issueSession(player.client, sessionBodyOf(before)), 409, 'chart_changed');
   });
 

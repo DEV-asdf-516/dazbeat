@@ -508,19 +508,16 @@ describe('GameplaySession state and result', () => {
       },
     ]);
 
-    expect(session.isFinished()).toBe(false);
-    expect(() => session.getResult()).toThrow(Error);
+    expect(session.getProgress()).toEqual({ outcome: 'playing' });
 
     session.press(0, 1000);
     session.press(1, 1000);
-    expect(session.isFinished()).toBe(false);
+    expect(session.getProgress()).toEqual({ outcome: 'playing' });
     session.update(1501);
-    expect(session.isFinished()).toBe(false);
-    expect(() => session.getResult()).toThrow(Error);
+    expect(session.getProgress()).toEqual({ outcome: 'playing' });
 
     session.update(2131);
-    expect(session.isFinished()).toBe(true);
-    expect(session.getResult()).toEqual({
+    expect(session.getProgress()).toEqual({
       score: 3000,
       accuracy: 0.75,
       maxCombo: 3,
@@ -552,7 +549,7 @@ describe('GameplaySession state and result', () => {
     session.press(0, 1000);
     session.update(1131);
 
-    expect(session.getResult()).toMatchObject({
+    expect(session.getProgress()).toMatchObject({
       outcome: 'finished',
       accuracy: 0.5,
       cleared: false,
@@ -603,7 +600,6 @@ describe('GameplaySession state and result', () => {
   });
 });
 
-/** lane 0 에 100ms 간격으로 놓인 TAP 들. 누르지 않으면 각각 MISS(−10)가 된다. */
 function makeTaps(count: number, startMs = 1000): Note[] {
   return Array.from({ length: count }, (_, index) => ({
     type: 'tap' as const,
@@ -697,7 +693,7 @@ describe('GameplaySession failure', () => {
 
     session.update(1131 + 8 * 100);
     expect(session.getState().hp).toBe(10);
-    expect(session.isFailed()).toBe(false);
+    expect(session.getProgress().outcome).toBe('playing');
 
     expect(session.update(1131 + 9 * 100)).toEqual([
       {
@@ -707,7 +703,7 @@ describe('GameplaySession failure', () => {
         judgment: 'miss',
       },
     ]);
-    expect(session.isFailed()).toBe(true);
+    expect(session.getProgress().outcome).toBe('failed');
     expect(session.getState()).toMatchObject({
       hp: 0,
       counts: {
@@ -740,7 +736,7 @@ describe('GameplaySession failure', () => {
       kind: 'tap',
       judgment: 'miss',
     });
-    expect(session.isFailed()).toBe(true);
+    expect(session.getProgress().outcome).toBe('failed');
     expect(session.getState().counts).toEqual({
       ...emptyCounts,
       miss: 10,
@@ -765,7 +761,7 @@ describe('GameplaySession failure', () => {
     ]);
     session.press(1, 500);
     session.update(1131 + 9 * 100);
-    expect(session.isFailed()).toBe(true);
+    expect(session.getProgress().outcome).toBe('failed');
     const state = session.getState();
 
     expect(session.press(2, 3000)).toEqual([]);
@@ -787,8 +783,7 @@ describe('GameplaySession failure', () => {
     session.press(1, 500);
     session.update(1131 + 9 * 100);
 
-    expect(session.isFinished()).toBe(false);
-    expect(session.getResult()).toEqual({
+    expect(session.getProgress()).toEqual({
       score: 1000,
       accuracy: 1 / 11,
       maxCombo: 1,
@@ -806,9 +801,7 @@ describe('GameplaySession failure', () => {
     const session = makeSession(makeTaps(10));
     session.update(1131 + 9 * 100);
 
-    expect(session.isFinished()).toBe(true);
-    expect(session.isFailed()).toBe(true);
-    expect(session.getResult()).toMatchObject({
+    expect(session.getProgress()).toMatchObject({
       outcome: 'failed',
       cleared: false,
     });
@@ -1018,7 +1011,7 @@ describe('GameplaySession deterministic judgment time', () => {
       },
     ]);
     session.update(1131 + 9 * 100);
-    expect(session.isFailed()).toBe(true);
+    expect(session.getProgress().outcome).toBe('failed');
     const state = session.getState();
 
     expect(session.press(1, 3000)).toEqual([]);

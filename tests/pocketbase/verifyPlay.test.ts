@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getSessionExpiresAtMs,
-  PLAY_REJECTION_STATUS,
+  PLAY_REJECTION_RESPONSES,
   verifyPlay,
   type PlayVerificationInput,
   type VerificationSong,
@@ -329,7 +329,11 @@ describe('verifyPlay', () => {
   });
 
   it('maps rejection codes to HTTP statuses', () => {
-    expect(PLAY_REJECTION_STATUS).toEqual({
+    expect(
+      Object.fromEntries(
+        Object.entries(PLAY_REJECTION_RESPONSES).map(([code, { status }]) => [code, status]),
+      ),
+    ).toEqual({
       session_expired: 410,
       chart_changed: 409,
       chart_invalid: 500,
