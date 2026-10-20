@@ -5,6 +5,7 @@ import {
   CONSTELLATION_LOOKS,
   getConstellationLines,
   getConstellationTier,
+  getResultPresentation,
   planSongConstellation,
 } from '../../../src/game/result/resultConstellation.js';
 import type {
@@ -14,7 +15,7 @@ import type {
   ConstellationTier,
 } from '../../../src/game/result/resultConstellation.js';
 import { ZODIAC_FIGURES } from '../../../src/game/result/zodiacFigures.js';
-import type { JudgmentCounts } from '../../../src/rhythm/types.js';
+import type { GameplayResult, JudgmentCounts } from '../../../src/rhythm/types.js';
 
 const BOX: ConstellationBox = {
   leftPx: 740,
@@ -123,6 +124,83 @@ describe('getConstellationTier', () => {
         cleared: false,
       }),
     ).toBe('faint');
+  });
+});
+
+describe('getResultPresentation', () => {
+  const fullCombo: GameplayResult = {
+    outcome: 'finished',
+    score: 1_000_000,
+    accuracy: 1,
+    maxCombo: 10,
+    counts: counts(0),
+    cleared: true,
+  };
+  const brokenCombo = (miss: number, bad: number, cleared: boolean): GameplayResult => ({
+    outcome: 'finished',
+    score: 900_000,
+    accuracy: 0.96,
+    maxCombo: 8,
+    counts: counts(miss, bad),
+    cleared,
+  });
+  const failed: GameplayResult = {
+    outcome: 'failed',
+    score: 500_000,
+    accuracy: 0.952,
+    maxCombo: 5,
+    counts: counts(10),
+    cleared: false,
+  };
+
+  it('keeps practice faint without a finish even on an S full combo', () => {
+    expect(getResultPresentation('practice', fullCombo)).toEqual({
+      tier: 'faint',
+      hasFinish: false,
+      hasFullComboLabel: true,
+    });
+  });
+
+  it('drops the practice FULL COMBO label when a BAD or MISS broke the combo', () => {
+    expect(getResultPresentation('practice', brokenCombo(0, 1, true))).toEqual({
+      tier: 'faint',
+      hasFinish: false,
+      hasFullComboLabel: false,
+    });
+    expect(getResultPresentation('practice', brokenCombo(1, 0, true))).toEqual({
+      tier: 'faint',
+      hasFinish: false,
+      hasFullComboLabel: false,
+    });
+  });
+
+  it('follows the constellation tier and clear state in standard mode', () => {
+    for (const result of [
+      fullCombo,
+      brokenCombo(1, 0, true),
+      brokenCombo(0, 1, true),
+      brokenCombo(1, 0, false),
+      failed,
+    ]) {
+      const tier = getConstellationTier(result);
+      expect(getResultPresentation('standard', result)).toEqual({
+        tier,
+        hasFinish: result.cleared,
+        hasFullComboLabel: tier === 'complete',
+      });
+    }
+  });
+
+  it('shows the standard FULL COMBO label only on a complete tier', () => {
+    expect(getResultPresentation('standard', fullCombo).hasFullComboLabel).toBe(true);
+    expect(getResultPresentation('standard', brokenCombo(0, 1, true)).hasFullComboLabel).toBe(
+      false,
+    );
+    expect(getResultPresentation('standard', failed)).toEqual({
+      tier: 'faint',
+      hasFinish: false,
+      hasFullComboLabel: false,
+    });
   });
 });
 

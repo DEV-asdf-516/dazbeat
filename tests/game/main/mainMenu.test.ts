@@ -17,20 +17,31 @@ const EDITOR: AuthUser = {
 
 describe('getMainMenuItems', () => {
   it('shows the player menu to a guest', () => {
-    expect(getMainMenuItems(createAccountState(null))).toEqual(['play', 'settings', 'credits']);
+    expect(getMainMenuItems(createAccountState(null))).toEqual([
+      'play',
+      'practice',
+      'settings',
+      'credits',
+    ]);
   });
 
   it('shows the player menu while signing in', () => {
-    expect(getMainMenuItems(startSignIn())).toEqual(['play', 'settings', 'credits']);
+    expect(getMainMenuItems(startSignIn())).toEqual(['play', 'practice', 'settings', 'credits']);
   });
 
   it('shows the player menu to a signed-in user who is not an editor', () => {
-    expect(getMainMenuItems(createAccountState(PLAYER))).toEqual(['play', 'settings', 'credits']);
+    expect(getMainMenuItems(createAccountState(PLAYER))).toEqual([
+      'play',
+      'practice',
+      'settings',
+      'credits',
+    ]);
   });
 
-  it('puts the chart editor right after play for an editor', () => {
+  it('puts the chart editor right after practice for an editor', () => {
     expect(getMainMenuItems(createAccountState(EDITOR))).toEqual([
       'play',
+      'practice',
       'chartEditor',
       'settings',
       'credits',

@@ -21,7 +21,7 @@ import { ChartEditorSelectScene } from './game/editor/ChartEditorSelectScene.js'
 import type { ChartCatalog } from './game/editor/ChartEditorController.js';
 import { CreditsScene } from './game/credits/CreditsScene.js';
 import { GameplayScene } from './game/gameplay/GameplayScene.js';
-import type { RankedPlay } from './game/gameplay/GameplayScene.js';
+import type { RankedPlay } from './game/gameplay/GameplayController.js';
 import { MainScene } from './game/main/MainScene.js';
 import { ResultScene } from './game/result/ResultScene.js';
 import { SettingsScene } from './game/settings/SettingsScene.js';
@@ -35,6 +35,7 @@ import { ja } from './i18n/messages/ja.js';
 import { ko } from './i18n/messages/ko.js';
 import { createI18n } from './i18n/createI18n.js';
 import { detectLanguage } from './i18n/language.js';
+import type { Chart } from './rhythm/types.js';
 import { LocalSave } from './storage/LocalSave.js';
 
 async function loadSongCatalog(): Promise<{ pb: PocketBase; songs: Song[] }> {
@@ -94,6 +95,8 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
       signOut: () => signOut(pb),
     };
     const prepareChart = (ref: ChartRef): Promise<PreparedChart> => preparePlay(pb, charts, ref);
+    const loadPracticeChart = async (ref: ChartRef): Promise<Chart> =>
+      (await charts.load(ref)).chart;
     const rankedPlay: RankedPlay = {
       submit: (sessionId, submission) => submitPlay(pb, sessionId, submission),
     };
@@ -116,7 +119,15 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
         new CreditsScene(initialSongs, i18n, celestial),
         new SongSelectScene(save, getSongs, i18n, celestial),
         new SettingsScene(save, i18n, initialLanguage, celestial),
-        new GameplayScene(save, mvLayer, prepareChart, i18n, celestial, rankedPlay),
+        new GameplayScene(
+          save,
+          mvLayer,
+          prepareChart,
+          loadPracticeChart,
+          i18n,
+          celestial,
+          rankedPlay,
+        ),
         new ResultScene(initialSongs, i18n, celestial),
         new ChartEditorSelectScene(getSongs, auth, i18n),
         new ChartEditorScene(save, mvLayer, catalog, auth, i18n, celestial),

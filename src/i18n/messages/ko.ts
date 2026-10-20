@@ -41,11 +41,9 @@ export const ko = {
     hint: '←→ 난이도   ↑↓ 이동   Enter 선택   Esc 곡 선택',
   },
   gameplay: {
-    loading: '불러오는 중',
+    loading: '로딩 중',
     pressEnterToStart: 'Enter 로 시작',
-    buffering: '버퍼링 중',
     paused: '일시정지됨 · Enter 로 재개',
-    preparing: '재생 준비 중',
     chartLoadFailed: '채보 로드 실패',
     playerLoadFailed: '영상 플레이어 로드 실패',
     videoError: '영상 재생 오류: {{message}}',

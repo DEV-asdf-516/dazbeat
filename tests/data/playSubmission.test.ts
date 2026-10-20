@@ -46,14 +46,14 @@ function release(lane: Lane, songTimeMs: number): InputEvent {
   };
 }
 
-function parse(input: unknown): PlaySubmission {
-  return parsePlaySubmission(input, song, chart);
+function parse(input: unknown, songTiming = song): PlaySubmission {
+  return parsePlaySubmission(input, songTiming, chart);
 }
 
-function expectRejected(input: unknown, path: string): void {
+function expectRejected(input: unknown, path: string, songTiming = song): void {
   let caught: unknown;
   try {
-    parse(input);
+    parse(input, songTiming);
   } catch (error) {
     caught = error;
   }
@@ -127,6 +127,33 @@ describe('parsePlaySubmission', () => {
         events: [press(0, MIN_MS), press(0, MAX_MS + 1)],
       },
       'submission.events[1].songTimeMs',
+    );
+  });
+
+  it('includes the lead-in wait in the lower bound when the game starts at 0', () => {
+    // 하한 −2000 + 0 + 20 − 1000.
+    const zeroStartSong = {
+      gameStartMs: 0,
+      gameEndMs: 10000,
+    };
+    const events = [press(0, -2980)];
+
+    expect(
+      parse(
+        {
+          inputOffsetMs: 0,
+          events,
+        },
+        zeroStartSong,
+      ).events,
+    ).toEqual(events);
+    expectRejected(
+      {
+        inputOffsetMs: 0,
+        events: [press(0, -2981)],
+      },
+      'submission.events[0].songTimeMs',
+      zeroStartSong,
     );
   });
 

@@ -15,9 +15,18 @@ export const SCENE_KEYS = {
   chartEditor: 'ChartEditor',
 } as const;
 
-export type GameplaySceneData = ChartRef;
+export type PlayMode = 'standard' | 'practice';
+
+export interface SongSelectSceneData {
+  readonly mode: PlayMode;
+}
+
+export interface GameplaySceneData extends ChartRef {
+  readonly mode: PlayMode;
+}
 
 export interface ResultSceneData extends ChartRef {
+  readonly mode: PlayMode;
   result: GameplayResult;
 }
 
@@ -31,13 +40,17 @@ export interface ChartEditorSceneData {
   listFilter: SongFilter;
 }
 
+export type SettingsReturn =
+  | { readonly key: 'main'; readonly data: undefined }
+  | { readonly key: 'songSelect'; readonly data: SongSelectSceneData };
+
 export interface SettingsSceneData {
-  returnScene: 'main' | 'songSelect';
+  readonly returnTo: SettingsReturn;
 }
 
 export interface SceneDataMap {
   main: undefined;
-  songSelect: undefined;
+  songSelect: SongSelectSceneData;
   gameplay: GameplaySceneData;
   result: ResultSceneData;
   settings: SettingsSceneData;

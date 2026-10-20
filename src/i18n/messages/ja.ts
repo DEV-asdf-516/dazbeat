@@ -45,9 +45,7 @@ export const ja: Messages = {
   gameplay: {
     loading: '読み込み中',
     pressEnterToStart: 'Enter で開始',
-    buffering: 'バッファリング中',
     paused: '一時停止中 · Enter で再開',
-    preparing: '再生準備中',
     chartLoadFailed: '譜面の読み込みに失敗しました',
     playerLoadFailed: '動画プレーヤーの読み込みに失敗しました',
     videoError: '動画再生エラー: {{message}}',

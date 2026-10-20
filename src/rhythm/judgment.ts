@@ -8,6 +8,8 @@ export const JUDGMENT_WINDOWS: JudgmentWindows = {
   badMs: 130,
 };
 
+export const JUDGMENTS: readonly Judgment[] = ['perfect', 'great', 'good', 'bad', 'miss'];
+
 export function judgeTap(
   noteTimeMs: number,
   inputTimeMs: number,

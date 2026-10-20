@@ -6,7 +6,7 @@ export const INPUT_OFFSET_RANGE_MS = {
 } as const;
 
 export function getPlaybackStartMs(gameStartMs: number): number {
-  return Math.max(0, gameStartMs - LEAD_IN_MS);
+  return gameStartMs - LEAD_IN_MS;
 }
 
 export function getPlayDurationMs(gameStartMs: number, gameEndMs: number): number {

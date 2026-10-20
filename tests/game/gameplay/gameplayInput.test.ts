@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import type { PlaybackStatus } from '../../../src/audio/LeadInPlayback.js';
 import {
+  addPressedLane,
   getErrorKeyAction,
+  getLaneReleaseAction,
   getLoadingKeyAction,
   getPlayingKeyAction,
   getReadyKeyAction,
   readGameplayKey,
 } from '../../../src/game/gameplay/gameplayInput.js';
-import type { GameplayKey } from '../../../src/game/gameplay/gameplayInput.js';
+import type { GameplayKey, PressedLanes } from '../../../src/game/gameplay/gameplayInput.js';
 import type { Settings } from '../../../src/storage/settings.js';
 
 const BINDINGS: Settings['keyBindings'] = ['KeyD', 'KeyF', 'KeyJ', 'KeyK'];
@@ -132,42 +135,69 @@ describe('getErrorKeyAction', () => {
 });
 
 describe('getPlayingKeyAction', () => {
+  const RUNNING: PlaybackStatus = { kind: 'running' };
+  const PAUSED: PlaybackStatus = { kind: 'paused' };
+  const ALL_STATUSES: readonly PlaybackStatus[] = [
+    { kind: 'loading' },
+    {
+      kind: 'countdown',
+      digit: 2,
+    },
+    { kind: 'waiting' },
+    PAUSED,
+    RUNNING,
+  ];
   const playing = (
     isQuitConfirmOpen: boolean,
     key: GameplayKey,
-    playerState: 'playing' | 'buffering' | 'paused' = 'playing',
+    status: PlaybackStatus = RUNNING,
     isRepeat = false,
-  ) => getPlayingKeyAction(isQuitConfirmOpen, playerState, key, isRepeat);
+  ) => getPlayingKeyAction(isQuitConfirmOpen, status, key, isRepeat);
 
   it.each([BACK, LANE_1])('ignores repeated %o', (key) => {
-    expect(playing(false, key, 'playing', true)).toEqual({ kind: 'none' });
+    expect(playing(false, key, RUNNING, true)).toEqual({ kind: 'none' });
   });
 
   describe('with the quit confirm closed', () => {
-    it('opens the quit confirm on back', () => {
-      expect(playing(false, BACK)).toEqual({
+    it.each(ALL_STATUSES)('opens the quit confirm on back while %o', (status) => {
+      expect(playing(false, BACK, status)).toEqual({
         kind: 'openQuitConfirm',
       });
     });
 
-    it('presses the lane while the video plays', () => {
+    it('presses the lane while running', () => {
       expect(playing(false, LANE_1)).toEqual({
         kind: 'pressLane',
         lane: 1,
       });
     });
 
-    it.each(['buffering', 'paused'] as const)('ignores lane keys while %s', (playerState) => {
-      expect(playing(false, LANE_1, playerState)).toEqual({
+    it.each<PlaybackStatus>([
+      {
+        kind: 'countdown',
+        digit: 3,
+      },
+      { kind: 'waiting' },
+      { kind: 'loading' },
+      PAUSED,
+    ])('ignores lane keys while %o', (status) => {
+      expect(playing(false, LANE_1, status)).toEqual({
         kind: 'none',
       });
     });
 
     it('resumes on confirm only while paused', () => {
-      expect(playing(false, CONFIRM, 'paused')).toEqual({
+      expect(playing(false, CONFIRM, PAUSED)).toEqual({
         kind: 'resume',
       });
       expect(playing(false, CONFIRM)).toEqual({ kind: 'none' });
+      expect(
+        playing(false, CONFIRM, {
+          kind: 'countdown',
+          digit: 1,
+        }),
+      ).toEqual({ kind: 'none' });
+      expect(playing(false, CONFIRM, { kind: 'loading' })).toEqual({ kind: 'none' });
     });
 
     it('cycles the MV mode', () => {
@@ -196,7 +226,7 @@ describe('getPlayingKeyAction', () => {
       command: 'confirm',
     };
 
-    it('presses the lane while the video plays', () => {
+    it('presses the lane while running', () => {
       expect(playing(false, enterLane)).toEqual({
         kind: 'pressLane',
         lane: 2,
@@ -204,9 +234,37 @@ describe('getPlayingKeyAction', () => {
     });
 
     it('resumes while paused', () => {
-      expect(playing(false, enterLane, 'paused')).toEqual({
+      expect(playing(false, enterLane, PAUSED)).toEqual({
         kind: 'resume',
       });
     });
+  });
+});
+
+describe('pressed lanes', () => {
+  const NO_LANES: PressedLanes = new Set();
+
+  it('ignores a release of a lane never pressed into the session', () => {
+    expect(getLaneReleaseAction(NO_LANES, 1)).toEqual({ kind: 'none' });
+  });
+
+  it('releases a pressed lane once and removes it from the set', () => {
+    const pressed = addPressedLane(NO_LANES, 1);
+    const action = getLaneReleaseAction(pressed, 1);
+    if (action.kind !== 'release') {
+      throw new Error('Expected a release');
+    }
+    expect(action.pressedLanes.has(1)).toBe(false);
+    expect(pressed.has(1)).toBe(true);
+    expect(getLaneReleaseAction(action.pressedLanes, 1)).toEqual({ kind: 'none' });
+  });
+
+  it('ignores a release of another lane', () => {
+    expect(getLaneReleaseAction(addPressedLane(NO_LANES, 1), 2)).toEqual({ kind: 'none' });
+  });
+
+  it('keeps the same set when the lane is already pressed', () => {
+    const pressed = addPressedLane(NO_LANES, 1);
+    expect(addPressedLane(pressed, 1)).toBe(pressed);
   });
 });

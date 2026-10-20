@@ -1,12 +1,12 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { ResultSceneData, SceneRequest } from '../sceneRoutes.js';
+import type { PlayMode, ResultSceneData, SceneRequest } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import {
   CONSTELLATION_LOOKS,
   getConstellationLines,
-  getConstellationTier,
+  getResultPresentation,
   planSongConstellation,
 } from './resultConstellation.js';
 import type {
@@ -23,7 +23,7 @@ import { stepChart } from '../../data/songs.js';
 import type { ChartRef } from '../../data/songs.js';
 import type { Song } from '../../data/songs.js';
 import { getRank } from '../../rhythm/rank.js';
-import type { Judgment } from '../../rhythm/types.js';
+import { JUDGMENTS } from '../../rhythm/judgment.js';
 import { Button } from '../ui/Button.js';
 import {
   addCelestialAtmosphere,
@@ -47,33 +47,11 @@ type MenuItem = 'retry' | 'songSelect';
 const LEFT_X_PX = SCREEN_LAYOUT.leftXPx;
 const TITLE_Y_PX = 120;
 const DIFFICULTY_Y_PX = 176;
+const PRACTICE_BADGE_GAP_PX = 24;
 const RANK_Y_PX = 230;
 const SCORE_Y_PX = 420;
 const STATS_Y_PX = 540;
 const MAX_COMBO_VALUE_GAP_PX = 16;
-/** 판정 내역은 세로 표 대신 한 줄의 열로 펼쳐 왼쪽 열 높이를 줄이고, 그만큼을 묶음 사이 여백으로 쓴다. */
-const JUDGMENT_ROWS: readonly { judgment: Judgment; label: string }[] = [
-  {
-    judgment: 'perfect',
-    label: 'PERFECT',
-  },
-  {
-    judgment: 'great',
-    label: 'GREAT',
-  },
-  {
-    judgment: 'good',
-    label: 'GOOD',
-  },
-  {
-    judgment: 'bad',
-    label: 'BAD',
-  },
-  {
-    judgment: 'miss',
-    label: 'MISS',
-  },
-];
 const JUDGMENT_COLUMN_WIDTH_PX = 130;
 const JUDGMENT_LABEL_Y_PX = 640;
 const JUDGMENT_COUNT_Y_PX = 676;
@@ -147,13 +125,13 @@ export class ResultScene extends Phaser.Scene {
     this.exit = STAYING;
     addCelestialAtmosphere(this, this.celestial, 'result');
     const keyboard = requireKeyboard(this);
-    const { song, difficulty, chartId, result } = data;
+    const { song, difficulty, chartId, mode, result } = data;
     let retryChart: ChartRef = {
       song,
       difficulty,
       chartId,
     };
-    const activate = (item: MenuItem): void => this.activate(item, retryChart);
+    const activate = (item: MenuItem): void => this.activate(item, retryChart, mode);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const titleText = this.add.text(
@@ -168,6 +146,17 @@ export class ResultScene extends Phaser.Scene {
       difficulty.toUpperCase(),
       textStyle('meta', COLORS.textMuted),
     );
+    const headerTexts: Phaser.GameObjects.Text[] = [titleText, difficultyText];
+    if (mode === 'practice') {
+      headerTexts.push(
+        this.add.text(
+          difficultyText.x + difficultyText.width + PRACTICE_BADGE_GAP_PX,
+          DIFFICULTY_Y_PX,
+          'PRACTICE',
+          textStyle('meta', COLORS.textMuted),
+        ),
+      );
+    }
     // 랭크용 display 서체는 별자리 영역과 겹치므로 FAILED 는 더 작은 title 서체로 같은 자리에 둔다.
     const rank =
       result.outcome === 'failed'
@@ -211,13 +200,14 @@ export class ResultScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
     maxComboValue.setX(maxComboLabel.x + maxComboLabel.width + MAX_COMBO_VALUE_GAP_PX);
     const statTexts: Phaser.GameObjects.Text[] = [accuracyText, maxComboLabel, maxComboValue];
-    JUDGMENT_ROWS.forEach(({ judgment, label }, index) => {
+    // 판정 내역은 세로 표 대신 한 줄의 열로 펼쳐 왼쪽 열 높이를 줄이고, 그만큼을 묶음 사이 여백으로 쓴다.
+    JUDGMENTS.forEach((judgment, index) => {
       const xPx = LEFT_X_PX + JUDGMENT_COLUMN_WIDTH_PX * index;
       statTexts.push(
         this.add.text(
           xPx,
           JUDGMENT_LABEL_Y_PX,
-          label,
+          judgment.toUpperCase(),
           textStyle('secondary', JUDGMENT_COLORS[judgment]),
         ),
         this.add.text(
@@ -279,9 +269,10 @@ export class ResultScene extends Phaser.Scene {
     ]);
     const hint = addMenuKeyHintRow(this, this.i18n.t('result.hint'), LEFT_X_PX);
     playCelestialEntryTransition(this, this.celestial, rankBounds);
+    const presentation = getResultPresentation(mode, result);
     this.playFinish(
       planResultFinish(
-        result.cleared,
+        presentation.hasFinish,
         this.celestial.nodeOnlyFinish,
         SCORE_COUNT_DELAY_MS + SCORE_COUNT_DURATION_MS,
       ),
@@ -289,7 +280,7 @@ export class ResultScene extends Phaser.Scene {
       scoreText.getBounds(),
     );
 
-    this.fadeInAt([jacket, titleText, difficultyText], 1, HEADER_REVEAL_DELAY_MS);
+    this.fadeInAt([jacket, ...headerTexts], 1, HEADER_REVEAL_DELAY_MS);
     rankText.setAlpha(0).setScale(RANK_REVEAL_SCALE);
     this.tweens.add({
       targets: rankText,
@@ -317,13 +308,11 @@ export class ResultScene extends Phaser.Scene {
       1,
       MENU_REVEAL_DELAY_MS,
     );
-    const tier = getConstellationTier(result);
     this.revealConstellation(
-      planSongConstellation(song.id, song.constellation, tier, CONSTELLATION_BOX),
+      planSongConstellation(song.id, song.constellation, presentation.tier, CONSTELLATION_BOX),
       song.accentColor,
     );
-    // 실패는 HP 가 BAD·MISS 로만 깎여 0 이 될 때뿐이라 FULL COMBO 와 겹치지 않는다. complete 가 곧 FULL COMBO 다.
-    if (tier === 'complete') {
+    if (presentation.hasFullComboLabel) {
       this.revealFullCombo(rankBounds, song.accentColor);
     }
     keyboard.on(
@@ -369,7 +358,7 @@ export class ResultScene extends Phaser.Scene {
     }
   }
 
-  private activate(item: MenuItem, retryChart: ChartRef): void {
+  private activate(item: MenuItem, retryChart: ChartRef, mode: PlayMode): void {
     if (this.exit.kind === 'leaving') {
       return;
     }
@@ -377,13 +366,16 @@ export class ResultScene extends Phaser.Scene {
       case 'retry':
         this.exit = exitScene(this, this.exit, {
           key: 'gameplay',
-          data: retryChart,
+          data: {
+            ...retryChart,
+            mode,
+          },
         });
         return;
       case 'songSelect':
         this.exit = exitScene(this, this.exit, {
           key: 'songSelect',
-          data: undefined,
+          data: { mode },
         });
         return;
     }

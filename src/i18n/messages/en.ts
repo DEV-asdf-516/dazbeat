@@ -45,9 +45,7 @@ export const en: Messages = {
   gameplay: {
     loading: 'Loading',
     pressEnterToStart: 'Press Enter to start',
-    buffering: 'Buffering',
     paused: 'Paused · Press Enter to resume',
-    preparing: 'Preparing playback',
     chartLoadFailed: 'Failed to load chart',
     playerLoadFailed: 'Failed to load video player',
     videoError: 'Video playback error: {{message}}',

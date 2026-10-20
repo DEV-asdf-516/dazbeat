@@ -50,6 +50,8 @@ interface YTPlayer {
   playVideo(): void;
   pauseVideo(): void;
   getCurrentTime(): number;
+  getVideoLoadedFraction(): number;
+  getDuration(): number;
   setVolume(volume: number): void;
   destroy(): void;
 }
@@ -99,6 +101,34 @@ export class YouTubePlayer {
     }
     this.placeholder = document.createElement('div');
     container.append(this.placeholder);
+    // TEMP 진단: iframe 이 보내는 실제 위치 갱신 시각 기록, 시작 직후 어긋남 확인 후 제거
+    const debugWindow = window as unknown as { dazbeatInfoLog?: boolean };
+    if (debugWindow.dazbeatInfoLog !== true) {
+      debugWindow.dazbeatInfoLog = true;
+      window.addEventListener('message', (event: MessageEvent) => {
+        if (!event.origin.includes('youtube') || typeof event.data !== 'string') {
+          return;
+        }
+        const message = JSON.parse(event.data) as {
+          event?: string;
+          info?: { currentTime?: number; currentTimeLastUpdated_?: number; playerState?: number };
+        };
+        const info = message.info;
+        if (message.event !== 'infoDelivery' || info === undefined) {
+          return;
+        }
+        if (info.currentTime === undefined && info.playerState === undefined) {
+          return;
+        }
+        const ageMs =
+          info.currentTimeLastUpdated_ === undefined
+            ? 'n/a'
+            : (Date.now() - info.currentTimeLastUpdated_ * 1000).toFixed(0);
+        console.log(
+          `t=${performance.now().toFixed(0)} [infoDelivery] currentTime=${info.currentTime?.toFixed(3) ?? '-'} playerState=${info.playerState ?? '-'} updatedAgo=${ageMs}ms`,
+        );
+      });
+    }
     this.player = new Player(this.placeholder, {
       videoId,
       playerVars: {
@@ -146,6 +176,10 @@ export class YouTubePlayer {
 
   getCurrentTime(): number {
     return this.player.getCurrentTime();
+  }
+
+  getBufferedEndSec(): number {
+    return this.player.getVideoLoadedFraction() * this.player.getDuration();
   }
 
   setVolume(volume: number): void {
