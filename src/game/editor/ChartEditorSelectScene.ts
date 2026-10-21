@@ -15,7 +15,7 @@ import type {
   ChartEditorSelectView,
   SongFeeds,
 } from './ChartEditorSelectController.js';
-import { toWheelRows } from './songListState.js';
+import { IDLE_WHEEL, readWheelRows } from '../wheelRows.js';
 import type { SongListNotice, SongListStatus } from './songListState.js';
 import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import { handleEachEventOnce, requireKeyboard } from '../ui/menuInput.js';
@@ -97,10 +97,15 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     );
     // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, () => search.blur());
+    let wheel = IDLE_WHEEL;
     const panel = new SongListPanel(this, LIST_FRAME, {
       onHoverRow: (rowIndex) => controller.hoverRow(rowIndex),
       onPickRow: (rowIndex) => controller.pickRow(rowIndex),
-      onWheel: (deltaYPx) => controller.scroll(toWheelRows(deltaYPx, LIST_FRAME.rowHeightPx)),
+      onWheel: (deltaYPx) => {
+        const read = readWheelRows(wheel, deltaYPx, this.time.now, LIST_FRAME.rowHeightPx);
+        wheel = read.gesture;
+        controller.scroll(read.rows);
+      },
     });
     const noticeText = this.add
       .text(

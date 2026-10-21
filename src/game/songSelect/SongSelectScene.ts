@@ -63,6 +63,7 @@ import {
   typeStyle,
 } from '../ui/theme.js';
 import { requireDefined } from '../../invariant.js';
+import { IDLE_WHEEL, readWheelRows } from '../wheelRows.js';
 
 const FILTER_X_PX = 120;
 const FILTER_GAP_PX = 48;
@@ -101,6 +102,8 @@ const RECORD_LABEL_GAP_PX = 16;
 // 버튼 아래 끝이 힌트 줄(SCREEN_LAYOUT.hintYPx)보다 위에 오도록 둔다.
 const PLAY_Y_PX = 860;
 const HINT_X_PX = 120;
+// 마우스 휠 한 칸의 이동량(브라우저 기본 100px)에 한 곡씩 넘어가게 한다.
+const WHEEL_STEP_PX = 100;
 
 const ROW_NODE_X_PX = ROW_X_PX - 14;
 const ROW_NODE_INITIAL_ID = 'R15';
@@ -283,6 +286,27 @@ export class SongSelectScene extends Phaser.Scene {
     keyboard.on(
       'keydown',
       handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, update)),
+    );
+    // 상세 패널(PLAY 버튼) 위에서 휠이 살짝 움직여 선택 곡이 바뀌지 않도록 목록 위에서만 받는다.
+    const listArea = new Phaser.Geom.Rectangle(
+      ROW_X_PX,
+      ROW_Y_PX,
+      ROW_WIDTH_PX,
+      ROW_HEIGHT_PX * ROWS_PER_PAGE,
+    );
+    let wheel = IDLE_WHEEL;
+    this.input.on(
+      Phaser.Input.Events.POINTER_WHEEL,
+      (pointer: Phaser.Input.Pointer, _over: unknown, _deltaX: number, deltaY: number) => {
+        if (this.exit.kind === 'leaving' || !listArea.contains(pointer.x, pointer.y)) {
+          return;
+        }
+        const read = readWheelRows(wheel, deltaY, this.time.now, WHEEL_STEP_PX);
+        wheel = read.gesture;
+        if (read.rows !== 0) {
+          update((state) => moveSong(state, read.rows));
+        }
+      },
     );
   }
 

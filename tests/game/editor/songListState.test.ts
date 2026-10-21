@@ -7,7 +7,6 @@ import {
   getSongListRows,
   moveSongListFocus,
   scrollSongList,
-  toWheelRows,
   withSongCount,
 } from '../../../src/game/editor/songListState.js';
 import type { SongListState } from '../../../src/game/editor/songListState.js';
@@ -121,22 +120,6 @@ describe('scrollSongList', () => {
     expect(scrollSongList(top, -3)).toBe(top);
     expect(scrollSongList(bottom, 3)).toBe(bottom);
     expect(scrollSongList(list(8, 5), 10)).toEqual(list(8, 6));
-  });
-});
-
-describe('toWheelRows', () => {
-  it('moves at least one row per wheel event in its direction', () => {
-    expect(toWheelRows(10, 48)).toBe(1);
-    expect(toWheelRows(-10, 48)).toBe(-1);
-  });
-
-  it('moves a row per row height for larger deltas', () => {
-    expect(toWheelRows(144, 48)).toBe(3);
-    expect(toWheelRows(-100, 48)).toBe(-2);
-  });
-
-  it('does not move without a delta', () => {
-    expect(toWheelRows(0, 48)).toBe(0);
   });
 });
 

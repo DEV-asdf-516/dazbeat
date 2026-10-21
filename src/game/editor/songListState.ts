@@ -121,14 +121,6 @@ export function scrollSongList(list: SongListState, deltaRows: number): SongList
   };
 }
 
-export function toWheelRows(deltaYPx: number, rowHeightPx: number): number {
-  if (deltaYPx === 0) {
-    return 0;
-  }
-  const rows = Math.round(deltaYPx / rowHeightPx);
-  return rows === 0 ? Math.sign(deltaYPx) : rows;
-}
-
 export function getSongListRows(list: SongListState, songs: readonly Song[]): SongListRow[] {
   const rows: SongListRow[] = [];
   const endIndex = Math.min(list.topIndex + list.visibleRowCount, list.songCount);
