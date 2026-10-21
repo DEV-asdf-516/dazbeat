@@ -41,3 +41,6 @@ pocketbase/pb_hooks/lib/
 
 # screenshots that show third-party song artwork (not ours to redistribute)
 docs/screenshots/
+
+# local investigation notes (not shipped)
+docs/*.md

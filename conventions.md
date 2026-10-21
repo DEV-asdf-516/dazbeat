@@ -15,6 +15,7 @@
   - `invariant.ts`: 불변 조건 검사(`requireDefined`). 조회 결과가 없으면 개발 오류인 곳은 직접 `=== undefined` 검사·throw를 쓰지 않고 이 함수를 쓴다. 메시지는 고정 문구 message와 바뀌는 값 subject로 나눠 넘기고, message에 템플릿 문자열을 넘기지 않는다(성공 경로에서도 문자열이 만들어진다).
   - `range.ts`: 범위 산술(`clamp`, 거리 `getDistance`, 진행 비율 `getProgress`, 보간 `lerp`, 목록 순환·이동).
   - `typeGuards.ts`: `unknown` 값 타입 가드(`isRecord`, `isString`, `isBoolean`, `isFiniteNumber`, 목록 소속 `isOneOf`). 외부 입력을 손으로 파싱할 때 `typeof` 검사를 직접 쓰지 않고 이 함수를 쓴다.
+  - `json.ts`: 실패를 기본값으로 대체하는 JSON 파싱(`parseJson`, 실패 시 `undefined`). `JSON.parse` 를 try-catch 로 직접 감싸지 않는다. 실패 원인이 필요한 필수 입력은 경계에서 직접 throw한다.
   - `time.ts`: ms↔초 변환(`msToSec`, `secToMs`). 초는 외부 API(YouTube)·초당 속도 설정 경계에서만 쓰고, 변환에 `1000` 을 직접 쓰지 않는다.
 - `src/rhythm/`: 판정·점수·노트 위치 등 순수 게임 로직. `src/` 바로 아래 순수 모듈 외의 다른 src 폴더·프레임워크·I/O를 import하지 않는다.
 - `src/data/`: 곡·채보 도메인 타입과 런타임 검증. `rhythm/`, `src/` 바로 아래 순수 모듈만 import한다.
@@ -32,6 +33,10 @@
   - 번역은 씬에서만 하고, 위젯은 번역된 문자열을 받는다. 게임 키워드인 대문자 영어 라벨(`PLAY`, `FULL COMBO` 등)은 번역하지 않는다.
   - 클릭은 pointer up에서 실행한다. pointer down은 드래그·탐색 같은 제스처에만 쓴다.
   - Phaser는 씬 인스턴스를 재사용한다. 상태는 `create`에서 다시 설정하고, 외부 리스너는 SHUTDOWN에서 해제한다.
+  - 비동기 I/O·외부 리소스·늦은 결과가 섞인 화면 흐름은 `<화면>Controller`에 둔다. 동기 전이뿐이면 씬이 순수 상태 모듈을 직접 쓴다.
+    - Controller: Phaser 없이 화면 state(phase union)를 단독 소유하고, 판단은 순수 모듈에 맡겨 순서·부수효과만 엮는다. I/O·시계는 deps, 표시·이동은 씬이 구현한 Screen interface로 주입받는다.
+    - 씬: Phaser 객체와 입력·update 위임만 맡고, SHUTDOWN에서 `close()`로 늦은 결과를 버린다.
+    - 테스트: deps·Screen 대역으로 Controller를 검증한다.
 - `pocketbase/`: 서버 코드. 클라이언트 번들에 포함되지 않는다.
   - `pb_migrations/`: 스키마 마이그레이션. 적용 시점의 스냅샷이라 이후 바뀌지 않으므로, 다른 파일을 import하지 않고 필요한 헬퍼·상수도 파일 안에 둔다.
   - `pb_hooks/`: 서버 훅. JSVM 핸들러는 바깥 스코프를 보지 못하므로 헬퍼·`require`를 핸들러 안에서 한다.
@@ -113,7 +118,7 @@
 - 타입 검사: npm run typecheck. 린트: npm run lint. 포맷 검사: npm run format:check.
 - Vitest는 단발 실행한다. 피처의 unit targeted_test에 해당 기능의 구체적인 테스트 경로를 명시한다.
 - 테스트는 외부 관찰 가능한 합의 동작을 검증한다. 커버리지 숫자·private 상태·내부 호출 횟수만을 위한 테스트는 만들지 않는다. 외부 I/O 횟수가 명시적 계약이면 검증할 수 있다.
-- 경계값은 반드시 테스트한다 (window 경계 ±1, 빈 입력, 최대/최소).
+- 테스트 대상은 흐름을 소유한 단위다(Controller·Session·화면 상태 모듈·I/O·lifecycle 클래스·backend·서버). 순수 함수·헬퍼 모듈은 단독 테스트하지 않고, 경계값(window ±1, 빈 입력, 최대/최소)도 그 흐름을 거쳐 검증한다.
 - 프레임워크 렌더링 자체는 Unit Test하지 않는다. 테스트 때문에 Production 코드를 과도하게 추상화하지 않는다.
 - 테스트를 위해 export하거나 운영 함수를 따로 빼지 않는다. 테스트는 모듈이 공개하는 함수나 클래스 동작을 거쳐 검증한다.
 - `vi.mock`은 쓰지 않는다. 대역은 직접 만든 객체로, 시간은 fake timer 대신 값으로 주입한다.

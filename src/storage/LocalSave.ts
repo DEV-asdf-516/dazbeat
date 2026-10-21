@@ -3,6 +3,7 @@ import { mergeBestRecord, parseChartRecord, recordKey } from './chartRecords.js'
 import type { ChartRecord, ChartRecords } from './chartRecords.js';
 import { DEFAULT_SETTINGS, SETTINGS_PARSERS } from './settings.js';
 import type { Settings } from './settings.js';
+import { parseJson } from '../json.js';
 import { isRecord } from '../typeGuards.js';
 
 const SETTINGS_KEY = 'dazbeat:settings:v1';
@@ -76,10 +77,8 @@ export class LocalSave {
     if (raw === null) {
       return null;
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
+    const parsed = parseJson(raw);
+    if (parsed === undefined) {
       console.warn(`Saved ${label} are not valid JSON; ${fallback}`);
       return null;
     }
