@@ -16,11 +16,13 @@ function freezeCopy(loaded: LoadedChart): LoadedChart {
 
 export class ChartCache {
   private readonly entries = new Map<string, LoadedChart>();
+  // 늦게 끝난 받기가 그 뒤에 시작한 받기나 저장 결과를 덮지 않도록, 차트마다 마지막으로 시작한 받기만 남긴다.
+  private readonly inFlight = new Map<string, Promise<LoadedChart>>();
 
   constructor(private readonly pb: PocketBase) {}
 
   async load(ref: ChartRef): Promise<LoadedChart> {
-    return this.entries.get(ref.chartId) ?? this.fetch(ref);
+    return this.entries.get(ref.chartId) ?? this.inFlight.get(ref.chartId) ?? this.fetch(ref);
   }
 
   async reload(ref: ChartRef): Promise<LoadedChart> {
@@ -30,12 +32,23 @@ export class ChartCache {
   }
 
   put(chartId: string, loaded: LoadedChart): void {
+    this.inFlight.delete(chartId);
     this.entries.set(chartId, freezeCopy(loaded));
   }
 
   private async fetch(ref: ChartRef): Promise<LoadedChart> {
-    const loaded = freezeCopy(await loadChart(this.pb, ref));
-    this.entries.set(ref.chartId, loaded);
-    return loaded;
+    const request = loadChart(this.pb, ref).then(freezeCopy);
+    this.inFlight.set(ref.chartId, request);
+    try {
+      const loaded = await request;
+      if (this.inFlight.get(ref.chartId) === request) {
+        this.entries.set(ref.chartId, loaded);
+      }
+      return loaded;
+    } finally {
+      if (this.inFlight.get(ref.chartId) === request) {
+        this.inFlight.delete(ref.chartId);
+      }
+    }
   }
 }

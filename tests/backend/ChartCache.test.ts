@@ -54,7 +54,20 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
-function stubFetch(...responses: Response[]) {
+function pendingResponse(): { response: Promise<Response>; respond: (response: Response) => void } {
+  let respond: (response: Response) => void = () => {
+    throw new Error('response not pending');
+  };
+  const response = new Promise<Response>((resolve) => {
+    respond = resolve;
+  });
+  return {
+    response,
+    respond,
+  };
+}
+
+function stubFetch(...responses: (Response | Promise<Response>)[]) {
   const fetchMock = vi.fn<(input: string) => Promise<Response>>(() => {
     const response = responses.shift();
     if (response === undefined) {
@@ -286,6 +299,98 @@ describe('ChartCache', () => {
       revision: REVISION_B,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests once for concurrent loads of the same chart and resolves the same value', async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        data: chartData('normal', 1000),
+        revision: REVISION_A,
+      }),
+    );
+    const cache = createCache();
+
+    const [first, second] = await Promise.all([cache.load(normalChart), cache.load(normalChart)]);
+
+    expect(second).toBe(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests again after a load that concurrent loads shared failed', async () => {
+    const fetchMock = stubFetch(
+      jsonResponse(
+        {
+          status: 500,
+          message: 'Failed.',
+          data: {},
+        },
+        500,
+      ),
+      jsonResponse({
+        data: chartData('normal', 1000),
+        revision: REVISION_A,
+      }),
+    );
+    const cache = createCache();
+
+    const results = await Promise.allSettled([cache.load(normalChart), cache.load(normalChart)]);
+
+    expect(results.map(({ status }) => status)).toEqual(['rejected', 'rejected']);
+    await expect(cache.load(normalChart)).resolves.toEqual({
+      chart: chartData('normal', 1000),
+      revision: REVISION_A,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the put chart when a load started before the put resolves after it', async () => {
+    const stale = pendingResponse();
+    const fetchMock = stubFetch(stale.response);
+    const cache = createCache();
+    const staleLoad = cache.load(normalChart);
+
+    cache.put('chart_normal', {
+      chart: chartData('normal', 2000),
+      revision: REVISION_B,
+    });
+    stale.respond(
+      jsonResponse({
+        data: chartData('normal', 1000),
+        revision: REVISION_A,
+      }),
+    );
+    await staleLoad;
+
+    await expect(cache.load(normalChart)).resolves.toEqual({
+      chart: chartData('normal', 2000),
+      revision: REVISION_B,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the reloaded chart when an earlier load resolves after the reload', async () => {
+    const stale = pendingResponse();
+    const fetchMock = stubFetch(
+      stale.response,
+      jsonResponse({
+        data: chartData('normal', 2000),
+        revision: REVISION_B,
+      }),
+    );
+    const cache = createCache();
+    const staleLoad = cache.load(normalChart);
+
+    const reloaded = await cache.reload(normalChart);
+    stale.respond(
+      jsonResponse({
+        data: chartData('normal', 1000),
+        revision: REVISION_A,
+      }),
+    );
+    await staleLoad;
+
+    await expect(cache.load(normalChart)).resolves.toBe(reloaded);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not freeze the chart passed to put', () => {
