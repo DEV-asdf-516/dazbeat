@@ -12,8 +12,18 @@ export function getJudgmentScore(judgment: Judgment): number {
   return JUDGMENT_SCORES[judgment];
 }
 
+
 export function getNextCombo(combo: number, judgment: Judgment): number {
-  return judgment === 'good' || judgment === 'bad' || judgment === 'miss' ? 0 : combo + 1;
+  switch (judgment) {
+    case 'perfect':
+    case 'great':
+      return combo + 1;
+    case 'good':
+      return 1;
+    case 'bad':
+    case 'miss':
+      return 0;
+  }
 }
 
 export function isFullCombo(counts: JudgmentCounts): boolean {
