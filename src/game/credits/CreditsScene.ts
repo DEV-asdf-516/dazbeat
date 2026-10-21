@@ -1,7 +1,7 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import type { Song } from '../../data/songs.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import type { SongFeed } from '../SongFeed.js';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { SceneRequest } from '../sceneRoutes.js';
 import { STAYING } from '../sceneExit.js';
@@ -24,7 +24,7 @@ export class CreditsScene extends Phaser.Scene {
   private exit: SceneExit<SceneRequest> = STAYING;
 
   constructor(
-    private readonly songs: readonly Song[],
+    private readonly catalog: SongFeed,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
   ) {
@@ -51,28 +51,37 @@ export class CreditsScene extends Phaser.Scene {
     });
 
     let yPx = CREDITS_TOP_Y_PX;
-    this.songs.forEach((song) => {
-      if (song.credit === undefined) {
-        return;
-      }
-      this.add.text(
-        SCREEN_LAYOUT.leftXPx,
-        yPx,
-        song.title,
-        textStyle('primary', COLORS.textPrimary),
-      );
-      yPx += CREDIT_LINE_SPACING_PX;
-      song.credit.forEach((line) => {
+    let drawnCount = 0;
+    const drawNewCredits = (): void => {
+      const { songs } = this.catalog;
+      songs.slice(drawnCount).forEach((song) => {
+        if (song.credit === undefined) {
+          return;
+        }
         this.add.text(
           SCREEN_LAYOUT.leftXPx,
           yPx,
-          line,
-          textStyle('secondary', COLORS.textSecondary),
+          song.title,
+          textStyle('primary', COLORS.textPrimary),
         );
         yPx += CREDIT_LINE_SPACING_PX;
+        song.credit.forEach((line) => {
+          this.add.text(
+            SCREEN_LAYOUT.leftXPx,
+            yPx,
+            line,
+            textStyle('secondary', COLORS.textSecondary),
+          );
+          yPx += CREDIT_LINE_SPACING_PX;
+        });
+        yPx += SONG_GAP_PX;
       });
-      yPx += SONG_GAP_PX;
-    });
+      drawnCount = songs.length;
+    };
+    drawNewCredits();
+    const unsubscribe = this.catalog.subscribe(drawNewCredits);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribe);
+    void this.catalog.requestRemaining();
 
     addMenuKeyHintRow(this, this.i18n.t('credits.hint'), SCREEN_LAYOUT.leftXPx);
     playCelestialEntryTransition(this, this.celestial, title.getBounds());

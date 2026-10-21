@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { loadYouTubeIframeApi, YouTubePlayer } from '../../audio/YouTubePlayer.js';
 import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
 import { DIFFICULTIES, getAvailableDifficulties } from '../../data/songs.js';
-import type { Song, SongFilter } from '../../data/songs.js';
+import type { Song } from '../../data/songs.js';
 import { LANES, mapLanes } from '../../rhythm/lanes.js';
 import { getNoteTimeAtY, getNoteY } from '../../rhythm/notePosition.js';
 import type { Difficulty, Lane, Note } from '../../rhythm/types.js';
@@ -207,7 +207,6 @@ export class ChartEditorScene extends Phaser.Scene {
   private playerToken: object | null = null;
   private player: YouTubePlayer | null = null;
   private playerStatus: PlayerStatus = { kind: 'loading' };
-  private listFilter: SongFilter = 'all';
 
   constructor(
     private readonly save: LocalSave,
@@ -237,12 +236,12 @@ export class ChartEditorScene extends Phaser.Scene {
     this.noteLayer = null;
     this.seekMarkedNotes = null;
     this.playerStatus = { kind: 'loading' };
-    this.listFilter = data.listFilter;
     const onResize = (): void => this.placeVideoPreview();
     onResize();
     this.scale.on(Phaser.Scale.Events.RESIZE, onResize);
     const editor = new ChartEditorController(
       this.catalog,
+      data.list,
       {
         play: (fromSec) => {
           if (this.playerStatus.kind !== 'ready') {
@@ -262,8 +261,9 @@ export class ChartEditorScene extends Phaser.Scene {
         changeSong: (song) => this.replacePlayer(view, editor, song),
         leave: (focusedSongId) =>
           startScene(this, 'chartEditorSelect', {
+            kind: 'return',
+            list: data.list,
             focusedSongId,
-            filter: this.listFilter,
           }),
         render: (previous, next) => this.renderChanges(view, previous, next),
       },
@@ -300,9 +300,9 @@ export class ChartEditorScene extends Phaser.Scene {
       this.player = null;
     });
 
-    // 곡 목록 화면이 같은 catalog 목록에서 고른 곡이므로 없으면 진입 경로의 오류다.
+    // 곡 목록 화면이 같은 편집 목록에서 고른 곡이므로 없으면 진입 경로의 오류다.
     const song = requireDefined(
-      this.catalog.getSongs().find((listed) => listed.id === data.songId),
+      data.list.songs.find((listed) => listed.id === data.songId),
       'Chart editor opened for a song not in the list',
       data.songId,
     );

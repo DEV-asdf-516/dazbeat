@@ -1,7 +1,6 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { SONG_FILTERS } from '../../data/songs.js';
-import type { Song, SongFilter } from '../../data/songs.js';
 import { canCurrentUserOpenChartEditor } from '../accountState.js';
 import type { AccountAuth } from '../accountState.js';
 import { createEditorLayout } from './chartEditorLayout.js';
@@ -10,22 +9,19 @@ import { SCENE_KEYS, exitScene, startScene } from '../sceneRoutes.js';
 import type { ChartEditorSelectSceneData, SceneRequest } from '../sceneRoutes.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import {
-  createSongList,
-  cycleSongListFilter,
-  focusSongListRow,
-  getFocusedSong,
-  getSongListRows,
-  moveSongListFocus,
-  scrollSongList,
-  selectSongListFilter,
-  toWheelRows,
-} from './songListState.js';
-import type { SongListState } from './songListState.js';
+import { ChartEditorSelectController } from './ChartEditorSelectController.js';
+import type {
+  ChartEditorSelectScreen,
+  ChartEditorSelectView,
+  SongFeeds,
+} from './ChartEditorSelectController.js';
+import { toWheelRows } from './songListState.js';
+import type { SongListNotice, SongListStatus } from './songListState.js';
 import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
-import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
+import { handleEachEventOnce, requireKeyboard } from '../ui/menuInput.js';
 import { SEGMENTED_CONTROL_HEIGHT_PX, SegmentedControl } from './SegmentedControl.js';
 import { SongListPanel } from './SongListPanel.js';
+import { SongSearchInput } from './SongSearchInput.js';
 import { addKeyHintRow } from '../ui/keyHintView.js';
 import type { SongListFrame } from './SongListPanel.js';
 import { CELESTIAL_COLORS, typeStyle } from '../ui/theme.js';
@@ -43,6 +39,7 @@ const FILTER_WIDTH_PX = 360;
 const FILTER_LIST_GAP_PX = 16;
 const LIST_TOP_Y_PX = FILTER_TOP_Y_PX + SEGMENTED_CONTROL_HEIGHT_PX + FILTER_LIST_GAP_PX;
 const EMPTY_TEXT_OFFSET_Y_PX = 48;
+const STATUS_RETRY_GAP_PX = 16;
 const LIST_FRAME: SongListFrame = {
   leftPx: LIST_LEFT_PX,
   topYPx: LIST_TOP_Y_PX,
@@ -55,18 +52,11 @@ const LIST_FRAME: SongListFrame = {
   ),
 };
 
-interface ListView {
-  panel: SongListPanel;
-  filter: SegmentedControl<SongFilter>;
-  emptyText: Phaser.GameObjects.Text;
-}
-
 export class ChartEditorSelectScene extends Phaser.Scene {
-  private list: SongListState = createSongList([], null, LIST_FRAME.visibleRowCount, 'all');
   private exit: SceneExit<SceneRequest> = STAYING;
 
   constructor(
-    private readonly getSongs: () => readonly Song[],
+    private readonly feeds: SongFeeds,
     private readonly auth: AccountAuth,
     private readonly i18n: I18n,
   ) {
@@ -80,72 +70,116 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       return;
     }
     this.exit = STAYING;
-    const songs = this.getSongs();
-    this.list = createSongList(songs, data.focusedSongId, LIST_FRAME.visibleRowCount, data.filter);
     this.createChrome();
-    const keyboard = requireKeyboard(this);
-    if (songs.length === 0) {
-      this.add
-        .text(
-          GAME_WIDTH / 2,
-          GAME_HEIGHT / 2,
-          this.i18n.t('chartEditor.noSongs'),
-          typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
-        )
-        .setOrigin(0.5, 0.5);
-      keyboard.on(
-        'keydown',
-        handleEachEventOnce((event: KeyboardEvent) => {
-          if (readMenuAction(event) === 'back') {
-            this.leave({
-              key: 'main',
-              data: undefined,
-            });
-          }
-        }),
-      );
-      return;
-    }
-    const view: ListView = {
-      filter: new SegmentedControl(
-        this,
-        {
-          leftPx: LIST_LEFT_PX,
-          topYPx: FILTER_TOP_Y_PX,
-          widthPx: FILTER_WIDTH_PX,
-        },
-        SONG_FILTERS.map((filter) => ({
-          value: filter,
-          label: filter.toUpperCase(),
-        })),
-        (filter) => this.setList(view, selectSongListFilter(this.list, this.getSongs(), filter)),
-      ),
-      panel: new SongListPanel(this, LIST_FRAME, {
-        onHoverRow: (rowIndex) => this.setList(view, focusSongListRow(this.list, rowIndex)),
-        onPickRow: (rowIndex) => {
-          this.setList(view, focusSongListRow(this.list, rowIndex));
-          this.pick();
-        },
-        onWheel: (deltaYPx) =>
-          this.setList(
-            view,
-            scrollSongList(this.list, toWheelRows(deltaYPx, LIST_FRAME.rowHeightPx)),
-          ),
-      }),
-      emptyText: this.add
-        .text(
-          LIST_LEFT_PX + LIST_WIDTH_PX / 2,
-          LIST_TOP_Y_PX + EMPTY_TEXT_OFFSET_Y_PX,
-          this.i18n.t('chartEditorSelect.emptyFilter'),
-          typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
-        )
-        .setOrigin(0.5, 0.5),
-    };
-    this.render(view);
-    keyboard.on(
-      'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(view, event)),
+    const centerYPx = LAYOUT.topBar.centerYPx;
+    const filter = new SegmentedControl(
+      this,
+      {
+        leftPx: LIST_LEFT_PX,
+        topYPx: FILTER_TOP_Y_PX,
+        widthPx: FILTER_WIDTH_PX,
+      },
+      SONG_FILTERS.map((value) => ({
+        value,
+        label: value.toUpperCase(),
+      })),
+      (category) => controller.selectCategory(category),
     );
+    const search = new SongSearchInput(
+      this,
+      {
+        leftPx: LIST_LEFT_PX + FILTER_WIDTH_PX + FILTER_LIST_GAP_PX,
+        topYPx: FILTER_TOP_Y_PX,
+        widthPx: LIST_WIDTH_PX - FILTER_WIDTH_PX - FILTER_LIST_GAP_PX,
+        heightPx: SEGMENTED_CONTROL_HEIGHT_PX,
+      },
+      this.i18n.t('chartEditorSelect.searchPlaceholder'),
+    );
+    // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, () => search.blur());
+    const panel = new SongListPanel(this, LIST_FRAME, {
+      onHoverRow: (rowIndex) => controller.hoverRow(rowIndex),
+      onPickRow: (rowIndex) => controller.pickRow(rowIndex),
+      onWheel: (deltaYPx) => controller.scroll(toWheelRows(deltaYPx, LIST_FRAME.rowHeightPx)),
+    });
+    const noticeText = this.add
+      .text(
+        LIST_LEFT_PX + LIST_WIDTH_PX / 2,
+        LIST_TOP_Y_PX + EMPTY_TEXT_OFFSET_Y_PX,
+        '',
+        typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
+      )
+      .setOrigin(0.5, 0.5);
+    const retryButton = createAuxiliaryButton(this, 0, centerYPx, {
+      label: 'RETRY',
+      onActivate: () => controller.retry(),
+    }).alignX(GAME_WIDTH - LAYOUT.video.leftPx, 1);
+    const statusText = this.add
+      .text(
+        retryButton.x - STATUS_RETRY_GAP_PX,
+        centerYPx,
+        '',
+        typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
+      )
+      .setAlign('right')
+      .setOrigin(1, 0.5);
+    const screen: ChartEditorSelectScreen = {
+      render: (view: ChartEditorSelectView) => {
+        filter.render(view.category);
+        panel.render({
+          rows: view.rows.map(({ song, isFocused }) => ({
+            title: song.title,
+            category: song.category,
+            isFocused,
+          })),
+          topIndex: view.topIndex,
+          songCount: view.songCount,
+        });
+        noticeText
+          .setText(view.notice === null ? '' : this.translateNotice(view.notice))
+          .setVisible(view.notice !== null);
+        statusText
+          .setText(view.status === null ? '' : this.translateStatus(view.status))
+          .setVisible(view.status !== null);
+        retryButton.setVisible(view.canRetry);
+      },
+      edit: (songId, list) =>
+        this.leave({
+          key: 'chartEditor',
+          data: {
+            songId,
+            list,
+          },
+        }),
+      leave: () =>
+        this.leave({
+          key: 'main',
+          data: undefined,
+        }),
+      isSearchFocused: () => search.isFocused,
+      readSearchText: () => search.text,
+      showSearchText: (title) => search.setText(title),
+      focusSearch: () => search.focus(),
+      blurSearch: () => search.blur(),
+    };
+    const controller = new ChartEditorSelectController(
+      this.feeds,
+      screen,
+      LIST_FRAME.visibleRowCount,
+    );
+    controller.open(data);
+    requireKeyboard(this).on(
+      'keydown',
+      handleEachEventOnce((event: KeyboardEvent) => {
+        if (this.exit.kind === 'leaving') {
+          return;
+        }
+        if (controller.handleKey(event)) {
+          event.preventDefault();
+        }
+      }),
+    );
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
   private createChrome(): void {
@@ -177,76 +211,31 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     );
   }
 
-  private setList(view: ListView, next: SongListState): void {
-    if (next === this.list) {
-      return;
+  private translateNotice(notice: SongListNotice): string {
+    switch (notice.kind) {
+      case 'loading':
+        return this.i18n.t('chartEditorSelect.loading');
+      case 'loadFailed':
+        return this.i18n.t('chartEditorSelect.loadFailed');
+      case 'noSongs':
+        return this.i18n.t('chartEditor.noSongs');
+      case 'emptyCategory':
+        return this.i18n.t('chartEditorSelect.emptyFilter');
+      case 'noMatch':
+        return this.i18n.t('chartEditorSelect.noMatch', { title: notice.title });
     }
-    this.list = next;
-    this.render(view);
   }
 
-  /** 곡 목록은 에디터 저장으로 바뀔 수 있으므로 그릴 때마다 현재 목록을 읽는다. */
-  private render(view: ListView): void {
-    view.filter.render(this.list.filter);
-    view.emptyText.setVisible(this.list.songCount === 0);
-    view.panel.render({
-      rows: getSongListRows(this.list, this.getSongs()).map(({ song, isFocused }) => ({
-        title: song.title,
-        category: song.category,
-        isFocused,
-      })),
-      topIndex: this.list.topIndex,
-      songCount: this.list.songCount,
-    });
-  }
-
-  private pick(): void {
-    const song = getFocusedSong(this.list, this.getSongs());
-    if (song === undefined) {
-      return;
+  private translateStatus(status: SongListStatus): string {
+    switch (status) {
+      case 'loadingMore':
+        return this.i18n.t('chartEditorSelect.loadingMore');
+      case 'loadMoreFailed':
+        return this.i18n.t('chartEditorSelect.loadMoreFailed');
     }
-    this.leave({
-      key: 'chartEditor',
-      data: {
-        songId: song.id,
-        listFilter: this.list.filter,
-      },
-    });
   }
 
   private leave(request: SceneRequest): void {
     this.exit = exitScene(this, this.exit, request);
-  }
-
-  private handleKey(view: ListView, event: KeyboardEvent): void {
-    if (this.exit.kind === 'leaving') {
-      return;
-    }
-    if (event.code === 'KeyQ' || event.code === 'KeyE') {
-      const delta = event.code === 'KeyQ' ? -1 : 1;
-      this.setList(view, cycleSongListFilter(this.list, this.getSongs(), delta));
-      return;
-    }
-    switch (readMenuAction(event)) {
-      case 'up':
-        this.setList(view, moveSongListFocus(this.list, -1));
-        return;
-      case 'down':
-        this.setList(view, moveSongListFocus(this.list, 1));
-        return;
-      case 'confirm':
-        this.pick();
-        return;
-      case 'back':
-        this.leave({
-          key: 'main',
-          data: undefined,
-        });
-        return;
-      case 'left':
-      case 'right':
-      case null:
-        return;
-    }
   }
 }

@@ -16,5 +16,6 @@ export function createGameConfig(scenes: Phaser.Scene[]): Phaser.Types.Core.Game
     },
     scene: scenes,
     audio: { noAudio: true },
+    dom: { createContainer: true },
   };
 }

@@ -1,7 +1,9 @@
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SESSION_GRACE_MS } from '../../../pocketbase/verification/verifyPlay.js';
 import { JUDGMENT_WINDOWS } from '../../../src/rhythm/judgment.js';
+import { getPlayDurationMs } from '../../../src/rhythm/playTiming.js';
 import type { Chart, Difficulty, InputEvent } from '../../../src/rhythm/types.js';
 import { simulateClientPlay } from '../../rhythm/playSimulation.js';
 import { createClient, createTempDir, removeTempDir, startPocketBase } from './pocketBaseServer.js';
@@ -303,10 +305,11 @@ describe('POST /api/dazbeat/play-sessions', () => {
       chartRevision: revisionOf(record),
       chartData: tapChart,
     });
-    // Play duration 5 s + 15 min grace.
+    // testData 의 곡은 gameStartMs 0 으로 만든다.
+    const validForMs = getPlayDurationMs(0, GAME_END_MS) + SESSION_GRACE_MS;
     const expiresAtMs = Date.parse(response.expiresAt);
-    expect(expiresAtMs).toBeGreaterThanOrEqual(beforeMs + GAME_END_MS + 15 * 60 * 1000);
-    expect(expiresAtMs).toBeLessThanOrEqual(Date.now() + GAME_END_MS + 15 * 60 * 1000);
+    expect(expiresAtMs).toBeGreaterThanOrEqual(beforeMs + validForMs);
+    expect(expiresAtMs).toBeLessThanOrEqual(Date.now() + validForMs);
   });
 
   it('replaces the previous session of the same user', async () => {

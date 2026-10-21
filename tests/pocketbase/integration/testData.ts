@@ -45,6 +45,7 @@ export function createSong(
     youtubeVideoId: `video-${key}`,
     accentColor: 0x123456,
     constellation: 'gemini',
+    releasedOn: '2026-01-01',
     gameStartMs: 0,
     gameEndMs,
   };

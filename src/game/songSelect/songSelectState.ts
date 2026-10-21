@@ -185,6 +185,29 @@ export function selectFilter(state: SongSelectState, filter: SongFilter): SongSe
   };
 }
 
+export function withSongs(state: SongSelectState, allSongs: readonly Song[]): SongSelectState {
+  if (allSongs === state.allSongs) {
+    return state;
+  }
+  const { current } = state;
+  const songs = filterSongs(allSongs, state.filter);
+  return {
+    ...state,
+    allSongs,
+    songs,
+    current: selectAt(
+      songs,
+      current.kind === 'song' ? current.index : 0,
+      getSelectedDifficulty(current),
+    ),
+  };
+}
+
+export function isOnLastLoadedPage(state: SongSelectState, rowsPerPage: number): boolean {
+  const { pageNumber, pageCount } = getSongPage(state, rowsPerPage);
+  return pageNumber >= pageCount;
+}
+
 function withChart(
   state: SongSelectState,
   current: Extract<SongSelection, { kind: 'song' }>,

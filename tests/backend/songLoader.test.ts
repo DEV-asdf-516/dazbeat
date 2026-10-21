@@ -1,9 +1,9 @@
 import PocketBase from 'pocketbase';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadSongs } from '../../src/backend/songLoader.js';
+import { ALL_SONGS_QUERY } from '../../src/data/songs.js';
+import { loadSongBatch } from '../../src/backend/songLoader.js';
 
 const SONGS_PATH = '/api/collections/songs/records';
-const CHARTS_PATH = '/api/collections/charts/records';
 
 function makeSongRecord(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -21,7 +21,8 @@ function makeSongRecord(id: string, overrides: Record<string, unknown> = {}) {
     gameEndMs: 30000,
     visualTheme: '',
     credit: null,
-    created: '2026-01-01 00:00:00.000Z',
+    releasedOn: '2026-01-01',
+    expand: {},
     ...overrides,
   };
 }
@@ -38,14 +39,11 @@ function listResponse(items: readonly unknown[]): Response {
   );
 }
 
-function stubFetch(songs: Response, charts: Response) {
+function stubFetch(songs: Response) {
   const fetchMock = vi.fn<(input: string) => Promise<Response>>((input) => {
     const { pathname } = new URL(input);
     if (pathname === SONGS_PATH) {
       return Promise.resolve(songs);
-    }
-    if (pathname === CHARTS_PATH) {
-      return Promise.resolve(charts);
     }
     return Promise.resolve(new Response('not found', { status: 404 }));
   });
@@ -63,21 +61,110 @@ function requestUrl(fetchMock: ReturnType<typeof stubFetch>, pathname: string): 
   return url;
 }
 
+function makeSongRecords(count: number) {
+  return Array.from({ length: count }, (_, index) =>
+    makeSongRecord(`s${index}`, { releasedOn: `2026-01-${String(index % 28).padStart(2, '0')}` }),
+  );
+}
+
+const pb = () => new PocketBase('http://pb.test');
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('loadSongs', () => {
-  it('requests the song list sorted by created,key and chart metadata without data', async () => {
-    const fetchMock = stubFetch(listResponse([]), listResponse([]));
+describe('loadSongBatch', () => {
+  it('requests the first batch newest release first without counting or filtering', async () => {
+    const fetchMock = stubFetch(listResponse([makeSongRecord('s1')]));
 
-    await expect(loadSongs(new PocketBase('http://pb.test'))).resolves.toEqual([]);
+    await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(requestUrl(fetchMock, SONGS_PATH).searchParams.get('sort')).toBe('created,key');
-    expect(requestUrl(fetchMock, CHARTS_PATH).searchParams.get('fields')).toBe(
-      'id,song,difficulty',
+    const url = requestUrl(fetchMock, SONGS_PATH);
+    expect(url.searchParams.get('page')).toBe('1');
+    expect(url.searchParams.get('perPage')).toBe('100');
+    expect(url.searchParams.get('sort')).toBe('-releasedOn,-id');
+    expect(url.searchParams.get('skipTotal')).toBe('true');
+    expect(url.searchParams.has('filter')).toBe(false);
+  });
+
+  it('continues after the cursor with a keyset filter on release date and record id', async () => {
+    const fetchMock = stubFetch(listResponse([]));
+
+    await loadSongBatch(pb(), ALL_SONGS_QUERY, {
+      releasedOn: '2026-01-05',
+      recordId: 'r42',
+    });
+
+    const url = requestUrl(fetchMock, SONGS_PATH);
+    expect(url.searchParams.get('page')).toBe('1');
+    expect(url.searchParams.get('filter')).toBe(
+      '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
     );
+  });
+
+  it('combines category, escaped title and keyset conditions with &&', async () => {
+    const fetchMock = stubFetch(listResponse([]));
+
+    await loadSongBatch(
+      pb(),
+      {
+        category: 'cover',
+        title: 'it\'s" || true',
+      },
+      {
+        releasedOn: '2026-01-05',
+        recordId: 'r42',
+      },
+    );
+
+    expect(requestUrl(fetchMock, SONGS_PATH).searchParams.get('filter')).toBe(
+      'category = "cover" && title ~ "it\'s\\" || true" && ' +
+        '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
+    );
+  });
+
+  it('requests songs with their chart metadata in a single request', async () => {
+    const fetchMock = stubFetch(listResponse([makeSongRecord('s1'), makeSongRecord('s2')]));
+
+    await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = requestUrl(fetchMock, SONGS_PATH);
+    expect(url.searchParams.get('expand')).toBe('charts_via_song');
+    expect(url.searchParams.get('fields')).toBe(
+      '*,expand.charts_via_song.id,expand.charts_via_song.difficulty',
+    );
+  });
+
+  it('returns an empty last batch when no songs match', async () => {
+    stubFetch(listResponse([]));
+
+    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).resolves.toEqual({
+      songs: [],
+      next: null,
+    });
+  });
+
+  it('marks a batch shorter than 100 songs as the last one', async () => {
+    stubFetch(listResponse(makeSongRecords(99)));
+
+    const batch = await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+
+    expect(batch.songs).toHaveLength(99);
+    expect(batch.next).toBeNull();
+  });
+
+  it('continues a full batch from its last record', async () => {
+    const records = makeSongRecords(100);
+    stubFetch(listResponse(records));
+
+    const batch = await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+
+    expect(batch.songs).toHaveLength(100);
+    expect(batch.next).toEqual({
+      releasedOn: records[99]?.releasedOn,
+      recordId: 's99',
+    });
   });
 
   it('converts records into songs in response order with grouped chart ids', async () => {
@@ -87,35 +174,34 @@ describe('loadSongs', () => {
           category: 'cover',
           visualTheme: 'neon',
           credit: ['Song by someone', 'YouTube: channel'],
+          expand: {
+            charts_via_song: [
+              {
+                id: 'c2',
+                difficulty: 'easy',
+              },
+            ],
+          },
         }),
-        makeSongRecord('s1'),
+        makeSongRecord('s1', {
+          expand: {
+            charts_via_song: [
+              {
+                id: 'c1',
+                difficulty: 'hard',
+              },
+              {
+                id: 'c3',
+                difficulty: 'easy',
+              },
+            ],
+          },
+        }),
         makeSongRecord('s3'),
-      ]),
-      listResponse([
-        {
-          id: 'c1',
-          song: 's1',
-          difficulty: 'hard',
-        },
-        {
-          id: 'c2',
-          song: 's2',
-          difficulty: 'easy',
-        },
-        {
-          id: 'c3',
-          song: 's1',
-          difficulty: 'easy',
-        },
-        {
-          id: 'c4',
-          song: 'missing',
-          difficulty: 'normal',
-        },
       ]),
     );
 
-    const songs = await loadSongs(new PocketBase('http://pb.test'));
+    const { songs } = await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
 
     expect(songs).toEqual([
       {
@@ -172,28 +258,55 @@ describe('loadSongs', () => {
     ['constellation is empty', { constellation: '' }, 'constellation'],
     ['constellation is missing', { constellation: undefined }, 'constellation'],
   ])('rejects when a song record %s', async (_name, overrides, field) => {
-    stubFetch(listResponse([makeSongRecord('s1', overrides)]), listResponse([]));
+    stubFetch(listResponse([makeSongRecord('s1', overrides)]));
 
-    await expect(loadSongs(new PocketBase('http://pb.test'))).rejects.toThrow(
+    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).rejects.toThrow(
       `Invalid songs record s1: ${field}`,
     );
   });
 
-  it('rejects when a chart record has a difficulty outside the list', async () => {
-    stubFetch(
-      listResponse([makeSongRecord('s1')]),
-      listResponse([
-        {
-          id: 'c1',
-          song: 's1',
-          difficulty: 'master',
+  it.each([
+    ['expand is not an object', { expand: 'charts' }, 'Invalid songs record s1: expand'],
+    [
+      'charts_via_song is not an array',
+      {
+        expand: {
+          charts_via_song: {
+            id: 'c1',
+            difficulty: 'easy',
+          },
         },
-      ]),
-    );
+      },
+      'Invalid songs record s1: expand.charts_via_song',
+    ],
+    [
+      'a chart is not an object',
+      { expand: { charts_via_song: ['c1'] } },
+      'Invalid songs record s1: expand.charts_via_song',
+    ],
+    [
+      'a chart id is missing',
+      { expand: { charts_via_song: [{ difficulty: 'easy' }] } },
+      'Invalid songs record s1: expand.charts_via_song[0].id',
+    ],
+    [
+      'a chart difficulty is outside the list',
+      {
+        expand: {
+          charts_via_song: [
+            {
+              id: 'c1',
+              difficulty: 'master',
+            },
+          ],
+        },
+      },
+      'Invalid songs record s1: expand.charts_via_song[0].difficulty',
+    ],
+  ])('rejects when %s', async (_name, overrides, message) => {
+    stubFetch(listResponse([makeSongRecord('s1', overrides)]));
 
-    await expect(loadSongs(new PocketBase('http://pb.test'))).rejects.toThrow(
-      'Invalid charts record c1: difficulty',
-    );
+    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).rejects.toThrow(message);
   });
 
   it('rejects when the server responds with an HTTP error', async () => {
@@ -208,9 +321,8 @@ describe('loadSongs', () => {
           status: 500,
         },
       ),
-      listResponse([]),
     );
 
-    await expect(loadSongs(new PocketBase('http://pb.test'))).rejects.toThrow();
+    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).rejects.toThrow();
   });
 });

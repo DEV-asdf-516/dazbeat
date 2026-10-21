@@ -12,7 +12,6 @@ export function getJudgmentScore(judgment: Judgment): number {
   return JUDGMENT_SCORES[judgment];
 }
 
-
 export function getNextCombo(combo: number, judgment: Judgment): number {
   switch (judgment) {
     case 'perfect':

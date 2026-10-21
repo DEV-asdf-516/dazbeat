@@ -9,10 +9,10 @@ import {
 import { ChartCache } from './backend/ChartCache.js';
 import { loadChart, saveChart } from './backend/charts.js';
 import { preparePlay, submitPlay } from './backend/playSessions.js';
-import { loadSongs } from './backend/songLoader.js';
+import { loadSongBatch } from './backend/songLoader.js';
 import type { PreparedChart } from './data/playSession.js';
-import { withSavedChart } from './data/songs.js';
-import type { ChartRef, Song } from './data/songs.js';
+import { ALL_SONGS_QUERY } from './data/songs.js';
+import type { ChartRef, SongBatch } from './data/songs.js';
 import type { AccountAuth } from './game/accountState.js';
 import { loadCelestialCatalog } from './game/celestial/celestialCatalog.js';
 import { createGameConfig } from './game/config.js';
@@ -25,6 +25,8 @@ import type { RankedPlay } from './game/gameplay/GameplayController.js';
 import { MainScene } from './game/main/MainScene.js';
 import { ResultScene } from './game/result/ResultScene.js';
 import { SettingsScene } from './game/settings/SettingsScene.js';
+import { SongFeed } from './game/SongFeed.js';
+import type { SongBatchLoader } from './game/SongFeed.js';
 import { SongSelectScene } from './game/songSelect/SongSelectScene.js';
 import { DEFAULT_CURSOR } from './game/ui/cursor.js';
 import { NebulaTrail } from './game/ui/NebulaTrail.js';
@@ -38,15 +40,27 @@ import { detectLanguage } from './i18n/language.js';
 import type { Chart } from './rhythm/types.js';
 import { LocalSave } from './storage/LocalSave.js';
 
-async function loadSongCatalog(): Promise<{ pb: PocketBase; songs: Song[] }> {
+async function loadSongCatalog(): Promise<{
+  pb: PocketBase;
+  loadBatch: SongBatchLoader;
+  firstBatch: SongBatch;
+}> {
   const url = import.meta.env.VITE_POCKETBASE_URL;
   if (url === undefined || url === '') {
     throw new Error('VITE_POCKETBASE_URL is not set');
   }
   const pb = new PocketBase(url);
+  // 곡명 글자를 배치마다 받아야 늦게 받은 곡명도 굳은 글자 없이 그려진다.
+  const loadBatch: SongBatchLoader = async (query, after) => {
+    const batch = await loadSongBatch(pb, query, after);
+    await preloadCjkSerif(batch.songs.map((song) => song.title).join(''));
+    return batch;
+  };
   return {
     pb,
-    songs: await loadSongs(pb),
+    loadBatch,
+    // 첫 배치 실패는 부트 오류로 보여야 하므로 실패를 삼키는 feed 요청이 아니라 로더를 직접 부른다.
+    firstBatch: await loadBatch(ALL_SONGS_QUERY, null),
   };
 }
 
@@ -80,13 +94,10 @@ i18n.on('languageChanged', (language) => {
 });
 await preloadUiFonts();
 await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
-  async ([{ pb, songs: initialSongs }, celestial]) => {
-    // 언어를 바꿔도 굳은 글자가 남지 않도록 모든 언어의 화면 문구와 곡명 글자를 함께 받는다.
-    await preloadCjkSerif(
-      [JSON.stringify([ko, ja, en]), ...initialSongs.map((song) => song.title)].join(''),
-    );
-    let songs: readonly Song[] = initialSongs;
-    const getSongs = (): readonly Song[] => songs;
+  async ([{ pb, loadBatch, firstBatch }, celestial]) => {
+    // 언어를 바꿔도 굳은 글자가 남지 않도록 모든 언어의 화면 문구를 함께 받는다.
+    await preloadCjkSerif(JSON.stringify([ko, ja, en]));
+    const catalog = new SongFeed(ALL_SONGS_QUERY, loadBatch, firstBatch);
     const charts = new ChartCache(pb);
     const auth: AccountAuth = {
       getCurrentUser: () => getCurrentUser(pb),
@@ -100,24 +111,22 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
     const rankedPlay: RankedPlay = {
       submit: (sessionId, submission) => submitPlay(pb, sessionId, submission),
     };
-    const catalog: ChartCatalog = {
-      getSongs,
+    const editorCharts: ChartCatalog = {
       loadChart: async (ref) => (await loadChart(pb, ref)).chart,
       saveChart: async (song, chart) => {
         const { chartId, loaded } = await saveChart(pb, song, chart);
-        // 서버 저장은 이미 끝났으므로 아래 곡 목록 갱신이 실패해도 캐시는 서버 상태를 따른다.
+        // 서버 저장은 이미 끝났으므로 아래 곡 목록 갱신과 무관하게 캐시는 서버 상태를 따른다.
         charts.put(chartId, loaded);
-        // 저장이 겹칠 수 있으므로 요청 때의 스냅샷이 아니라 지금의 목록 곡에 chart id 를 더한다.
-        const updated = withSavedChart(songs, song.id, chart.difficulty, chartId);
-        songs = updated.songs;
-        return updated.saved;
+        // 전체 곡 목록에 아직 받지 않은 곡의 저장은 정상이므로 반영할 곡이 없어도 넘어간다.
+        catalog.applySavedChart(song.id, chart.difficulty, chartId);
+        return chartId;
       },
     };
     const game = new Phaser.Game(
       createGameConfig([
         new MainScene(i18n, auth, celestial),
-        new CreditsScene(initialSongs, i18n, celestial),
-        new SongSelectScene(save, getSongs, i18n, celestial),
+        new CreditsScene(catalog, i18n, celestial),
+        new SongSelectScene(save, catalog, i18n, celestial),
         new SettingsScene(save, i18n, initialLanguage, celestial),
         new GameplayScene(
           save,
@@ -128,9 +137,16 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
           celestial,
           rankedPlay,
         ),
-        new ResultScene(initialSongs, i18n, celestial),
-        new ChartEditorSelectScene(getSongs, auth, i18n),
-        new ChartEditorScene(save, mvLayer, catalog, auth, i18n, celestial),
+        new ResultScene(catalog, i18n, celestial),
+        new ChartEditorSelectScene(
+          {
+            catalog,
+            create: (query) => new SongFeed(query, loadBatch),
+          },
+          auth,
+          i18n,
+        ),
+        new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
       ]),
     );
     game.events.once(Phaser.Core.Events.READY, () => bindPressedCursor(game.canvas));

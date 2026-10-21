@@ -11,12 +11,14 @@ import {
   getSongDifficultyAppearance,
   getSongRowNodeId,
   hasNewCurrentSong,
+  isOnLastLoadedPage,
   isSameSelection,
   moveDifficulty,
   moveSong,
   selectDifficulty,
   selectFilter,
   selectSong,
+  withSongs,
 } from '../../../src/game/songSelect/songSelectState.js';
 import type { SongRowView, SongSelectState } from '../../../src/game/songSelect/songSelectState.js';
 
@@ -490,5 +492,59 @@ describe('getSongDifficultyAppearance', () => {
     expect(getSongDifficultyAppearance(state, 'normal', true)).toBe('disabled');
     expect(getSongDifficultyAppearance(state, 'easy', false)).toBe('selected');
     expect(getSongDifficultyAppearance(state, 'hard', true)).toBe('emphasized');
+  });
+});
+
+describe('withSongs', () => {
+  it('keeps the selected song, position and difficulty when songs are appended', () => {
+    const before = selectDifficulty(selectSong(createSongSelectState(SONGS), 1), 'hard');
+    const state = withSongs(before, [...SONGS, NO_CHART_SONG]);
+
+    expect(state.songs).toEqual([...SONGS, NO_CHART_SONG]);
+    expect(indexOf(state)).toBe(1);
+    expect(songOf(state)).toBe(EASY_HARD_SONG);
+    expect(difficultyOf(state)).toBe('hard');
+  });
+
+  it('filters the new songs with the current filter', () => {
+    const before = selectFilter(createSongSelectState([FULL_SONG]), 'cover');
+    const state = withSongs(before, [FULL_SONG, COVER_SONG, EASY_HARD_SONG]);
+
+    expect(state.filter).toBe('cover');
+    expect(state.songs).toEqual([COVER_SONG]);
+  });
+
+  it('selects the first filtered song when the filtered list was empty', () => {
+    const before = selectFilter(createSongSelectState(ORIGINAL_SONGS), 'cover');
+    const state = withSongs(before, [...ORIGINAL_SONGS, COVER_SONG]);
+
+    expect(indexOf(state)).toBe(0);
+    expect(songOf(state)).toBe(COVER_SONG);
+    expect(difficultyOf(state)).toBe('normal');
+  });
+
+  it('returns the same state for the same song list', () => {
+    const state = createSongSelectState(SONGS);
+
+    expect(withSongs(state, SONGS)).toBe(state);
+  });
+});
+
+describe('isOnLastLoadedPage', () => {
+  const songs = (count: number): readonly Song[] =>
+    Array.from({ length: count }, (_, index) =>
+      makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+    );
+
+  it('is true when the selected song is on the last page', () => {
+    expect(isOnLastLoadedPage(selectSong(createSongSelectState(songs(7)), 6), 3)).toBe(true);
+  });
+
+  it('is false when the selected song is on an earlier page', () => {
+    expect(isOnLastLoadedPage(selectSong(createSongSelectState(songs(7)), 5), 3)).toBe(false);
+  });
+
+  it('is true when the filtered list is empty', () => {
+    expect(isOnLastLoadedPage(createSongSelectState([]), 3)).toBe(true);
   });
 });

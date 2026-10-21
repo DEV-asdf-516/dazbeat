@@ -135,3 +135,40 @@ body {
   font-size: 20px;
   text-align: center;
 }
+
+/* 채보 에디터 선택 화면의 곡명 검색창. 값은 SongSearchInput 이 theme 토큰으로 넣는다. */
+.song-search {
+  appearance: none;
+  box-sizing: border-box;
+  width: var(--song-search-width);
+  height: var(--song-search-height);
+  margin: 0;
+  padding: 0 var(--song-search-padding-x);
+  border: 1px solid var(--song-search-border);
+  border-radius: var(--song-search-radius);
+  outline: none;
+  background: var(--song-search-surface);
+  color: var(--song-search-text);
+  caret-color: var(--song-search-selected);
+  font-family: var(--song-search-font-family);
+  font-size: var(--song-search-font-size);
+  font-weight: var(--song-search-font-weight);
+  transition: border-color var(--song-search-transition);
+}
+
+.song-search:hover {
+  border-color: var(--song-search-border-hover);
+}
+
+.song-search:focus {
+  border-color: var(--song-search-selected);
+}
+
+.song-search::placeholder {
+  color: var(--song-search-placeholder);
+  opacity: 1;
+}
+
+.song-search::selection {
+  background: var(--song-search-selection);
+}

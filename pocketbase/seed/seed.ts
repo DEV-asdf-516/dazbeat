@@ -32,6 +32,7 @@ export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[])
         youtubeVideoId: song.youtubeVideoId,
         accentColor: song.accentColor,
         constellation: song.constellation,
+        releasedOn: song.releasedOn,
         gameStartMs: song.gameStartMs,
         gameEndMs: song.gameEndMs,
         ...(song.credit === undefined ? {} : { credit: song.credit }),

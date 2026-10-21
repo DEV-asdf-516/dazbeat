@@ -15,13 +15,13 @@ import type {
   ConstellationPoint,
 } from './resultConstellation.js';
 import { DifficultyTabs } from './DifficultyTabs.js';
+import type { SongFeed } from '../SongFeed.js';
 import { RESULT_NODE_ID, planResultFinish } from './resultFinish.js';
 import type { FinishAnchor, FinishCue } from './resultFinish.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
 import { stepChart } from '../../data/songs.js';
 import type { ChartRef } from '../../data/songs.js';
-import type { Song } from '../../data/songs.js';
 import { getRank } from '../../rhythm/rank.js';
 import { JUDGMENTS } from '../../rhythm/judgment.js';
 import { Button } from '../ui/Button.js';
@@ -109,7 +109,7 @@ export class ResultScene extends Phaser.Scene {
   private exit: SceneExit<SceneRequest> = STAYING;
 
   constructor(
-    private readonly songs: readonly Song[],
+    private readonly catalog: SongFeed,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
   ) {
@@ -117,7 +117,7 @@ export class ResultScene extends Phaser.Scene {
   }
 
   preload(): void {
-    queueJacketLoads(this, this.songs);
+    queueJacketLoads(this, this.catalog.songs);
     queueCelestialTextures(this, this.celestial);
   }
 
