@@ -28,7 +28,7 @@
 - `src/audio/`: 재생·시간 소스. 화면 문구를 만들지 않고 오류 종류 같은 값만 반환한다(번역은 `game/`에서).
 - `src/game/`: Phaser 씬과 UI. `backend/`, `i18n/createI18n.ts`를 직접 import하지 않고, 필요한 데이터·함수·i18n 인스턴스는 `src/main.ts`에서 주입받는다.
   - 화면(기능)별 폴더(`main/`, `songSelect/`, `gameplay/`, `result/`, `settings/`, `credits/`, `editor/`)에 씬과 그 화면 전용 상태·위젯을 함께 둔다.
-  - 여러 화면이 쓰는 것은 공용 위치에 둔다: Phaser 위젯·테마는 `ui/`, 천체 카탈로그·스프라이트는 `celestial/`, 씬 키·전이·계정 같은 앱 공통 순수 모듈은 `game/` 바로 아래.
+  - 여러 화면이 쓰는 것은 공용 위치에 둔다: Phaser 위젯·테마는 `ui/`, 천체 카탈로그·스프라이트는 `celestial/`, Phaser 에 의존하지 않는 앱 공통 모듈(씬 키·전이·계정 등)은 `game/` 바로 아래.
   - 한 화면에서만 쓰던 것을 다른 화면도 쓰게 되면 공용 위치로 옮긴다. 화면 폴더끼리 서로 import하지 않는다.
   - 번역은 씬에서만 하고, 위젯은 번역된 문자열을 받는다. 게임 키워드인 대문자 영어 라벨(`PLAY`, `FULL COMBO` 등)은 번역하지 않는다.
   - 클릭은 pointer up에서 실행한다. pointer down은 드래그·탐색 같은 제스처에만 쓴다.

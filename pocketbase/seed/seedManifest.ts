@@ -33,6 +33,7 @@ export interface SeedSong {
   youtubeVideoId: string;
   accentColor: number;
   constellation: Zodiac;
+  releasedOn: string;
   gameStartMs: number;
   gameEndMs: number;
   credit?: readonly string[];
@@ -59,6 +60,7 @@ const manifestSchema = z.strictObject({
         youtubeVideoId: z.string().min(1),
         accentColor: z.int(),
         constellation: z.enum(ZODIACS),
+        releasedOn: z.iso.date(),
         gameStartMs: z.number(),
         gameEndMs: z.number(),
         credit: z.array(z.string()).optional(),
@@ -219,6 +221,7 @@ export async function loadSeedManifest(dataDir: URL): Promise<SeedSong[]> {
       youtubeVideoId: song.youtubeVideoId,
       accentColor: song.accentColor,
       constellation: song.constellation,
+      releasedOn: song.releasedOn,
       gameStartMs: song.gameStartMs,
       gameEndMs: song.gameEndMs,
       ...(song.credit === undefined ? {} : { credit: song.credit }),

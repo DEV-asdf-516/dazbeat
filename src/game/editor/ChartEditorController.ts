@@ -45,9 +45,13 @@ import type { PlaybackPlayer, Playhead } from './chartPlayback.js';
 import { getOpeningTimeMs } from './editorTimeline.js';
 
 export interface ChartCatalog {
-  getSongs(): readonly Song[];
   loadChart(ref: ChartRef): Promise<Chart>;
-  saveChart(song: Song, chart: Chart): Promise<Song>;
+  saveChart(song: Song, chart: Chart): Promise<string>;
+}
+
+export interface EditList {
+  readonly songs: readonly Song[];
+  applySavedChart(songId: string, difficulty: Difficulty, chartId: string): Song | undefined;
 }
 
 interface EditorScreen {
@@ -73,6 +77,7 @@ export class ChartEditorController {
 
   constructor(
     private readonly catalog: ChartCatalog,
+    private readonly list: EditList,
     private readonly player: PlaybackPlayer,
     private readonly screen: EditorScreen,
     private readonly timing: EditorTiming,
@@ -185,13 +190,22 @@ export class ChartEditorController {
       ...session,
       saveResult: { kind: 'saving' },
     });
-    const saved = await this.catalog.saveChart(draft.song, chart).catch((error: unknown) => {
+    const chartId = await this.catalog.saveChart(draft.song, chart).catch((error: unknown) => {
       console.error(
         `Failed to save chart for song ${draft.song.id} difficulty ${draft.difficulty}`,
         error,
       );
       return null;
     });
+    // 저장이 겹칠 수 있으므로 요청 때의 스냅샷이 아니라 지금의 편집 목록 곡에 chart id 를 더한다.
+    const saved =
+      chartId === null
+        ? null
+        : requireDefined(
+            this.list.applySavedChart(draft.song.id, draft.difficulty, chartId),
+            'Saved chart song is not in the edit list',
+            draft.song.id,
+          );
     const current = getSession(this.current);
     if (current?.id !== session.id) {
       return;
@@ -317,7 +331,7 @@ export class ChartEditorController {
     if (selection === null || getPending(this.current) !== null) {
       return;
     }
-    const songs = this.catalog.getSongs();
+    const songs = this.list.songs;
     if (songs.length === 0) {
       this.enter({ kind: 'empty' }, this.current.playhead.currentTimeMs);
       return;

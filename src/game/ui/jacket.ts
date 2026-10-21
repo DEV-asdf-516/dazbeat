@@ -27,6 +27,7 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
   private front: Phaser.GameObjects.Container;
   private back: Phaser.GameObjects.Container;
   private song: Song | null = null;
+  private hasDrawnTexture = false;
 
   constructor(scene: Phaser.Scene, xPx: number, yPx: number) {
     super(scene, xPx, yPx);
@@ -37,10 +38,12 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
   }
 
   setSong(song: Song | null, transition = false): this {
-    if (song === this.song) {
+    const hasTexture = song !== null && this.hasTexture(song);
+    if (song === this.song && hasTexture === this.hasDrawnTexture) {
       return this;
     }
     this.song = song;
+    this.hasDrawnTexture = hasTexture;
     [this.front, this.back] = [this.back, this.front];
     this.front.removeAll(true);
     if (song !== null) {
@@ -50,6 +53,8 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
     crossfade(this.scene, this.front, this.back, transition);
     return this;
   }
+
+  protected abstract hasTexture(song: Song): boolean;
 
   protected abstract createContent(song: Song): Phaser.GameObjects.GameObject[];
 }
@@ -63,10 +68,14 @@ export class JacketView extends SongCrossfade {
     ensureLightTextures(scene);
   }
 
+  protected hasTexture(song: Song): boolean {
+    return this.scene.textures.exists(jacketTextureKey(song));
+  }
+
   protected createContent(song: Song): Phaser.GameObjects.GameObject[] {
     const scene = this.scene;
     const key = jacketTextureKey(song);
-    if (scene.textures.exists(key)) {
+    if (this.hasTexture(song)) {
       ensureSquareFrame(scene, key);
       return [
         scene.add

@@ -51,6 +51,28 @@ export const ZODIACS: readonly Zodiac[] = [
 ];
 export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard', 'expert'];
 
+export interface SongQuery {
+  readonly category: SongFilter;
+  /** 확정 검색어(앞뒤 공백 제거). */
+  readonly title: string;
+}
+
+export const ALL_SONGS_QUERY: SongQuery = {
+  category: 'all',
+  title: '',
+};
+
+export interface SongBatchCursor {
+  readonly releasedOn: string;
+  /** 같은 게시일 곡의 순서를 정하는 PocketBase record id. Song.id(key) 가 아니다. */
+  readonly recordId: string;
+}
+
+export interface SongBatch {
+  readonly songs: readonly Song[];
+  readonly next: SongBatchCursor | null;
+}
+
 export function filterSongs(songs: readonly Song[], filter: SongFilter): Song[] {
   if (filter === 'all') {
     return [...songs];

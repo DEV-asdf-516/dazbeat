@@ -1,8 +1,9 @@
 import type Phaser from 'phaser';
-import type { ChartRef, SongFilter } from '../data/songs.js';
+import type { ChartRef } from '../data/songs.js';
 import type { GameplayResult } from '../rhythm/types.js';
 import { requestSceneExit } from './sceneExit.js';
 import type { SceneExit } from './sceneExit.js';
+import type { SongFeed } from './SongFeed.js';
 
 export const SCENE_KEYS = {
   main: 'Main',
@@ -30,14 +31,13 @@ export interface ResultSceneData extends ChartRef {
   result: GameplayResult;
 }
 
-export interface ChartEditorSelectSceneData {
-  focusedSongId: string | null;
-  filter: SongFilter;
-}
+export type ChartEditorSelectSceneData =
+  | { readonly kind: 'fresh' }
+  | { readonly kind: 'return'; readonly list: SongFeed; readonly focusedSongId: string | null };
 
 export interface ChartEditorSceneData {
-  songId: string;
-  listFilter: SongFilter;
+  readonly songId: string;
+  readonly list: SongFeed;
 }
 
 export type SettingsReturn =

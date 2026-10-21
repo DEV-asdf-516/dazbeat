@@ -26,11 +26,22 @@ const PRE_FEATURE_MIGRATIONS = [
   '1791436800_add_songs_constellation.js',
 ];
 
-// The migrations not deployed yet; reverting them must restore the deployed schema and rules.
-const FEATURE_MIGRATIONS = [
-  '1792121800_create_play_session_quotas.js',
-  '1792121900_relax_play_session_ip_rate_limits.js',
-  '1792122000_add_play_sessions_chart_data.js',
+const RELEASED_ON_MIGRATION = '1792554600_add_songs_released_on.js';
+// The migrations not deployed yet; reverting them must restore the deployed schema.
+const FEATURE_MIGRATIONS = [RELEASED_ON_MIGRATION, '1792554700_add_query_indexes.js'];
+const QUERY_INDEXES = [
+  {
+    collection: 'songs',
+    name: 'idx_songs_released_on_id',
+  },
+  {
+    collection: 'scores',
+    name: 'idx_scores_chart_revision_score',
+  },
+  {
+    collection: 'play_sessions',
+    name: 'idx_play_sessions_chart',
+  },
 ];
 const DAZBEAT_LABELS = ['POST /api/dazbeat/play-sessions', 'POST /api/dazbeat/play-sessions/'];
 
@@ -85,6 +96,17 @@ describe('migrations', () => {
     await excludeLoopbackFromRateLimits(server.superuser);
     const collections = server.superuser.collections;
 
+    const songs = await collections.getOne('songs');
+    expect(fieldSummary(songs)).toContainEqual({
+      name: 'releasedOn',
+      type: 'date',
+      required: true,
+    });
+    expect(songs.indexes).toEqual([
+      'CREATE UNIQUE INDEX idx_songs_key ON songs (key)',
+      'CREATE INDEX `idx_songs_released_on_id` ON `songs` (releasedOn DESC, id DESC)',
+    ]);
+
     const charts = await collections.getOne('charts');
     expect(fieldSummary(charts)).toContainEqual({
       name: 'revision',
@@ -134,7 +156,10 @@ describe('migrations', () => {
       createRule: null,
       updateRule: null,
       deleteRule: null,
-      indexes: ['CREATE UNIQUE INDEX idx_play_sessions_user ON play_sessions (user)'],
+      indexes: [
+        'CREATE UNIQUE INDEX idx_play_sessions_user ON play_sessions (user)',
+        'CREATE INDEX `idx_play_sessions_chart` ON `play_sessions` (chart)',
+      ],
     });
 
     const scores = await collections.getOne('scores');
@@ -198,6 +223,7 @@ describe('migrations', () => {
       deleteRule: null,
       indexes: [
         'CREATE UNIQUE INDEX idx_scores_user_chart_revision ON scores (user, chart, chartRevision)',
+        'CREATE INDEX `idx_scores_chart_revision_score` ON `scores` (chart, chartRevision, score DESC)',
       ],
     });
 
@@ -273,6 +299,36 @@ describe('migrations', () => {
     expect(resaved['revision']).toBe(storedChart['revision']);
   });
 
+  it('backfill the release dates of the seeded songs only', async () => {
+    const dataDir = await tempDir('migrations-released-on');
+    const oldMigrationsDir = await tempDir('migrations-before-released-on');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < RELEASED_ON_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const oldServer = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    await excludeLoopbackFromRateLimits(oldServer.superuser);
+    const karma = await createSong(oldServer.superuser, 'karma');
+    const unknown = await createSong(oldServer.superuser, 'unknown');
+    await oldServer.stop();
+
+    const { superuser } = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect((await superuser.collection('songs').getOne(karma.id))['releasedOn']).toBe(
+      '2026-05-01 00:00:00.000Z',
+    );
+    expect((await superuser.collection('songs').getOne(unknown.id))['releasedOn']).toBe('');
+  });
+
   it("apply and roll back this feature's migrations on existing data", async () => {
     const dataDir = await tempDir('migrations-rollback');
     const oldMigrationsDir = await tempDir('migrations-before-feature');
@@ -292,73 +348,46 @@ describe('migrations', () => {
 
     const oldServer = await startOld();
     await excludeLoopbackFromRateLimits(oldServer.superuser);
-    await expectDazbeatRules(oldServer.superuser, 10);
-    const user = await createUser(oldServer, 'rollback@example.com');
     const song = await createSong(oldServer.superuser, 'rollback');
-    // The empty hooks directory has no charts hook to fill the revision, so the chart gets one here.
-    const chartRevision = 'rollback-revision';
-    const chart = await oldServer.superuser.collection('charts').create({
-      song: song.id,
-      difficulty: 'easy',
-      data: fakeChartData('rollback', 'easy'),
-      revision: chartRevision,
-    });
-    const issuedAtMs = Date.now();
-    const session = await oldServer.superuser.collection('play_sessions').create({
-      user: user.id,
-      chart: chart.id,
-      chartRevision,
-      issuedAt: new Date(issuedAtMs).toISOString(),
-      expiresAt: new Date(issuedAtMs + 60_000).toISOString(),
-    });
-    const score = await oldServer.superuser.collection('scores').create({
-      user: user.id,
-      chart: chart.id,
-      chartRevision,
-      score: 900_000,
-    });
     await oldServer.stop();
 
-    const expectExistingData = async (superuser: PocketBase): Promise<void> => {
-      expect((await superuser.collection('users').getOne(user.id))['email']).toBe(
-        'rollback@example.com',
+    const hasReleasedOn = async (superuser: PocketBase): Promise<boolean> =>
+      fieldSummary(await superuser.collections.getOne('songs')).some(
+        (field) => field.name === 'releasedOn',
       );
-      expect((await superuser.collection('songs').getOne(song.id))['key']).toBe('rollback');
-      expect((await superuser.collection('charts').getOne(chart.id))['revision']).toBe(
-        chartRevision,
+    const findQueryIndexes = async (superuser: PocketBase): Promise<string[]> => {
+      const found = await Promise.all(
+        QUERY_INDEXES.map(async ({ collection, name }) =>
+          (await superuser.collections.getOne(collection)).indexes.some((index) =>
+            index.includes(name),
+          )
+            ? [name]
+            : [],
+        ),
       );
-      expect((await superuser.collection('scores').getOne(score.id))['score']).toBe(900_000);
+      return found.flat();
     };
-    const hasChartData = async (superuser: PocketBase): Promise<boolean> =>
-      fieldSummary(await superuser.collections.getOne('play_sessions')).some(
-        (field) => field.name === 'chartData',
-      );
+    const allIndexNames = QUERY_INDEXES.map(({ name }) => name);
+    const expectExistingSong = async (superuser: PocketBase): Promise<void> => {
+      expect((await superuser.collection('songs').getOne(song.id))['key']).toBe('rollback');
+    };
 
     const upgraded = await start({ dataDir });
-    await expectExistingData(upgraded.superuser);
-    // Sessions issued before the upgrade have no chart snapshot, so the migration removes them.
-    await expect(
-      upgraded.superuser.collection('play_sessions').getOne(session.id),
-    ).rejects.toMatchObject({ status: 404 });
-    expect(await hasChartData(upgraded.superuser)).toBe(true);
-    await upgraded.superuser.collections.getOne('play_session_quotas');
-    await expectDazbeatRules(upgraded.superuser, 30);
+    expect(await hasReleasedOn(upgraded.superuser)).toBe(true);
+    expect(await findQueryIndexes(upgraded.superuser)).toEqual(allIndexNames);
+    await expectExistingSong(upgraded.superuser);
     await upgraded.stop();
 
     await migrateDown(dataDir, FEATURE_MIGRATIONS.length);
     // The repository directory would re-apply the reverted migrations on serve.
     const rolledBack = await startOld();
-    await expect(
-      rolledBack.superuser.collections.getOne('play_session_quotas'),
-    ).rejects.toMatchObject({ status: 404 });
-    await expectDazbeatRules(rolledBack.superuser, 10);
-    expect(await hasChartData(rolledBack.superuser)).toBe(false);
-    await expectExistingData(rolledBack.superuser);
+    expect(await hasReleasedOn(rolledBack.superuser)).toBe(false);
+    expect(await findQueryIndexes(rolledBack.superuser)).toEqual([]);
+    await expectExistingSong(rolledBack.superuser);
     await rolledBack.stop();
 
     const reapplied = await start({ dataDir });
-    await reapplied.superuser.collections.getOne('play_session_quotas');
-    await expectDazbeatRules(reapplied.superuser, 30);
-    expect(await hasChartData(reapplied.superuser)).toBe(true);
+    expect(await hasReleasedOn(reapplied.superuser)).toBe(true);
+    expect(await findQueryIndexes(reapplied.superuser)).toEqual(allIndexNames);
   });
 });

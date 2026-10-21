@@ -58,8 +58,14 @@ export const en: Messages = {
   },
   chartEditorSelect: {
     title: 'Chart Editor',
-    hint: '↑↓ Select song   Q/E Category   Enter Edit   Esc Exit',
+    hint: '↑↓ Select song   Q/E Category   / Search   Enter Edit   Esc Exit',
     emptyFilter: 'No songs in this category',
+    loading: 'Loading songs',
+    loadFailed: "Couldn't load songs · R Retry",
+    loadingMore: 'Loading more songs',
+    loadMoreFailed: "Couldn't load more songs · R Retry",
+    noMatch: 'No songs match “{{title}}”',
+    searchPlaceholder: 'Search titles',
   },
   chartEditor: {
     hint: 'Space Play/Pause   Delete Delete note   Wheel Move   Esc Exit',

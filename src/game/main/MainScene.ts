@@ -68,10 +68,7 @@ const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }>
     label: 'CHART EDITOR',
     request: {
       key: 'chartEditorSelect',
-      data: {
-        focusedSongId: null,
-        filter: 'all',
-      },
+      data: { kind: 'fresh' },
     },
   },
   settings: {

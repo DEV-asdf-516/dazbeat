@@ -6,6 +6,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 - 운영 데이터의 원본은 운영 PocketBase 다. Git 저장소나 로컬 시드 데이터가 원본이 아니다.
 - 곡 메타데이터와 재킷은 PocketBase 관리 UI 에서 입력·수정한다.
+- 곡 목록은 `releasedOn`(YouTube 업로드일) 최신순이다. `releasedOn` 은 필수 필드라, 필드를 추가하는 마이그레이션 배포 뒤에는 시드 4곡(`sample`·`karma`·`lucy`·`moechakka`) 외의 기존 곡에 관리 UI 에서 값을 넣어야 한다. 비어 있는 곡은 다른 필드를 고쳐도 저장되지 않는다.
 - 채보는 권한형 에디터(`users.isEditor = true` 인 계정)로 저장한다. `charts.revision` 은 서버 hook 이 채보 내용으로 계산하므로 직접 넣지 않는다.
 - 로컬 데이터로 운영 원본을 덮어쓰는 배포를 하지 않는다. `npm run seed` 는 로컬 루프백 PocketBase(`localhost`, `127.0.0.1`, `[::1]`) 전용이며 다른 대상은 네트워크 요청 전에 거절한다. 운영 PocketBase 를 Git·로컬 상태로 되돌리는 동기화 도구도 두지 않는다.
 
@@ -26,6 +27,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
       "youtubeVideoId": "xxxxxxxxxxx",
       "accentColor": 4773608,
       "constellation": "gemini",
+      "releasedOn": "2026-01-01",
       "gameStartMs": 0,
       "gameEndMs": 30000,
       "credit": ["Example credit line"],
@@ -39,7 +41,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 }
 ```
 
-- `songs` 는 1개 이상이고 `key` 는 manifest 안에서 유일해야 한다. `category`·`constellation`·난이도는 게임의 도메인 값만 쓸 수 있고, 알 수 없는 필드가 있으면 오류다. `credit` 은 선택이다.
+- `songs` 는 1개 이상이고 `key` 는 manifest 안에서 유일해야 한다. `category`·`constellation`·난이도는 게임의 도메인 값만 쓸 수 있고, 알 수 없는 필드가 있으면 오류다. `releasedOn` 은 `YYYY-MM-DD` 형식의 YouTube 업로드일이다. `credit` 은 선택이다.
 - 재킷 확장자는 `.jpg`/`.jpeg`/`.png`/`.webp` 만 허용한다.
 - `charts` 에는 난이도 일부만 있어도 된다. 각 채보 파일은 게임의 채보 검증을 그 곡의 `key`·`gameStartMs`·`gameEndMs` 와 난이도로 통과해야 한다.
 - 검증은 모두 첫 네트워크 요청 전에 끝난다. 실패하면 실패한 파일의 절대 경로와 manifest 안의 위치를 출력하고 아무것도 쓰지 않는다.

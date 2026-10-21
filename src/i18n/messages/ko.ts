@@ -57,8 +57,14 @@ export const ko = {
   },
   chartEditorSelect: {
     title: '채보 편집',
-    hint: '↑↓ 곡 선택   Q/E 카테고리   Enter 편집   Esc 나가기',
+    hint: '↑↓ 곡 선택   Q/E 카테고리   / 검색   Enter 편집   Esc 나가기',
     emptyFilter: '이 카테고리에 곡이 없습니다',
+    loading: '곡 목록을 불러오는 중',
+    loadFailed: '곡 목록을 불러오지 못했습니다 · R 다시 시도',
+    loadingMore: '곡을 더 불러오는 중',
+    loadMoreFailed: '곡을 더 불러오지 못했습니다 · R 다시 시도',
+    noMatch: '‘{{title}}’ 검색 결과가 없습니다',
+    searchPlaceholder: '곡명 검색',
   },
   chartEditor: {
     hint: 'Space 재생/일시정지   Delete 노트 삭제   휠 이동   Esc 나가기',

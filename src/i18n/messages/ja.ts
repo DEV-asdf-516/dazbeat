@@ -58,8 +58,14 @@ export const ja: Messages = {
   },
   chartEditorSelect: {
     title: '譜面編集',
-    hint: '↑↓ 曲を選択   Q/E カテゴリー   Enter 編集   Esc 終了',
+    hint: '↑↓ 曲を選択   Q/E カテゴリー   / 検索   Enter 編集   Esc 終了',
     emptyFilter: 'このカテゴリーに曲がありません',
+    loading: '曲リストを読み込み中',
+    loadFailed: '曲リストを読み込めませんでした · R 再試行',
+    loadingMore: '曲をさらに読み込み中',
+    loadMoreFailed: '続きの曲を読み込めませんでした · R 再試行',
+    noMatch: '「{{title}}」に一致する曲はありません',
+    searchPlaceholder: '曲名で検索',
   },
   chartEditor: {
     hint: 'Space 再生/一時停止   Delete ノート削除   ホイール 移動   Esc 終了',

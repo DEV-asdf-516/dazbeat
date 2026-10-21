@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { ChartEditorController } from '../../../src/game/editor/ChartEditorController.js';
-import type { ChartCatalog } from '../../../src/game/editor/ChartEditorController.js';
+import type { ChartCatalog, EditList } from '../../../src/game/editor/ChartEditorController.js';
 import { isDraftDirty } from '../../../src/game/editor/chartDraft.js';
 import type { ChartDraft } from '../../../src/game/editor/chartDraft.js';
 import {
@@ -18,7 +18,7 @@ import {
   hasUnsavedChanges,
 } from '../../../src/game/editor/chartEditorState.js';
 import type { ChartEditorState, EditorSession } from '../../../src/game/editor/chartEditorState.js';
-import type { Chart, Note } from '../../../src/rhythm/types.js';
+import type { Chart, Difficulty, Note } from '../../../src/rhythm/types.js';
 
 const song: Song = {
   id: 'test-song',
@@ -40,6 +40,8 @@ const savedSong: Song = {
     hard: 'chart_hard',
   },
 };
+
+const SAVED_CHART_ID = 'chart_saved';
 
 const otherSong: Song = {
   ...song,
@@ -66,7 +68,8 @@ interface Pending<T> {
 interface Harness {
   readonly editor: ChartEditorController;
   readonly loads: (Pending<Chart> & { readonly ref: ChartRef })[];
-  readonly saves: (Pending<Song> & { readonly song: Song; readonly chart: Chart })[];
+  readonly saves: (Pending<string> & { readonly song: Song; readonly chart: Chart })[];
+  readonly applied: { songId: string; difficulty: Difficulty; chartId: string }[];
   readonly changedSongs: Song[];
   readonly leftWith: (string | null)[];
   readonly requestedSec: number[];
@@ -81,6 +84,7 @@ function createHarness(): Harness {
   const harness: Omit<Harness, 'editor'> = {
     loads: [],
     saves: [],
+    applied: [],
     changedSongs: [],
     leftWith: [],
     requestedSec: [],
@@ -91,7 +95,6 @@ function createHarness(): Harness {
     renderCount: 0,
   };
   const catalog: ChartCatalog = {
-    getSongs: () => harness.songs,
     loadChart: (ref) =>
       new Promise((resolve, reject) =>
         harness.loads.push({
@@ -110,8 +113,22 @@ function createHarness(): Harness {
         }),
       ),
   };
+  const list: EditList = {
+    get songs() {
+      return harness.songs;
+    },
+    applySavedChart: (songId, difficulty, chartId) => {
+      harness.applied.push({
+        songId,
+        difficulty,
+        chartId,
+      });
+      return savedSong;
+    },
+  };
   const editor = new ChartEditorController(
     catalog,
+    list,
     {
       play: (fromSec) => {
         if (!harness.isPlayerReady) {
@@ -360,7 +377,7 @@ describe('opening a chart', () => {
     const renderCount = harness.renderCount;
 
     lastLoad(harness).resolve(makeChart([]));
-    lastSave(harness).resolve(savedSong);
+    lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
 
     expect(harness.editor.state.phase).toEqual({ kind: 'empty' });
@@ -629,7 +646,7 @@ describe('the open confirm dialog', () => {
     harness.editor.advancePlayback();
     expect(harness.editor.state.playhead.currentTimeMs).toBe(5000);
 
-    lastSave(harness).resolve(savedSong);
+    lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
 
@@ -664,7 +681,7 @@ describe('the open confirm dialog', () => {
     addTap(harness, 5000, 1);
     harness.editor.back();
 
-    lastSave(harness).resolve(savedSong);
+    lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
     expect(canSave(harness.editor.state)).toBe(false);
     harness.editor.cancelPending();
@@ -875,10 +892,17 @@ describe('saving', () => {
     addTap(harness, 3000);
     void harness.editor.save();
 
-    lastSave(harness).resolve(savedSong);
+    lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
 
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
+    expect(harness.applied).toEqual([
+      {
+        songId: song.id,
+        difficulty: 'normal',
+        chartId: SAVED_CHART_ID,
+      },
+    ]);
     expect(getDraft(harness).song).toBe(savedSong);
     expect(hasUnsavedChanges(harness.editor.state)).toBe(false);
     expect(canSave(harness.editor.state)).toBe(false);
@@ -892,7 +916,7 @@ describe('saving', () => {
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saving' });
     const edited = getNotes(harness.editor.state);
 
-    lastSave(harness).resolve(savedSong);
+    lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
 
     expect(getNotes(harness.editor.state)).toBe(edited);
@@ -909,7 +933,7 @@ describe('saving', () => {
     harness.editor.selectTool('hold');
     harness.editor.pointerDown(2, 6000);
 
-    lastSave(harness).resolve(savedSong);
+    lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
     expect(hasUnsavedChanges(harness.editor.state)).toBe(true);
     harness.editor.pointerUp(6000);
@@ -933,7 +957,7 @@ describe('saving', () => {
       difficulty: 'hard',
     });
 
-    first.resolve(savedSong);
+    first.resolve(SAVED_CHART_ID);
     await flush();
     expect(harness.editor.state).toBe(reselected);
 
@@ -964,7 +988,7 @@ describe('saving', () => {
     const saved = await openLoaded();
     addTap(saved, 3000);
     void saved.editor.save();
-    lastSave(saved).resolve(savedSong);
+    lastSave(saved).resolve(SAVED_CHART_ID);
     const failed = await openLoaded();
     addTap(failed, 3000);
     void failed.editor.save();

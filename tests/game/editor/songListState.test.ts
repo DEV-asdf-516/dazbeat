@@ -2,14 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { Song } from '../../../src/data/songs.js';
 import {
   createSongList,
-  cycleSongListFilter,
   focusSongListRow,
   getFocusedSong,
   getSongListRows,
   moveSongListFocus,
   scrollSongList,
-  selectSongListFilter,
   toWheelRows,
+  withSongCount,
 } from '../../../src/game/editor/songListState.js';
 import type { SongListState } from '../../../src/game/editor/songListState.js';
 
@@ -32,7 +31,6 @@ const songs = Array.from({ length: 10 }, (_, index) => makeSong(index));
 
 function list(focusedIndex: number, topIndex: number): SongListState {
   return {
-    filter: 'all',
     songCount: 10,
     visibleRowCount: 4,
     focusedIndex,
@@ -42,28 +40,27 @@ function list(focusedIndex: number, topIndex: number): SongListState {
 
 describe('createSongList', () => {
   it('focuses the given song and centers it in the visible rows', () => {
-    expect(createSongList(songs, 'song-5', 4, 'all')).toEqual(list(5, 3));
+    expect(createSongList(songs, 'song-5', 4)).toEqual(list(5, 3));
   });
 
   it('keeps the visible rows inside the list at both ends', () => {
-    expect(createSongList(songs, 'song-0', 4, 'all').topIndex).toBe(0);
-    expect(createSongList(songs, 'song-9', 4, 'all').topIndex).toBe(6);
+    expect(createSongList(songs, 'song-0', 4).topIndex).toBe(0);
+    expect(createSongList(songs, 'song-9', 4).topIndex).toBe(6);
   });
 
   it('focuses the first song without a known song id', () => {
-    expect(createSongList(songs, null, 4, 'all')).toEqual(list(0, 0));
-    expect(createSongList(songs, 'missing', 4, 'all')).toEqual(list(0, 0));
+    expect(createSongList(songs, null, 4)).toEqual(list(0, 0));
+    expect(createSongList(songs, 'missing', 4)).toEqual(list(0, 0));
   });
 
   it('starts at the top when every song fits', () => {
-    expect(createSongList(songs.slice(0, 3), 'song-2', 4, 'all').topIndex).toBe(0);
+    expect(createSongList(songs.slice(0, 3), 'song-2', 4).topIndex).toBe(0);
   });
 
   it('holds no songs for an empty list', () => {
-    const empty = createSongList([], null, 4, 'all');
+    const empty = createSongList([], null, 4);
 
     expect(empty).toEqual({
-      filter: 'all',
       songCount: 0,
       visibleRowCount: 4,
       focusedIndex: 0,
@@ -100,7 +97,7 @@ describe('focusSongListRow', () => {
   });
 
   it('ignores rows without a song and the already focused row', () => {
-    const short = createSongList(songs.slice(0, 2), null, 4, 'all');
+    const short = createSongList(songs.slice(0, 2), null, 4);
     expect(focusSongListRow(short, 2)).toBe(short);
     expect(focusSongListRow(short, 4)).toBe(short);
     expect(focusSongListRow(short, -1)).toBe(short);
@@ -157,9 +154,7 @@ describe('getSongListRows', () => {
   });
 
   it('shows fewer rows when the list is shorter than the visible rows', () => {
-    expect(getSongListRows(createSongList(songs.slice(0, 2), null, 4, 'all'), songs)).toHaveLength(
-      2,
-    );
+    expect(getSongListRows(createSongList(songs.slice(0, 2), null, 4), songs)).toHaveLength(2);
   });
 
   it('drops rows of songs removed after opening', () => {
@@ -167,65 +162,33 @@ describe('getSongListRows', () => {
   });
 });
 
-describe('song list filter', () => {
-  const mixed = songs.map((song, index) => ({
-    ...song,
-    category: index % 2 === 0 ? ('original' as const) : ('cover' as const),
-  }));
+describe('withSongCount', () => {
+  it('counts appended songs and keeps the focus and scroll', () => {
+    expect(withSongCount(list(7, 6), 20)).toEqual({
+      ...list(7, 6),
+      songCount: 20,
+    });
+  });
 
-  it('counts and shows only the songs of the filter', () => {
-    const covers = createSongList(mixed, null, 4, 'cover');
-    expect(covers.songCount).toBe(5);
-    expect(getSongListRows(covers, mixed).map(({ song }) => song.id)).toEqual([
+  it('returns the same state for the same song count', () => {
+    const current = list(4, 3);
+    expect(withSongCount(current, 10)).toBe(current);
+  });
+
+  it('lists the appended songs once the count grows', () => {
+    const grown = withSongCount(createSongList(songs.slice(0, 2), null, 4), 10);
+    expect(getSongListRows(grown, songs).map(({ song }) => song.id)).toEqual([
+      'song-0',
       'song-1',
+      'song-2',
       'song-3',
-      'song-5',
-      'song-7',
     ]);
   });
+});
 
-  it('focuses the given song by its index in the filtered list', () => {
-    const covers = createSongList(mixed, 'song-5', 4, 'cover');
-    expect(covers.focusedIndex).toBe(2);
-    expect(getFocusedSong(covers, mixed)?.id).toBe('song-5');
-  });
-
-  it('keeps the focused song when it is in the new filter', () => {
-    const all = createSongList(mixed, 'song-6', 4, 'all');
-    const originals = selectSongListFilter(all, mixed, 'original');
-    expect(originals.filter).toBe('original');
-    expect(getFocusedSong(originals, mixed)?.id).toBe('song-6');
-  });
-
-  it('focuses the first song when the focused song is not in the new filter', () => {
-    const all = createSongList(mixed, 'song-6', 4, 'all');
-    const covers = selectSongListFilter(all, mixed, 'cover');
-    expect(getFocusedSong(covers, mixed)?.id).toBe('song-1');
-    expect(covers.topIndex).toBe(0);
-  });
-
-  it('returns the same state for the current filter', () => {
-    const all = createSongList(mixed, null, 4, 'all');
-    expect(selectSongListFilter(all, mixed, 'all')).toBe(all);
-  });
-
-  it('cycles all → original → cover → all and back', () => {
-    const all = createSongList(mixed, null, 4, 'all');
-    const original = cycleSongListFilter(all, mixed, 1);
-    const cover = cycleSongListFilter(original, mixed, 1);
-    expect([original.filter, cover.filter, cycleSongListFilter(cover, mixed, 1).filter]).toEqual([
-      'original',
-      'cover',
-      'all',
-    ]);
-    expect(cycleSongListFilter(all, mixed, -1).filter).toBe('cover');
-  });
-
-  it('has no rows and no focused song for an empty filter', () => {
-    const originalsOnly = mixed.filter((song) => song.category === 'original');
-    const covers = createSongList(originalsOnly, null, 4, 'cover');
-    expect(covers.songCount).toBe(0);
-    expect(getSongListRows(covers, originalsOnly)).toEqual([]);
-    expect(getFocusedSong(covers, originalsOnly)).toBeUndefined();
+describe('getFocusedSong', () => {
+  it('returns the focused song and none for an empty list', () => {
+    expect(getFocusedSong(list(4, 3), songs)?.id).toBe('song-4');
+    expect(getFocusedSong(createSongList([], null, 4), [])).toBeUndefined();
   });
 });

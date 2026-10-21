@@ -6,6 +6,7 @@ import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { PlayMode, SceneRequest, SongSelectSceneData } from '../sceneRoutes.js';
 import { DIFFICULTIES, SONG_FILTERS } from '../../data/songs.js';
 import type { Song, SongFilter } from '../../data/songs.js';
+import type { SongFeed } from '../SongFeed.js';
 import { getChartRecord } from '../../storage/chartRecords.js';
 import type { ChartRecord, ChartRecords } from '../../storage/chartRecords.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
@@ -19,12 +20,14 @@ import {
   getSongDifficultyAppearance,
   getSongRowNodeId,
   hasNewCurrentSong,
+  isOnLastLoadedPage,
   isSameSelection,
   moveDifficulty,
   moveSong,
   selectDifficulty,
   selectFilter,
   selectSong,
+  withSongs,
 } from './songSelectState.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
@@ -180,16 +183,16 @@ export class SongSelectScene extends Phaser.Scene {
 
   constructor(
     private readonly save: LocalSave,
-    private readonly getSongs: () => readonly Song[],
+    private readonly catalog: SongFeed,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
   ) {
     super(SCENE_KEYS.songSelect);
-    this.state = createSongSelectState(getSongs());
+    this.state = createSongSelectState(catalog.songs);
   }
 
   preload(): void {
-    queueJacketLoads(this, this.getSongs());
+    queueJacketLoads(this, this.catalog.songs);
     queueCelestialTextures(this, this.celestial);
   }
 
@@ -198,7 +201,7 @@ export class SongSelectScene extends Phaser.Scene {
     this.mode = data.mode;
     addCelestialAtmosphere(this, this.celestial, 'songSelect');
     const keyboard = requireKeyboard(this);
-    this.state = createSongSelectState(this.getSongs());
+    this.state = createSongSelectState(this.catalog.songs);
     this.records = this.save.loadRecords();
     this.record = this.findSelectedRecord(this.state);
     ensureLightTextures(this);
@@ -211,7 +214,10 @@ export class SongSelectScene extends Phaser.Scene {
         this.renderDifficulty(view, getDifficultyItem(view, difficulty)),
       ),
     };
-    const update: Update = (transition) => this.applyTransition(view, transition);
+    const update: Update = (transition) => {
+      this.applyTransition(view, transition);
+      this.requestMoreFromUser();
+    };
 
     if (this.mode === 'practice') {
       this.add.text(FILTER_X_PX, MODE_LABEL_Y_PX, 'PRACTICE', {
@@ -260,7 +266,15 @@ export class SongSelectScene extends Phaser.Scene {
     });
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
+    const unsubscribe = this.catalog.subscribe(() => this.applyCatalogChange(view));
+    const renderLoadedJackets = (): void => this.render(view);
+    this.load.on(Phaser.Loader.Events.COMPLETE, renderLoadedJackets);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      unsubscribe();
+      this.load.off(Phaser.Loader.Events.COMPLETE, renderLoadedJackets);
+    });
     this.render(view);
+    this.requestMoreFromUser();
     playCelestialEntryTransition(
       this,
       this.celestial,
@@ -468,6 +482,25 @@ export class SongSelectScene extends Phaser.Scene {
     this.render(view);
     if (hasNewCurrentSong(previous, next)) {
       playCelestialOnce(view.jacketGlint);
+    }
+  }
+
+  private requestMoreFromUser(): void {
+    if (isOnLastLoadedPage(this.state, ROWS_PER_PAGE)) {
+      void this.catalog.requestMoreFromUser();
+    }
+  }
+
+  private applyCatalogChange(view: SongSelectView): void {
+    const loadedCount = this.state.allSongs.length;
+    this.applyTransition(view, (state) => withSongs(state, this.catalog.songs));
+    const newSongs = this.catalog.songs.slice(loadedCount);
+    if (newSongs.length > 0) {
+      queueJacketLoads(this, newSongs);
+      this.load.start();
+    }
+    if (isOnLastLoadedPage(this.state, ROWS_PER_PAGE)) {
+      void this.catalog.requestMore();
     }
   }
 

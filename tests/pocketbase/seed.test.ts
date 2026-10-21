@@ -56,6 +56,7 @@ function fakeManifestSong(key: string, overrides: Record<string, unknown> = {}) 
     youtubeVideoId: `vid-${key}`,
     accentColor: 0x123456,
     constellation: 'gemini',
+    releasedOn: '2026-01-02',
     gameStartMs: 0,
     gameEndMs: 10000,
     credit: [`Fake credit for ${key}`],
@@ -229,6 +230,7 @@ describe('seedPocketBase', () => {
       youtubeVideoId: 'vid-fake-a',
       accentColor: String(0x123456),
       constellation: 'gemini',
+      releasedOn: '2026-01-02',
       gameStartMs: '0',
       gameEndMs: '10000',
       credit: ['Fake credit for fake-a'],
@@ -483,6 +485,17 @@ describe('runSeed', () => {
         await writeManifest({
           version: 1,
           songs: [fakeManifestSong('fake-a', { category: 'remix' })],
+        });
+      },
+      failedPath: 'manifest.json',
+    },
+    {
+      name: 'a song release date is not a calendar date',
+      prepare: async () => {
+        await writeFakeSongFiles('fake-a');
+        await writeManifest({
+          version: 1,
+          songs: [fakeManifestSong('fake-a', { releasedOn: '2026-13-01' })],
         });
       },
       failedPath: 'manifest.json',
