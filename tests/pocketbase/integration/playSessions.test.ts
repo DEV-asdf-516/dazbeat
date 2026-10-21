@@ -2,6 +2,8 @@ import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SESSION_GRACE_MS } from '../../../pocketbase/verification/verifyPlay.js';
+import { PLAY_SESSIONS, SCORES } from '../../../src/pbCollections.js';
+import { where } from '../../../src/pbQuery.js';
 import { JUDGMENT_WINDOWS } from '../../../src/rhythm/judgment.js';
 import { getPlayDurationMs } from '../../../src/rhythm/playTiming.js';
 import type { Chart, Difficulty, InputEvent } from '../../../src/rhythm/types.js';
@@ -210,11 +212,14 @@ async function startRankedPlay(player: TestUser, chart: Chart): Promise<string> 
 }
 
 function findScores(userId: string, chart: Chart): Promise<RecordModel[]> {
-  return server.superuser.collection('scores').getFullList({
-    filter: server.superuser.filter('user = {:user} && chart = {:chart}', {
+  const filter = where(SCORES, [
+    {
       user: userId,
       chart: recordOf(chart).id,
-    }),
+    },
+  ]);
+  return server.superuser.collection(SCORES.name).getFullList({
+    filter: server.superuser.filter(filter.expression, filter.params),
   });
 }
 
@@ -318,8 +323,9 @@ describe('POST /api/dazbeat/play-sessions', () => {
     const second = await issueSession(player.client, sessionBodyOf(recordOf(holdChart)));
 
     expect(await sessionExists(first.sessionId)).toBe(false);
-    const sessions = await server.superuser.collection('play_sessions').getFullList({
-      filter: server.superuser.filter('user = {:user}', { user: player.id }),
+    const filter = where(PLAY_SESSIONS, [{ user: player.id }]);
+    const sessions = await server.superuser.collection(PLAY_SESSIONS.name).getFullList({
+      filter: server.superuser.filter(filter.expression, filter.params),
     });
     expect(sessions.map((session) => session.id)).toEqual([second.sessionId]);
     await expectRejection(
@@ -712,8 +718,9 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
       ...expected,
       chartRevision: revisionOf(changed),
     });
-    const ranking = await viewer.client.collection('scores').getFullList({
-      filter: viewer.client.filter('chart = {:chart}', { chart: record.id }),
+    const filter = where(SCORES, [{ chart: record.id }]);
+    const ranking = await viewer.client.collection(SCORES.name).getFullList({
+      filter: viewer.client.filter(filter.expression, filter.params),
     });
     expect(ranking.map((score) => score.id)).toEqual([stored?.id]);
   });

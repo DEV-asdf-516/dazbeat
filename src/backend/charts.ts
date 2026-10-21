@@ -2,6 +2,8 @@ import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { parseChart } from '../data/chartSchema.js';
 import type { ChartRef, Song } from '../data/songs.js';
+import { CHARTS, SONGS } from '../pbCollections.js';
+import { select, where } from '../pbQuery.js';
 import type { Chart, Difficulty } from '../rhythm/types.js';
 import { isString } from '../typeGuards.js';
 import { readRecordField } from './recordField.js';
@@ -25,7 +27,9 @@ function toLoadedChart(record: RecordModel, song: Song, difficulty: Difficulty):
 }
 
 export async function loadChart(pb: PocketBase, ref: ChartRef): Promise<LoadedChart> {
-  const record = await pb.collection('charts').getOne(ref.chartId, { fields: 'data,revision' });
+  const record = await pb
+    .collection('charts')
+    .getOne(ref.chartId, select(CHARTS, ['data', 'revision']));
   return toLoadedChart(record, ref.song, ref.difficulty);
 }
 
@@ -38,9 +42,10 @@ export async function saveChart(pb: PocketBase, song: Song, chart: Chart): Promi
       loaded: toLoadedChart(updated, song, chart.difficulty),
     };
   }
+  const songFilter = where(SONGS, [{ key: song.id }]);
   const songRecord = await pb
-    .collection('songs')
-    .getFirstListItem(pb.filter('key = {:key}', { key: song.id }), { fields: 'id' });
+    .collection(SONGS.name)
+    .getFirstListItem(pb.filter(songFilter.expression, songFilter.params), select(SONGS, ['id']));
   const created = await pb.collection('charts').create({
     song: readRecordField(songRecord, 'songs', 'id', isString),
     difficulty: chart.difficulty,

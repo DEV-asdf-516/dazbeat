@@ -4,10 +4,14 @@ import { z } from 'zod';
 import { toParseIssue } from '../data/parseIssue.js';
 import { DIFFICULTIES, SONG_CATEGORIES, ZODIACS } from '../data/songs.js';
 import type { Song, SongBatch, SongBatchCursor, SongQuery } from '../data/songs.js';
+import { CHARTS, SONGS } from '../pbCollections.js';
+import { after, backRelation, desc, like, select, sort, where } from '../pbQuery.js';
 import { isFiniteNumber, isOneOf, isString } from '../typeGuards.js';
 import { readRecordField } from './recordField.js';
 
 const SONG_BATCH_SIZE = 100;
+const SONG_ORDER = [desc('releasedOn'), desc('id')];
+const SONG_CHARTS = backRelation(CHARTS, 'song', ['id', 'difficulty']);
 
 const isCategory = isOneOf(SONG_CATEGORIES);
 const isZodiac = isOneOf(ZODIACS);
@@ -20,7 +24,7 @@ const chartRecord = z.object({
 });
 
 // 차트가 없는 곡은 PocketBase 가 expand 나 charts_via_song 을 빼고 보낸다.
-const chartsExpand = z.object({ charts_via_song: z.array(chartRecord).optional() }).optional();
+const chartsExpand = z.object({ [SONG_CHARTS.name]: z.array(chartRecord).optional() }).optional();
 
 function isCredit(value: unknown): value is string[] | null {
   return value === null || (Array.isArray(value) && value.every(isString));
@@ -61,29 +65,24 @@ function toSong(pb: PocketBase, record: RecordModel): Song {
 export async function loadSongBatch(
   pb: PocketBase,
   query: SongQuery,
-  after: SongBatchCursor | null,
+  cursor: SongBatchCursor | null,
 ): Promise<SongBatch> {
   // 사용자 검색어가 식에 들어가므로 모든 값은 pb.filter 로 바인딩한다.
-  const conditions = [
-    ...(query.category === 'all'
-      ? []
-      : [pb.filter('category = {:category}', { category: query.category })]),
-    ...(query.title === '' ? [] : [pb.filter('title ~ {:title}', { title: query.title })]),
-    ...(after === null
-      ? []
-      : [
-          pb.filter(
-            '(releasedOn < {:releasedOn} || (releasedOn = {:releasedOn} && id < {:recordId}))',
-            { ...after },
-          ),
-        ]),
-  ];
-  const { items: songRecords } = await pb.collection('songs').getList(1, SONG_BATCH_SIZE, {
-    sort: '-releasedOn,-id',
+  const filter = where(SONGS, [
+    query.category === 'all' ? null : { category: query.category },
+    query.title === '' ? null : { title: like(query.title) },
+    cursor === null
+      ? null
+      : after(SONG_ORDER, {
+          releasedOn: cursor.releasedOn,
+          id: cursor.recordId,
+        }),
+  ]);
+  const { items: songRecords } = await pb.collection(SONGS.name).getList(1, SONG_BATCH_SIZE, {
+    sort: sort(SONGS, SONG_ORDER),
     skipTotal: true,
-    expand: 'charts_via_song',
-    fields: '*,expand.charts_via_song.id,expand.charts_via_song.difficulty',
-    ...(conditions.length === 0 ? {} : { filter: conditions.join(' && ') }),
+    ...select(SONGS, '*', [SONG_CHARTS]),
+    ...(filter === null ? {} : { filter: pb.filter(filter.expression, filter.params) }),
   });
   const last = songRecords.at(-1);
   if (last === undefined) {

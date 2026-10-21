@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
-// PocketBase JSVM(goja)이 pb_hooks 에서 require 하는 서버 번들: 결과 검증(verifyPlay.cjs)과
-// 세션 발급 한도 판정(sessionQuota.cjs). 기본 클라이언트 빌드와 분리한다.
+// PocketBase JSVM(goja)이 pb_hooks 에서 require 하는 서버 번들: 결과 검증(verifyPlay.cjs),
+// 세션 발급 한도 판정(sessionQuota.cjs), 훅 필터 조립(pbQuery.cjs). 기본 클라이언트 빌드와 분리한다.
 export default defineConfig({
   publicDir: false,
   build: {
@@ -9,6 +9,7 @@ export default defineConfig({
       entry: {
         verifyPlay: 'pocketbase/verification/verifyPlay.ts',
         sessionQuota: 'pocketbase/verification/sessionQuota.ts',
+        pbQuery: 'pocketbase/verification/pbQuery.ts',
       },
       formats: ['cjs'],
       fileName: (_format, entryName) => `${entryName}.cjs`,
