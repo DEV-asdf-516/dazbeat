@@ -101,14 +101,14 @@ describe('getSessionExpiresAtMs', () => {
     expect(getSessionExpiresAtMs(song, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 9000 + 900_000);
   });
 
-  it('starts the play duration at 0 when gameStartMs is shorter than the lead-in', () => {
+  it('includes the lead-in wait when gameStartMs is shorter than the lead-in', () => {
     const earlySong = {
       key: 'early',
       gameStartMs: 500,
       gameEndMs: 8000,
     };
 
-    expect(getSessionExpiresAtMs(earlySong, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 8000 + 900_000);
+    expect(getSessionExpiresAtMs(earlySong, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 9500 + 900_000);
   });
 });
 

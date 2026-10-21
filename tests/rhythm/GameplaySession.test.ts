@@ -459,8 +459,8 @@ describe('GameplaySession state and result', () => {
     const state = session.getState();
     expect(state).toEqual({
       score: 2000,
-      combo: 3,
-      maxCombo: 3,
+      combo: 1,
+      maxCombo: 2,
       counts: {
         perfect: 1,
         great: 1,
@@ -475,8 +475,8 @@ describe('GameplaySession state and result', () => {
     state.counts.perfect = 99;
     expect(session.getState()).toEqual({
       score: 2000,
-      combo: 3,
-      maxCombo: 3,
+      combo: 1,
+      maxCombo: 2,
       counts: {
         perfect: 1,
         great: 1,
@@ -804,6 +804,187 @@ describe('GameplaySession failure', () => {
     expect(session.getProgress()).toMatchObject({
       outcome: 'failed',
       cleared: false,
+    });
+  });
+});
+
+describe('GameplaySession without failure', () => {
+  function makePracticeSession(notes: Note[]): GameplaySession {
+    return new GameplaySession(makeChart(notes), JUDGMENT_WINDOWS, { canFail: false });
+  }
+
+  it('keeps judging presses on the same and other lanes after hp reaches 0 and regains hp', () => {
+    const session = makePracticeSession([
+      ...makeTaps(10),
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 0,
+      },
+      {
+        type: 'tap',
+        timeMs: 3500,
+        lane: 1,
+      },
+    ]);
+    session.update(1131 + 9 * 100);
+    expect(session.getState().hp).toBe(0);
+    expect(session.getProgress().outcome).toBe('playing');
+
+    expect(session.press(0, 3000)).toEqual([
+      {
+        noteIndex: 10,
+        lane: 0,
+        kind: 'tap',
+        judgment: 'perfect',
+      },
+    ]);
+    expect(session.press(1, 3500)).toEqual([
+      {
+        noteIndex: 11,
+        lane: 1,
+        kind: 'tap',
+        judgment: 'perfect',
+      },
+    ]);
+    expect(session.getState()).toEqual({
+      score: 2000,
+      combo: 2,
+      maxCombo: 2,
+      counts: {
+        ...emptyCounts,
+        perfect: 2,
+        miss: 10,
+      },
+      hp: 2,
+    });
+  });
+
+  it('applies every candidate in an update batch that passes hp 0', () => {
+    const session = makePracticeSession([
+      ...makeTaps(9),
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 1,
+      },
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 2,
+      },
+    ]);
+
+    const events = session.update(3000);
+    expect(events).toHaveLength(11);
+    expect(events.at(-1)).toEqual({
+      noteIndex: 10,
+      lane: 2,
+      kind: 'tap',
+      judgment: 'miss',
+    });
+    expect(session.getState().counts).toEqual({
+      ...emptyCounts,
+      miss: 11,
+    });
+    expect(session.getNoteStatus(10)).toBe('missed');
+  });
+
+  it('judges hold press and release after hp reaches 0', () => {
+    const session = makePracticeSession([
+      ...makeTaps(10),
+      {
+        type: 'hold',
+        timeMs: 3000,
+        endTimeMs: 4000,
+        lane: 1,
+      },
+    ]);
+    session.update(1131 + 9 * 100);
+
+    expect(session.press(1, 3000)).toEqual([
+      {
+        noteIndex: 10,
+        lane: 1,
+        kind: 'holdStart',
+        judgment: 'perfect',
+      },
+    ]);
+    expect(session.getNoteStatus(10)).toBe('holding');
+    expect(session.release(1, 4000)).toEqual([
+      {
+        noteIndex: 10,
+        lane: 1,
+        kind: 'holdEnd',
+        judgment: 'perfect',
+      },
+    ]);
+    expect(session.getNoteStatus(10)).toBe('hit');
+    expect(session.getState().hp).toBe(2);
+  });
+
+  it('records inputs after hp reaches 0', () => {
+    const session = makePracticeSession([
+      ...makeTaps(10),
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 1,
+      },
+    ]);
+    session.update(1131 + 9 * 100);
+
+    session.press(1, 3000);
+    session.release(1, 3100);
+    expect(session.getInputs()).toEqual([
+      {
+        lane: 1,
+        kind: 'press',
+        songTimeMs: 3000,
+      },
+      {
+        lane: 1,
+        kind: 'release',
+        songTimeMs: 3100,
+      },
+    ]);
+  });
+
+  it('finishes instead of failing when the last judgment brings hp to 0', () => {
+    const notes = makeTaps(10);
+    const failingSession = makeSession(notes);
+    const practiceSession = makePracticeSession(notes);
+    failingSession.update(1131 + 9 * 100);
+    practiceSession.update(1131 + 9 * 100);
+
+    expect(failingSession.getProgress().outcome).toBe('failed');
+    expect(practiceSession.getProgress()).toEqual({
+      score: 0,
+      accuracy: 0,
+      maxCombo: 0,
+      counts: {
+        ...emptyCounts,
+        miss: 10,
+      },
+      outcome: 'finished',
+      cleared: false,
+    });
+  });
+
+  it('decides cleared by accuracy once every note is judged', () => {
+    const perfectNotes = makeTaps(30, 3000);
+    const session = makePracticeSession([...makeTaps(10), ...perfectNotes]);
+    session.update(1131 + 9 * 100);
+    expect(session.getState().hp).toBe(0);
+
+    perfectNotes.forEach((note) => {
+      session.press(note.lane, note.timeMs);
+    });
+
+    expect(session.getProgress()).toMatchObject({
+      accuracy: 0.75,
+      outcome: 'finished',
+      cleared: true,
     });
   });
 });

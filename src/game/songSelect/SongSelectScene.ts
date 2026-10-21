@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import type { CelestialAtlasId } from '../celestial/celestialCatalog.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { SceneRequest } from '../sceneRoutes.js';
+import type { PlayMode, SceneRequest, SongSelectSceneData } from '../sceneRoutes.js';
 import { DIFFICULTIES, SONG_FILTERS } from '../../data/songs.js';
 import type { Song, SongFilter } from '../../data/songs.js';
 import { getChartRecord } from '../../storage/chartRecords.js';
@@ -57,11 +57,19 @@ import {
   SCREEN_LAYOUT,
   setTextColor,
   textStyle,
+  typeStyle,
 } from '../ui/theme.js';
 import { requireDefined } from '../../invariant.js';
 
 const FILTER_X_PX = 120;
 const FILTER_GAP_PX = 48;
+// 연습 모드는 기록이 남지 않으므로 화면 머리에 계속 보여 일반 플레이와 헷갈리지 않게 한다.
+const MODE_LABEL_Y_PX = 48;
+const MODE_LABEL_TYPE = {
+  sizePx: 20,
+  weight: 600,
+} as const;
+const MODE_LABEL_LETTER_SPACING_PX = 5;
 const ROW_X_PX = 120;
 const ROW_Y_PX = 200;
 const ROW_WIDTH_PX = 640;
@@ -168,6 +176,7 @@ export class SongSelectScene extends Phaser.Scene {
   private records: ChartRecords = new Map();
   private record: ChartRecord | null = null;
   private exit: SceneExit<SceneRequest> = STAYING;
+  private mode: PlayMode = 'standard';
 
   constructor(
     private readonly save: LocalSave,
@@ -184,8 +193,9 @@ export class SongSelectScene extends Phaser.Scene {
     queueCelestialTextures(this, this.celestial);
   }
 
-  create(): void {
+  create(data: SongSelectSceneData): void {
     this.exit = STAYING;
+    this.mode = data.mode;
     addCelestialAtmosphere(this, this.celestial, 'songSelect');
     const keyboard = requireKeyboard(this);
     this.state = createSongSelectState(this.getSongs());
@@ -203,6 +213,12 @@ export class SongSelectScene extends Phaser.Scene {
     };
     const update: Update = (transition) => this.applyTransition(view, transition);
 
+    if (this.mode === 'practice') {
+      this.add.text(FILTER_X_PX, MODE_LABEL_Y_PX, 'PRACTICE', {
+        ...typeStyle(MODE_LABEL_TYPE, COLORS.textMuted),
+        letterSpacing: MODE_LABEL_LETTER_SPACING_PX,
+      });
+    }
     addMenuKeyHintRow(this, this.i18n.t('songSelect.hint'), HINT_X_PX);
     const view: SongSelectView = {
       tabs: this.createFilterTabs(hover.filter, update),
@@ -467,7 +483,10 @@ export class SongSelectScene extends Phaser.Scene {
     if (selection !== null) {
       this.exit = exitScene(this, this.exit, {
         key: 'gameplay',
-        data: selection,
+        data: {
+          ...selection,
+          mode: this.mode,
+        },
       });
     }
   }
@@ -475,7 +494,12 @@ export class SongSelectScene extends Phaser.Scene {
   private openSettings(): void {
     this.exit = exitScene(this, this.exit, {
       key: 'settings',
-      data: { returnScene: 'songSelect' },
+      data: {
+        returnTo: {
+          key: 'songSelect',
+          data: { mode: this.mode },
+        },
+      },
     });
   }
 

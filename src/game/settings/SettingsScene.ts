@@ -1,7 +1,7 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { SceneRequest, SettingsSceneData } from '../sceneRoutes.js';
+import type { SceneRequest, SettingsReturn, SettingsSceneData } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import type { Language } from '../../i18n/language.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
@@ -162,7 +162,10 @@ interface SettingsView {
 type Transition = (state: SettingsEditorState) => SettingsEditorState;
 
 export class SettingsScene extends Phaser.Scene {
-  private returnScene: SettingsSceneData['returnScene'] = 'main';
+  private returnTo: SettingsReturn = {
+    key: 'main',
+    data: undefined,
+  };
   private editor = createSettingsEditorState(ROWS, DEFAULT_SETTINGS);
   private exit: SceneExit<SceneRequest> = STAYING;
 
@@ -184,7 +187,7 @@ export class SettingsScene extends Phaser.Scene {
     this.exit = STAYING;
     addCelestialAtmosphere(this, this.celestial, 'secondary');
     const keyboard = requireKeyboard(this);
-    this.returnScene = data.returnScene;
+    this.returnTo = data.returnTo;
     this.editor = createSettingsEditorState(ROWS, this.save.loadSettings());
 
     const rowHover = new PointerHover<number>((index) => {
@@ -364,10 +367,7 @@ export class SettingsScene extends Phaser.Scene {
       update(() => outcome.state);
       return;
     }
-    this.exit = exitScene(this, this.exit, {
-      key: this.returnScene,
-      data: undefined,
-    });
+    this.exit = exitScene(this, this.exit, this.returnTo);
   }
 
   private applySettings(view: SettingsView, settings: Settings): void {

@@ -126,7 +126,6 @@ export class ConfirmDialog {
       colors: CANCEL_BUTTON_COLORS,
       labelType: BUTTON_LABEL_TYPE,
     });
-    // Enter 는 늘 실행이므로 실행 버튼은 처음부터 focus 상태다.
     this.accept = new Button(scene, 0, 0, {
       variant: 'secondary',
       label: '',
@@ -135,8 +134,8 @@ export class ConfirmDialog {
       paddingXPx: BUTTON_PADDING_X_PX,
       labelType: BUTTON_LABEL_TYPE,
       borderWidthPx: BUTTON_BORDER_PX,
-      focus: 'outline',
-    }).setFocused(true);
+      focus: 'glow',
+    });
     this.container = scene.add
       .container(0, 0, [this.shadow, this.panel, this.title, this.body, this.cancel, this.accept])
       .setDepth(DEPTH);

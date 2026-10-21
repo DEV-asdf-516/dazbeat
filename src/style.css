@@ -90,6 +90,11 @@ body {
   opacity: 0;
 }
 
+/* 게임 시작 뒤 음악이 정상 재생(running) 중이 아니면 MV 모드와 별개로 가린다. */
+#mv-layer[data-mv-hidden] iframe {
+  opacity: 0;
+}
+
 /* 채보 에디터: 같은 player 를 캔버스 위 미리보기 사각형에만 보인다. 값은 에디터 씬이 CSS px 로 넣는다. */
 #mv-layer[data-mv-frame='preview'] {
   inset: auto;

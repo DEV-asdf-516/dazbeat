@@ -39,6 +39,7 @@ interface UpdateCandidate {
 
 export class GameplaySession {
   private readonly windows: JudgmentWindows;
+  private readonly canFail: boolean;
   private readonly statuses: NoteStatus[];
   private readonly laneEntries: PerLane<LaneEntry[]> = [[], [], [], []];
   private readonly laneCursors: PerLane<number> = [0, 0, 0, 0];
@@ -60,8 +61,13 @@ export class GameplaySession {
   private latestTimeMs = Number.NEGATIVE_INFINITY;
   private readonly inputs: InputEvent[] = [];
 
-  constructor(chart: Chart, windows: JudgmentWindows) {
+  constructor(
+    chart: Chart,
+    windows: JudgmentWindows,
+    rules: { readonly canFail: boolean } = { canFail: true },
+  ) {
     this.windows = windows;
+    this.canFail = rules.canFail;
     this.statuses = chart.notes.map((): NoteStatus => 'pending');
     chart.notes.forEach((note, noteIndex) => {
       this.laneEntries[note.lane].push({
@@ -306,7 +312,7 @@ export class GameplaySession {
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.counts[judgment] += 1;
     this.hp = getNextHp(this.hp, judgment);
-    this.hasFailed = this.hp === 0;
+    this.hasFailed = this.canFail && this.hp === 0;
   }
 
   private settle(entry: LaneEntry, status: 'hit' | 'missed'): void {

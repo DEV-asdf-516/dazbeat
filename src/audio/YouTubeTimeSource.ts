@@ -1,69 +1,53 @@
 import type { YouTubePlayerState } from './YouTubePlayer.js';
-import { msToSec, secToMs } from '../time.js';
+import { msToSec } from '../time.js';
 
-export const SYNC_INTERVAL_MS = 250;
-export const HARD_RESYNC_MS = 100;
-export const SOFT_CORRECTION_RATIO = 0.25;
+type Clock =
+  | { readonly kind: 'stopped'; readonly sec: number }
+  | { readonly kind: 'flowing'; readonly fromAtMs: number; readonly fromSec: number };
 
-type TimeSourceMode = 'frozen' | 'tracking' | 'freeRunning';
-
-// 끝난 뒤엔 판정 마감을 위해 혼자 흐른다.
-function getMode(state: YouTubePlayerState): TimeSourceMode {
-  switch (state) {
-    case 'playing':
-      return 'tracking';
-    case 'ended':
-      return 'freeRunning';
-    default:
-      return 'frozen';
-  }
-}
-
+// 시작 직후 YouTube 보고 위치는 추정값이라 뒤로 보정되곤 한다. 그 값으로 다시 맞추면 노트가 버벅이므로,
+// 요청한 위치에서 재생 상태에 따라 벽시계로만 흐른다.
 export class YouTubeTimeSource {
-  private readonly player: { getCurrentTime(): number };
   private readonly now: () => number;
-  private mode: TimeSourceMode = 'frozen';
-  private anchorSec = 0;
-  private anchorAtMs: number;
-  private lastSampleAtMs: number;
+  private clock: Clock = {
+    kind: 'stopped',
+    sec: 0,
+  };
 
-  constructor(player: { getCurrentTime(): number }, now: () => number) {
-    this.player = player;
+  constructor(now: () => number) {
     this.now = now;
-    this.anchorAtMs = now();
-    this.lastSampleAtMs = this.anchorAtMs;
   }
 
   get currentTime(): number {
-    if (this.mode === 'frozen') {
-      return this.anchorSec;
-    }
-    return this.anchorSec + msToSec(this.now() - this.anchorAtMs);
+    return this.clock.kind === 'flowing'
+      ? this.clock.fromSec + msToSec(this.now() - this.clock.fromAtMs)
+      : this.clock.sec;
   }
 
+  hold(sec: number): void {
+    this.clock = {
+      kind: 'stopped',
+      sec,
+    };
+  }
+
+  // 끝난 뒤엔 판정 마감을 위해 혼자 흐른다.
   handleStateChange(state: YouTubePlayerState): void {
-    const t = this.now();
-    this.anchorSec = this.player.getCurrentTime();
-    this.anchorAtMs = t;
-    this.lastSampleAtMs = t;
-    this.mode = getMode(state);
-  }
-
-  sync(): void {
-    if (this.mode !== 'tracking') {
-      return;
+    switch (state) {
+      case 'playing':
+        if (this.clock.kind === 'stopped') {
+          this.clock = {
+            kind: 'flowing',
+            fromAtMs: this.now(),
+            fromSec: this.clock.sec,
+          };
+        }
+        return;
+      case 'ended':
+        return;
+      default:
+        this.hold(this.currentTime);
+        return;
     }
-    const t = this.now();
-    if (t - this.lastSampleAtMs < SYNC_INTERVAL_MS) {
-      return;
-    }
-    this.lastSampleAtMs = t;
-    const predictedSec = this.anchorSec + msToSec(t - this.anchorAtMs);
-    const driftSec = this.player.getCurrentTime() - predictedSec;
-    this.anchorSec =
-      secToMs(Math.abs(driftSec)) > HARD_RESYNC_MS
-        ? predictedSec + driftSec
-        : predictedSec + driftSec * SOFT_CORRECTION_RATIO;
-    this.anchorAtMs = t;
   }
 }

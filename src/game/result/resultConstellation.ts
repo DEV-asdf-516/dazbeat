@@ -2,12 +2,19 @@ import type { Zodiac } from '../../data/songs.js';
 import { getRank } from '../../rhythm/rank.js';
 import { isFullCombo } from '../../rhythm/score.js';
 import type { GameplayResult } from '../../rhythm/types.js';
+import type { PlayMode } from '../sceneRoutes.js';
 import { ZODIAC_FIGURES } from './zodiacFigures.js';
 import type { ZodiacFigure } from './zodiacFigures.js';
 import { getProgress, lerp } from '../../range.js';
 import { requireDefined } from '../../invariant.js';
 
 export type ConstellationTier = 'faint' | 'clear' | 'bright' | 'complete';
+
+export interface ResultPresentation {
+  readonly tier: ConstellationTier;
+  readonly hasFinish: boolean;
+  readonly hasFullComboLabel: boolean;
+}
 
 export interface ConstellationBox {
   leftPx: number;
@@ -131,6 +138,23 @@ export function getConstellationTier(
     return 'bright';
   }
   return result.cleared ? 'clear' : 'faint';
+}
+
+export function getResultPresentation(mode: PlayMode, result: GameplayResult): ResultPresentation {
+  if (mode === 'practice') {
+    return {
+      tier: 'faint',
+      hasFinish: false,
+      hasFullComboLabel: isFullCombo(result.counts),
+    };
+  }
+  const tier = getConstellationTier(result);
+  return {
+    tier,
+    hasFinish: result.cleared,
+    // 실패는 HP 가 BAD·MISS 로만 깎여 0 이 될 때뿐이라 FULL COMBO 와 겹치지 않는다. complete 가 곧 FULL COMBO 다.
+    hasFullComboLabel: tier === 'complete',
+  };
 }
 
 export function planSongConstellation(

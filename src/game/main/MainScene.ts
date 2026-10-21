@@ -54,7 +54,14 @@ const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }>
     label: 'PLAY',
     request: {
       key: 'songSelect',
-      data: undefined,
+      data: { mode: 'standard' },
+    },
+  },
+  practice: {
+    label: 'PRACTICE',
+    request: {
+      key: 'songSelect',
+      data: { mode: 'practice' },
     },
   },
   chartEditor: {
@@ -71,7 +78,12 @@ const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }>
     label: 'SETTINGS',
     request: {
       key: 'settings',
-      data: { returnScene: 'main' },
+      data: {
+        returnTo: {
+          key: 'main',
+          data: undefined,
+        },
+      },
     },
   },
   credits: {

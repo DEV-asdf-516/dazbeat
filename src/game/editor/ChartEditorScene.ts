@@ -233,7 +233,7 @@ export class ChartEditorScene extends Phaser.Scene {
     registerCelestialAnimations(this, this.celestial);
     const keyboard = requireKeyboard(this);
     this.settings = this.save.loadSettings();
-    this.mvLayer.dataset.mvMode = this.settings.mvMode;
+    this.mvLayer.dataset.mvMode = 'normal';
     this.noteLayer = null;
     this.seekMarkedNotes = null;
     this.playerStatus = { kind: 'loading' };
@@ -248,6 +248,7 @@ export class ChartEditorScene extends Phaser.Scene {
           if (this.playerStatus.kind !== 'ready') {
             return null;
           }
+          this.playerStatus.timeSource.hold(fromSec);
           this.playerStatus.player.requestPlay(fromSec);
           return this.playerStatus.timeSource;
         },
@@ -277,12 +278,7 @@ export class ChartEditorScene extends Phaser.Scene {
       'keydown',
       handleEachEventOnce((event: KeyboardEvent) => this.handleKey(editor, event)),
     );
-    const onUpdate = (): void => {
-      if (this.playerStatus.kind === 'ready') {
-        this.playerStatus.timeSource.sync();
-      }
-      editor.advancePlayback();
-    };
+    const onUpdate = (): void => editor.advancePlayback();
     this.events.on(Phaser.Scenes.Events.UPDATE, onUpdate);
     // 새로고침·탭 닫기로 미저장 draft 를 잃지 않도록 그때의 draft 로 경고 여부를 정한다.
     const onBeforeUnload = (event: BeforeUnloadEvent): void => {
@@ -870,7 +866,7 @@ export class ChartEditorScene extends Phaser.Scene {
           this.renderPlayerStatus(view);
         },
       });
-      const timeSource = new YouTubeTimeSource(player, () => performance.now());
+      const timeSource = new YouTubeTimeSource(() => performance.now());
       this.player = player;
     } catch (error) {
       this.failPlayer(view, this.i18n.t('gameplay.playerLoadFailed'), error);

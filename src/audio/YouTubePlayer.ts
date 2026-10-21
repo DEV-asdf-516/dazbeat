@@ -1,3 +1,6 @@
+import { parseJson } from '../json.js';
+import { isFiniteNumber, isRecord, isString } from '../typeGuards.js';
+
 export type YouTubePlayerState =
   'unstarted' | 'ended' | 'playing' | 'paused' | 'buffering' | 'cued';
 
@@ -29,6 +32,7 @@ export interface YouTubePlayerHandlers {
   onReady(): void;
   onStateChange(state: YouTubePlayerState): void;
   onError(kind: YouTubeErrorKind, code: number): void;
+  onPositionReport?(positionSec: number): void;
 }
 
 interface YTPlayerEvent {
@@ -50,7 +54,10 @@ interface YTPlayer {
   playVideo(): void;
   pauseVideo(): void;
   getCurrentTime(): number;
+  getVideoLoadedFraction(): number;
+  getDuration(): number;
   setVolume(volume: number): void;
+  getIframe(): HTMLIFrameElement;
   destroy(): void;
 }
 
@@ -89,6 +96,7 @@ export function loadYouTubeIframeApi(): Promise<void> {
 export class YouTubePlayer {
   private readonly placeholder: HTMLDivElement;
   private readonly player: YTPlayer;
+  private readonly handlers: YouTubePlayerHandlers;
   private ready = false;
   private destroyed = false;
 
@@ -99,6 +107,7 @@ export class YouTubePlayer {
     }
     this.placeholder = document.createElement('div');
     container.append(this.placeholder);
+    this.handlers = handlers;
     this.player = new Player(this.placeholder, {
       videoId,
       playerVars: {
@@ -129,6 +138,7 @@ export class YouTubePlayer {
         },
       },
     });
+    window.addEventListener('message', this.handleMessage);
   }
 
   requestPlay(fromSec: number): void {
@@ -148,6 +158,10 @@ export class YouTubePlayer {
     return this.player.getCurrentTime();
   }
 
+  getBufferedEndSec(): number {
+    return this.player.getVideoLoadedFraction() * this.player.getDuration();
+  }
+
   setVolume(volume: number): void {
     this.player.setVolume(Math.round(volume * 100));
   }
@@ -157,7 +171,31 @@ export class YouTubePlayer {
       return;
     }
     this.destroyed = true;
+    window.removeEventListener('message', this.handleMessage);
     this.player.destroy();
     this.placeholder.remove();
   }
+
+  private readonly handleMessage = (event: MessageEvent): void => {
+    if (event.source !== this.player.getIframe().contentWindow) {
+      return;
+    }
+    const data: unknown = event.data;
+    if (!isString(data)) {
+      return;
+    }
+    const message = parseJson(data);
+    // 같은 창의 다른 iframe·확장 프로그램 메시지일 수 있어 JSON 이 아니어도 경고하지 않는다.
+    if (!isRecord(message) || message.event !== 'infoDelivery') {
+      return;
+    }
+    const info = message.info;
+    if (!isRecord(info)) {
+      return;
+    }
+    const positionSec = info.currentTime;
+    if (isFiniteNumber(positionSec)) {
+      this.handlers.onPositionReport?.(positionSec);
+    }
+  };
 }

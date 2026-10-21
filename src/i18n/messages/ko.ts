@@ -41,17 +41,19 @@ export const ko = {
     hint: '←→ 난이도   ↑↓ 이동   Enter 선택   Esc 곡 선택',
   },
   gameplay: {
-    loading: '불러오는 중',
+    loading: '로딩 중',
     pressEnterToStart: 'Enter 로 시작',
-    buffering: '버퍼링 중',
-    paused: '일시정지됨 · Enter 로 재개',
-    preparing: '재생 준비 중',
+    resuming: '음악에 다시 맞추는 중',
     chartLoadFailed: '채보 로드 실패',
     playerLoadFailed: '영상 플레이어 로드 실패',
     videoError: '영상 재생 오류: {{message}}',
+    playbackStartFailed: '영상 재생을 시작하지 못했습니다',
     backToSongSelect: '곡 선택으로',
     quitTitle: '플레이를 그만둘까요?',
     quitConfirm: '이번 플레이 기록은 저장되지 않습니다',
+    resyncFailedTitle: '음악과 다시 맞추지 못했습니다',
+    resyncFailedBody:
+      'CONTINUE 로 다시 시도할 수 있습니다. QUIT 하면 이번 플레이 기록은 저장되지 않습니다',
   },
   chartEditorSelect: {
     title: '채보 편집',
