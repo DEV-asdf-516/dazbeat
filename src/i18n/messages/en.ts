@@ -65,7 +65,7 @@ export const en: Messages = {
     loadingMore: 'Loading more songs',
     loadMoreFailed: "Couldn't load more songs · R Retry",
     noMatch: 'No songs match “{{title}}”',
-    searchPlaceholder: 'Search titles',
+    searchPlaceholder: 'Search...',
   },
   chartEditor: {
     hint: 'Space Play/Pause   Delete Delete note   Wheel Move   Esc Exit',

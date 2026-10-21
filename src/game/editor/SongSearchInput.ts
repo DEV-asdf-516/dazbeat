@@ -40,7 +40,7 @@ export class SongSearchInput {
       '--song-search-border-hover': cssColor(CELESTIAL_COLORS.textSecondary),
       '--song-search-selected': cssColor(CELESTIAL_COLORS.selected),
       '--song-search-text': cssColor(CELESTIAL_COLORS.textPrimary),
-      '--song-search-placeholder': cssColor(CELESTIAL_COLORS.textSecondary),
+      '--song-search-placeholder': cssColor(CELESTIAL_COLORS.border),
       '--song-search-selection': cssColor(CELESTIAL_COLORS.surfaceHover),
     };
     Object.entries(properties).forEach(([name, value]) => input.style.setProperty(name, value));

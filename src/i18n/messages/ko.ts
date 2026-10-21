@@ -64,7 +64,7 @@ export const ko = {
     loadingMore: '곡을 더 불러오는 중',
     loadMoreFailed: '곡을 더 불러오지 못했습니다 · R 다시 시도',
     noMatch: '‘{{title}}’ 검색 결과가 없습니다',
-    searchPlaceholder: '곡명 검색',
+    searchPlaceholder: '검색...',
   },
   chartEditor: {
     hint: 'Space 재생/일시정지   Delete 노트 삭제   휠 이동   Esc 나가기',
