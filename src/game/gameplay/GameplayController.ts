@@ -1,5 +1,5 @@
-import { LeadInPlayback } from '../../audio/LeadInPlayback.js';
-import type { PlaybackStatus } from '../../audio/LeadInPlayback.js';
+import { LeadInPlayback, getPreRollStartMs } from '../../audio/LeadInPlayback.js';
+import type { PlaybackFailure, PlaybackStatus } from '../../audio/LeadInPlayback.js';
 import { RhythmClock } from '../../audio/RhythmClock.js';
 import { VideoPreload } from '../../audio/VideoPreload.js';
 import type {
@@ -35,7 +35,7 @@ import {
   readGameplayKey,
 } from './gameplayInput.js';
 import type { CommonKeyAction, PlayingKeyAction, PressedLanes } from './gameplayInput.js';
-import { getPlayingStatus, isSamePlaybackStatus } from './gameplayStatus.js';
+import { getPlayingStatus } from './gameplayStatus.js';
 import type { GameplayStatus } from './gameplayStatus.js';
 import { getRunEnding } from './runEnding.js';
 import { WorldActivation } from './worldActivation.js';
@@ -46,13 +46,7 @@ export interface RankedPlay {
 
 export type GameplayPlayer = Pick<
   YouTubePlayer,
-  | 'requestPlay'
-  | 'pause'
-  | 'resume'
-  | 'setVolume'
-  | 'getCurrentTime'
-  | 'getBufferedEndSec'
-  | 'destroy'
+  'requestPlay' | 'pause' | 'resume' | 'setVolume' | 'getBufferedEndSec' | 'destroy'
 >;
 
 export interface GameplayPlayerFactory {
@@ -63,7 +57,8 @@ export interface GameplayPlayerFactory {
 export type GameplayLoadError =
   | { readonly kind: 'chartLoadFailed' }
   | { readonly kind: 'playerLoadFailed' }
-  | { readonly kind: 'videoError'; readonly errorKind: YouTubeErrorKind; readonly code: number };
+  | { readonly kind: 'videoError'; readonly errorKind: YouTubeErrorKind; readonly code: number }
+  | { readonly kind: 'playbackStartFailed' };
 
 export interface GameplayFrame {
   readonly session: GameplaySession;
@@ -74,6 +69,7 @@ export interface GameplayFrame {
 }
 
 export interface PlayScreen {
+  readonly approachMs: number;
   drawFrame(frame: GameplayFrame): void;
   pressLane(lane: Lane): void;
   showJudgments(events: readonly JudgmentEvent[]): void;
@@ -82,11 +78,14 @@ export interface PlayScreen {
   playFailure(onDone: () => void): void;
 }
 
+export type QuitConfirmReason = 'userPaused' | 'resyncFailed';
+
 export interface GameplayScreen {
   showStatus(status: GameplayStatus): void;
   showMvMode(mode: MvMode): void;
+  setMvVisible(isVisible: boolean): void;
   showLoadError(error: GameplayLoadError): void;
-  openQuitConfirm(): void;
+  openQuitConfirm(reason: QuitConfirmReason): void;
   closeQuitConfirm(): void;
   beginPlay(chart: Chart): PlayScreen;
   showResult(data: ResultSceneData): void;
@@ -139,7 +138,12 @@ const LOAD_ERROR_LOGS = {
   chartLoadFailed: 'Failed to load chart',
   playerLoadFailed: 'Failed to load player',
   videoError: 'Video player error',
+  playbackStartFailed: 'Video playback failed to start',
 } as const satisfies Record<GameplayLoadError['kind'], string>;
+
+const PLAYBACK_FAILURE_ERRORS = {
+  startFailed: { kind: 'playbackStartFailed' },
+} as const satisfies Record<PlaybackFailure, GameplayLoadError>;
 
 export class GameplayController {
   private phase: GameplayPhase = { kind: 'loading' };
@@ -215,7 +219,16 @@ export class GameplayController {
               return;
             case 'playing':
               phase.run.playback.handleStateChange(state);
-              this.followPlaybackStatus(phase.run);
+              return;
+            default:
+              return;
+          }
+        },
+        onPositionReport: (positionSec) => {
+          const { phase } = this;
+          switch (phase.kind) {
+            case 'playing':
+              phase.run.playback.handlePositionReport(positionSec);
               return;
             default:
               return;
@@ -366,6 +379,7 @@ export class GameplayController {
       preloadEndMs: song.gameEndMs,
     });
     this.screen.showStatus({ kind: 'loading' });
+    this.screen.setMvVisible(false);
     this.phase = {
       kind: 'starting',
       run,
@@ -375,10 +389,46 @@ export class GameplayController {
 
   private beginPlay(run: PreparedRun): void {
     const { chart } = run;
-    const playback = new LeadInPlayback(run.player, this.deps.now, {
-      playbackStartMs: getPlaybackStartMs(this.route.song.gameStartMs),
-      volume: this.settings.masterVolume * this.settings.musicVolume,
-    });
+    const playScreen = this.screen.beginPlay(chart);
+    // 채보 검증이 노트를 시간순으로 보장하므로 첫 노트가 가장 이르다.
+    const firstNote = chart.notes[0];
+    const noteEntryMs =
+      firstNote === undefined
+        ? null
+        : firstNote.timeMs - playScreen.approachMs - this.settings.inputOffsetMs - chart.offsetMs;
+    const playbackStartMs = getPlaybackStartMs(this.route.song.gameStartMs);
+    const playback = new LeadInPlayback(
+      run.player,
+      this.deps.now,
+      {
+        playbackStartMs,
+        preRollStartMs: getPreRollStartMs(playbackStartMs, noteEntryMs),
+        volume: this.settings.masterVolume * this.settings.musicVolume,
+      },
+      {
+        onStatusChange: (status) => {
+          const { phase } = this;
+          if (phase.kind === 'playing') {
+            this.showPlaybackStatus(phase.run, status);
+          }
+        },
+        onFailure: (failure) => {
+          if (this.phase.kind !== 'playing') {
+            return;
+          }
+          run.player.destroy();
+          this.fail(PLAYBACK_FAILURE_ERRORS[failure], failure);
+        },
+        onResyncFailed: () => {
+          const { phase } = this;
+          if (phase.kind !== 'playing') {
+            return;
+          }
+          phase.run.isQuitConfirmOpen = true;
+          this.screen.openQuitConfirm('resyncFailed');
+        },
+      },
+    );
     const session = new GameplaySession(chart, JUDGMENT_WINDOWS, {
       canFail: run.mode.kind === 'standard',
     });
@@ -388,7 +438,6 @@ export class GameplayController {
     });
     const { status } = playback;
     this.screen.showStatus(getPlayingStatus(status));
-    const playScreen = this.screen.beginPlay(chart);
     this.phase = {
       kind: 'playing',
       run: {
@@ -411,13 +460,10 @@ export class GameplayController {
       case 'openQuitConfirm':
         run.isQuitConfirmOpen = true;
         run.playback.pause();
-        this.screen.openQuitConfirm();
+        this.screen.openQuitConfirm('userPaused');
         return;
       case 'closeQuitConfirm':
         this.closeQuitConfirm();
-        return;
-      case 'resume':
-        run.playback.resume();
         return;
       case 'pressLane':
         run.playScreen.pressLane(action.lane);
@@ -433,7 +479,9 @@ export class GameplayController {
   private advancePlay(run: PlayRun): void {
     const { song } = this.route;
     run.playback.tick();
-    this.followPlaybackStatus(run);
+    if (this.phase.kind !== 'playing') {
+      return;
+    }
     const songTimeMs = run.clock.getTimeMs();
     if (this.applyJudgments(run, run.session.update(songTimeMs))) {
       return;
@@ -467,13 +515,14 @@ export class GameplayController {
     onDone();
   }
 
-  private followPlaybackStatus(run: PlayRun): void {
-    const { status } = run.playback;
-    if (isSamePlaybackStatus(status, run.status)) {
-      return;
-    }
+  private showPlaybackStatus(run: PlayRun, status: PlaybackStatus): void {
+    const isRunning = status.kind === 'running';
+    const wasRunning = run.status.kind === 'running';
     run.status = status;
     this.screen.showStatus(getPlayingStatus(status));
+    if (isRunning !== wasRunning) {
+      this.screen.setMvVisible(isRunning);
+    }
   }
 
   private applyJudgments(run: PlayRun, events: readonly JudgmentEvent[]): boolean {

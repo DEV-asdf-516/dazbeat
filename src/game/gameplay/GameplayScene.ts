@@ -11,6 +11,7 @@ import { LANES, mapLanes } from '../../rhythm/lanes.js';
 import type { Chart, JudgmentEvent, Lane } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { MvMode } from '../../storage/settings.js';
+import { secToMs } from '../../time.js';
 import { playFailureFx, playFullComboFx } from './endingFx.js';
 import { GameplayController } from './GameplayController.js';
 import type {
@@ -18,6 +19,7 @@ import type {
   GameplayLoadError,
   GameplayScreen,
   PlayScreen,
+  QuitConfirmReason,
   RankedPlay,
 } from './GameplayController.js';
 import { isLoadingStatus } from './gameplayStatus.js';
@@ -104,12 +106,17 @@ const COMBO_GLINT_Y_PX = COMBO_LABEL_Y_PX + 40;
 const JUDGMENT_SHIMMER_Y_PX = JUDGMENT_Y_PX + 56;
 const LOADING_STAR_ID = 'R47';
 const LOADING_STAR_GAP_PX = 24;
+const COUNTDOWN_POP_SCALE = 1.3;
+const COUNTDOWN_POP_START_ALPHA = 0.3;
 
 const STATUS_MESSAGES = {
   loading: 'gameplay.loading',
   awaitingStart: 'gameplay.pressEnterToStart',
-  paused: 'gameplay.paused',
-} as const satisfies Record<Exclude<GameplayStatus['kind'], 'countdown' | 'none'>, string>;
+  resuming: 'gameplay.resuming',
+} as const satisfies Record<
+  Exclude<GameplayStatus['kind'], 'paused' | 'countdown' | 'none'>,
+  string
+>;
 
 function getLaneXPx(lane: Lane): number {
   return LANES_LEFT_PX + LANE_WIDTH_PX * lane + LANE_WIDTH_PX / 2;
@@ -165,6 +172,7 @@ export class GameplayScene extends Phaser.Scene {
     addCelestialAtmosphere(this, this.celestial, 'gameplay');
     const settings = this.save.loadSettings();
     this.mvLayer.dataset.mvMode = settings.mvMode;
+    delete this.mvLayer.dataset.mvHidden;
     ensureLightTextures(this);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
@@ -329,8 +337,9 @@ export class GameplayScene extends Phaser.Scene {
     const screen: GameplayScreen = {
       showStatus: (status) => this.setStatus(view, status),
       showMvMode: (mode) => this.showMvMode(view, mode),
+      setMvVisible: (isVisible) => this.setMvVisible(isVisible),
       showLoadError: (error) => this.showLoadError(view, controller, error),
-      openQuitConfirm: () => this.openQuitConfirm(view),
+      openQuitConfirm: (reason) => this.openQuitConfirm(view, reason),
       closeQuitConfirm: () => this.closeQuitConfirm(view),
       beginPlay: (chart) => this.beginPlay(view, chart, settings.scrollSpeedPxPerSecond),
       showResult: (result) => this.showResult(result),
@@ -370,6 +379,8 @@ export class GameplayScene extends Phaser.Scene {
       window.removeEventListener('keyup', onKeyUp);
       this.events.off(Phaser.Scenes.Events.UPDATE, onUpdate);
       controller.close();
+      // mv-layer 는 채보 에디터도 쓰므로 가림을 남기지 않는다.
+      delete this.mvLayer.dataset.mvHidden;
     });
 
     void controller.start().catch((error: unknown) => {
@@ -390,17 +401,33 @@ export class GameplayScene extends Phaser.Scene {
 
   private setStatus(view: GameplayView, status: GameplayStatus): void {
     view.statusText.setText(
-      status.kind === 'countdown' || status.kind === 'none'
+      status.kind === 'paused' || status.kind === 'countdown' || status.kind === 'none'
         ? ''
         : this.i18n.t(STATUS_MESSAGES[status.kind]),
     );
-    view.countdownText.setText(status.kind === 'countdown' ? `${status.digit}` : '');
-    const isLoading = isLoadingStatus(status);
-    if (isLoading) {
+    const { countdownText } = view;
+    const digitText = status.kind === 'countdown' ? `${status.digit}` : '';
+    if (digitText !== countdownText.text) {
+      this.tweens.killTweensOf(countdownText);
+      countdownText.setText(digitText).setScale(1).setAlpha(1);
+      if (digitText !== '') {
+        // 숫자가 바뀌는 순간을 박자처럼 읽게 해 재개 시점을 미리 맞출 수 있게 한다.
+        countdownText.setScale(COUNTDOWN_POP_SCALE).setAlpha(COUNTDOWN_POP_START_ALPHA);
+        this.tweens.add({
+          targets: countdownText,
+          scale: 1,
+          alpha: 1,
+          duration: MOTION.fastMs,
+          ease: 'Cubic.Out',
+        });
+      }
+    }
+    const isWaiting = isLoadingStatus(status) || status.kind === 'resuming';
+    if (isWaiting) {
       const bounds = view.statusText.getBounds();
       view.loadingStar.setPosition(bounds.left - LOADING_STAR_GAP_PX, bounds.centerY);
     }
-    setCelestialLoopActive(view.loadingStar, isLoading);
+    setCelestialLoopActive(view.loadingStar, isWaiting);
   }
 
   private beginPlay(view: GameplayView, chart: Chart, scrollSpeedPxPerSecond: number): PlayScreen {
@@ -415,6 +442,7 @@ export class GameplayScene extends Phaser.Scene {
       score: 0,
     };
     return {
+      approachMs: secToMs(JUDGE_LINE_Y_PX / scrollSpeedPxPerSecond),
       drawFrame: (frame) => {
         view.laneFx.setActivation(frame.activation.level);
         if (frame.activation.reachedFull) {
@@ -467,6 +495,9 @@ export class GameplayScene extends Phaser.Scene {
           hint = this.i18n.t('youtubeError.embeddingNotAllowedHint');
         }
         break;
+      case 'playbackStartFailed':
+        message = this.i18n.t('gameplay.playbackStartFailed');
+        break;
     }
     view.quitDialog.hide();
     this.hideIntro(view);
@@ -500,13 +531,13 @@ export class GameplayScene extends Phaser.Scene {
     view.introDifficulty.setVisible(false);
   }
 
-  // 뒤의 일시정지 안내는 Enter 의 뜻이 달라지므로 카운트다운 숫자와 함께 가린다.
-  private openQuitConfirm(view: GameplayView): void {
+  private openQuitConfirm(view: GameplayView, reason: QuitConfirmReason): void {
     view.statusText.setVisible(false);
     view.countdownText.setVisible(false);
+    const isResyncFailed = reason === 'resyncFailed';
     view.quitDialog.show({
-      title: this.i18n.t('gameplay.quitTitle'),
-      body: this.i18n.t('gameplay.quitConfirm'),
+      title: this.i18n.t(isResyncFailed ? 'gameplay.resyncFailedTitle' : 'gameplay.quitTitle'),
+      body: this.i18n.t(isResyncFailed ? 'gameplay.resyncFailedBody' : 'gameplay.quitConfirm'),
       cancelLabel: 'CONTINUE',
       acceptLabel: 'QUIT',
       acceptTone: 'default',
@@ -530,6 +561,14 @@ export class GameplayScene extends Phaser.Scene {
       delay: MV_MODE_HOLD_MS,
       duration: MV_MODE_FADE_MS,
     });
+  }
+
+  private setMvVisible(isVisible: boolean): void {
+    if (isVisible) {
+      delete this.mvLayer.dataset.mvHidden;
+      return;
+    }
+    this.mvLayer.dataset.mvHidden = '';
   }
 
   private flashKeyLabel(keyLabel: Phaser.GameObjects.Text): void {

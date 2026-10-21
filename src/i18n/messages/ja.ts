@@ -45,13 +45,16 @@ export const ja: Messages = {
   gameplay: {
     loading: '読み込み中',
     pressEnterToStart: 'Enter で開始',
-    paused: '一時停止中 · Enter で再開',
+    resuming: '音楽に合わせ直しています',
     chartLoadFailed: '譜面の読み込みに失敗しました',
     playerLoadFailed: '動画プレーヤーの読み込みに失敗しました',
     videoError: '動画再生エラー: {{message}}',
+    playbackStartFailed: '動画の再生を開始できませんでした',
     backToSongSelect: '曲選択へ',
     quitTitle: 'プレイをやめますか？',
     quitConfirm: '今回のプレイ記録は保存されません',
+    resyncFailedTitle: '音楽と再同期できませんでした',
+    resyncFailedBody: 'CONTINUE で再試行できます。QUIT すると今回のプレイ記録は保存されません',
   },
   chartEditorSelect: {
     title: '譜面編集',

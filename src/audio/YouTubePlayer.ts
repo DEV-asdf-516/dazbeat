@@ -1,3 +1,6 @@
+import { parseJson } from '../json.js';
+import { isFiniteNumber, isRecord, isString } from '../typeGuards.js';
+
 export type YouTubePlayerState =
   'unstarted' | 'ended' | 'playing' | 'paused' | 'buffering' | 'cued';
 
@@ -29,6 +32,7 @@ export interface YouTubePlayerHandlers {
   onReady(): void;
   onStateChange(state: YouTubePlayerState): void;
   onError(kind: YouTubeErrorKind, code: number): void;
+  onPositionReport?(positionSec: number): void;
 }
 
 interface YTPlayerEvent {
@@ -53,6 +57,7 @@ interface YTPlayer {
   getVideoLoadedFraction(): number;
   getDuration(): number;
   setVolume(volume: number): void;
+  getIframe(): HTMLIFrameElement;
   destroy(): void;
 }
 
@@ -91,6 +96,7 @@ export function loadYouTubeIframeApi(): Promise<void> {
 export class YouTubePlayer {
   private readonly placeholder: HTMLDivElement;
   private readonly player: YTPlayer;
+  private readonly handlers: YouTubePlayerHandlers;
   private ready = false;
   private destroyed = false;
 
@@ -101,34 +107,7 @@ export class YouTubePlayer {
     }
     this.placeholder = document.createElement('div');
     container.append(this.placeholder);
-    // TEMP 진단: iframe 이 보내는 실제 위치 갱신 시각 기록, 시작 직후 어긋남 확인 후 제거
-    const debugWindow = window as unknown as { dazbeatInfoLog?: boolean };
-    if (debugWindow.dazbeatInfoLog !== true) {
-      debugWindow.dazbeatInfoLog = true;
-      window.addEventListener('message', (event: MessageEvent) => {
-        if (!event.origin.includes('youtube') || typeof event.data !== 'string') {
-          return;
-        }
-        const message = JSON.parse(event.data) as {
-          event?: string;
-          info?: { currentTime?: number; currentTimeLastUpdated_?: number; playerState?: number };
-        };
-        const info = message.info;
-        if (message.event !== 'infoDelivery' || info === undefined) {
-          return;
-        }
-        if (info.currentTime === undefined && info.playerState === undefined) {
-          return;
-        }
-        const ageMs =
-          info.currentTimeLastUpdated_ === undefined
-            ? 'n/a'
-            : (Date.now() - info.currentTimeLastUpdated_ * 1000).toFixed(0);
-        console.log(
-          `t=${performance.now().toFixed(0)} [infoDelivery] currentTime=${info.currentTime?.toFixed(3) ?? '-'} playerState=${info.playerState ?? '-'} updatedAgo=${ageMs}ms`,
-        );
-      });
-    }
+    this.handlers = handlers;
     this.player = new Player(this.placeholder, {
       videoId,
       playerVars: {
@@ -159,6 +138,7 @@ export class YouTubePlayer {
         },
       },
     });
+    window.addEventListener('message', this.handleMessage);
   }
 
   requestPlay(fromSec: number): void {
@@ -191,7 +171,31 @@ export class YouTubePlayer {
       return;
     }
     this.destroyed = true;
+    window.removeEventListener('message', this.handleMessage);
     this.player.destroy();
     this.placeholder.remove();
   }
+
+  private readonly handleMessage = (event: MessageEvent): void => {
+    if (event.source !== this.player.getIframe().contentWindow) {
+      return;
+    }
+    const data: unknown = event.data;
+    if (!isString(data)) {
+      return;
+    }
+    const message = parseJson(data);
+    // 같은 창의 다른 iframe·확장 프로그램 메시지일 수 있어 JSON 이 아니어도 경고하지 않는다.
+    if (!isRecord(message) || message.event !== 'infoDelivery') {
+      return;
+    }
+    const info = message.info;
+    if (!isRecord(info)) {
+      return;
+    }
+    const positionSec = info.currentTime;
+    if (isFiniteNumber(positionSec)) {
+      this.handlers.onPositionReport?.(positionSec);
+    }
+  };
 }

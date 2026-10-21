@@ -21,7 +21,6 @@ export type PlayingKeyAction =
   | CommonKeyAction
   | { readonly kind: 'openQuitConfirm' }
   | { readonly kind: 'closeQuitConfirm' }
-  | { readonly kind: 'resume' }
   | { readonly kind: 'pressLane'; readonly lane: Lane };
 
 export type PressedLanes = ReadonlySet<Lane>;
@@ -79,14 +78,7 @@ export function getPlayingKeyAction(
       lane: key.lane,
     };
   }
-  switch (key.command) {
-    case 'confirm':
-      return status.kind === 'paused' ? { kind: 'resume' } : NONE;
-    case 'mvMode':
-      return { kind: 'cycleMvMode' };
-    default:
-      return NONE;
-  }
+  return key.command === 'mvMode' ? { kind: 'cycleMvMode' } : NONE;
 }
 
 export function addPressedLane(pressedLanes: PressedLanes, lane: Lane): PressedLanes {
@@ -114,7 +106,7 @@ export function readGameplayKey(code: string, keyBindings: Settings['keyBindings
 
 function toCommand(code: string, lane: Lane | null): GameplayCommand | null {
   switch (code) {
-    // Enter 는 레인 키로 바인딩해도 시작·재개 키로 계속 쓴다.
+    // Enter 는 레인 키로 바인딩해도 시작·확인 키로 계속 쓴다.
     case 'Enter':
       return 'confirm';
     case 'Escape':

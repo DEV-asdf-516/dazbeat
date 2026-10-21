@@ -10,6 +10,7 @@ import { requireDefined } from '../../../src/invariant.js';
 import type { Chart, Difficulty, GameplayResult } from '../../../src/rhythm/types.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 import type { Settings } from '../../../src/storage/settings.js';
+import { msToSec, secToMs } from '../../../src/time.js';
 
 const song: Song = {
   id: 'test-song',
@@ -66,6 +67,14 @@ const SETTINGS: Settings = {
   mvMode: 'dim',
 };
 
+// gameStartMs 3000 의 재생 시작 위치 S(초).
+const START_SEC = 1;
+const APPROACH_MS = 1000;
+// 첫 노트(4000ms)가 판정선까지 1000ms 걸리므로 프리롤은 최소 길이(S − 3초)다.
+const PRE_ROLL_START_MS = -2000;
+const REPORT_INTERVAL_MS = 265;
+const SEEK_DELAY_MS = 250;
+
 interface Pending<T> {
   readonly resolve: (value: T) => void;
   readonly reject: (error: unknown) => void;
@@ -91,16 +100,24 @@ interface Harness {
   })[];
   readonly effectDones: (() => void)[];
   readonly chart: Chart;
+  // 프레임마다 그린 곡 시간.
+  readonly songTimes: number[];
   rankedSessionId: string | null;
   isCreateThrowing: boolean;
   isSaveSettingsThrowing: boolean;
   isSaveResultThrowing: boolean;
   nowMs: number;
   bufferedEndSec: number;
-  positionSec: number;
+  approachMs: number;
+  // 게임 시계가 0초인 벽시계 시각. 프리롤이 시작될 때 정한다.
+  clockOriginMs: number;
 }
 
-function createHarness(mode: PlayMode = 'standard', playedChart: Chart = chart): Harness {
+function createHarness(
+  mode: PlayMode = 'standard',
+  playedChart: Chart = chart,
+  settings: Settings = SETTINGS,
+): Harness {
   const route: GameplaySceneData = {
     song,
     difficulty: 'normal',
@@ -121,13 +138,15 @@ function createHarness(mode: PlayMode = 'standard', playedChart: Chart = chart):
     submissions: [],
     effectDones: [],
     chart: playedChart,
+    songTimes: [],
     rankedSessionId: 'session-1',
     isCreateThrowing: false,
     isSaveSettingsThrowing: false,
     isSaveResultThrowing: false,
     nowMs: 1000,
     bufferedEndSec: 0,
-    positionSec: 0,
+    approachMs: APPROACH_MS,
+    clockOriginMs: Number.NaN,
   };
   const record = (...call: Call): void => {
     harness.screenCalls.push(call);
@@ -198,7 +217,6 @@ function createHarness(mode: PlayMode = 'standard', playedChart: Chart = chart):
             pause: () => harness.playerCalls.push('pause'),
             resume: () => harness.playerCalls.push('resume'),
             setVolume: (volume) => harness.playerCalls.push(`setVolume(${volume})`),
-            getCurrentTime: () => harness.positionSec,
             getBufferedEndSec: () => harness.bufferedEndSec,
             destroy: () => harness.playerCalls.push('destroy'),
           };
@@ -209,13 +227,18 @@ function createHarness(mode: PlayMode = 'standard', playedChart: Chart = chart):
     {
       showStatus: (status) => record('showStatus', status),
       showMvMode: (next) => record('showMvMode', next),
+      setMvVisible: (isVisible) => record('setMvVisible', isVisible),
       showLoadError: (error) => record('showLoadError', error),
-      openQuitConfirm: () => record('openQuitConfirm'),
+      openQuitConfirm: (reason) => record('openQuitConfirm', reason),
       closeQuitConfirm: () => record('closeQuitConfirm'),
       beginPlay: (played) => {
         record('beginPlay', played);
         return {
-          drawFrame: () => record('drawFrame'),
+          approachMs: harness.approachMs,
+          drawFrame: (frame) => {
+            record('drawFrame');
+            harness.songTimes.push(frame.songTimeMs);
+          },
           pressLane: (lane) => record('pressLane', lane),
           showJudgments: (events) => record('showJudgments', events),
           hideIntro: () => record('hideIntro'),
@@ -236,7 +259,7 @@ function createHarness(mode: PlayMode = 'standard', playedChart: Chart = chart):
       backToSongSelect: () => record('backToSongSelect'),
     },
     route,
-    SETTINGS,
+    settings,
   );
   return Object.assign(harness, { controller });
 }
@@ -283,30 +306,52 @@ async function startPreloading(harness: Harness): Promise<void> {
   getHandlers(harness).onStateChange('paused');
 }
 
-// 선버퍼링이 끝나 카운트다운이 시작된 상태.
-async function startCountdown(harness: Harness): Promise<void> {
+// 선버퍼링이 끝나 재생 객체가 예열을 시작한 상태.
+async function startWarming(harness: Harness): Promise<void> {
   await startPreloading(harness);
   harness.bufferedEndSec = 10;
   harness.controller.tick();
 }
 
-// 카운트다운이 끝나 영상이 1초 근처에서 흐르기 시작한 영상 구간 상태.
-async function startVideo(harness: Harness): Promise<void> {
-  await startCountdown(harness);
-  harness.nowMs += 3000;
-  harness.controller.tick();
-  harness.positionSec = 1;
-  getHandlers(harness).onStateChange('playing');
-  harness.controller.tick();
-  harness.nowMs += 50;
-  harness.positionSec = 1.05;
-  harness.controller.tick();
+function report(harness: Harness, positionSec: number): void {
+  const handlers = getHandlers(harness);
+  if (handlers.onPositionReport === undefined) {
+    throw new Error('position reports are not handled');
+  }
+  handlers.onPositionReport(positionSec);
 }
 
-// 영상 구간의 playing 은 시간 소스를 보고 위치로 재기준하므로 재생 위치가 정확히 positionSec 이 된다.
-function seekVideo(harness: Harness, positionSec: number): void {
-  harness.positionSec = positionSec;
-  getHandlers(harness).onStateChange('playing');
+// 영상이 positionSec 에서 1배속으로 흐르는 보고 두 개.
+function reportSteadyFrom(harness: Harness, positionSec: number): void {
+  report(harness, positionSec);
+  harness.nowMs += REPORT_INTERVAL_MS;
+  report(harness, positionSec + msToSec(REPORT_INTERVAL_MS));
+}
+
+// 예열이 흐르고 보정 seek 가 250ms 뒤 S 에서 흐른다고 보고해 프리롤 카운트다운이 시작된 상태.
+async function startCountdown(
+  harness: Harness,
+  preRollStartMs: number = PRE_ROLL_START_MS,
+): Promise<void> {
+  await startWarming(harness);
+  reportSteadyFrom(harness, START_SEC);
+  harness.nowMs += SEEK_DELAY_MS;
+  reportSteadyFrom(harness, START_SEC);
+  harness.clockOriginMs = harness.nowMs - preRollStartMs;
+}
+
+function moveClock(harness: Harness, clockSec: number): void {
+  harness.nowMs = harness.clockOriginMs + secToMs(clockSec);
+}
+
+// 게임 시계가 S − 250ms 에 곡 시작 seek 를 보내고, 그 seek 가 250ms 뒤 S 에서 흘러 검증을 통과한 상태.
+async function startVideo(harness: Harness): Promise<void> {
+  await startCountdown(harness);
+  moveClock(harness, START_SEC - msToSec(SEEK_DELAY_MS));
+  harness.controller.tick();
+  harness.nowMs += SEEK_DELAY_MS;
+  reportSteadyFrom(harness, START_SEC);
+  harness.controller.tick();
 }
 
 function runEffectDone(harness: Harness): void {
@@ -536,7 +581,7 @@ describe('GameplayController late results', () => {
 });
 
 describe('GameplayController start request', () => {
-  it('requests a muted warm-up from the lead-in start and shows loading on Enter in ready', async () => {
+  it('requests a muted warm-up from the lead-in start, shows loading and hides the MV on Enter in ready', async () => {
     const harness = createHarness();
     await startReady(harness);
     resetCalls(harness);
@@ -544,7 +589,10 @@ describe('GameplayController start request', () => {
     harness.controller.keyDown('Enter', false);
 
     expect(harness.playerCalls).toEqual(['setVolume(0)', 'requestPlay(1)']);
-    expect(harness.screenCalls).toEqual([['showStatus', { kind: 'loading' }]]);
+    expect(harness.screenCalls).toEqual([
+      ['showStatus', { kind: 'loading' }],
+      ['setMvVisible', false],
+    ]);
   });
 
   it('ignores a repeated Enter in ready', async () => {
@@ -581,7 +629,7 @@ describe('GameplayController start request', () => {
     expect(harness.screenCalls).toEqual([]);
   });
 
-  it('begins play with the countdown on the tick that ends preloading', async () => {
+  it('begins play with the warm-up on the tick that ends preloading', async () => {
     const harness = createHarness();
     await startPreloading(harness);
     resetCalls(harness);
@@ -593,6 +641,26 @@ describe('GameplayController start request', () => {
     harness.bufferedEndSec = 10;
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([
+      ['beginPlay', chart],
+      ['showStatus', { kind: 'loading' }],
+    ]);
+    expect(harness.playerCalls).toEqual(['setVolume(0.01)', 'resume']);
+  });
+});
+
+describe('GameplayController start sequence', () => {
+  it('calibrates from position reports and starts the countdown', async () => {
+    const harness = createHarness();
+    await startWarming(harness);
+    resetCalls(harness);
+
+    reportSteadyFrom(harness, START_SEC);
+    expect(harness.playerCalls).toEqual(['requestPlay(1)']);
+    expect(harness.screenCalls).toEqual([]);
+
+    harness.nowMs += SEEK_DELAY_MS;
+    reportSteadyFrom(harness, START_SEC);
+    expect(harness.screenCalls).toEqual([
       [
         'showStatus',
         {
@@ -600,7 +668,110 @@ describe('GameplayController start request', () => {
           digit: 3,
         },
       ],
-      ['beginPlay', chart],
+    ]);
+  });
+
+  it('starts the pre-roll where the first note enters the top of the screen', async () => {
+    const harness = createHarness(
+      'standard',
+      {
+        ...chart,
+        offsetMs: 100,
+      },
+      {
+        ...SETTINGS,
+        inputOffsetMs: 50,
+      },
+    );
+    harness.approachMs = 6500;
+    await startCountdown(harness, 4000 - 6500 - 50 - 100);
+    resetCalls(harness);
+
+    harness.controller.tick();
+
+    expect(harness.songTimes).toEqual([4000 - 6500]);
+  });
+
+  it('shows the MV once when the clock reaches S and not on countdown digit changes', async () => {
+    const harness = createHarness();
+    await startCountdown(harness);
+    resetCalls(harness);
+
+    moveClock(harness, -0.5);
+    harness.controller.tick();
+    moveClock(harness, START_SEC - msToSec(SEEK_DELAY_MS));
+    harness.controller.tick();
+    expect(harness.screenCalls.filter(([name]) => name === 'setMvVisible')).toEqual([]);
+
+    moveClock(harness, START_SEC);
+    harness.controller.tick();
+    moveClock(harness, START_SEC + 0.5);
+    harness.controller.tick();
+    expect(harness.screenCalls.filter(([name]) => name !== 'drawFrame')).toEqual([
+      [
+        'showStatus',
+        {
+          kind: 'countdown',
+          digit: 2,
+        },
+      ],
+      [
+        'showStatus',
+        {
+          kind: 'countdown',
+          digit: 1,
+        },
+      ],
+      ['showStatus', { kind: 'none' }],
+      ['setMvVisible', true],
+    ]);
+  });
+
+  it('ignores position reports outside the playing phase', async () => {
+    const harness = createHarness();
+    await startReady(harness);
+    report(harness, START_SEC);
+    harness.controller.keyDown('Enter', false);
+    resetCalls(harness);
+
+    reportSteadyFrom(harness, START_SEC);
+
+    expect(harness.screenCalls).toEqual([]);
+    expect(harness.playerCalls).toEqual([]);
+  });
+});
+
+describe('GameplayController playback failures', () => {
+  it('destroys the player and shows playbackStartFailed without drawing that tick', async () => {
+    const harness = createHarness();
+    await startWarming(harness);
+    resetCalls(harness);
+
+    harness.nowMs += 10001;
+    harness.controller.tick();
+
+    expect(harness.playerCalls).toEqual(['destroy']);
+    expect(harness.screenCalls).toEqual([['showLoadError', { kind: 'playbackStartFailed' }]]);
+  });
+
+  it('recovers from a sustained drift without the error screen or destroying the player', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    resetCalls(harness);
+
+    for (const clockSec of [START_SEC + 0.5, START_SEC + 1.499]) {
+      moveClock(harness, clockSec);
+      report(harness, clockSec + 1);
+    }
+    expect(harness.playerCalls).toEqual([]);
+
+    moveClock(harness, START_SEC + 1.5);
+    report(harness, START_SEC + 2.5);
+
+    expect(harness.playerCalls).toEqual(['setVolume(0.01)']);
+    expect(harness.screenCalls).toEqual([
+      ['showStatus', { kind: 'resuming' }],
+      ['setMvVisible', false],
     ]);
   });
 });
@@ -720,7 +891,7 @@ describe('GameplayController playing', () => {
   it('presses the lane and shows the judgment on a lane key', async () => {
     const harness = createHarness();
     await startVideo(harness);
-    seekVideo(harness, 4);
+    moveClock(harness, 4);
     harness.controller.tick();
     resetCalls(harness);
 
@@ -735,15 +906,15 @@ describe('GameplayController playing', () => {
   it('draws every playing tick and shows judgments only when there are some', async () => {
     const harness = createHarness();
     await startVideo(harness);
-    seekVideo(harness, 3);
+    moveClock(harness, 3);
     harness.controller.tick();
     resetCalls(harness);
 
-    seekVideo(harness, 4.13);
+    moveClock(harness, 4.13);
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([['drawFrame']]);
 
-    seekVideo(harness, 4.131);
+    moveClock(harness, 4.131);
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([
       ['drawFrame'],
@@ -755,11 +926,11 @@ describe('GameplayController playing', () => {
   it('judges keyup only for a pressed lane', async () => {
     const harness = createHarness('standard', HOLD_CHART);
     await startVideo(harness);
-    seekVideo(harness, 4);
+    moveClock(harness, 4);
     harness.controller.tick();
     harness.controller.keyUp('KeyF');
     harness.controller.keyDown('KeyF', false);
-    seekVideo(harness, 4.5);
+    moveClock(harness, 4.5);
     resetCalls(harness);
 
     harness.controller.keyUp('KeyJ');
@@ -775,11 +946,11 @@ describe('GameplayController playing', () => {
     const harness = createHarness();
     await startVideo(harness);
 
-    seekVideo(harness, 2.999);
+    moveClock(harness, 2.999);
     harness.controller.tick();
-    seekVideo(harness, 3);
+    moveClock(harness, 3);
     harness.controller.tick();
-    seekVideo(harness, 3.5);
+    moveClock(harness, 3.5);
     harness.controller.tick();
 
     const hideIntroTicks = harness.screenCalls
@@ -797,15 +968,24 @@ describe('GameplayController quit confirm', () => {
     resetCalls(harness);
 
     harness.controller.keyDown('Escape', false);
-    expect(harness.screenCalls).toEqual([['openQuitConfirm']]);
+    const pausedCalls = [
+      ['showStatus', { kind: 'paused' }],
+      ['setMvVisible', false],
+      ['openQuitConfirm', 'userPaused'],
+    ];
+    expect(harness.screenCalls).toEqual(pausedCalls);
     expect(harness.playerCalls).toEqual(['pause']);
 
     harness.controller.keyDown('Escape', true);
-    expect(harness.screenCalls).toEqual([['openQuitConfirm']]);
+    expect(harness.screenCalls).toEqual(pausedCalls);
 
     harness.controller.keyDown('Escape', false);
-    expect(harness.screenCalls).toEqual([['openQuitConfirm'], ['closeQuitConfirm']]);
-    expect(harness.playerCalls).toEqual(['pause', 'resume']);
+    expect(harness.screenCalls).toEqual([
+      ...pausedCalls,
+      ['closeQuitConfirm'],
+      ['showStatus', { kind: 'resuming' }],
+    ]);
+    expect(harness.playerCalls).toEqual(['pause', 'setVolume(0.01)', 'resume']);
   });
 
   it('goes back to song select on Enter while the quit confirm is open', async () => {
@@ -831,8 +1011,104 @@ describe('GameplayController quit confirm', () => {
     harness.controller.keyDown('Escape', false);
     resetCalls(harness);
     harness.controller.closeQuitConfirm();
-    expect(harness.screenCalls).toEqual([['closeQuitConfirm']]);
-    expect(harness.playerCalls).toEqual(['resume']);
+    expect(harness.screenCalls).toEqual([
+      ['closeQuitConfirm'],
+      ['showStatus', { kind: 'resuming' }],
+    ]);
+    expect(harness.playerCalls).toEqual(['setVolume(0.01)', 'resume']);
+  });
+
+  it('does nothing on Enter while paused, resuming or counting down to the resume', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false);
+    resetCalls(harness);
+
+    harness.controller.keyDown('Enter', false);
+    expect(harness.screenCalls).toEqual([]);
+    expect(harness.playerCalls).toEqual([]);
+
+    harness.nowMs += 300;
+    reportSteadyFrom(harness, 5);
+    expect(harness.playerCalls).toEqual(['requestPlay(0)']);
+    harness.nowMs += SEEK_DELAY_MS;
+    reportSteadyFrom(harness, 0);
+    expect(harness.screenCalls).toEqual([
+      [
+        'showStatus',
+        {
+          kind: 'countdown',
+          digit: 3,
+        },
+      ],
+    ]);
+    resetCalls(harness);
+
+    harness.controller.keyDown('Enter', false);
+    expect(harness.screenCalls).toEqual([]);
+    expect(harness.playerCalls).toEqual([]);
+  });
+});
+
+describe('GameplayController resync failure', () => {
+  // 재개 요청 뒤 안정 진행이 10000ms 넘게 오지 않아 재동기화에 실패한 상태.
+  async function startResyncFailed(harness: Harness): Promise<void> {
+    await startVideo(harness);
+    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false);
+    resetCalls(harness);
+    harness.nowMs += 10001;
+    harness.controller.tick();
+  }
+
+  it('opens the quit confirm as a resync failure without the error screen', async () => {
+    const harness = createHarness();
+    await startResyncFailed(harness);
+
+    expect(harness.playerCalls).toEqual(['pause']);
+    expect(harness.screenCalls.filter(([name]) => name !== 'drawFrame')).toEqual([
+      ['showStatus', { kind: 'paused' }],
+      ['openQuitConfirm', 'resyncFailed'],
+    ]);
+  });
+
+  it('resumes on Escape from the resync failure confirm', async () => {
+    const harness = createHarness();
+    await startResyncFailed(harness);
+    resetCalls(harness);
+
+    harness.controller.keyDown('Escape', false);
+
+    expect(harness.screenCalls).toEqual([
+      ['closeQuitConfirm'],
+      ['showStatus', { kind: 'resuming' }],
+    ]);
+    expect(harness.playerCalls).toEqual(['setVolume(0.01)', 'resume']);
+  });
+
+  it('goes back to song select on Enter from the resync failure confirm', async () => {
+    const harness = createHarness();
+    await startResyncFailed(harness);
+    resetCalls(harness);
+
+    harness.controller.keyDown('Enter', false);
+
+    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+    expect(harness.playerCalls).toEqual([]);
+  });
+
+  it('hides the MV when the playback starts resuming by itself', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    resetCalls(harness);
+
+    getHandlers(harness).onStateChange('buffering');
+
+    expect(harness.screenCalls).toEqual([
+      ['showStatus', { kind: 'resuming' }],
+      ['setMvVisible', false],
+    ]);
   });
 });
 
@@ -842,7 +1118,7 @@ describe('GameplayController failure', () => {
     await startVideo(harness);
     resetCalls(harness);
 
-    seekVideo(harness, 5);
+    moveClock(harness, 5);
     harness.controller.tick();
     expect(harness.screenCalls.map(([name]) => name)).toEqual(['showJudgments', 'playFailure']);
     expect(harness.playerCalls).toEqual(['pause']);
@@ -859,7 +1135,7 @@ describe('GameplayController failure', () => {
   it('shows the failed result after the failure effect without saving or submitting', async () => {
     const harness = createHarness('standard', FAIL_CHART);
     await startVideo(harness);
-    seekVideo(harness, 5);
+    moveClock(harness, 5);
     harness.controller.tick();
     resetCalls(harness);
 
@@ -884,11 +1160,11 @@ describe('GameplayController failure', () => {
   it('does not fail in practice for the same misses', async () => {
     const harness = createHarness('practice', FAIL_CHART);
     await startVideo(harness);
-    seekVideo(harness, 3);
+    moveClock(harness, 3);
     harness.controller.tick();
     resetCalls(harness);
 
-    seekVideo(harness, 5);
+    moveClock(harness, 5);
     harness.controller.tick();
 
     expect(harness.screenCalls.map(([name]) => name)).toEqual(['showJudgments', 'drawFrame']);
@@ -900,7 +1176,7 @@ describe('GameplayController run end', () => {
   // 노트를 perfect 로 쳐 풀콤보가 된 상태.
   async function startFullCombo(harness: Harness): Promise<void> {
     await startVideo(harness);
-    seekVideo(harness, 4);
+    moveClock(harness, 4);
     harness.controller.tick();
     harness.controller.keyDown('KeyD', false);
   }
@@ -910,11 +1186,11 @@ describe('GameplayController run end', () => {
     await startFullCombo(harness);
     resetCalls(harness);
 
-    seekVideo(harness, 9.999);
+    moveClock(harness, 9.999);
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([['drawFrame']]);
 
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([['drawFrame'], ['drawFrame'], ['playFullCombo']]);
   });
@@ -922,7 +1198,7 @@ describe('GameplayController run end', () => {
   it('saves, submits and shows the result after the full combo effect', async () => {
     const harness = createHarness();
     await startFullCombo(harness);
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
     resetCalls(harness);
 
@@ -968,11 +1244,11 @@ describe('GameplayController run end', () => {
   it('shows the result right away when the run is not a full combo', async () => {
     const harness = createHarness();
     await startVideo(harness);
-    seekVideo(harness, 5);
+    moveClock(harness, 5);
     harness.controller.tick();
     resetCalls(harness);
 
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
 
     expect(harness.screenCalls.map(([name]) => name)).toEqual(['drawFrame', 'showResult']);
@@ -984,7 +1260,7 @@ describe('GameplayController run end', () => {
     const harness = createHarness();
     harness.rankedSessionId = null;
     await startVideo(harness);
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
 
     expect(harness.savedResults).toHaveLength(1);
@@ -996,7 +1272,7 @@ describe('GameplayController run end', () => {
     const harness = createHarness();
     harness.isSaveResultThrowing = true;
     await startVideo(harness);
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
 
     expect(harness.screenCalls.at(-1)?.[0]).toBe('showResult');
@@ -1010,7 +1286,7 @@ describe('GameplayController run end', () => {
   it('neither saves nor submits in practice', async () => {
     const harness = createHarness('practice');
     await startVideo(harness);
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
 
     expect(harness.savedResults).toEqual([]);
@@ -1024,7 +1300,7 @@ describe('GameplayController run end', () => {
   it('ignores player errors while the full combo effect plays', async () => {
     const harness = createHarness();
     await startFullCombo(harness);
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
     resetCalls(harness);
 
@@ -1037,7 +1313,7 @@ describe('GameplayController run end', () => {
   it('does not show the result when the effect finishes after close', async () => {
     const harness = createHarness();
     await startFullCombo(harness);
-    seekVideo(harness, 10);
+    moveClock(harness, 10);
     harness.controller.tick();
     harness.controller.close();
     resetCalls(harness);
