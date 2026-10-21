@@ -17,6 +17,8 @@
   - `typeGuards.ts`: `unknown` 값 타입 가드(`isRecord`, `isString`, `isBoolean`, `isFiniteNumber`, 목록 소속 `isOneOf`). 외부 입력을 손으로 파싱할 때 `typeof` 검사를 직접 쓰지 않고 이 함수를 쓴다.
   - `json.ts`: 실패를 기본값으로 대체하는 JSON 파싱(`parseJson`, 실패 시 `undefined`). `JSON.parse` 를 try-catch 로 직접 감싸지 않는다. 실패 원인이 필요한 필수 입력은 경계에서 직접 throw한다.
   - `time.ts`: ms↔초 변환(`msToSec`, `secToMs`). 초는 외부 API(YouTube)·초당 속도 설정 경계에서만 쓰고, 변환에 `1000` 을 직접 쓰지 않는다.
+  - `pbQuery.ts`: PocketBase 필터·정렬·조회 필드 조립(`where`, `sort`, `fields`·`expand` 는 `select`, 비교 `lt`·`gt`·`ne`·`like`, `anyOf`, keyset `after`, 역방향 관계 `backRelation`). 필터·정렬·fields·expand 문자열을 직접 쓰지 않고 이 모듈로 만든다.
+  - `pbCollections.ts`: 컬렉션 spec(이름 + 필터·정렬·조회에 쓰는 필드). 새 필드로 조회할 때 여기에 추가한다.
 - `src/rhythm/`: 판정·점수·노트 위치 등 순수 게임 로직. `src/` 바로 아래 순수 모듈 외의 다른 src 폴더·프레임워크·I/O를 import하지 않는다.
 - `src/data/`: 곡·채보 도메인 타입과 런타임 검증. `rhythm/`, `src/` 바로 아래 순수 모듈만 import한다.
 - `src/backend/`: PocketBase 호출(인증, 곡·채보 로드). `pocketbase` 패키지는 이 폴더와 진입점(`src/main.ts`)에서만 import한다.

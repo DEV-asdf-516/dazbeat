@@ -1,6 +1,8 @@
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { USERS } from '../../../src/pbCollections.js';
+import { where } from '../../../src/pbQuery.js';
 import { createClient, createTempDir, removeTempDir, startPocketBase } from './pocketBaseServer.js';
 import type { PocketBaseServer } from './pocketBaseServer.js';
 import {
@@ -261,8 +263,9 @@ describe('isEditor', () => {
       }),
       CREATE_RULE_FAILED,
     );
-    const users = await server.superuser.collection('users').getFullList({
-      filter: server.superuser.filter('email = {:email}', { email: 'signup@example.com' }),
+    const filter = where(USERS, [{ email: 'signup@example.com' }]);
+    const users = await server.superuser.collection(USERS.name).getFullList({
+      filter: server.superuser.filter(filter.expression, filter.params),
     });
     expect(users).toEqual([]);
   });

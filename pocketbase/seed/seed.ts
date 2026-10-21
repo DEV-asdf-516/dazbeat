@@ -1,4 +1,6 @@
 import PocketBase from 'pocketbase';
+import { CHARTS, SONGS } from '../../src/pbCollections.js';
+import { select, where } from '../../src/pbQuery.js';
 import { DEFAULT_SEED_DATA_DIR, loadSeedManifest, type SeedSong } from './seedManifest.js';
 
 const REQUIRED_ENV = [
@@ -19,9 +21,10 @@ function isLoopbackUrl(url: string): boolean {
 
 export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[]): Promise<void> {
   for (const song of songs) {
+    const songFilter = where(SONGS, [{ key: song.key }]);
     const found = await pb
-      .collection('songs')
-      .getList(1, 1, { filter: pb.filter('key = {:key}', { key: song.key }) });
+      .collection(SONGS.name)
+      .getList(1, 1, { filter: pb.filter(songFilter.expression, songFilter.params) });
     const existingSong = found.items[0];
     let songId: string;
     if (existingSong === undefined) {
@@ -43,9 +46,10 @@ export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[])
       songId = existingSong.id;
     }
 
-    const existingCharts = await pb.collection('charts').getFullList({
-      filter: pb.filter('song = {:song}', { song: songId }),
-      fields: 'difficulty',
+    const chartFilter = where(CHARTS, [{ song: songId }]);
+    const existingCharts = await pb.collection(CHARTS.name).getFullList({
+      filter: pb.filter(chartFilter.expression, chartFilter.params),
+      ...select(CHARTS, ['difficulty']),
     });
     for (const chart of song.charts) {
       if (existingCharts.some((existing) => existing['difficulty'] === chart.difficulty)) {

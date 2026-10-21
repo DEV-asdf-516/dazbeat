@@ -1,6 +1,8 @@
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PLAY_SESSION_QUOTAS, PLAY_SESSIONS } from '../../../src/pbCollections.js';
+import { where } from '../../../src/pbQuery.js';
 import type { Chart, InputEvent } from '../../../src/rhythm/types.js';
 import { createClient, createTempDir, removeTempDir, startPocketBase } from './pocketBaseServer.js';
 import type { PocketBaseServer } from './pocketBaseServer.js';
@@ -104,8 +106,9 @@ function expectRateLimited(request: Promise<unknown>): Promise<void> {
 }
 
 async function findQuota(userId: string): Promise<RecordModel | undefined> {
-  const quotas = await server.superuser.collection('play_session_quotas').getFullList({
-    filter: server.superuser.filter('user = {:user}', { user: userId }),
+  const filter = where(PLAY_SESSION_QUOTAS, [{ user: userId }]);
+  const quotas = await server.superuser.collection(PLAY_SESSION_QUOTAS.name).getFullList({
+    filter: server.superuser.filter(filter.expression, filter.params),
   });
   expect(quotas.length).toBeLessThanOrEqual(1);
   return quotas[0];
@@ -132,8 +135,9 @@ async function moveWindowStart(userId: string, agoMs: number): Promise<void> {
 }
 
 function findSessions(userId: string): Promise<RecordModel[]> {
-  return server.superuser.collection('play_sessions').getFullList({
-    filter: server.superuser.filter('user = {:user}', { user: userId }),
+  const filter = where(PLAY_SESSIONS, [{ user: userId }]);
+  return server.superuser.collection(PLAY_SESSIONS.name).getFullList({
+    filter: server.superuser.filter(filter.expression, filter.params),
   });
 }
 

@@ -7,6 +7,9 @@ routerAdd(
   (e) => {
     const { getSessionExpiresAtMs } = require(`${__hooks}/lib/verifyPlay.cjs`);
     const { decideSessionIssue } = require(`${__hooks}/lib/sessionQuota.cjs`);
+    const { where, CHARTS, PLAY_SESSION_QUOTAS, PLAY_SESSIONS } = require(
+      `${__hooks}/lib/pbQuery.cjs`,
+    );
     const fail = (status, code, message) => e.json(status, { status, code, message });
 
     const body = e.requestInfo().body;
@@ -15,7 +18,15 @@ routerAdd(
     if (typeof chartId !== 'string' || typeof chartRevision !== 'string') {
       return fail(400, 'invalid_request', 'chartId and chartRevision must be strings.');
     }
-    const chart = e.app.findRecordsByFilter('charts', 'id = {:id}', '', 1, 0, { id: chartId })[0];
+    const chartFilter = where(CHARTS, [{ id: chartId }]);
+    const chart = e.app.findRecordsByFilter(
+      CHARTS.name,
+      chartFilter.expression,
+      '',
+      1,
+      0,
+      chartFilter.params,
+    )[0];
     if (chart === undefined) {
       return fail(404, 'chart_not_found', 'The chart does not exist.');
     }
@@ -31,9 +42,15 @@ routerAdd(
     e.app.runInTransaction((txApp) => {
       // Reading the quota, deciding and writing in one transaction keeps concurrent issues of the
       // same user from exceeding the limit. The clock is read after the quota row for the same reason.
-      let quota = txApp.findRecordsByFilter('play_session_quotas', 'user = {:user}', '', 1, 0, {
-        user: userId,
-      })[0];
+      const quotaFilter = where(PLAY_SESSION_QUOTAS, [{ user: userId }]);
+      let quota = txApp.findRecordsByFilter(
+        PLAY_SESSION_QUOTAS.name,
+        quotaFilter.expression,
+        '',
+        1,
+        0,
+        quotaFilter.params,
+      )[0];
       const issuedAtMs = Date.now();
       const decision = decideSessionIssue(
         quota === undefined
@@ -64,9 +81,15 @@ routerAdd(
         },
         issuedAtMs,
       );
-      const previous = txApp.findRecordsByFilter('play_sessions', 'user = {:user}', '', 0, 0, {
-        user: userId,
-      });
+      const previousFilter = where(PLAY_SESSIONS, [{ user: userId }]);
+      const previous = txApp.findRecordsByFilter(
+        PLAY_SESSIONS.name,
+        previousFilter.expression,
+        '',
+        0,
+        0,
+        previousFilter.params,
+      );
       for (const record of previous) {
         txApp.delete(record);
       }
@@ -104,20 +127,22 @@ routerAdd(
   '/api/dazbeat/play-sessions/{sessionId}/result',
   (e) => {
     const { verifyPlay, PLAY_REJECTION_RESPONSES } = require(`${__hooks}/lib/verifyPlay.cjs`);
+    const { where, PLAY_SESSIONS, SCORES } = require(`${__hooks}/lib/pbQuery.cjs`);
     const fail = (status, code, message) => e.json(status, { status, code, message });
     const sessionNotFound = () =>
       fail(404, 'session_not_found', 'The play session does not exist.');
 
     const userId = e.auth.id;
-    const ownSessionFilter = 'id = {:id} && user = {:user}';
-    const ownSessionParams = { id: e.request.pathValue('sessionId'), user: userId };
+    const ownSessionFilter = where(PLAY_SESSIONS, [
+      { id: e.request.pathValue('sessionId'), user: userId },
+    ]);
     const session = e.app.findRecordsByFilter(
-      'play_sessions',
-      ownSessionFilter,
+      PLAY_SESSIONS.name,
+      ownSessionFilter.expression,
       '',
       1,
       0,
-      ownSessionParams,
+      ownSessionFilter.params,
     )[0];
     if (session === undefined) {
       return sessionNotFound();
@@ -153,12 +178,12 @@ routerAdd(
     let isConsumed = false;
     e.app.runInTransaction((txApp) => {
       const current = txApp.findRecordsByFilter(
-        'play_sessions',
-        ownSessionFilter,
+        PLAY_SESSIONS.name,
+        ownSessionFilter.expression,
         '',
         1,
         0,
-        ownSessionParams,
+        ownSessionFilter.params,
       )[0];
       if (current === undefined) {
         return;
@@ -185,13 +210,14 @@ routerAdd(
       // transaction, so a play accepted on its snapshot shows in the current ranking.
       const currentRevision = txApp.findRecordById('charts', chart.id).getString('revision');
       const key = { user: userId, chart: chart.id, chartRevision: currentRevision };
+      const bestFilter = where(SCORES, [key]);
       let best = txApp.findRecordsByFilter(
-        'scores',
-        'user = {:user} && chart = {:chart} && chartRevision = {:chartRevision}',
+        SCORES.name,
+        bestFilter.expression,
         '',
         1,
         0,
-        key,
+        bestFilter.params,
       )[0];
       if (best === undefined) {
         best = new Record(txApp.findCollectionByNameOrId('scores'));
