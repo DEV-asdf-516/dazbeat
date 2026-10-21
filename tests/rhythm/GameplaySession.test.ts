@@ -459,8 +459,8 @@ describe('GameplaySession state and result', () => {
     const state = session.getState();
     expect(state).toEqual({
       score: 2000,
-      combo: 3,
-      maxCombo: 3,
+      combo: 0,
+      maxCombo: 2,
       counts: {
         perfect: 1,
         great: 1,
@@ -475,8 +475,8 @@ describe('GameplaySession state and result', () => {
     state.counts.perfect = 99;
     expect(session.getState()).toEqual({
       score: 2000,
-      combo: 3,
-      maxCombo: 3,
+      combo: 0,
+      maxCombo: 2,
       counts: {
         perfect: 1,
         great: 1,
