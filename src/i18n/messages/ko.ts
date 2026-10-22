@@ -35,7 +35,7 @@ export const ko = {
   },
   credits: {
     title: '크레딧',
-    hint: 'Esc 뒤로',
+    hint: '↑↓ 스크롤   Esc 뒤로',
   },
   result: {
     hint: '←→ 난이도   ↑↓ 이동   Enter 선택   Esc 곡 선택',

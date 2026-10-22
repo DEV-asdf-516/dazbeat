@@ -15,18 +15,19 @@ import type {
   ConstellationPoint,
 } from './resultConstellation.js';
 import { DifficultyTabs } from './DifficultyTabs.js';
-import type { SongFeed } from '../SongFeed.js';
 import { RESULT_NODE_ID, planResultFinish } from './resultFinish.js';
 import type { FinishAnchor, FinishCue } from './resultFinish.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
 import { stepChart } from '../../data/songs.js';
-import type { ChartRef } from '../../data/songs.js';
+import type { ChartRef, Song } from '../../data/songs.js';
 import { getRank } from '../../rhythm/rank.js';
 import { JUDGMENTS } from '../../rhythm/judgment.js';
 import { Button } from '../ui/Button.js';
 import {
   addCelestialAtmosphere,
+  getCelestialAtmosphereUses,
+  getCelestialEntryTransitionUses,
   playCelestialEntryTransition,
 } from '../celestial/celestialAtmosphere.js';
 import {
@@ -107,18 +108,27 @@ const SCORE_SHIMMER_DY_PX = 12;
 
 export class ResultScene extends Phaser.Scene {
   private exit: SceneExit<SceneRequest> = STAYING;
+  private jacketSongs: readonly Song[] = [];
 
   constructor(
-    private readonly catalog: SongFeed,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
   ) {
     super(SCENE_KEYS.result);
   }
 
+  init(data: ResultSceneData): void {
+    this.jacketSongs = [data.song];
+  }
+
   preload(): void {
-    queueJacketLoads(this, this.catalog.songs);
-    queueCelestialTextures(this, this.celestial);
+    queueJacketLoads(this, this.jacketSongs);
+    queueCelestialTextures(this, this.celestial, [
+      ...getCelestialAtmosphereUses(this.celestial, 'result'),
+      ...getCelestialEntryTransitionUses(this.celestial),
+      this.celestial.atlasPresentations[RESULT_NODE_ID],
+      ...this.celestial.nodeOnlyFinish.map((step) => step.presentation),
+    ]);
   }
 
   create(data: ResultSceneData): void {

@@ -23,6 +23,8 @@ import type { SceneExit } from '../sceneExit.js';
 import { Button, QUIET_PADDING_PX } from '../ui/Button.js';
 import {
   addCelestialAtmosphere,
+  getCelestialAtmosphereUses,
+  getCelestialEntryTransitionUses,
   playCelestialEntryTransition,
 } from '../celestial/celestialAtmosphere.js';
 import {
@@ -207,7 +209,13 @@ export class MainScene extends Phaser.Scene {
       ],
       'main scene image',
     );
-    queueCelestialTextures(this, this.celestial);
+    queueCelestialTextures(this, this.celestial, [
+      ...getCelestialAtmosphereUses(this.celestial, 'main'),
+      ...getCelestialEntryTransitionUses(this.celestial),
+      this.celestial.atlasPresentations[TITLE_THREAD_ID],
+      this.celestial.atlasPresentations[LOGO_GLINT_ID],
+      this.celestial.atlasPresentations[LOADING_STAR_ID],
+    ]);
   }
 
   create(): void {

@@ -64,7 +64,7 @@ import { createCenteredEditorButton, createEditorButton } from './editorButton.j
 import { EditorNoteLayer } from './EditorNoteLayer.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import { TOOL_SEGMENTS } from './toolSegments.js';
-import { setFittedText } from './fitText.js';
+import { setFittedText } from '../ui/fitText.js';
 import { addKeyHintColumn } from '../ui/keyHintView.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
@@ -220,7 +220,9 @@ export class ChartEditorScene extends Phaser.Scene {
   }
 
   preload(): void {
-    queueCelestialTextures(this, this.celestial);
+    queueCelestialTextures(this, this.celestial, [
+      this.celestial.atlasPresentations[DIVIDER_GLINT_ID],
+    ]);
   }
 
   create(data: ChartEditorSceneData): void {

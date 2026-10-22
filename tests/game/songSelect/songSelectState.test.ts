@@ -5,6 +5,7 @@ import type { ChartRecord } from '../../../src/storage/chartRecords.js';
 import {
   createSongSelectState,
   cycleFilter,
+  getJacketRange,
   getPlayableSelection,
   getSongPage,
   getSongRows,
@@ -546,5 +547,55 @@ describe('isOnLastLoadedPage', () => {
 
   it('is true when the filtered list is empty', () => {
     expect(isOnLastLoadedPage(createSongSelectState([]), 3)).toBe(true);
+  });
+});
+
+describe('getJacketRange', () => {
+  const songs: readonly Song[] = Array.from({ length: 20 }, (_, index) =>
+    makeSong(`song-${index}`, index % 2 === 0 ? 'original' : 'cover', FULL_SONG.chartIds),
+  );
+
+  it('loads the next page as adjacent on the first page', () => {
+    expect(getJacketRange(createSongSelectState(songs), 9)).toEqual({
+      visible: songs.slice(0, 9),
+      adjacent: songs.slice(9, 18),
+    });
+  });
+
+  it('loads the previous page then the next page as adjacent on a middle page', () => {
+    expect(getJacketRange(selectSong(createSongSelectState(songs), 10), 9)).toEqual({
+      visible: songs.slice(9, 18),
+      adjacent: [...songs.slice(0, 9), ...songs.slice(18, 20)],
+    });
+  });
+
+  it('loads only the previous page as adjacent on the last page', () => {
+    expect(getJacketRange(selectSong(createSongSelectState(songs), 19), 9)).toEqual({
+      visible: songs.slice(18, 20),
+      adjacent: songs.slice(9, 18),
+    });
+  });
+
+  it('has no adjacent songs when the list fits on one page', () => {
+    expect(getJacketRange(createSongSelectState(songs.slice(0, 5)), 9)).toEqual({
+      visible: songs.slice(0, 5),
+      adjacent: [],
+    });
+  });
+
+  it('uses only the songs of the selected filter', () => {
+    const originals = songs.filter((song) => song.category === 'original');
+
+    expect(getJacketRange(selectFilter(createSongSelectState(songs), 'original'), 9)).toEqual({
+      visible: originals.slice(0, 9),
+      adjacent: originals.slice(9),
+    });
+  });
+
+  it('is empty for an empty list', () => {
+    expect(getJacketRange(createSongSelectState([]), 9)).toEqual({
+      visible: [],
+      adjacent: [],
+    });
   });
 });

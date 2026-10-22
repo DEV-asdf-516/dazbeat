@@ -37,7 +37,7 @@ export const ja: Messages = {
   },
   credits: {
     title: 'クレジット',
-    hint: 'Esc 戻る',
+    hint: '↑↓ スクロール   Esc 戻る',
   },
   result: {
     hint: '←→ 難易度   ↑↓ 移動   Enter 決定   Esc 曲選択',

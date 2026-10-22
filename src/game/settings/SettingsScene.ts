@@ -29,6 +29,8 @@ import { createCanvasTexture } from '../ui/canvasTexture.js';
 import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import {
   addCelestialAtmosphere,
+  getCelestialAtmosphereUses,
+  getCelestialEntryTransitionUses,
   playCelestialEntryTransition,
 } from '../celestial/celestialAtmosphere.js';
 import { addCelestialSprite, queueCelestialTextures } from '../celestial/celestialSprites.js';
@@ -180,7 +182,11 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   preload(): void {
-    queueCelestialTextures(this, this.celestial);
+    queueCelestialTextures(this, this.celestial, [
+      ...getCelestialAtmosphereUses(this.celestial, 'secondary'),
+      ...getCelestialEntryTransitionUses(this.celestial),
+      this.celestial.atlasPresentations[FOCUS_STAR_ID],
+    ]);
   }
 
   create(data: SettingsSceneData): void {

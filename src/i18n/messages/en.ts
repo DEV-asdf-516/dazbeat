@@ -37,7 +37,7 @@ export const en: Messages = {
   },
   credits: {
     title: 'Credits',
-    hint: 'Esc Back',
+    hint: '↑↓ Scroll   Esc Back',
   },
   result: {
     hint: '←→ Difficulty   ↑↓ Move   Enter Select   Esc Tracks',

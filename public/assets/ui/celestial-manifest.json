@@ -21,8 +21,8 @@
   "summary": {
     "generatedImageCandidates": 28,
     "twinkleMotionCandidates": 2,
-    "requiredRoles": 50,
-    "resolvedRoles": 50,
+    "requiredRoles": 49,
+    "resolvedRoles": 49,
     "atlasFiles": 6,
     "canonicalStates": 35,
     "canonicalAnimatedClips": 19,
@@ -3579,54 +3579,6 @@
       "bytes": 2236754
     },
     {
-      "id": "R04",
-      "name": "secondary-atmosphere",
-      "kind": "image",
-      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
-      "dimensionsPx": [
-        1920,
-        1080
-      ],
-      "alpha": false,
-      "frameCount": 1,
-      "durationMs": null,
-      "loop": false,
-      "playback": "static",
-      "scenes": [
-        "Settings",
-        "Auth",
-        "Secondary",
-        "Loading"
-      ],
-      "purpose": "메인과 같은 성운·궤도 우주 배경 — 설정·인증·보조 화면",
-      "sourceCandidates": [
-        "02-nebula-orbit-16x9"
-      ],
-      "opacity": 1,
-      "blend": "NORMAL",
-      "runtimeTint": "none",
-      "anchorPx": [
-        0,
-        0
-      ],
-      "anchorNormalized": [
-        0,
-        0
-      ],
-      "scaleXY": [
-        1,
-        1
-      ],
-      "scaleRange": {
-        "policy": "cover using existing viewport; preserve reference composition"
-      },
-      "placement": "full scene behind existing UI",
-      "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
-      "reuseOf": null,
-      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
-      "bytes": 73824
-    },
-    {
       "id": "R05",
       "name": "dust-tile",
       "kind": "image",
@@ -6626,17 +6578,6 @@
       "path": "public/assets/ui/celestial/scenes/dazbeat-result-afterglow.png",
       "bytes": 2236754,
       "sha256": "5c751992ab376e67ac179084305c5a2ac4dff8e877b7015930919967b09b05e5",
-      "dimensionsPx": [
-        1920,
-        1080
-      ],
-      "mode": "RGB",
-      "alpha": false
-    },
-    {
-      "path": "public/assets/ui/celestial/scenes/main-nebula-orbit.webp",
-      "bytes": 73824,
-      "sha256": "7487004a4bc909b123598a23ba3d7e9abf64767ae0fadaba85e35394c5e4e827",
       "dimensionsPx": [
         1920,
         1080
