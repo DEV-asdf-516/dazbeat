@@ -128,8 +128,8 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
     };
     const game = new Phaser.Game(
       createGameConfig([
-        new MainScene(i18n, auth, celestial),
-        new CreditsScene(catalog, i18n, celestial),
+        new MainScene(save, i18n, auth, celestial),
+        new CreditsScene(save, catalog, i18n, celestial),
         new SongSelectScene(save, feeds, i18n, celestial),
         new SettingsScene(save, i18n, initialLanguage, celestial),
         new GameplayScene(
@@ -141,7 +141,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
           celestial,
           rankedPlay,
         ),
-        new ResultScene(i18n, celestial),
+        new ResultScene(save, i18n, celestial),
         new ChartEditorSelectScene(feeds, auth, i18n),
         new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
       ]),

@@ -37,8 +37,10 @@ import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
 import type { SongRowView, SongSelectNotice, SongSelectState } from './songSelectState.js';
 import type { DifficultyAppearance } from '../difficultyAppearance.js';
+import { getControlsGuide } from '../controlsGuide.js';
 import { Button } from '../ui/Button.js';
-import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
+import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
+import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import {
   addCelestialAtmosphere,
   getCelestialAtmosphereUses,
@@ -59,16 +61,16 @@ import {
   queueJacketLoads,
   removeJacketTextures,
 } from '../ui/jacket.js';
+import { setFittedText } from '../ui/fitText.js';
 import { ensureLightTextures } from '../ui/lightTextures.js';
-import { addMenuKeyHintRow } from '../ui/keyHintView.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import { PointerHover } from '../ui/PointerHover.js';
 import {
   COLORS,
   INDICATOR,
   MOTION,
-  RADIUS,
   SCREEN_LAYOUT,
+  TYPE_SCALE,
   setTextColor,
   textStyle,
   typeStyle,
@@ -95,28 +97,36 @@ const THUMBNAIL_INSET_PX = 8;
 const THUMBNAIL_SIZE_PX = 56;
 const THUMBNAIL_TITLE_GAP_PX = 16;
 const THUMBNAIL_BORDER_PX = 2;
+const ROW_TITLE_CATEGORY_GAP_PX = 24;
 const UNSELECTED_THUMBNAIL_ALPHA = 0.5;
 const SELECTED_ROW_OFFSET_PX = 12;
 const PAGE_X_PX = 120;
 const PAGE_Y_PX = 872;
 const DETAIL_X_PX = 880;
-const JACKET_Y_PX = 176;
-const JACKET_SIZE_PX = 360;
-const TITLE_Y_PX = 560;
-const TITLE_WRAP_WIDTH_PX = 920;
-// 제목 두 줄(64px)이 들어가는 높이를 남긴다.
-const DIFFICULTY_Y_PX = 736;
+const JACKET_Y_PX = 228;
+const JACKET_SIZE_PX = 510;
+const INFO_X_PX = DETAIL_X_PX + JACKET_SIZE_PX + 58;
+const TITLE_Y_PX = 272;
+const TITLE_MAX_WIDTH_PX = SCREEN_LAYOUT.rightXPx - INFO_X_PX;
+// 자켓 옆 칸이 좁아 긴 제목은 이 크기까지 줄인 뒤에도 넘치면 줄을 넘긴다.
+const TITLE_MIN_SIZE_PX = 40;
+const TITLE_SHRINK_STEP_PX = 4;
+const CATEGORY_GAP_PX = 8;
+const DIFFICULTY_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 40;
 const DIFFICULTY_GAP_PX = 40;
 const SELECTED_DIFFICULTY_WEIGHT = 800;
-const RECORD_Y_PX = 800;
-const RECORD_LABEL_GAP_PX = 16;
-// 버튼 아래 끝이 힌트 줄(SCREEN_LAYOUT.hintYPx)보다 위에 오도록 둔다.
-const PLAY_Y_PX = 860;
-const HINT_X_PX = 120;
+// 기록은 곡 정보와 한 묶음으로 읽히도록 카테고리 바로 아래에 둔다.
+const RECORD_GROUP_GAP_PX = 40;
+const RECORD_LABEL_GAP_PX = 8;
+const PLAY_WIDTH_PX = 314;
+const PLAY_HEIGHT_PX = 72;
+// 버튼 아랫변을 재킷 아랫변에 맞춰 정보 열이 재킷과 같은 높이로 닫히게 한다.
+const PLAY_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX - PLAY_HEIGHT_PX;
 // 마우스 휠 한 칸의 이동량(브라우저 기본 100px)에 한 곡씩 넘어가게 한다.
 const WHEEL_STEP_PX = 100;
 
-const ROW_NODE_X_PX = ROW_X_PX - 14;
+// 선택 별의 고리(반지름 약 20px)가 썸네일에 닿지 않게 행 왼쪽 밖에 둔다.
+const ROW_NODE_X_PX = ROW_X_PX - 36;
 const ROW_NODE_INITIAL_ID = 'R15';
 const SELECTED_HALO_ID = 'R29';
 const ORBIT_ARC_ID = 'R30';
@@ -184,6 +194,7 @@ interface SongSelectWidgets {
   jacketGlint: Phaser.GameObjects.Sprite;
   jacket: JacketView;
   titleText: Phaser.GameObjects.Text;
+  categoryText: Phaser.GameObjects.Text;
   difficulties: DifficultyItem[];
   recordLabel: Phaser.GameObjects.Text;
   recordValue: Phaser.GameObjects.Text;
@@ -265,7 +276,6 @@ export class SongSelectScene extends Phaser.Scene {
         letterSpacing: MODE_LABEL_LETTER_SPACING_PX,
       });
     }
-    addMenuKeyHintRow(this, this.i18n.t('songSelect.hint'), HINT_X_PX);
     const view: SongSelectWidgets = {
       tabs: this.createFilterTabs(hover.filter, (filter) => controller.selectFilter(filter)),
       rows: this.createSongRows(hover.row, (slot) => controller.selectRow(slot)),
@@ -287,25 +297,43 @@ export class SongSelectScene extends Phaser.Scene {
         JACKET_GLINT_POSITION_PX.y,
       ),
       jacket: new JacketView(this, DETAIL_X_PX, JACKET_Y_PX, JACKET_SIZE_PX),
-      titleText: this.add.text(DETAIL_X_PX, TITLE_Y_PX, '', {
-        ...textStyle('title', COLORS.textPrimary),
-        wordWrap: { width: TITLE_WRAP_WIDTH_PX },
-      }),
+      titleText: this.add.text(INFO_X_PX, TITLE_Y_PX, '', textStyle('title', COLORS.textPrimary)),
+      categoryText: this.add.text(
+        INFO_X_PX,
+        TITLE_Y_PX,
+        '',
+        textStyle('secondary', COLORS.textSecondary),
+      ),
       difficulties: this.createDifficultyItems(hover.difficulty, (difficulty) =>
         controller.selectDifficulty(difficulty),
       ),
       ...this.createRecordTexts(),
-      playButton: new Button(this, DETAIL_X_PX, PLAY_Y_PX, {
+      playButton: new Button(this, INFO_X_PX, PLAY_Y_PX, {
         variant: 'primary',
+        widthPx: PLAY_WIDTH_PX,
+        heightPx: PLAY_HEIGHT_PX,
         label: 'PLAY',
         onActivate: () => controller.play(),
       }),
       hover,
     };
-    createHeaderAuxiliaryButton(this, {
-      label: 'SETTINGS',
-      onActivate: () => controller.openSettings(),
-    });
+    createHeaderAuxiliaryButtons(this, [
+      {
+        label: 'SETTINGS',
+        onActivate: () => controller.openSettings(),
+      },
+      {
+        label: 'MAIN',
+        onActivate: () => this.backToMain(),
+      },
+    ]);
+    const overlay = new ControlsOverlay(this, () =>
+      getControlsGuide(
+        this.i18n.t('controls', { returnObjects: true }),
+        this.save.loadSettings().keyBindings,
+      ),
+    );
+    addControlsEntry(this, SCREEN_LAYOUT.leftXPx, SCREEN_LAYOUT.hintYPx, () => overlay.open());
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     const renderLoadedJackets = (): void => {
@@ -326,7 +354,7 @@ export class SongSelectScene extends Phaser.Scene {
     );
     keyboard.on(
       'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, controller)),
+      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, controller, overlay)),
     );
     // 상세 패널(PLAY 버튼) 위에서 휠이 살짝 움직여 선택 곡이 바뀌지 않도록 목록 위에서만 받는다.
     const listArea = new Phaser.Geom.Rectangle(
@@ -339,7 +367,11 @@ export class SongSelectScene extends Phaser.Scene {
     this.input.on(
       Phaser.Input.Events.POINTER_WHEEL,
       (pointer: Phaser.Input.Pointer, _over: unknown, _deltaX: number, deltaY: number) => {
-        if (this.exit.kind === 'leaving' || !listArea.contains(pointer.x, pointer.y)) {
+        if (
+          this.exit.kind === 'leaving' ||
+          overlay.isOpen ||
+          !listArea.contains(pointer.x, pointer.y)
+        ) {
           return;
         }
         const read = readWheelRows(wheel, deltaY, this.time.now, WHEEL_STEP_PX);
@@ -379,9 +411,8 @@ export class SongSelectScene extends Phaser.Scene {
       const yPx = ROW_Y_PX + ROW_HEIGHT_PX * slot;
       const centerYPx = getRowCenterYPx(slot);
       const background = this.add
-        .rectangle(ROW_X_PX, yPx, ROW_WIDTH_PX, ROW_HEIGHT_PX, COLORS.surface)
-        .setOrigin(0, 0)
-        .setRounded(RADIUS.smallPx);
+        .rectangle(ROW_X_PX, yPx, ROW_WIDTH_PX, ROW_HEIGHT_PX)
+        .setOrigin(0, 0);
       const thumbnailXPx = ROW_X_PX + THUMBNAIL_INSET_PX;
       const thumbnailYPx = centerYPx - THUMBNAIL_SIZE_PX / 2;
       const thumbnail = new JacketView(this, thumbnailXPx, thumbnailYPx, THUMBNAIL_SIZE_PX);
@@ -468,20 +499,20 @@ export class SongSelectScene extends Phaser.Scene {
     'recordLabel' | 'recordValue' | 'noRecordText'
   > {
     const recordLabel = this.add.text(
-      DETAIL_X_PX,
-      RECORD_Y_PX,
+      INFO_X_PX,
+      TITLE_Y_PX,
       'BEST',
       textStyle('meta', COLORS.textMuted),
     );
     const recordValue = this.add.text(
-      DETAIL_X_PX + recordLabel.width + RECORD_LABEL_GAP_PX,
-      RECORD_Y_PX,
+      INFO_X_PX,
+      TITLE_Y_PX,
       '',
       textStyle('secondary', COLORS.textPrimary),
     );
     const noRecordText = this.add.text(
-      DETAIL_X_PX,
-      RECORD_Y_PX,
+      INFO_X_PX,
+      TITLE_Y_PX,
       this.i18n.t('songSelect.noRecord'),
       textStyle('secondary', COLORS.textMuted),
     );
@@ -492,8 +523,15 @@ export class SongSelectScene extends Phaser.Scene {
     };
   }
 
-  private handleKey(event: KeyboardEvent, controller: SongSelectController): void {
+  private handleKey(
+    event: KeyboardEvent,
+    controller: SongSelectController,
+    overlay: ControlsOverlay,
+  ): void {
     if (this.exit.kind === 'leaving') {
+      return;
+    }
+    if (overlay.handleKey(event)) {
       return;
     }
     switch (readMenuAction(event)) {
@@ -513,10 +551,7 @@ export class SongSelectScene extends Phaser.Scene {
         controller.play();
         return;
       case 'back':
-        this.exit = exitScene(this, this.exit, {
-          key: 'main',
-          data: undefined,
-        });
+        this.backToMain();
         return;
       case null:
         break;
@@ -589,6 +624,13 @@ export class SongSelectScene extends Phaser.Scene {
     });
   }
 
+  private backToMain(): void {
+    this.exit = exitScene(this, this.exit, {
+      key: 'main',
+      data: undefined,
+    });
+  }
+
   private render(view: SongSelectWidgets): void {
     const { state, notice } = this.shown;
     view.tabs.forEach((tab) => this.renderTab(view, tab));
@@ -641,7 +683,6 @@ export class SongSelectScene extends Phaser.Scene {
     const { background, thumbnail, thumbnailBorder, title, category, node } = row;
     const hasSong = rowView.kind === 'song';
     row.isSelected = hasSong && rowView.isSelected;
-    background.setFillStyle(COLORS.surface, row.isSelected ? 1 : 0);
     thumbnail.setVisible(hasSong);
     thumbnailBorder.setVisible(row.isSelected);
     title.setVisible(hasSong);
@@ -657,13 +698,16 @@ export class SongSelectScene extends Phaser.Scene {
     background.setInteractive();
     thumbnail.setSong(song).setAlpha(row.isSelected ? 1 : UNSELECTED_THUMBNAIL_ALPHA);
     thumbnailBorder.setStrokeStyle(THUMBNAIL_BORDER_PX, song.accentColor);
-    title.setText(song.title);
+    category.setText(song.category.toUpperCase());
+    // 선택 행은 오른쪽으로 밀리므로 그만큼 빼야 선택돼도 분류와 겹치지 않는다.
+    const titleMaxWidthPx =
+      category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX - SELECTED_ROW_OFFSET_PX - title.x;
+    setFittedText(title, song.title, titleMaxWidthPx);
     row.record =
       recordChart === null
         ? null
         : getChartRecord(this.records, recordChart.song.id, recordChart.difficulty);
     this.renderRowHighlight(view, slot);
-    category.setText(song.category.toUpperCase());
   }
 
   private renderRowHighlight(view: SongSelectWidgets, slot: number): void {
@@ -688,10 +732,22 @@ export class SongSelectScene extends Phaser.Scene {
   private renderSong(view: SongSelectWidgets, song: Song): void {
     view.jacket.setSong(song, true);
     view.orbitArc.setVisible(true);
-    view.titleText.setText(song.title);
+    let titleSizePx = TYPE_SCALE.title.sizePx;
+    view.titleText.setWordWrapWidth(null).setFontSize(titleSizePx).setText(song.title);
+    while (view.titleText.width > TITLE_MAX_WIDTH_PX && titleSizePx > TITLE_MIN_SIZE_PX) {
+      titleSizePx -= TITLE_SHRINK_STEP_PX;
+      view.titleText.setFontSize(titleSizePx);
+    }
+    view.titleText.setWordWrapWidth(TITLE_MAX_WIDTH_PX, true);
+    view.categoryText
+      .setText(song.category.toUpperCase())
+      .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
+    const recordYPx = view.categoryText.y + view.categoryText.height + RECORD_GROUP_GAP_PX;
     const record = this.record;
-    view.recordLabel.setVisible(record !== null);
+    view.recordLabel.setY(recordYPx).setVisible(record !== null);
+    view.noRecordText.setY(recordYPx);
     view.recordValue
+      .setY(recordYPx + view.recordLabel.height + RECORD_LABEL_GAP_PX)
       .setText(
         record === null ? '' : `${formatScore(record.score)}   ${formatAccuracy(record.accuracy)}`,
       )
@@ -704,6 +760,7 @@ export class SongSelectScene extends Phaser.Scene {
     view.jacket.setSong(null, true);
     view.orbitArc.setVisible(false);
     view.titleText.setText('');
+    view.categoryText.setText('');
     view.recordLabel.setVisible(false);
     view.recordValue.setVisible(false);
     view.noRecordText.setVisible(false);

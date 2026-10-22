@@ -5,13 +5,27 @@ export const en: Messages = {
     loadFailed: 'Failed to load game data. Please refresh in a moment.',
   },
   main: {
-    hint: '↑↓ Move   Enter Select',
     account: {
       signInFailed: 'Google sign-in failed',
     },
   },
+  controls: {
+    gameplay: {
+      title: 'Gameplay',
+      hitNotes: 'Hit notes',
+      switchMvMode: 'Switch MV mode',
+    },
+    menu: {
+      title: 'Menu',
+      move: 'Move',
+      select: 'Select',
+      back: 'Back',
+      adjust: 'Adjust',
+      switchCategory: 'Switch category',
+      openSettings: 'Open settings',
+    },
+  },
   songSelect: {
-    hint: '↑↓ Song   ←→ Difficulty   Q/E Category   Enter Play   Tab Settings   Esc Main',
     noSongs: 'No songs',
     loading: 'Loading songs',
     loadFailed: "Couldn't load songs · ↑↓ Retry",
@@ -19,7 +33,6 @@ export const en: Messages = {
   },
   settings: {
     title: 'Settings',
-    hint: '↑↓ Move   ←→ Adjust   Enter Change key   Esc Back',
     waitingKey: 'Press a key for Lane {{lane}} (Esc to cancel)',
     groups: {
       audio: 'Audio',
@@ -39,10 +52,6 @@ export const en: Messages = {
   },
   credits: {
     title: 'Credits',
-    hint: '↑↓ Scroll   Esc Back',
-  },
-  result: {
-    hint: '←→ Difficulty   ↑↓ Move   Enter Select   Esc Tracks',
   },
   gameplay: {
     loading: 'Loading',

@@ -1,6 +1,7 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import type { AuthUser } from '../../data/account.js';
+import type { LocalSave } from '../../storage/LocalSave.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import {
   cancelSignIn,
@@ -11,6 +12,7 @@ import {
 } from '../accountState.js';
 import type { AccountAuth, AccountState } from '../accountState.js';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
+import { getControlsGuide } from '../controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { SceneRequest } from '../sceneRoutes.js';
 import { getAccountPanel } from './accountPanel.js';
@@ -35,7 +37,7 @@ import {
 } from '../celestial/celestialSprites.js';
 import { queueImageLoads } from '../ui/imageLoad.js';
 import { MenuFocus } from '../ui/MenuFocus.js';
-import { addMenuKeyHintRow } from '../ui/keyHintView.js';
+import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
   COLORS,
@@ -183,6 +185,7 @@ export class MainScene extends Phaser.Scene {
   private exit: SceneExit<SceneRequest> = STAYING;
 
   constructor(
+    private readonly save: LocalSave,
     private readonly i18n: I18n,
     private readonly auth: AccountAuth,
     private readonly celestial: CelestialCatalog,
@@ -334,9 +337,15 @@ export class MainScene extends Phaser.Scene {
     this.menuItems = [];
     this.menuButtons = [];
     this.renderMenu(view);
-    addMenuKeyHintRow(this, this.i18n.t('main.hint'), SCREEN_LAYOUT.leftXPx);
     this.renderAccount(view);
     playCelestialEntryTransition(this, this.celestial, logo.getBounds());
+    const overlay = new ControlsOverlay(this, () =>
+      getControlsGuide(
+        this.i18n.t('controls', { returnObjects: true }),
+        this.save.loadSettings().keyBindings,
+      ),
+    );
+    addControlsEntry(this, SCREEN_LAYOUT.leftXPx, SCREEN_LAYOUT.hintYPx, () => overlay.open());
     // 화면이 없어진 뒤 로그인 결과가 도착해도 반영되지 않도록 진행 중인 시도를 무효로 만든다.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       if (this.account.kind === 'signingIn') {
@@ -346,7 +355,7 @@ export class MainScene extends Phaser.Scene {
     });
     keyboard.on(
       'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, view)),
+      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, view, overlay)),
     );
   }
 
@@ -392,8 +401,11 @@ export class MainScene extends Phaser.Scene {
     );
   }
 
-  private handleKey(event: KeyboardEvent, view: AccountView): void {
+  private handleKey(event: KeyboardEvent, view: AccountView, overlay: ControlsOverlay): void {
     if (this.exit.kind === 'leaving') {
+      return;
+    }
+    if (overlay.handleKey(event)) {
       return;
     }
     switch (readMenuAction(event)) {

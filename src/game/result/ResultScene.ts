@@ -3,6 +3,8 @@ import Phaser from 'phaser';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { PlayMode, ResultSceneData, SceneRequest, SongSelectRestore } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import type { LocalSave } from '../../storage/LocalSave.js';
+import { getControlsGuide } from '../controlsGuide.js';
 import {
   CONSTELLATION_LOOKS,
   getConstellationLines,
@@ -39,7 +41,7 @@ import { formatAccuracy, formatScore } from '../ui/format.js';
 import { JacketView, queueJacketLoads } from '../ui/jacket.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { MenuFocus } from '../ui/MenuFocus.js';
-import { addMenuKeyHintRow } from '../ui/keyHintView.js';
+import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import { COLORS, JUDGMENT_COLORS, MOTION, SCREEN_LAYOUT, textStyle } from '../ui/theme.js';
 
@@ -111,6 +113,7 @@ export class ResultScene extends Phaser.Scene {
   private jacketSongs: readonly Song[] = [];
 
   constructor(
+    private readonly save: LocalSave,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
   ) {
@@ -277,7 +280,13 @@ export class ResultScene extends Phaser.Scene {
         button: songSelectButton,
       },
     ]);
-    const hint = addMenuKeyHintRow(this, this.i18n.t('result.hint'), LEFT_X_PX);
+    const overlay = new ControlsOverlay(this, () =>
+      getControlsGuide(
+        this.i18n.t('controls', { returnObjects: true }),
+        this.save.loadSettings().keyBindings,
+      ),
+    );
+    addControlsEntry(this, LEFT_X_PX, SCREEN_LAYOUT.hintYPx, () => overlay.open());
     playCelestialEntryTransition(this, this.celestial, rankBounds);
     const presentation = getResultPresentation(mode, result);
     this.playFinish(
@@ -313,11 +322,7 @@ export class ResultScene extends Phaser.Scene {
       onComplete: () => scoreText.setText(formatScore(result.score)),
     });
     this.fadeInAt(statTexts, 1, STATS_REVEAL_DELAY_MS);
-    this.fadeInAt(
-      [...tabs.getVisuals(), retryButton, songSelectButton, hint],
-      1,
-      MENU_REVEAL_DELAY_MS,
-    );
+    this.fadeInAt([...tabs.getVisuals(), retryButton, songSelectButton], 1, MENU_REVEAL_DELAY_MS);
     this.revealConstellation(
       planSongConstellation(song.id, song.constellation, presentation.tier, CONSTELLATION_BOX),
       song.accentColor,
@@ -328,7 +333,7 @@ export class ResultScene extends Phaser.Scene {
     keyboard.on(
       'keydown',
       handleEachEventOnce((event: KeyboardEvent) =>
-        this.handleKey(event, menu, activate, (delta) =>
+        this.handleKey(event, menu, overlay, activate, (delta) =>
           selectRetryChart(stepChart(retryChart, delta)),
         ),
       ),
@@ -338,10 +343,14 @@ export class ResultScene extends Phaser.Scene {
   private handleKey(
     event: KeyboardEvent,
     menu: MenuFocus<MenuItem>,
+    overlay: ControlsOverlay,
     activate: (item: MenuItem) => void,
     stepRetryChart: (delta: 1 | -1) => void,
   ): void {
     if (this.exit.kind === 'leaving') {
+      return;
+    }
+    if (overlay.handleKey(event)) {
       return;
     }
     // 곡 선택 화면처럼 ←→ 는 난이도, 메뉴 이동은 ↑↓ 다.
