@@ -1,5 +1,6 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
+import { getControlsGuide } from '../controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { SceneRequest, SettingsReturn, SettingsSceneData } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
@@ -26,7 +27,7 @@ import {
 import type { SettingsEditorState } from './settingsEditorState.js';
 import { Button } from '../ui/Button.js';
 import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
+import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
 import {
   addCelestialAtmosphere,
   getCelestialAtmosphereUses,
@@ -35,7 +36,7 @@ import {
 } from '../celestial/celestialAtmosphere.js';
 import { addCelestialSprite, queueCelestialTextures } from '../celestial/celestialSprites.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
-import { addMenuKeyHintRow } from '../ui/keyHintView.js';
+import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { PointerHover } from '../ui/PointerHover.js';
 import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/theme.js';
 import { readKeyCapture } from './keyCapture.js';
@@ -132,8 +133,6 @@ const CHEVRON_TEXTURE_SCALE = 2;
 const CHEVRON_STROKE_PX = 3;
 const FOCUS_STAR_ID = 'R49';
 const FOCUS_STAR_GAP_PX = 24;
-// 행이 화면 아래까지 차 있어 다른 메뉴 씬의 힌트 위치보다 조금 내린다.
-const HINT_Y_PX = 984;
 
 interface StepControl {
   button: Button;
@@ -156,7 +155,7 @@ interface SettingsView {
   groups: readonly { group: SettingsGroup; text: Phaser.GameObjects.Text }[];
   rows: readonly RowView[];
   waitingText: Phaser.GameObjects.Text;
-  keyHint: { text: string; row: Phaser.GameObjects.Container };
+  controlsEntry: Phaser.GameObjects.Container;
   rowHover: PointerHover<number>;
   focusStar: Phaser.GameObjects.Sprite;
 }
@@ -206,6 +205,12 @@ export class SettingsScene extends Phaser.Scene {
     const onPointer = (transition: Transition): void =>
       update((state) => applyPointer(state, transition));
 
+    const overlay = new ControlsOverlay(this, () =>
+      getControlsGuide(
+        this.i18n.t('controls', { returnObjects: true }),
+        this.editor.settings.keyBindings,
+      ),
+    );
     const view: SettingsView = {
       title: this.add.text(
         SCREEN_LAYOUT.leftXPx,
@@ -225,11 +230,13 @@ export class SettingsScene extends Phaser.Scene {
       rows: ROWS.map((row, index) => this.createRow(row, index, rowHover, onPointer)),
       waitingText: this.add.text(
         SCREEN_LAYOUT.leftXPx,
-        HINT_Y_PX,
+        SCREEN_LAYOUT.hintYPx,
         '',
         textStyle('meta', COLORS.textSecondary),
       ),
-      keyHint: this.createKeyHint(this.i18n.t('settings.hint')),
+      controlsEntry: addControlsEntry(this, SCREEN_LAYOUT.leftXPx, SCREEN_LAYOUT.hintYPx, () =>
+        overlay.open(),
+      ),
       rowHover,
       focusStar: addCelestialSprite(
         this,
@@ -238,15 +245,19 @@ export class SettingsScene extends Phaser.Scene {
         0,
       ),
     };
-    createHeaderAuxiliaryButton(this, {
-      label: 'BACK',
-      onActivate: () => this.pressBack(update),
-    });
+    createHeaderAuxiliaryButtons(this, [
+      {
+        label: 'BACK',
+        onActivate: () => this.pressBack(update),
+      },
+    ]);
+    keyboard.addCapture('TAB');
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     this.render(view);
     playCelestialEntryTransition(this, this.celestial, view.title.getBounds());
     keyboard.on(
       'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, update)),
+      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, update, overlay)),
     );
   }
 
@@ -319,7 +330,11 @@ export class SettingsScene extends Phaser.Scene {
     };
   }
 
-  private handleKey(event: KeyboardEvent, update: (transition: Transition) => void): void {
+  private handleKey(
+    event: KeyboardEvent,
+    update: (transition: Transition) => void,
+    overlay: ControlsOverlay,
+  ): void {
     if (this.exit.kind === 'leaving') {
       return;
     }
@@ -328,6 +343,9 @@ export class SettingsScene extends Phaser.Scene {
       if (code !== null) {
         update((state) => bindWaitingKey(state, code));
       }
+      return;
+    }
+    if (overlay.handleKey(event)) {
       return;
     }
     switch (readMenuAction(event)) {
@@ -418,28 +436,10 @@ export class SettingsScene extends Phaser.Scene {
       }
     });
     view.waitingText.setVisible(waitingLane !== null);
-    if (waitingLane === null) {
-      this.renderKeyHint(view, this.i18n.t('settings.hint'));
-      return;
+    view.controlsEntry.setVisible(waitingLane === null);
+    if (waitingLane !== null) {
+      view.waitingText.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
     }
-    view.waitingText.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
-    view.keyHint.row.setVisible(false);
-  }
-
-  private renderKeyHint(view: SettingsView, text: string): void {
-    if (view.keyHint.text === text) {
-      view.keyHint.row.setVisible(true);
-      return;
-    }
-    view.keyHint.row.destroy();
-    view.keyHint = this.createKeyHint(text);
-  }
-
-  private createKeyHint(text: string): SettingsView['keyHint'] {
-    return {
-      text,
-      row: addMenuKeyHintRow(this, text, SCREEN_LAYOUT.leftXPx, HINT_Y_PX),
-    };
   }
 
   private renderLabelColor(rowView: RowView, rowHover: PointerHover<number>): void {

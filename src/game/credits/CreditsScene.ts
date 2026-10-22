@@ -1,12 +1,14 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import type { LocalSave } from '../../storage/LocalSave.js';
+import { getControlsGuide } from '../controlsGuide.js';
 import type { SongFeed } from '../SongFeed.js';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { SceneRequest } from '../sceneRoutes.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import { createHeaderAuxiliaryButton } from '../ui/auxiliaryButton.js';
+import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
 import {
   addCelestialAtmosphere,
   getCelestialAtmosphereUses,
@@ -15,7 +17,7 @@ import {
 } from '../celestial/celestialAtmosphere.js';
 import { queueCelestialTextures } from '../celestial/celestialSprites.js';
 import { setFittedText } from '../ui/fitText.js';
-import { addMenuKeyHintRow } from '../ui/keyHintView.js';
+import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import { CELESTIAL_COLORS, COLORS, SCREEN_LAYOUT, textStyle } from '../ui/theme.js';
 import { IDLE_WHEEL, readWheelRows } from '../wheelRows.js';
@@ -61,6 +63,7 @@ export class CreditsScene extends Phaser.Scene {
   private state: CreditsState = INITIAL_CREDITS_STATE;
 
   constructor(
+    private readonly save: LocalSave,
     private readonly catalog: SongFeed,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
@@ -86,10 +89,12 @@ export class CreditsScene extends Phaser.Scene {
       this.i18n.t('credits.title'),
       textStyle('heading', COLORS.textPrimary),
     );
-    createHeaderAuxiliaryButton(this, {
-      label: 'BACK',
-      onActivate: () => this.back(),
-    });
+    createHeaderAuxiliaryButtons(this, [
+      {
+        label: 'BACK',
+        onActivate: () => this.back(),
+      },
+    ]);
 
     this.add
       .rectangle(
@@ -117,26 +122,38 @@ export class CreditsScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribe);
     void this.catalog.requestRemaining();
 
+    const overlay = new ControlsOverlay(this, () =>
+      getControlsGuide(
+        this.i18n.t('controls', { returnObjects: true }),
+        this.save.loadSettings().keyBindings,
+      ),
+    );
     let wheel = IDLE_WHEEL;
     this.input.on(
       Phaser.Input.Events.POINTER_WHEEL,
       (_pointer: Phaser.Input.Pointer, _over: unknown, _deltaX: number, deltaY: number) => {
+        if (overlay.isOpen) {
+          return;
+        }
         const read = readWheelRows(wheel, deltaY, this.time.now, ROW_STRIDE_PX);
         wheel = read.gesture;
         this.applyTransition(view, (state) => scrollCredits(state, GRID, read.rows));
       },
     );
 
-    addMenuKeyHintRow(this, this.i18n.t('credits.hint'), SCREEN_LAYOUT.leftXPx);
+    addControlsEntry(this, SCREEN_LAYOUT.leftXPx, SCREEN_LAYOUT.hintYPx, () => overlay.open());
     playCelestialEntryTransition(this, this.celestial, title.getBounds());
     keyboard.on(
       'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, view)),
+      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, view, overlay)),
     );
   }
 
-  private handleKey(event: KeyboardEvent, view: CreditsView): void {
+  private handleKey(event: KeyboardEvent, view: CreditsView, overlay: ControlsOverlay): void {
     if (this.exit.kind === 'leaving') {
+      return;
+    }
+    if (overlay.handleKey(event)) {
       return;
     }
     const action = readMenuAction(event);

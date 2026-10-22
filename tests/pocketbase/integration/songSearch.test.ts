@@ -390,6 +390,18 @@ describe('song title search API', () => {
     expect(await searchTitles(guest, 'nothing like it')).toEqual([]);
   });
 
+  it('matches a title regardless of composed or decomposed kana', async () => {
+    const { url, superuser } = await startSearchServer();
+    const composed = 'いかないで';
+    const decomposed = composed.normalize('NFD');
+    await createSong(superuser, 'decomposed-title', undefined, { title: decomposed });
+    const guest = createClient(url);
+
+    expect(await searchTitles(guest, composed)).toEqual([composed]);
+    expect(await searchTitles(guest, decomposed)).toEqual([composed]);
+    expect(await searchTitles(guest, 'ないで')).toEqual([composed]);
+  });
+
   it('rejects invalid input with 400', async () => {
     const { url } = await startSearchServer();
     const guest = createClient(url);

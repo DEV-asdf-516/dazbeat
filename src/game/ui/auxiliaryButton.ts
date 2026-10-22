@@ -33,10 +33,10 @@ export function createAuxiliaryButton(
 }
 
 /** 화면마다 제목 서체가 달라도 같은 자리에 오도록 곡 선택 필터 탭과 같은 primary 한 줄의 세로 중심에 맞춘다. */
-export function createHeaderAuxiliaryButton(
+export function createHeaderAuxiliaryButtons(
   scene: Phaser.Scene,
-  options: { label: string; onActivate: () => void },
-): Button {
+  items: readonly { label: string; onActivate: () => void }[],
+): Button[] {
   const probe = scene.make.text(
     {
       text: ' ',
@@ -46,5 +46,13 @@ export function createHeaderAuxiliaryButton(
   );
   const centerYPx = SCREEN_LAYOUT.headerYPx + probe.height / 2;
   probe.destroy();
-  return createAuxiliaryButton(scene, 0, centerYPx, options).alignX(HEADER_AUXILIARY_RIGHT_X_PX, 1);
+  let rightXPx = HEADER_AUXILIARY_RIGHT_X_PX;
+  return items
+    .toReversed()
+    .map((options) => {
+      const button = createAuxiliaryButton(scene, 0, centerYPx, options).alignX(rightXPx, 1);
+      rightXPx = button.x;
+      return button;
+    })
+    .reverse();
 }

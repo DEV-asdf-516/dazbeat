@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { parseKeyHints } from './keyHints.js';
-import { COLORS, RADIUS, SCREEN_LAYOUT, TYPE_SCALE, typeStyle } from './theme.js';
+import { COLORS, RADIUS, TYPE_SCALE, typeStyle } from './theme.js';
 
 export interface KeyHintStyle {
   keyType: { sizePx: number; weight: number };
@@ -21,7 +21,7 @@ export interface KeyHintStyle {
 }
 
 /** 배경 그림이 비치지 않게 어두운 면을 깐다. */
-const MENU_KEY_HINT_STYLE: KeyHintStyle = {
+export const MENU_KEY_HINT_STYLE: KeyHintStyle = {
   keyType: {
     sizePx: 17,
     weight: 600,
@@ -35,7 +35,7 @@ const MENU_KEY_HINT_STYLE: KeyHintStyle = {
   capBorderAlpha: 0.7,
   capHeightPx: 32,
   capPaddingXPx: 10,
-  capMinWidthPx: 36,
+  capMinWidthPx: 56,
   capLabelGapPx: 12,
   rowItemGapPx: 36,
   columnRowGapPx: 12,
@@ -43,43 +43,53 @@ const MENU_KEY_HINT_STYLE: KeyHintStyle = {
 
 const CAP_BORDER_PX = 1;
 
-interface KeyHintItem {
-  cap: Phaser.GameObjects.Rectangle;
-  key: Phaser.GameObjects.Text;
+export interface KeyCap {
+  readonly cap: Phaser.GameObjects.Rectangle;
+  readonly key: Phaser.GameObjects.Text;
+}
+
+interface KeyHintItem extends KeyCap {
   label: Phaser.GameObjects.Text;
 }
 
+export function createKeyCap(scene: Phaser.Scene, key: string, style: KeyHintStyle): KeyCap {
+  const text = scene.add
+    .text(0, 0, key, typeStyle(style.keyType, style.keyColor))
+    .setOrigin(0.5, 0.5);
+  const cap = scene.add
+    .rectangle(
+      0,
+      0,
+      Math.max(style.capMinWidthPx, text.width + style.capPaddingXPx * 2),
+      style.capHeightPx,
+      style.capFill,
+      style.capFillAlpha,
+    )
+    .setOrigin(0, 0.5)
+    .setStrokeStyle(CAP_BORDER_PX, style.capBorder, style.capBorderAlpha)
+    .setRounded(RADIUS.smallPx);
+  return {
+    cap,
+    key: text,
+  };
+}
+
+export function placeKeyCap(keyCap: KeyCap, capLeftPx: number, centerYPx: number): void {
+  keyCap.cap.setPosition(capLeftPx, centerYPx);
+  keyCap.key.setPosition(capLeftPx + keyCap.cap.width / 2, centerYPx);
+}
+
 function createItems(scene: Phaser.Scene, text: string, style: KeyHintStyle): KeyHintItem[] {
-  return parseKeyHints(text).map((hint) => {
-    const key = scene.add
-      .text(0, 0, hint.key, typeStyle(style.keyType, style.keyColor))
-      .setOrigin(0.5, 0.5);
-    const cap = scene.add
-      .rectangle(
-        0,
-        0,
-        Math.max(style.capMinWidthPx, key.width + style.capPaddingXPx * 2),
-        style.capHeightPx,
-        style.capFill,
-        style.capFillAlpha,
-      )
-      .setOrigin(0, 0.5)
-      .setStrokeStyle(CAP_BORDER_PX, style.capBorder, style.capBorderAlpha)
-      .setRounded(RADIUS.smallPx);
-    const label = scene.add
+  return parseKeyHints(text).map((hint) => ({
+    ...createKeyCap(scene, hint.key, style),
+    label: scene.add
       .text(0, 0, hint.label, typeStyle(style.labelType, style.labelColor))
-      .setOrigin(0, 0.5);
-    return {
-      cap,
-      key,
-      label,
-    };
-  });
+      .setOrigin(0, 0.5),
+  }));
 }
 
 function placeItem(item: KeyHintItem, capLeftPx: number, labelLeftPx: number, yPx: number): void {
-  item.cap.setPosition(capLeftPx, yPx);
-  item.key.setPosition(capLeftPx + item.cap.width / 2, yPx);
+  placeKeyCap(item, capLeftPx, yPx);
   item.label.setPosition(labelLeftPx, yPx);
 }
 
@@ -127,19 +137,4 @@ export function addKeyHintColumn(
   const firstYPx = -style.capHeightPx / 2 - rowStepPx * (items.length - 1);
   items.forEach((item, index) => placeItem(item, 0, labelLeftPx, firstYPx + rowStepPx * index));
   return addContainer(scene, leftPx, bottomYPx, items);
-}
-
-export function addMenuKeyHintRow(
-  scene: Phaser.Scene,
-  text: string,
-  leftPx: number,
-  topYPx: number = SCREEN_LAYOUT.hintYPx,
-): Phaser.GameObjects.Container {
-  return addKeyHintRow(
-    scene,
-    text,
-    MENU_KEY_HINT_STYLE,
-    leftPx,
-    topYPx + MENU_KEY_HINT_STYLE.capHeightPx / 2,
-  );
 }

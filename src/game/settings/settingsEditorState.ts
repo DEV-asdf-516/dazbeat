@@ -77,6 +77,10 @@ export function bindWaitingKey(state: SettingsEditorState, code: string): Settin
   if (lane === null) {
     throw new Error('No lane is waiting for a key');
   }
+  // 플레이 중 Tab 은 항상 MV 모드 전환이어야 하므로 레인 키로 받지 않는다.
+  if (code === 'Tab') {
+    return state;
+  }
   const { keyBindings } = state.settings;
   if (code === 'Escape' || keyBindings[lane] === code) {
     return {

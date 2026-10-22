@@ -2,7 +2,7 @@ import type Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
 import { Button } from './Button.js';
 import type { QuietButtonColors, SecondaryButtonColors } from './Button.js';
-import { CELESTIAL_COLORS, MOTION, STATUS_COLORS, typeStyle } from './theme.js';
+import { CELESTIAL_COLORS, MODAL, MOTION, STATUS_COLORS, typeStyle } from './theme.js';
 
 export type ConfirmTone = 'default' | 'danger';
 
@@ -14,18 +14,9 @@ export interface ConfirmDialogContent {
   acceptTone: ConfirmTone;
 }
 
-// 플레이 HUD·노트(GAMEPLAY_DEPTH)와 에디터 timeline 위에 그려 팝업 아래 입력을 막는다.
-const DEPTH = 100;
-const BACKDROP_ALPHA = 0.6;
 const PANEL_WIDTH_PX = 480;
 const PADDING_PX = 32;
 const CONTENT_WIDTH_PX = PANEL_WIDTH_PX - PADDING_PX * 2;
-const PANEL_COLOR = 0x10192a;
-const PANEL_RADIUS_PX = 6;
-const SHADOW_COLOR = 0x02050c;
-const SHADOW_ALPHA = 0.35;
-const SHADOW_OFFSET_X_PX = 8;
-const SHADOW_OFFSET_Y_PX = 12;
 const BODY_GAP_PX = 12;
 const ACTIONS_GAP_PX = 28;
 const BUTTON_GAP_PX = 12;
@@ -81,25 +72,25 @@ export class ConfirmDialog {
   constructor(scene: Phaser.Scene, actions: { onCancel: () => void; onAccept: () => void }) {
     this.scene = scene;
     this.backdrop = scene.add
-      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, CELESTIAL_COLORS.background, BACKDROP_ALPHA)
+      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, CELESTIAL_COLORS.background, MODAL.backdropAlpha)
       .setOrigin(0, 0)
       .setInteractive()
-      .setDepth(DEPTH);
+      .setDepth(MODAL.depth);
     this.shadow = scene.add
       .rectangle(
-        SHADOW_OFFSET_X_PX,
-        SHADOW_OFFSET_Y_PX,
+        MODAL.shadowOffsetXPx,
+        MODAL.shadowOffsetYPx,
         PANEL_WIDTH_PX,
         0,
-        SHADOW_COLOR,
-        SHADOW_ALPHA,
+        MODAL.shadowColor,
+        MODAL.shadowAlpha,
       )
       .setOrigin(0, 0)
-      .setRounded(PANEL_RADIUS_PX);
+      .setRounded(MODAL.panelRadiusPx);
     this.panel = scene.add
-      .rectangle(0, 0, PANEL_WIDTH_PX, 0, PANEL_COLOR)
+      .rectangle(0, 0, PANEL_WIDTH_PX, 0, MODAL.panelColor)
       .setOrigin(0, 0)
-      .setRounded(PANEL_RADIUS_PX);
+      .setRounded(MODAL.panelRadiusPx);
     this.title = scene.add.text(PADDING_PX, 0, '', {
       ...typeStyle(TITLE_TYPE, CELESTIAL_COLORS.textPrimary),
       lineSpacing: TITLE_LINE_SPACING_PX,
@@ -138,7 +129,7 @@ export class ConfirmDialog {
     });
     this.container = scene.add
       .container(0, 0, [this.shadow, this.panel, this.title, this.body, this.cancel, this.accept])
-      .setDepth(DEPTH);
+      .setDepth(MODAL.depth);
     this.backdrop.setVisible(false);
     this.container.setVisible(false);
     this.cancel.setEnabled(false);

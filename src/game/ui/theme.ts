@@ -170,11 +170,23 @@ export const MOTION = {
   mediumMs: 420,
 } as const;
 
+export const MODAL = {
+  // 플레이 HUD·노트(GAMEPLAY_DEPTH)와 에디터 timeline 위에 그려 팝업 아래 입력을 막는다.
+  depth: 100,
+  backdropAlpha: 0.6,
+  panelColor: 0x10192a,
+  panelRadiusPx: 6,
+  shadowColor: 0x02050c,
+  shadowAlpha: 0.35,
+  shadowOffsetXPx: 8,
+  shadowOffsetYPx: 12,
+} as const;
+
 export const SCREEN_LAYOUT = {
   leftXPx: 160,
   rightXPx: 1760,
   headerYPx: 96,
-  hintYPx: 960,
+  hintYPx: 988,
 } as const;
 
 export const GAMEPLAY_DEPTH = {

@@ -45,7 +45,8 @@ function parseTitle(value: unknown): TitleSearch {
   if (!isString(value)) {
     throw new InvalidSongSearchError('title must be a string.');
   }
-  const term = value.trim();
+  // 저장된 제목과 같은 NFC 로 맞춰야 조합형으로 입력한 검색어도 찾는다.
+  const term = value.normalize('NFC').trim();
   // 보조 평면 문자도 한 글자로 센다.
   const termLength = Array.from(term).length;
   if (termLength === 0 || termLength > MAX_TITLE_LENGTH) {

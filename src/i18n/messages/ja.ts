@@ -5,13 +5,27 @@ export const ja: Messages = {
     loadFailed: 'ゲームデータを読み込めませんでした。しばらくしてから再読み込みしてください。',
   },
   main: {
-    hint: '↑↓ 移動   Enter 決定',
     account: {
       signInFailed: 'Google ログインに失敗しました',
     },
   },
+  controls: {
+    gameplay: {
+      title: 'プレイ',
+      hitNotes: 'ノート入力',
+      switchMvMode: 'MVモード切替',
+    },
+    menu: {
+      title: 'メニュー',
+      move: '移動',
+      select: '決定',
+      back: '戻る',
+      adjust: '変更',
+      switchCategory: 'カテゴリー切替',
+      openSettings: '設定を開く',
+    },
+  },
   songSelect: {
-    hint: '↑↓ 曲   ←→ 難易度   Q/E カテゴリー   Enter プレイ   Tab 設定   Esc メイン',
     noSongs: '曲がありません',
     loading: '曲リストを読み込み中',
     loadFailed: '曲リストを読み込めませんでした · ↑↓ 再試行',
@@ -19,7 +33,6 @@ export const ja: Messages = {
   },
   settings: {
     title: '設定',
-    hint: '↑↓ 移動   ←→ 調整   Enter キー変更   Esc 戻る',
     waitingKey: 'レーン{{lane}}のキーを押してください (Esc キャンセル)',
     groups: {
       audio: 'オーディオ',
@@ -39,10 +52,6 @@ export const ja: Messages = {
   },
   credits: {
     title: 'クレジット',
-    hint: '↑↓ スクロール   Esc 戻る',
-  },
-  result: {
-    hint: '←→ 難易度   ↑↓ 移動   Enter 決定   Esc 曲選択',
   },
   gameplay: {
     loading: '読み込み中',

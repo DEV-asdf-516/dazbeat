@@ -68,7 +68,7 @@ function parseKeyBindings(value: unknown): Settings['keyBindings'] | undefined {
   if (!isKeyCode(lane0) || !isKeyCode(lane1) || !isKeyCode(lane2) || !isKeyCode(lane3)) {
     return undefined;
   }
-  if (new Set(keys).size !== keys.length) {
+  if (new Set(keys).size !== keys.length || keys.includes('Tab')) {
     return undefined;
   }
   return [lane0, lane1, lane2, lane3];

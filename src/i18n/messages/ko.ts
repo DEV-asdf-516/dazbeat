@@ -3,13 +3,27 @@ export const ko = {
     loadFailed: '게임 데이터를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.',
   },
   main: {
-    hint: '↑↓ 이동   Enter 선택',
     account: {
       signInFailed: 'Google 로그인에 실패했습니다',
     },
   },
+  controls: {
+    gameplay: {
+      title: '플레이',
+      hitNotes: '노트 입력',
+      switchMvMode: 'MV 모드 전환',
+    },
+    menu: {
+      title: '메뉴',
+      move: '이동',
+      select: '선택',
+      back: '뒤로',
+      adjust: '조절',
+      switchCategory: '카테고리 전환',
+      openSettings: '설정 열기',
+    },
+  },
   songSelect: {
-    hint: '↑↓ 곡   ←→ 난이도   Q/E 카테고리   Enter 플레이   Tab 설정   Esc 메인',
     noSongs: '곡 없음',
     loading: '곡 목록을 불러오는 중',
     loadFailed: '곡 목록을 불러오지 못했습니다 · ↑↓ 다시 시도',
@@ -17,7 +31,6 @@ export const ko = {
   },
   settings: {
     title: '설정',
-    hint: '↑↓ 이동   ←→ 조절   Enter 키 변경   Esc 뒤로',
     waitingKey: '레인 {{lane}} 키를 누르세요 (Esc 취소)',
     groups: {
       audio: '오디오',
@@ -37,10 +50,6 @@ export const ko = {
   },
   credits: {
     title: '크레딧',
-    hint: '↑↓ 스크롤   Esc 뒤로',
-  },
-  result: {
-    hint: '←→ 난이도   ↑↓ 이동   Enter 선택   Esc 곡 선택',
   },
   gameplay: {
     loading: '로딩 중',

@@ -1,6 +1,17 @@
 /// <reference path="../pb_data/types.d.ts" />
 // JSVM handlers cannot see the outer scope, so each handler defines what it needs inline.
 
+// Title search compares code points, so a decomposed (NFD) title would miss a composed query; store NFC.
+onRecordCreate((e) => {
+  e.record.set('title', e.record.getString('title').normalize('NFC'));
+  e.next();
+}, 'songs');
+
+onRecordUpdate((e) => {
+  e.record.set('title', e.record.getString('title').normalize('NFC'));
+  e.next();
+}, 'songs');
+
 routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
   const { buildSongSearchQuery, InvalidSongSearchError } = require(`${__hooks}/lib/songSearch.cjs`);
   const fail = (status, code, message) => e.json(status, { status, code, message });
