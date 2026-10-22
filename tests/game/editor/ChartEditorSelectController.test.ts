@@ -11,6 +11,7 @@ import { ChartEditorSelectController } from '../../../src/game/editor/ChartEdito
 import type { ChartEditorSelectView } from '../../../src/game/editor/ChartEditorSelectController.js';
 import type { SongListKey } from '../../../src/game/editor/songListState.js';
 import { SongFeed } from '../../../src/game/SongFeed.js';
+import type { ChartEditorSelectSceneData } from '../../../src/game/sceneRoutes.js';
 
 const PAGE_SIZE = 6;
 const VISIBLE_ROW_COUNT = 4;
@@ -101,40 +102,45 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
     shown: [] as string[],
   };
   const feed = catalog?.(server) ?? new SongFeed(ALL_SONGS_QUERY, server.loadBatch);
-  const controller = new ChartEditorSelectController(
-    {
-      catalog: feed,
-      create: (query) => {
-        const next = new SongFeed(query, server.loadBatch);
-        created.push(next);
-        return next;
+  let controller: ChartEditorSelectController | undefined;
+  const open = (entry: ChartEditorSelectSceneData): ChartEditorSelectController => {
+    controller = new ChartEditorSelectController(
+      {
+        catalog: feed,
+        create: (query) => {
+          const next = new SongFeed(query, server.loadBatch);
+          created.push(next);
+          return next;
+        },
       },
-    },
-    {
-      render: (view) => views.push(view),
-      edit: (songId, list) =>
-        edits.push({
-          songId,
-          list,
-        }),
-      leave: () => {
-        leaveCount += 1;
+      {
+        render: (view) => views.push(view),
+        edit: (songId, list) =>
+          edits.push({
+            songId,
+            list,
+          }),
+        leave: () => {
+          leaveCount += 1;
+        },
+        isSearchFocused: () => search.isFocused,
+        readSearchText: () => search.text,
+        showSearchText: (title) => {
+          search.text = title;
+          search.shown.push(title);
+        },
+        focusSearch: () => {
+          search.isFocused = true;
+        },
+        blurSearch: () => {
+          search.isFocused = false;
+        },
       },
-      isSearchFocused: () => search.isFocused,
-      readSearchText: () => search.text,
-      showSearchText: (title) => {
-        search.text = title;
-        search.shown.push(title);
-      },
-      focusSearch: () => {
-        search.isFocused = true;
-      },
-      blurSearch: () => {
-        search.isFocused = false;
-      },
-    },
-    VISIBLE_ROW_COUNT,
-  );
+      VISIBLE_ROW_COUNT,
+      entry,
+    );
+    return controller;
+  };
   return {
     server,
     catalog: feed,
@@ -142,7 +148,13 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
     views,
     edits,
     search,
-    controller,
+    open,
+    get controller(): ChartEditorSelectController {
+      if (controller === undefined) {
+        throw new Error('Not opened');
+      }
+      return controller;
+    },
     get leaveCount() {
       return leaveCount;
     },
@@ -186,7 +198,7 @@ function loadedCatalog(server: Server): SongFeed {
 
 function openLoaded() {
   const harness = createHarness(songs, loadedCatalog);
-  harness.controller.open({ kind: 'fresh' });
+  harness.open({ kind: 'fresh' });
   return harness;
 }
 
@@ -261,7 +273,7 @@ describe('ChartEditorSelectController list', () => {
       harness.server.calls.pop()?.batch,
     );
 
-    harness.controller.open({
+    harness.open({
       kind: 'return',
       list,
       focusedSongId: 'song-003',
@@ -272,6 +284,28 @@ describe('ChartEditorSelectController list', () => {
     expect(harness.server.calls).toHaveLength(0);
     harness.controller.pickRow(0);
     expect(harness.edits[0]?.list).toBe(list);
+  });
+
+  it('keeps the category, title and focused song when returning to a category search', () => {
+    const harness = createHarness(songs);
+    const query: SongQuery = {
+      category: 'cover',
+      title: 'Title',
+    };
+    void harness.server.loadBatch(query, null);
+    const list = new SongFeed(query, harness.server.loadBatch, harness.server.calls.pop()?.batch);
+
+    harness.open({
+      kind: 'return',
+      list,
+      focusedSongId: 'song-005',
+    });
+
+    expect(harness.view.category).toBe('cover');
+    expect(harness.search.shown).toEqual(['Title']);
+    expect(focusedId(harness.view)).toBe('song-005');
+    expect(harness.server.calls).toHaveLength(0);
+    expect(harness.created).toHaveLength(0);
   });
 
   it('edits the focused song with the current list and leaves on Escape', () => {
@@ -365,7 +399,7 @@ describe('ChartEditorSelectController query', () => {
 describe('ChartEditorSelectController status', () => {
   it('shows loading and then a retryable failure for an empty list', async () => {
     const harness = createHarness(songs);
-    harness.controller.open({ kind: 'fresh' });
+    harness.open({ kind: 'fresh' });
 
     expect(harness.view.notice).toEqual({ kind: 'loading' });
     expect(harness.view.canRetry).toBe(false);
@@ -417,7 +451,7 @@ describe('ChartEditorSelectController status', () => {
 
   it('retries a failed request through retry()', async () => {
     const harness = createHarness(songs);
-    harness.controller.open({ kind: 'fresh' });
+    harness.open({ kind: 'fresh' });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
 
@@ -430,7 +464,7 @@ describe('ChartEditorSelectController status', () => {
 
   it('tells no songs, an empty category and no title match apart', async () => {
     const empty = createHarness([]);
-    empty.controller.open({ kind: 'fresh' });
+    empty.open({ kind: 'fresh' });
     await settle(empty.server.calls[0]);
     expect(empty.view.notice).toEqual({ kind: 'noSongs' });
 
@@ -438,7 +472,7 @@ describe('ChartEditorSelectController status', () => {
       songs.filter((song) => song.category === 'original'),
       loadedCatalog,
     );
-    originalsOnly.controller.open({ kind: 'fresh' });
+    originalsOnly.open({ kind: 'fresh' });
     originalsOnly.controller.selectCategory('cover');
     await settle(originalsOnly.server.calls.at(-1));
     expect(originalsOnly.view.notice).toEqual({ kind: 'emptyCategory' });
@@ -451,7 +485,7 @@ describe('ChartEditorSelectController status', () => {
       },
       searched.server.loadBatch,
     );
-    searched.controller.open({
+    searched.open({
       kind: 'return',
       list,
       focusedSongId: null,
@@ -559,20 +593,16 @@ describe('ChartEditorSelectController search', () => {
 });
 
 describe('ChartEditorSelectController close', () => {
-  it('ignores responses and calls after closing', async () => {
+  it('ignores responses after closing', async () => {
     const harness = openLoaded();
     harness.controller.scroll(5);
     const renderCount = harness.views.length;
+    const callCount = harness.server.calls.length;
 
     harness.controller.close();
     await settle(harness.server.calls[0]);
-    harness.controller.handleKey(key('ArrowDown'));
-    harness.controller.selectCategory('cover');
-    harness.controller.scroll(-1);
-    harness.controller.pickRow(0);
 
     expect(harness.views).toHaveLength(renderCount);
-    expect(harness.edits).toHaveLength(0);
-    expect(harness.created).toHaveLength(0);
+    expect(harness.server.calls).toHaveLength(callCount);
   });
 });

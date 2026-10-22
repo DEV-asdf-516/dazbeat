@@ -28,11 +28,19 @@ const PRE_FEATURE_MIGRATIONS = [
 
 const RELEASED_ON_MIGRATION = '1792554600_add_songs_released_on.js';
 // The migrations not deployed yet; reverting them must restore the deployed schema.
-const FEATURE_MIGRATIONS = [RELEASED_ON_MIGRATION, '1792554700_add_query_indexes.js'];
+const FEATURE_MIGRATIONS = [
+  RELEASED_ON_MIGRATION,
+  '1792554700_add_query_indexes.js',
+  '1792641600_add_song_title_search.js',
+];
 const QUERY_INDEXES = [
   {
     collection: 'songs',
     name: 'idx_songs_released_on_id',
+  },
+  {
+    collection: 'songs',
+    name: 'idx_songs_title_nocase',
   },
   {
     collection: 'scores',
@@ -105,6 +113,7 @@ describe('migrations', () => {
     expect(songs.indexes).toEqual([
       'CREATE UNIQUE INDEX idx_songs_key ON songs (key)',
       'CREATE INDEX `idx_songs_released_on_id` ON `songs` (releasedOn DESC, id DESC)',
+      'CREATE INDEX `idx_songs_title_nocase` ON `songs` (title COLLATE NOCASE)',
     ]);
 
     const charts = await collections.getOne('charts');

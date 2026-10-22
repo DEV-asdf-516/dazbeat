@@ -26,7 +26,7 @@ import { MainScene } from './game/main/MainScene.js';
 import { ResultScene } from './game/result/ResultScene.js';
 import { SettingsScene } from './game/settings/SettingsScene.js';
 import { SongFeed } from './game/SongFeed.js';
-import type { SongBatchLoader } from './game/SongFeed.js';
+import type { SongBatchLoader, SongFeeds } from './game/SongFeed.js';
 import { SongSelectScene } from './game/songSelect/SongSelectScene.js';
 import { DEFAULT_CURSOR } from './game/ui/cursor.js';
 import { NebulaTrail } from './game/ui/NebulaTrail.js';
@@ -98,6 +98,10 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
     // 언어를 바꿔도 굳은 글자가 남지 않도록 모든 언어의 화면 문구를 함께 받는다.
     await preloadCjkSerif(JSON.stringify([ko, ja, en]));
     const catalog = new SongFeed(ALL_SONGS_QUERY, loadBatch, firstBatch);
+    const feeds: SongFeeds = {
+      catalog,
+      create: (query) => new SongFeed(query, loadBatch),
+    };
     const charts = new ChartCache(pb);
     const auth: AccountAuth = {
       getCurrentUser: () => getCurrentUser(pb),
@@ -126,7 +130,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
       createGameConfig([
         new MainScene(i18n, auth, celestial),
         new CreditsScene(catalog, i18n, celestial),
-        new SongSelectScene(save, catalog, i18n, celestial),
+        new SongSelectScene(save, feeds, i18n, celestial),
         new SettingsScene(save, i18n, initialLanguage, celestial),
         new GameplayScene(
           save,
@@ -138,14 +142,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
           rankedPlay,
         ),
         new ResultScene(i18n, celestial),
-        new ChartEditorSelectScene(
-          {
-            catalog,
-            create: (query) => new SongFeed(query, loadBatch),
-          },
-          auth,
-          i18n,
-        ),
+        new ChartEditorSelectScene(feeds, auth, i18n),
         new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
       ]),
     );

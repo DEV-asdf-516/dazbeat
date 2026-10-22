@@ -105,3 +105,8 @@ export class SongFeed {
     });
   }
 }
+
+export interface SongFeeds {
+  readonly catalog: SongFeed;
+  create(query: SongQuery): SongFeed;
+}

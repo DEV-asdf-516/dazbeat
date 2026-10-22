@@ -11,6 +11,8 @@ export const ko = {
   songSelect: {
     hint: '↑↓ 곡   ←→ 난이도   Q/E 카테고리   Enter 플레이   Tab 설정   Esc 메인',
     noSongs: '곡 없음',
+    loading: '곡 목록을 불러오는 중',
+    loadFailed: '곡 목록을 불러오지 못했습니다 · ↑↓ 다시 시도',
     noRecord: '기록 없음',
   },
   settings: {

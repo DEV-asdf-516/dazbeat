@@ -36,16 +36,17 @@ export function createSong(
   superuser: PocketBase,
   key: string,
   gameEndMs = 5_000,
+  song: { title?: string; category?: string; releasedOn?: string } = {},
 ): Promise<RecordModel> {
   const form = new FormData();
   const fields: Record<string, string | number> = {
     key,
-    title: `Song ${key}`,
-    category: 'original',
+    title: song.title ?? `Song ${key}`,
+    category: song.category ?? 'original',
     youtubeVideoId: `video-${key}`,
     accentColor: 0x123456,
     constellation: 'gemini',
-    releasedOn: '2026-01-01',
+    releasedOn: song.releasedOn ?? '2026-01-01',
     gameStartMs: 0,
     gameEndMs,
   };

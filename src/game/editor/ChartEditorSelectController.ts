@@ -2,7 +2,7 @@ import { ALL_SONGS_QUERY, SONG_FILTERS } from '../../data/songs.js';
 import type { SongFilter, SongQuery } from '../../data/songs.js';
 import { cycleItem } from '../../range.js';
 import type { ChartEditorSelectSceneData } from '../sceneRoutes.js';
-import type { SongFeed } from '../SongFeed.js';
+import type { SongFeed, SongFeeds } from '../SongFeed.js';
 import {
   createSongList,
   focusSongListRow,
@@ -23,11 +23,6 @@ import type {
   SongListState,
   SongListStatus,
 } from './songListState.js';
-
-export interface SongFeeds {
-  readonly catalog: SongFeed;
-  create(query: SongQuery): SongFeed;
-}
 
 export interface ChartEditorSelectView {
   readonly category: SongFilter;
@@ -50,40 +45,33 @@ export interface ChartEditorSelectScreen {
   blurSearch(): void;
 }
 
-type SelectState =
-  | { readonly kind: 'closed' }
-  | {
-      readonly kind: 'open';
-      readonly feed: SongFeed;
-      readonly list: SongListState;
-      readonly unsubscribe: () => void;
-    };
+interface SelectState {
+  readonly feed: SongFeed;
+  readonly list: SongListState;
+  readonly unsubscribe: () => void;
+}
 
 function isSameQuery(a: SongQuery, b: SongQuery): boolean {
   return a.category === b.category && a.title === b.title;
 }
 
 export class ChartEditorSelectController {
-  private current: SelectState = { kind: 'closed' };
+  private current: SelectState;
 
   constructor(
     private readonly feeds: SongFeeds,
     private readonly screen: ChartEditorSelectScreen,
     private readonly visibleRowCount: number,
-  ) {}
-
-  open(entry: ChartEditorSelectSceneData): void {
-    const feed = entry.kind === 'fresh' ? this.feeds.catalog : entry.list;
-    this.attach(feed, entry.kind === 'fresh' ? null : entry.focusedSongId);
-    this.screen.showSearchText(feed.query.title);
+    entry: ChartEditorSelectSceneData,
+  ) {
+    const feed = entry.kind === 'fresh' ? feeds.catalog : entry.list;
+    this.current = this.attach(feed, entry.kind === 'fresh' ? null : entry.focusedSongId);
+    screen.showSearchText(feed.query.title);
     this.render();
     this.requestMoreAtListEnd();
   }
 
   handleKey(key: SongListKey): boolean {
-    if (this.current.kind === 'closed') {
-      return false;
-    }
     const command = readSongListCommand(key, this.screen.isSearchFocused());
     if (command === null) {
       return false;
@@ -121,9 +109,6 @@ export class ChartEditorSelectController {
   }
 
   selectCategory(category: SongFilter): void {
-    if (this.current.kind === 'closed') {
-      return;
-    }
     this.switchQuery({
       category,
       title: this.current.feed.query.title,
@@ -131,27 +116,20 @@ export class ChartEditorSelectController {
   }
 
   hoverRow(rowIndex: number): void {
-    if (this.current.kind === 'open') {
-      this.setListFromUser(focusSongListRow(this.current.list, rowIndex));
-    }
+    this.setListFromUser(focusSongListRow(this.current.list, rowIndex));
   }
 
   pickRow(rowIndex: number): void {
-    if (this.current.kind === 'closed') {
-      return;
-    }
     this.setList(focusSongListRow(this.current.list, rowIndex));
     this.editFocused();
   }
 
   scroll(deltaRows: number): void {
-    if (this.current.kind === 'open') {
-      this.setListFromUser(scrollSongList(this.current.list, deltaRows));
-    }
+    this.setListFromUser(scrollSongList(this.current.list, deltaRows));
   }
 
   retry(): boolean {
-    if (this.current.kind === 'closed' || this.current.feed.status !== 'failed') {
+    if (this.current.feed.status !== 'failed') {
       return false;
     }
     void this.current.feed.requestMoreFromUser();
@@ -159,18 +137,15 @@ export class ChartEditorSelectController {
   }
 
   close(): void {
-    if (this.current.kind === 'open') {
-      this.current.unsubscribe();
-    }
-    this.current = { kind: 'closed' };
+    this.current.unsubscribe();
   }
 
   private switchQuery(query: SongQuery): void {
-    if (this.current.kind === 'closed' || isSameQuery(query, this.current.feed.query)) {
+    if (isSameQuery(query, this.current.feed.query)) {
       return;
     }
     this.current.unsubscribe();
-    this.attach(
+    this.current = this.attach(
       isSameQuery(query, ALL_SONGS_QUERY) ? this.feeds.catalog : this.feeds.create(query),
       null,
     );
@@ -178,20 +153,15 @@ export class ChartEditorSelectController {
     this.requestMoreAtListEnd();
   }
 
-  private attach(feed: SongFeed, focusedSongId: string | null): void {
-    const list = createSongList(feed.songs, focusedSongId, this.visibleRowCount);
-    this.current = {
-      kind: 'open',
+  private attach(feed: SongFeed, focusedSongId: string | null): SelectState {
+    return {
       feed,
-      list,
+      list: createSongList(feed.songs, focusedSongId, this.visibleRowCount),
       unsubscribe: feed.subscribe(() => this.handleFeedChange()),
     };
   }
 
   private handleFeedChange(): void {
-    if (this.current.kind === 'closed') {
-      return;
-    }
     const { feed } = this.current;
     this.current = {
       ...this.current,
@@ -202,7 +172,7 @@ export class ChartEditorSelectController {
   }
 
   private setListFromUser(next: SongListState): void {
-    if (this.current.kind === 'closed' || next === this.current.list) {
+    if (next === this.current.list) {
       return;
     }
     this.setList(next);
@@ -210,7 +180,7 @@ export class ChartEditorSelectController {
   }
 
   private setList(next: SongListState): void {
-    if (this.current.kind === 'closed' || next === this.current.list) {
+    if (next === this.current.list) {
       return;
     }
     this.current = {
@@ -221,15 +191,12 @@ export class ChartEditorSelectController {
   }
 
   private requestMoreAtListEnd(): void {
-    if (this.current.kind === 'open' && isListEndVisible(this.current.list)) {
+    if (isListEndVisible(this.current.list)) {
       void this.current.feed.requestMore();
     }
   }
 
   private editFocused(): void {
-    if (this.current.kind === 'closed') {
-      return;
-    }
     const song = getFocusedSong(this.current.list, this.current.feed.songs);
     if (song !== undefined) {
       this.screen.edit(song.id, this.current.feed);
@@ -237,9 +204,6 @@ export class ChartEditorSelectController {
   }
 
   private render(): void {
-    if (this.current.kind === 'closed') {
-      return;
-    }
     const { feed, list } = this.current;
     this.screen.render({
       category: feed.query.category,

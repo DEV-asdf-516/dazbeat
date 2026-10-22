@@ -1,7 +1,7 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { PlayMode, ResultSceneData, SceneRequest } from '../sceneRoutes.js';
+import type { PlayMode, ResultSceneData, SceneRequest, SongSelectRestore } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import {
   CONSTELLATION_LOOKS,
@@ -135,13 +135,13 @@ export class ResultScene extends Phaser.Scene {
     this.exit = STAYING;
     addCelestialAtmosphere(this, this.celestial, 'result');
     const keyboard = requireKeyboard(this);
-    const { song, difficulty, chartId, mode, result } = data;
+    const { song, difficulty, chartId, mode, result, restore } = data;
     let retryChart: ChartRef = {
       song,
       difficulty,
       chartId,
     };
-    const activate = (item: MenuItem): void => this.activate(item, retryChart, mode);
+    const activate = (item: MenuItem): void => this.activate(item, retryChart, mode, restore);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const titleText = this.add.text(
@@ -368,10 +368,24 @@ export class ResultScene extends Phaser.Scene {
     }
   }
 
-  private activate(item: MenuItem, retryChart: ChartRef, mode: PlayMode): void {
+  private activate(
+    item: MenuItem,
+    retryChart: ChartRef,
+    mode: PlayMode,
+    restore: SongSelectRestore | undefined,
+  ): void {
     if (this.exit.kind === 'leaving') {
       return;
     }
+    const restoreData =
+      restore === undefined
+        ? {}
+        : {
+            restore: {
+              ...restore,
+              difficulty: retryChart.difficulty,
+            },
+          };
     switch (item) {
       case 'retry':
         this.exit = exitScene(this, this.exit, {
@@ -379,13 +393,17 @@ export class ResultScene extends Phaser.Scene {
           data: {
             ...retryChart,
             mode,
+            ...restoreData,
           },
         });
         return;
       case 'songSelect':
         this.exit = exitScene(this, this.exit, {
           key: 'songSelect',
-          data: { mode },
+          data: {
+            mode,
+            ...restoreData,
+          },
         });
         return;
     }

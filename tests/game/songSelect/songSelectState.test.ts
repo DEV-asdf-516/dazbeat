@@ -4,21 +4,22 @@ import type { Difficulty } from '../../../src/rhythm/types.js';
 import type { ChartRecord } from '../../../src/storage/chartRecords.js';
 import {
   createSongSelectState,
-  cycleFilter,
   getJacketRange,
   getPlayableSelection,
   getSongPage,
   getSongRows,
   getSongDifficultyAppearance,
   getSongRowNodeId,
+  getSongSelectNotice,
+  getSongSelectTarget,
   hasNewCurrentSong,
   isOnLastLoadedPage,
   isSameSelection,
   moveDifficulty,
   moveSong,
   selectDifficulty,
-  selectFilter,
   selectSong,
+  withFilter,
   withSongs,
 } from '../../../src/game/songSelect/songSelectState.js';
 import type { SongRowView, SongSelectState } from '../../../src/game/songSelect/songSelectState.js';
@@ -69,25 +70,28 @@ const SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG, COVER_SONG];
 const ORIGINAL_SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG];
 
 describe('createSongSelectState', () => {
-  it('starts on the all filter with the first song and its first available difficulty', () => {
-    const state = createSongSelectState([EASY_HARD_SONG, FULL_SONG]);
+  it('starts on the given filter with the first song and its first available difficulty', () => {
+    const state = createSongSelectState([EASY_HARD_SONG, FULL_SONG], 'original');
 
-    expect(state.filter).toBe('all');
+    expect(state.filter).toBe('original');
     expect(indexOf(state)).toBe(0);
     expect(difficultyOf(state)).toBe('easy');
     expect(songOf(state)).toBe(EASY_HARD_SONG);
   });
 
   it('has no song or difficulty when there are no songs', () => {
-    const state = createSongSelectState([]);
+    const state = createSongSelectState([], 'all');
 
-    expect(state.current).toEqual({ kind: 'none' });
+    expect(state.current).toEqual({
+      kind: 'none',
+      difficulty: null,
+    });
   });
 });
 
 describe('moveSong', () => {
   it('stops at the top and bottom of the list', () => {
-    const initial = createSongSelectState(SONGS);
+    const initial = createSongSelectState(SONGS, 'all');
 
     expect(indexOf(moveSong(initial, -1))).toBe(0);
     const last = moveSong(moveSong(initial, 1), 1);
@@ -96,13 +100,13 @@ describe('moveSong', () => {
   });
 
   it('keeps the current difficulty when the new song has it', () => {
-    const onHard = selectDifficulty(createSongSelectState(SONGS), 'hard');
+    const onHard = selectDifficulty(createSongSelectState(SONGS, 'all'), 'hard');
 
     expect(difficultyOf(moveSong(onHard, 1))).toBe('hard');
   });
 
   it('switches to the first available difficulty when the new song lacks the current one', () => {
-    const onNormal = selectDifficulty(createSongSelectState(SONGS), 'normal');
+    const onNormal = selectDifficulty(createSongSelectState(SONGS, 'all'), 'normal');
 
     expect(difficultyOf(moveSong(onNormal, 1))).toBe('easy');
   });
@@ -110,14 +114,14 @@ describe('moveSong', () => {
 
 describe('selectSong', () => {
   it('ignores out-of-range indexes', () => {
-    const initial = createSongSelectState(SONGS);
+    const initial = createSongSelectState(SONGS, 'all');
 
     expect(selectSong(initial, -1)).toEqual(initial);
     expect(selectSong(initial, SONGS.length)).toEqual(initial);
   });
 
   it('selects the song and applies the difficulty rule', () => {
-    const onExpert = selectDifficulty(createSongSelectState(SONGS), 'expert');
+    const onExpert = selectDifficulty(createSongSelectState(SONGS, 'all'), 'expert');
     const state = selectSong(onExpert, 2);
 
     expect(songOf(state)).toBe(COVER_SONG);
@@ -127,7 +131,7 @@ describe('selectSong', () => {
 
 describe('moveDifficulty', () => {
   it('skips difficulties without a chart and stops at the ends', () => {
-    const state = selectSong(createSongSelectState(SONGS), 1);
+    const state = selectSong(createSongSelectState(SONGS, 'all'), 1);
 
     expect(difficultyOf(state)).toBe('easy');
     expect(difficultyOf(moveDifficulty(state, -1))).toBe('easy');
@@ -139,7 +143,7 @@ describe('moveDifficulty', () => {
 
 describe('song without charts', () => {
   it('is selected without a chart and ignores difficulty changes', () => {
-    const state = createSongSelectState([NO_CHART_SONG, FULL_SONG]);
+    const state = createSongSelectState([NO_CHART_SONG, FULL_SONG], 'all');
 
     expect(state.current).toEqual({
       kind: 'song',
@@ -154,7 +158,10 @@ describe('song without charts', () => {
   });
 
   it('picks the first chart of the next song after passing a song without charts', () => {
-    const onExpert = selectDifficulty(createSongSelectState([FULL_SONG, NO_CHART_SONG]), 'expert');
+    const onExpert = selectDifficulty(
+      createSongSelectState([FULL_SONG, NO_CHART_SONG], 'all'),
+      'expert',
+    );
     const noChart = moveSong(onExpert, 1);
 
     expect(difficultyOf(noChart)).toBeNull();
@@ -164,64 +171,181 @@ describe('song without charts', () => {
 
 describe('selectDifficulty', () => {
   it('keeps the state for a difficulty without a chart', () => {
-    const state = selectSong(createSongSelectState(SONGS), 1);
+    const state = selectSong(createSongSelectState(SONGS, 'all'), 1);
 
     expect(selectDifficulty(state, 'normal')).toEqual(state);
   });
 
   it('selects an available difficulty', () => {
-    const state = selectSong(createSongSelectState(SONGS), 1);
+    const state = selectSong(createSongSelectState(SONGS, 'all'), 1);
 
     expect(difficultyOf(selectDifficulty(state, 'hard'))).toBe('hard');
   });
 });
 
-describe('cycleFilter', () => {
-  it('cycles all → original → cover → all and resets the song index', () => {
-    const atSecond = moveSong(createSongSelectState(SONGS), 1);
-    const original = cycleFilter(atSecond, 1);
+describe('withFilter', () => {
+  it('selects the first song of the new list and keeps the selected difficulty', () => {
+    const onHard = selectDifficulty(moveSong(createSongSelectState(SONGS, 'all'), 1), 'hard');
+    const cover = withFilter(onHard, 'cover', [COVER_SONG]);
 
-    expect(original.filter).toBe('original');
-    expect(original.songs).toEqual(ORIGINAL_SONGS);
-    expect(indexOf(original)).toBe(0);
-    const cover = cycleFilter(original, 1);
     expect(cover.filter).toBe('cover');
     expect(cover.songs).toEqual([COVER_SONG]);
-    expect(cycleFilter(cover, 1).filter).toBe('all');
+    expect(indexOf(cover)).toBe(0);
+    expect(difficultyOf(cover)).toBe('hard');
   });
 
-  it('cycles backwards from all to cover', () => {
-    const state = cycleFilter(createSongSelectState(SONGS), -1);
+  it('switches to the first available difficulty when the first song lacks the selected one', () => {
+    const onEasy = createSongSelectState(ORIGINAL_SONGS, 'original');
 
-    expect(state.filter).toBe('cover');
-    expect(indexOf(state)).toBe(0);
+    expect(difficultyOf(withFilter(onEasy, 'cover', [COVER_SONG]))).toBe('normal');
+  });
+
+  it('remembers the difficulty through an empty list until songs arrive', () => {
+    const onHard = selectDifficulty(createSongSelectState(ORIGINAL_SONGS, 'all'), 'hard');
+    const empty = withFilter(onHard, 'cover', []);
+
+    expect(empty.current).toEqual({
+      kind: 'none',
+      difficulty: 'hard',
+    });
+    const loaded = withSongs(empty, [COVER_SONG]);
+    expect(songOf(loaded)).toBe(COVER_SONG);
+    expect(difficultyOf(loaded)).toBe('hard');
+    expect(difficultyOf(withFilter(empty, 'original', ORIGINAL_SONGS))).toBe('hard');
   });
 });
 
-describe('selectFilter', () => {
-  it('clears the difficulty for an empty list and restores it when returning to all', () => {
-    const empty = selectFilter(createSongSelectState(ORIGINAL_SONGS), 'cover');
+describe('createSongSelectState with a restore target', () => {
+  const pageSongs: readonly Song[] = Array.from({ length: 12 }, (_, index) =>
+    makeSong(`song-${index}`, 'cover', index === 7 ? COVER_SONG.chartIds : FULL_SONG.chartIds),
+  );
 
-    expect(empty.songs).toEqual([]);
-    expect(difficultyOf(empty)).toBeNull();
-    expect(songOf(empty)).toBeUndefined();
-    const all = selectFilter(empty, 'all');
-    expect(songOf(all)).toBe(FULL_SONG);
-    expect(difficultyOf(all)).toBe('easy');
+  it('finds the song by id even when its position changed', () => {
+    const state = createSongSelectState(SONGS, 'all', {
+      index: 0,
+      songId: COVER_SONG.id,
+      difficulty: 'hard',
+    });
+
+    expect(songOf(state)).toBe(COVER_SONG);
+    expect(indexOf(state)).toBe(2);
+    expect(difficultyOf(state)).toBe('hard');
+  });
+
+  it('uses the index clamped to the list when the song id is null or missing', () => {
+    expect(
+      indexOf(
+        createSongSelectState(SONGS, 'all', {
+          index: 1,
+          songId: null,
+          difficulty: null,
+        }),
+      ),
+    ).toBe(1);
+    expect(
+      indexOf(
+        createSongSelectState(SONGS, 'all', {
+          index: 99,
+          songId: 'missing',
+          difficulty: null,
+        }),
+      ),
+    ).toBe(2);
+    expect(
+      indexOf(
+        createSongSelectState(SONGS, 'all', {
+          index: -3,
+          songId: 'missing',
+          difficulty: null,
+        }),
+      ),
+    ).toBe(0);
+  });
+
+  it('falls back to the first difficulty of a song without the restored one', () => {
+    const state = createSongSelectState(SONGS, 'all', {
+      index: 0,
+      songId: COVER_SONG.id,
+      difficulty: 'easy',
+    });
+
+    expect(difficultyOf(state)).toBe('normal');
+  });
+
+  it('has no song and remembers the restored difficulty for an empty list', () => {
+    const state = createSongSelectState([], 'cover', {
+      index: 4,
+      songId: COVER_SONG.id,
+      difficulty: 'expert',
+    });
+
+    expect(state.filter).toBe('cover');
+    expect(state.current).toEqual({
+      kind: 'none',
+      difficulty: 'expert',
+    });
+  });
+
+  it('computes the page and selected row from the restored position', () => {
+    const state = createSongSelectState(pageSongs, 'cover', {
+      index: 0,
+      songId: 'song-7',
+      difficulty: 'normal',
+    });
+
+    expect(getSongPage(state, 3)).toEqual({
+      startIndex: 6,
+      pageNumber: 3,
+      pageCount: 4,
+      selectedSlot: 1,
+    });
+    expect(difficultyOf(state)).toBe('normal');
+  });
+});
+
+describe('getSongSelectTarget', () => {
+  it('returns the position, song id and difficulty of the selected chart', () => {
+    const state = selectDifficulty(moveSong(createSongSelectState(SONGS, 'all'), 1), 'hard');
+
+    expect(getSongSelectTarget(state)).toEqual({
+      index: 1,
+      songId: EASY_HARD_SONG.id,
+      difficulty: 'hard',
+    });
+  });
+
+  it('has no difficulty for a song without charts', () => {
+    const state = moveSong(createSongSelectState([FULL_SONG, NO_CHART_SONG], 'all'), 1);
+
+    expect(getSongSelectTarget(state)).toEqual({
+      index: 1,
+      songId: NO_CHART_SONG.id,
+      difficulty: null,
+    });
+  });
+
+  it('returns the remembered difficulty without a song', () => {
+    const onHard = selectDifficulty(createSongSelectState(ORIGINAL_SONGS, 'all'), 'hard');
+
+    expect(getSongSelectTarget(withFilter(onHard, 'cover', []))).toEqual({
+      index: 0,
+      songId: null,
+      difficulty: 'hard',
+    });
   });
 });
 
 describe('immutability', () => {
   it('does not modify the input state', () => {
-    const initial = createSongSelectState(SONGS);
+    const initial = createSongSelectState(SONGS, 'all');
     const snapshot = structuredClone(initial);
 
     moveSong(initial, 1);
     selectSong(initial, 2);
     moveDifficulty(initial, 1);
     selectDifficulty(initial, 'hard');
-    cycleFilter(initial, 1);
-    selectFilter(initial, 'cover');
+    withFilter(initial, 'cover', [COVER_SONG]);
+    withSongs(initial, [...SONGS, NO_CHART_SONG]);
 
     expect(initial).toEqual(snapshot);
   });
@@ -229,7 +353,7 @@ describe('immutability', () => {
 
 describe('getPlayableSelection', () => {
   it('returns the current song and difficulty', () => {
-    expect(getPlayableSelection(createSongSelectState(SONGS))).toEqual({
+    expect(getPlayableSelection(createSongSelectState(SONGS, 'all'))).toEqual({
       song: FULL_SONG,
       difficulty: 'easy',
       chartId: 'easy.json',
@@ -237,28 +361,28 @@ describe('getPlayableSelection', () => {
   });
 
   it('returns null without songs', () => {
-    expect(getPlayableSelection(createSongSelectState([]))).toBeNull();
+    expect(getPlayableSelection(createSongSelectState([], 'all'))).toBeNull();
   });
 
   it('returns null for a song without charts', () => {
     const noCharts = makeSong('none', 'original', {});
-    expect(getPlayableSelection(createSongSelectState([noCharts]))).toBeNull();
+    expect(getPlayableSelection(createSongSelectState([noCharts], 'all'))).toBeNull();
   });
 });
 
 describe('isSameSelection', () => {
   it('is true when only the filter changes but the song stays', () => {
-    const state = createSongSelectState(SONGS);
-    expect(isSameSelection(state, selectFilter(state, 'original'))).toBe(true);
+    const state = createSongSelectState(SONGS, 'all');
+    expect(isSameSelection(state, withFilter(state, 'original', ORIGINAL_SONGS))).toBe(true);
   });
 
   it('is false when the difficulty changes', () => {
-    const state = createSongSelectState(SONGS);
+    const state = createSongSelectState(SONGS, 'all');
     expect(isSameSelection(state, moveDifficulty(state, 1))).toBe(false);
   });
 
   it('is false when the song changes', () => {
-    const state = createSongSelectState(SONGS);
+    const state = createSongSelectState(SONGS, 'all');
     expect(isSameSelection(state, moveSong(state, 1))).toBe(false);
   });
 });
@@ -311,7 +435,7 @@ describe('getSongRows', () => {
     rows.map((row) => (row.kind === 'song' ? [row.song, row.isSelected] : null));
 
   it('is all empty rows when there are no songs', () => {
-    expect(getSongRows(createSongSelectState([]), 3)).toEqual([
+    expect(getSongRows(createSongSelectState([], 'all'), 3)).toEqual([
       { kind: 'empty' },
       { kind: 'empty' },
       { kind: 'empty' },
@@ -319,7 +443,7 @@ describe('getSongRows', () => {
   });
 
   it('selects the first row and fills the rest of a short page with empty rows', () => {
-    expect(getSongRows(createSongSelectState([FULL_SONG, EASY_HARD_SONG]), 3)).toEqual([
+    expect(getSongRows(createSongSelectState([FULL_SONG, EASY_HARD_SONG], 'all'), 3)).toEqual([
       {
         kind: 'song',
         song: FULL_SONG,
@@ -347,7 +471,9 @@ describe('getSongRows', () => {
   it('keeps the selected last row of a full page on that page', () => {
     const list = songs(4);
 
-    expect(songAndSelection(getSongRows(selectSong(createSongSelectState(list), 2), 3))).toEqual([
+    expect(
+      songAndSelection(getSongRows(selectSong(createSongSelectState(list, 'all'), 2), 3)),
+    ).toEqual([
       [list[0], false],
       [list[1], false],
       [list[2], true],
@@ -357,15 +483,13 @@ describe('getSongRows', () => {
   it('shows the next page with the selected row first and empty rows after the last song', () => {
     const list = songs(4);
 
-    expect(songAndSelection(getSongRows(selectSong(createSongSelectState(list), 3), 3))).toEqual([
-      [list[3], true],
-      null,
-      null,
-    ]);
+    expect(
+      songAndSelection(getSongRows(selectSong(createSongSelectState(list, 'all'), 3), 3)),
+    ).toEqual([[list[3], true], null, null]);
   });
 
   it('uses the selected difficulty chart of each row song, or null when the song lacks it', () => {
-    const onNormal = selectDifficulty(createSongSelectState(SONGS), 'normal');
+    const onNormal = selectDifficulty(createSongSelectState(SONGS, 'all'), 'normal');
 
     expect(
       getSongRows(onNormal, 3).map((row) => (row.kind === 'song' ? row.recordChart : null)),
@@ -385,7 +509,7 @@ describe('getSongRows', () => {
   });
 
   it('has no record chart in any row while a song without charts is selected', () => {
-    expect(getSongRows(createSongSelectState([NO_CHART_SONG, FULL_SONG]), 2)).toEqual([
+    expect(getSongRows(createSongSelectState([NO_CHART_SONG, FULL_SONG], 'all'), 2)).toEqual([
       {
         kind: 'song',
         song: NO_CHART_SONG,
@@ -404,27 +528,27 @@ describe('getSongRows', () => {
 
 describe('hasNewCurrentSong', () => {
   it('is false when only the difficulty changes', () => {
-    const state = createSongSelectState(SONGS);
+    const state = createSongSelectState(SONGS, 'all');
 
     expect(hasNewCurrentSong(state, selectDifficulty(state, 'hard'))).toBe(false);
   });
 
   it('is true when the current song changes', () => {
-    const state = createSongSelectState(SONGS);
+    const state = createSongSelectState(SONGS, 'all');
 
     expect(hasNewCurrentSong(state, moveSong(state, 1))).toBe(true);
   });
 
   it('is false when the next state has no song', () => {
-    const state = createSongSelectState(ORIGINAL_SONGS);
+    const state = createSongSelectState(ORIGINAL_SONGS, 'all');
 
-    expect(hasNewCurrentSong(state, selectFilter(state, 'cover'))).toBe(false);
+    expect(hasNewCurrentSong(state, withFilter(state, 'cover', []))).toBe(false);
   });
 
   it('is true when a song appears after having none', () => {
-    const empty = selectFilter(createSongSelectState(ORIGINAL_SONGS), 'cover');
+    const empty = withFilter(createSongSelectState(ORIGINAL_SONGS, 'all'), 'cover', []);
 
-    expect(hasNewCurrentSong(empty, selectFilter(empty, 'all'))).toBe(true);
+    expect(hasNewCurrentSong(empty, withFilter(empty, 'all', ORIGINAL_SONGS))).toBe(true);
   });
 });
 
@@ -435,7 +559,7 @@ describe('getSongPage', () => {
     );
 
   it('is the first page with no selected slot when there are no songs', () => {
-    expect(getSongPage(createSongSelectState([]), 3)).toEqual({
+    expect(getSongPage(createSongSelectState([], 'all'), 3)).toEqual({
       startIndex: 0,
       pageNumber: 1,
       pageCount: 0,
@@ -444,7 +568,7 @@ describe('getSongPage', () => {
   });
 
   it('keeps the last row of a page on that page', () => {
-    const state = selectSong(createSongSelectState(songs(7)), 2);
+    const state = selectSong(createSongSelectState(songs(7), 'all'), 2);
 
     expect(getSongPage(state, 3)).toEqual({
       startIndex: 0,
@@ -455,7 +579,7 @@ describe('getSongPage', () => {
   });
 
   it('moves the next row to the first slot of the next page', () => {
-    const state = selectSong(createSongSelectState(songs(7)), 3);
+    const state = selectSong(createSongSelectState(songs(7), 'all'), 3);
 
     expect(getSongPage(state, 3)).toEqual({
       startIndex: 3,
@@ -466,7 +590,7 @@ describe('getSongPage', () => {
   });
 
   it('puts a lone song on the last page', () => {
-    const state = selectSong(createSongSelectState(songs(7)), 6);
+    const state = selectSong(createSongSelectState(songs(7), 'all'), 6);
 
     expect(getSongPage(state, 3)).toEqual({
       startIndex: 6,
@@ -477,18 +601,20 @@ describe('getSongPage', () => {
   });
 
   it('counts only full or partial pages', () => {
-    expect(getSongPage(createSongSelectState(songs(6)), 3).pageCount).toBe(2);
-    expect(getSongPage(createSongSelectState(songs(7)), 3).pageCount).toBe(3);
+    expect(getSongPage(createSongSelectState(songs(6), 'all'), 3).pageCount).toBe(2);
+    expect(getSongPage(createSongSelectState(songs(7), 'all'), 3).pageCount).toBe(3);
   });
 });
 
 describe('getSongDifficultyAppearance', () => {
   it('is disabled when there is no song', () => {
-    expect(getSongDifficultyAppearance(createSongSelectState([]), 'easy', true)).toBe('disabled');
+    expect(getSongDifficultyAppearance(createSongSelectState([], 'all'), 'easy', true)).toBe(
+      'disabled',
+    );
   });
 
   it('reads selection and chart availability from the current song', () => {
-    const state = createSongSelectState([EASY_HARD_SONG]);
+    const state = createSongSelectState([EASY_HARD_SONG], 'all');
 
     expect(getSongDifficultyAppearance(state, 'normal', true)).toBe('disabled');
     expect(getSongDifficultyAppearance(state, 'easy', false)).toBe('selected');
@@ -498,7 +624,7 @@ describe('getSongDifficultyAppearance', () => {
 
 describe('withSongs', () => {
   it('keeps the selected song, position and difficulty when songs are appended', () => {
-    const before = selectDifficulty(selectSong(createSongSelectState(SONGS), 1), 'hard');
+    const before = selectDifficulty(selectSong(createSongSelectState(SONGS, 'all'), 1), 'hard');
     const state = withSongs(before, [...SONGS, NO_CHART_SONG]);
 
     expect(state.songs).toEqual([...SONGS, NO_CHART_SONG]);
@@ -507,17 +633,17 @@ describe('withSongs', () => {
     expect(difficultyOf(state)).toBe('hard');
   });
 
-  it('filters the new songs with the current filter', () => {
-    const before = selectFilter(createSongSelectState([FULL_SONG]), 'cover');
-    const state = withSongs(before, [FULL_SONG, COVER_SONG, EASY_HARD_SONG]);
+  it('uses the given songs as they are without filtering them by the current filter', () => {
+    const before = createSongSelectState([COVER_SONG], 'cover');
+    const state = withSongs(before, [COVER_SONG, FULL_SONG]);
 
     expect(state.filter).toBe('cover');
-    expect(state.songs).toEqual([COVER_SONG]);
+    expect(state.songs).toEqual([COVER_SONG, FULL_SONG]);
   });
 
-  it('selects the first filtered song when the filtered list was empty', () => {
-    const before = selectFilter(createSongSelectState(ORIGINAL_SONGS), 'cover');
-    const state = withSongs(before, [...ORIGINAL_SONGS, COVER_SONG]);
+  it('selects the first song when the list was empty', () => {
+    const before = withFilter(createSongSelectState(ORIGINAL_SONGS, 'all'), 'cover', []);
+    const state = withSongs(before, [COVER_SONG]);
 
     expect(indexOf(state)).toBe(0);
     expect(songOf(state)).toBe(COVER_SONG);
@@ -525,7 +651,7 @@ describe('withSongs', () => {
   });
 
   it('returns the same state for the same song list', () => {
-    const state = createSongSelectState(SONGS);
+    const state = createSongSelectState(SONGS, 'all');
 
     expect(withSongs(state, SONGS)).toBe(state);
   });
@@ -538,15 +664,17 @@ describe('isOnLastLoadedPage', () => {
     );
 
   it('is true when the selected song is on the last page', () => {
-    expect(isOnLastLoadedPage(selectSong(createSongSelectState(songs(7)), 6), 3)).toBe(true);
+    expect(isOnLastLoadedPage(selectSong(createSongSelectState(songs(7), 'all'), 6), 3)).toBe(true);
   });
 
   it('is false when the selected song is on an earlier page', () => {
-    expect(isOnLastLoadedPage(selectSong(createSongSelectState(songs(7)), 5), 3)).toBe(false);
+    expect(isOnLastLoadedPage(selectSong(createSongSelectState(songs(7), 'all'), 5), 3)).toBe(
+      false,
+    );
   });
 
-  it('is true when the filtered list is empty', () => {
-    expect(isOnLastLoadedPage(createSongSelectState([]), 3)).toBe(true);
+  it('is true when the list is empty', () => {
+    expect(isOnLastLoadedPage(createSongSelectState([], 'all'), 3)).toBe(true);
   });
 });
 
@@ -556,46 +684,67 @@ describe('getJacketRange', () => {
   );
 
   it('loads the next page as adjacent on the first page', () => {
-    expect(getJacketRange(createSongSelectState(songs), 9)).toEqual({
+    expect(getJacketRange(createSongSelectState(songs, 'all'), 9)).toEqual({
       visible: songs.slice(0, 9),
       adjacent: songs.slice(9, 18),
     });
   });
 
   it('loads the previous page then the next page as adjacent on a middle page', () => {
-    expect(getJacketRange(selectSong(createSongSelectState(songs), 10), 9)).toEqual({
+    expect(getJacketRange(selectSong(createSongSelectState(songs, 'all'), 10), 9)).toEqual({
       visible: songs.slice(9, 18),
       adjacent: [...songs.slice(0, 9), ...songs.slice(18, 20)],
     });
   });
 
   it('loads only the previous page as adjacent on the last page', () => {
-    expect(getJacketRange(selectSong(createSongSelectState(songs), 19), 9)).toEqual({
+    expect(getJacketRange(selectSong(createSongSelectState(songs, 'all'), 19), 9)).toEqual({
       visible: songs.slice(18, 20),
       adjacent: songs.slice(9, 18),
     });
   });
 
   it('has no adjacent songs when the list fits on one page', () => {
-    expect(getJacketRange(createSongSelectState(songs.slice(0, 5)), 9)).toEqual({
+    expect(getJacketRange(createSongSelectState(songs.slice(0, 5), 'all'), 9)).toEqual({
       visible: songs.slice(0, 5),
       adjacent: [],
     });
   });
 
-  it('uses only the songs of the selected filter', () => {
+  it('uses the songs of the current list', () => {
     const originals = songs.filter((song) => song.category === 'original');
 
-    expect(getJacketRange(selectFilter(createSongSelectState(songs), 'original'), 9)).toEqual({
+    expect(getJacketRange(createSongSelectState(originals, 'original'), 9)).toEqual({
       visible: originals.slice(0, 9),
       adjacent: originals.slice(9),
     });
   });
 
   it('is empty for an empty list', () => {
-    expect(getJacketRange(createSongSelectState([]), 9)).toEqual({
+    expect(getJacketRange(createSongSelectState([], 'all'), 9)).toEqual({
       visible: [],
       adjacent: [],
     });
+  });
+});
+
+describe('getSongSelectNotice', () => {
+  it('shows nothing while there are songs', () => {
+    expect(getSongSelectNotice(1, 'loading')).toBeNull();
+    expect(getSongSelectNotice(1, 'failed')).toBeNull();
+    expect(getSongSelectNotice(1, 'complete')).toBeNull();
+  });
+
+  it('is loading for an empty list waiting for or loading a batch', () => {
+    expect(getSongSelectNotice(0, 'hasMore')).toBe('loading');
+    expect(getSongSelectNotice(0, 'loading')).toBe('loading');
+  });
+
+  it('is loadFailed for an empty failed list', () => {
+    expect(getSongSelectNotice(0, 'failed')).toBe('loadFailed');
+  });
+
+  it('is noSongs for an empty complete list', () => {
+    expect(getSongSelectNotice(0, 'complete')).toBe('noSongs');
   });
 });

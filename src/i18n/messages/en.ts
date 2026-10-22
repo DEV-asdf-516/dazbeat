@@ -13,6 +13,8 @@ export const en: Messages = {
   songSelect: {
     hint: '↑↓ Song   ←→ Difficulty   Q/E Category   Enter Play   Tab Settings   Esc Main',
     noSongs: 'No songs',
+    loading: 'Loading songs',
+    loadFailed: "Couldn't load songs · ↑↓ Retry",
     noRecord: 'No record',
   },
   settings: {

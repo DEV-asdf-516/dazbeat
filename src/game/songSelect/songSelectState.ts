@@ -1,20 +1,16 @@
-import {
-  SONG_FILTERS,
-  filterSongs,
-  findChart,
-  getAvailableCharts,
-  stepChart,
-} from '../../data/songs.js';
+import { findChart, getAvailableCharts, stepChart } from '../../data/songs.js';
 import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
 import type { ChartRecord } from '../../storage/chartRecords.js';
 import type { CelestialStaticId } from '../celestial/celestialCatalog.js';
 import { getDifficultyAppearance } from '../difficultyAppearance.js';
 import type { DifficultyAppearance } from '../difficultyAppearance.js';
-import { clamp, cycleItem } from '../../range.js';
+import { clamp } from '../../range.js';
+import type { SongFeed, SongFeedStatus } from '../SongFeed.js';
+import type { SongSelectRestore } from '../sceneRoutes.js';
 
 export type SongSelection =
-  | { readonly kind: 'none' }
+  | { readonly kind: 'none'; readonly difficulty: Difficulty | null }
   | {
       readonly kind: 'song';
       readonly index: number;
@@ -23,7 +19,6 @@ export type SongSelection =
     };
 
 export interface SongSelectState {
-  readonly allSongs: readonly Song[];
   readonly filter: SongFilter;
   readonly songs: readonly Song[];
   readonly current: SongSelection;
@@ -38,16 +33,83 @@ export type SongRowView =
       readonly recordChart: ChartRef | null;
     };
 
-const NO_SONG: SongSelection = { kind: 'none' };
+export type SongSelectNotice = 'loading' | 'loadFailed' | 'noSongs';
 
-export function createSongSelectState(allSongs: readonly Song[]): SongSelectState {
-  const songs = filterSongs(allSongs, 'all');
+type SongSelectTarget = Pick<SongSelectRestore, 'index' | 'songId' | 'difficulty'>;
+
+export function createSongSelectState(
+  songs: readonly Song[],
+  filter: SongFilter,
+  target?: SongSelectTarget,
+): SongSelectState {
+  if (target === undefined) {
+    return {
+      filter,
+      songs,
+      current: selectAt(songs, 0, null),
+    };
+  }
+  const found = songs.findIndex((song) => song.id === target.songId);
   return {
-    allSongs,
-    filter: 'all',
+    filter,
     songs,
-    current: selectAt(songs, 0, null),
+    current: selectAt(
+      songs,
+      found === -1 ? clamp(target.index, 0, songs.length - 1) : found,
+      target.difficulty,
+    ),
   };
+}
+
+export function openSongSelect(
+  catalog: SongFeed,
+  restore: SongSelectRestore | undefined,
+): { readonly feed: SongFeed; readonly state: SongSelectState } {
+  if (restore === undefined) {
+    return {
+      feed: catalog,
+      state: createSongSelectState(catalog.songs, 'all'),
+    };
+  }
+  const { feed } = restore;
+  return {
+    feed,
+    state: createSongSelectState(feed.songs, feed.query.category, restore),
+  };
+}
+
+export function getSongSelectTarget(state: SongSelectState): SongSelectTarget {
+  const { current } = state;
+  if (current.kind === 'none') {
+    return {
+      index: 0,
+      songId: null,
+      difficulty: current.difficulty,
+    };
+  }
+  return {
+    index: current.index,
+    songId: current.song.id,
+    difficulty: current.chart?.difficulty ?? null,
+  };
+}
+
+export function getSongSelectNotice(
+  songCount: number,
+  status: SongFeedStatus,
+): SongSelectNotice | null {
+  if (songCount > 0) {
+    return null;
+  }
+  switch (status) {
+    case 'hasMore':
+    case 'loading':
+      return 'loading';
+    case 'failed':
+      return 'loadFailed';
+    case 'complete':
+      return 'noSongs';
+  }
 }
 
 export function getPlayableSelection(state: SongSelectState): ChartRef | null {
@@ -196,29 +258,25 @@ export function selectDifficulty(state: SongSelectState, difficulty: Difficulty)
   return chart === undefined ? state : withChart(state, current, chart);
 }
 
-export function cycleFilter(state: SongSelectState, delta: 1 | -1): SongSelectState {
-  return selectFilter(state, cycleItem(SONG_FILTERS, state.filter, delta));
-}
-
-export function selectFilter(state: SongSelectState, filter: SongFilter): SongSelectState {
-  const songs = filterSongs(state.allSongs, filter);
+export function withFilter(
+  state: SongSelectState,
+  filter: SongFilter,
+  songs: readonly Song[],
+): SongSelectState {
   return {
-    ...state,
     filter,
     songs,
     current: selectAt(songs, 0, getSelectedDifficulty(state.current)),
   };
 }
 
-export function withSongs(state: SongSelectState, allSongs: readonly Song[]): SongSelectState {
-  if (allSongs === state.allSongs) {
+export function withSongs(state: SongSelectState, songs: readonly Song[]): SongSelectState {
+  if (songs === state.songs) {
     return state;
   }
   const { current } = state;
-  const songs = filterSongs(allSongs, state.filter);
   return {
     ...state,
-    allSongs,
     songs,
     current: selectAt(
       songs,
@@ -254,7 +312,10 @@ function selectAt(
 ): SongSelection {
   const song = songs[index];
   if (song === undefined) {
-    return NO_SONG;
+    return {
+      kind: 'none',
+      difficulty: previous,
+    };
   }
   const charts = getAvailableCharts(song);
   return {
@@ -266,5 +327,5 @@ function selectAt(
 }
 
 function getSelectedDifficulty(current: SongSelection): Difficulty | null {
-  return current.kind === 'song' ? (current.chart?.difficulty ?? null) : null;
+  return current.kind === 'song' ? (current.chart?.difficulty ?? null) : current.difficulty;
 }
