@@ -50,6 +50,11 @@ export const JUDGMENT_COLORS: Record<Judgment, number> = {
 /** JP 를 KR 보다 앞에 두어 일본어 곡명의 한자·가나가 일본식 자형으로 나온다. JP 에는 한글이 없어 한글은 KR 로 넘어간다. */
 export const FONT_FAMILY =
   '"Dazbeat Numerals", "Cormorant Garamond", "Noto Serif JP", "Noto Serif KR", serif';
+/**
+ * Phaser 는 이 문자열을 그려 글자 높이를 잰다. 기본값은 라틴 글자뿐이라 Cormorant 기준으로 재어,
+ * 그보다 높은 Noto Serif KR·JP 의 한글·가나·한자 획(ㅓ·ㅝ 윗머리 등)이 캔버스 위로 잘린다.
+ */
+const CJK_TEST_STRING = '|MÉqgy쥐넘훨뷁あ漢';
 /** FONT_FAMILY 로 그리면 숫자만 다른 서체가 되어 한 단어가 끊겨 보이므로 한 서체로 그린다. */
 export const DATA_FONT_FAMILY = '"Pretendard Variable", sans-serif';
 
@@ -141,6 +146,7 @@ export function typeStyle(
     fontSize: `${type.sizePx}px`,
     fontStyle: `${type.weight}`,
     color: cssColor(color),
+    testString: CJK_TEST_STRING,
   };
 }
 
