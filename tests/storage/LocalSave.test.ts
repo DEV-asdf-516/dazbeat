@@ -127,6 +127,7 @@ describe('LocalSave settings', () => {
     ['five keys', ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG']],
     ['an empty key', ['KeyA', '', 'KeyD', 'KeyF']],
     ['a duplicate key', ['KeyA', 'KeyS', 'KeyA', 'KeyF']],
+    ['Tab', ['KeyA', 'Tab', 'KeyD', 'KeyF']],
   ])('replaces key bindings with %s by the defaults, warning once', (_label, keyBindings) => {
     storage.setItem(
       SETTINGS_KEY,

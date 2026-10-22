@@ -100,20 +100,19 @@ export function readGameplayKey(code: string, keyBindings: Settings['keyBindings
   const lane = LANES.find((candidate) => keyBindings[candidate] === code) ?? null;
   return {
     lane,
-    command: toCommand(code, lane),
+    command: toCommand(code),
   };
 }
 
-function toCommand(code: string, lane: Lane | null): GameplayCommand | null {
+function toCommand(code: string): GameplayCommand | null {
   switch (code) {
     // Enter 는 레인 키로 바인딩해도 시작·확인 키로 계속 쓴다.
     case 'Enter':
       return 'confirm';
     case 'Escape':
       return 'back';
-    // Tab 을 레인 키로 바인딩하면 MV 모드 전환보다 레인 입력이 우선한다.
     case 'Tab':
-      return lane === null ? 'mvMode' : null;
+      return 'mvMode';
     default:
       return null;
   }

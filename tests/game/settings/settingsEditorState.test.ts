@@ -106,6 +106,14 @@ describe('bindWaitingKey', () => {
     expect(isWaitingKey(state)).toBe(false);
   });
 
+  it('ignores Tab and keeps waiting', () => {
+    const waiting = startWaiting(initial(), 1);
+    const state = bindWaitingKey(waiting, 'Tab');
+    expect(state).toBe(waiting);
+    expect(isWaitingKey(state)).toBe(true);
+    expect(state.settings.keyBindings).toBe(DEFAULT_SETTINGS.keyBindings);
+  });
+
   it('throws when no lane is waiting', () => {
     expect(() => bindWaitingKey(initial(), 'KeyA')).toThrow('No lane is waiting');
   });
