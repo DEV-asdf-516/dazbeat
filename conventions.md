@@ -36,7 +36,7 @@
   - 클릭은 pointer up에서 실행한다. pointer down은 드래그·탐색 같은 제스처에만 쓴다.
   - Phaser는 씬 인스턴스를 재사용한다. 상태는 `create`에서 다시 설정하고, 외부 리스너는 SHUTDOWN에서 해제한다.
   - 비동기 I/O·외부 리소스·늦은 결과가 섞인 화면 흐름은 `<화면>Controller`에 둔다. 동기 전이뿐이면 씬이 순수 상태 모듈을 직접 쓴다.
-    - Controller: Phaser 없이 화면 state(phase union)를 단독 소유하고, 판단은 순수 모듈에 맡겨 순서·부수효과만 엮는다. I/O·시계는 deps, 표시·이동은 씬이 구현한 Screen interface로 주입받는다.
+    - Controller: Phaser 없이 화면 state를 단독 소유하고(단계가 있으면 phase union, 열림·닫힘뿐이면 생성자에서 열어 객체 수명으로 표현), 판단은 순수 모듈에 맡겨 순서·부수효과만 엮는다. I/O·시계는 deps, 표시·이동은 씬이 구현한 Screen interface로 주입받는다.
     - 씬: Phaser 객체와 입력·update 위임만 맡고, SHUTDOWN에서 `close()`로 늦은 결과를 버린다.
     - 테스트: deps·Screen 대역으로 Controller를 검증한다.
 - `pocketbase/`: 서버 코드. 클라이언트 번들에 포함되지 않는다.

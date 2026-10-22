@@ -348,6 +348,7 @@ export class GameplayScene extends Phaser.Scene {
       }),
     };
 
+    const restoreData = data.restore === undefined ? {} : { restore: data.restore };
     const screen: GameplayScreen = {
       showStatus: (status) => this.setStatus(view, status),
       showMvMode: (mode) => this.showMvMode(view, mode),
@@ -356,8 +357,16 @@ export class GameplayScene extends Phaser.Scene {
       openQuitConfirm: (reason) => this.openQuitConfirm(view, reason),
       closeQuitConfirm: () => this.closeQuitConfirm(view),
       beginPlay: (chart) => this.beginPlay(view, chart, settings.scrollSpeedPxPerSecond),
-      showResult: (result) => this.showResult(result),
-      backToSongSelect: () => startScene(this, 'songSelect', { mode: data.mode }),
+      showResult: (result) =>
+        this.showResult({
+          ...result,
+          ...restoreData,
+        }),
+      backToSongSelect: () =>
+        startScene(this, 'songSelect', {
+          mode: data.mode,
+          ...restoreData,
+        }),
     };
     const controller = new GameplayController(
       {

@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import type { ChartRef } from '../data/songs.js';
-import type { GameplayResult } from '../rhythm/types.js';
+import type { Difficulty, GameplayResult } from '../rhythm/types.js';
 import { requestSceneExit } from './sceneExit.js';
 import type { SceneExit } from './sceneExit.js';
 import type { SongFeed } from './SongFeed.js';
@@ -18,17 +18,27 @@ export const SCENE_KEYS = {
 
 export type PlayMode = 'standard' | 'practice';
 
+export interface SongSelectRestore {
+  readonly feed: SongFeed;
+  readonly index: number;
+  readonly songId: string | null;
+  readonly difficulty: Difficulty | null;
+}
+
 export interface SongSelectSceneData {
   readonly mode: PlayMode;
+  readonly restore?: SongSelectRestore;
 }
 
 export interface GameplaySceneData extends ChartRef {
   readonly mode: PlayMode;
+  readonly restore?: SongSelectRestore;
 }
 
 export interface ResultSceneData extends ChartRef {
   readonly mode: PlayMode;
   result: GameplayResult;
+  readonly restore?: SongSelectRestore;
 }
 
 export type ChartEditorSelectSceneData =

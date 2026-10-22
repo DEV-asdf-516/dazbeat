@@ -13,6 +13,8 @@ export const ja: Messages = {
   songSelect: {
     hint: '↑↓ 曲   ←→ 難易度   Q/E カテゴリー   Enter プレイ   Tab 設定   Esc メイン',
     noSongs: '曲がありません',
+    loading: '曲リストを読み込み中',
+    loadFailed: '曲リストを読み込めませんでした · ↑↓ 再試行',
     noRecord: '記録なし',
   },
   settings: {

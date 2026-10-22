@@ -13,8 +13,8 @@ import { ChartEditorSelectController } from './ChartEditorSelectController.js';
 import type {
   ChartEditorSelectScreen,
   ChartEditorSelectView,
-  SongFeeds,
 } from './ChartEditorSelectController.js';
+import type { SongFeeds } from '../SongFeed.js';
 import { IDLE_WHEEL, readWheelRows } from '../wheelRows.js';
 import type { SongListNotice, SongListStatus } from './songListState.js';
 import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
@@ -171,8 +171,8 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       this.feeds,
       screen,
       LIST_FRAME.visibleRowCount,
+      data,
     );
-    controller.open(data);
     requireKeyboard(this).on(
       'keydown',
       handleEachEventOnce((event: KeyboardEvent) => {

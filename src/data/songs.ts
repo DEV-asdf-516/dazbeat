@@ -73,13 +73,6 @@ export interface SongBatch {
   readonly next: SongBatchCursor | null;
 }
 
-export function filterSongs(songs: readonly Song[], filter: SongFilter): Song[] {
-  if (filter === 'all') {
-    return [...songs];
-  }
-  return songs.filter((song) => song.category === filter);
-}
-
 /**
  * 채보가 있음이 확인된 곡·난이도와 그 chart id. 채보 유무를 판단하는 곳(getAvailableCharts, 에디터 선택)에서만
  * 만들고, 받는 쪽은 chart id 를 다시 찾지 않는다.
