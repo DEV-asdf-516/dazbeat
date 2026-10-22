@@ -1181,7 +1181,7 @@ describe('GameplayController run end', () => {
     harness.controller.keyDown('KeyD', false);
   }
 
-  it('plays the full combo on the tick that reaches the game end', async () => {
+  it('pauses the video and plays the full combo on the tick that reaches the game end', async () => {
     const harness = createHarness();
     await startFullCombo(harness);
     resetCalls(harness);
@@ -1189,10 +1189,12 @@ describe('GameplayController run end', () => {
     moveClock(harness, 9.999);
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([['drawFrame']]);
+    expect(harness.playerCalls).toEqual([]);
 
     moveClock(harness, 10);
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([['drawFrame'], ['drawFrame'], ['playFullCombo']]);
+    expect(harness.playerCalls).toEqual(['pause']);
   });
 
   it('saves, submits and shows the result after the full combo effect', async () => {

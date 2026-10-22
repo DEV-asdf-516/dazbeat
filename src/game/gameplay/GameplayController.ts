@@ -508,6 +508,7 @@ export class GameplayController {
       return;
     }
     const onDone = this.enterEnding(run, ending.result);
+    run.playback.pause();
     if (ending.kind === 'fullCombo') {
       run.playScreen.playFullCombo(onDone);
       return;
