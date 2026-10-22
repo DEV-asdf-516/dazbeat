@@ -3,7 +3,7 @@ import { toParseIssue } from '../../data/parseIssue.js';
 import { requireDefined } from '../../invariant.js';
 
 /** 화면 코드가 id 마다 종류(이미지·정적·animation)에 기대므로 이 분류는 코드 쪽 계약이고, 로드할 때 manifest 와 정확히 같은지 확인한다. */
-const IMAGE_ROLE_IDS = ['R01', 'R02', 'R03', 'R04', 'R05', 'R50'] as const;
+const IMAGE_ROLE_IDS = ['R01', 'R02', 'R03', 'R05', 'R50'] as const;
 const STATIC_ROLE_IDS = [
   'R06',
   'R07',

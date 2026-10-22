@@ -1,6 +1,6 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import type { CelestialAtlasId, CelestialCatalog } from '../celestial/celestialCatalog.js';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
 import { SCENE_KEYS, startScene } from '../sceneRoutes.js';
 import type { GameplaySceneData, ResultSceneData } from '../sceneRoutes.js';
@@ -12,7 +12,7 @@ import type { Chart, JudgmentEvent, Lane } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { MvMode } from '../../storage/settings.js';
 import { secToMs } from '../../time.js';
-import { playFailureFx, playFullComboFx } from './endingFx.js';
+import { ENDING_FX_IDS, playFailureFx, playFullComboFx } from './endingFx.js';
 import { GameplayController } from './GameplayController.js';
 import type {
   GameplayFrame,
@@ -27,13 +27,17 @@ import type { GameplayStatus } from './gameplayStatus.js';
 import { addHudEffect, addHudText } from './hudObjects.js';
 import {
   JUDGMENT_SHIMMER_ID,
+  LANE_EFFECT_IDS,
   getHitBloomIntensity,
   getJudgmentPopScale,
   hasJudgmentGlow,
   hasJudgmentShimmer,
 } from './judgmentEffects.js';
 import { Button } from '../ui/Button.js';
-import { addCelestialAtmosphere } from '../celestial/celestialAtmosphere.js';
+import {
+  addCelestialAtmosphere,
+  getCelestialAtmosphereUses,
+} from '../celestial/celestialAtmosphere.js';
 import {
   playCelestialOnce,
   queueCelestialTextures,
@@ -106,6 +110,13 @@ const COMBO_GLINT_Y_PX = COMBO_LABEL_Y_PX + 40;
 const JUDGMENT_SHIMMER_Y_PX = JUDGMENT_Y_PX + 56;
 const LOADING_STAR_ID = 'R47';
 const LOADING_STAR_GAP_PX = 24;
+const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
+  COMBO_GLINT_ID,
+  LOADING_STAR_ID,
+  JUDGMENT_SHIMMER_ID,
+  ...LANE_EFFECT_IDS,
+  ...ENDING_FX_IDS,
+];
 const COUNTDOWN_POP_SCALE = 1.3;
 const COUNTDOWN_POP_START_ALPHA = 0.3;
 
@@ -165,7 +176,10 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   preload(): void {
-    queueCelestialTextures(this, this.celestial);
+    queueCelestialTextures(this, this.celestial, [
+      ...getCelestialAtmosphereUses(this.celestial, 'gameplay'),
+      ...CELESTIAL_IDS.map((id) => this.celestial.atlasPresentations[id]),
+    ]);
   }
 
   create(data: GameplaySceneData): void {

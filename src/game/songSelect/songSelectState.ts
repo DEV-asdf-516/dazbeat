@@ -70,11 +70,19 @@ export function hasNewCurrentSong(previous: SongSelectState, next: SongSelectSta
   );
 }
 
+export const SONG_ROW_NODE_IDS = [
+  'R15',
+  'R16',
+  'R17',
+  'R18',
+  'C:node-played',
+] as const satisfies readonly CelestialStaticId[];
+
 export function getSongRowNodeId(
   record: ChartRecord | null,
   isSelected: boolean,
   isHovered: boolean,
-): CelestialStaticId {
+): (typeof SONG_ROW_NODE_IDS)[number] {
   if (isSelected) {
     return 'R17';
   }
@@ -104,6 +112,23 @@ export function getSongPage(state: SongSelectState, rowsPerPage: number): SongPa
     pageNumber: pageIndex + 1,
     pageCount: Math.ceil(state.songs.length / rowsPerPage),
     selectedSlot: current.kind === 'song' ? songIndex - startIndex : null,
+  };
+}
+
+export interface JacketRange {
+  readonly visible: readonly Song[];
+  readonly adjacent: readonly Song[];
+}
+
+export function getJacketRange(state: SongSelectState, rowsPerPage: number): JacketRange {
+  const { startIndex } = getSongPage(state, rowsPerPage);
+  const endIndex = startIndex + rowsPerPage;
+  return {
+    visible: state.songs.slice(startIndex, endIndex),
+    adjacent: [
+      ...state.songs.slice(Math.max(startIndex - rowsPerPage, 0), startIndex),
+      ...state.songs.slice(endIndex, endIndex + rowsPerPage),
+    ],
   };
 }
 

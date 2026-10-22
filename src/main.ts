@@ -137,7 +137,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
           celestial,
           rankedPlay,
         ),
-        new ResultScene(catalog, i18n, celestial),
+        new ResultScene(i18n, celestial),
         new ChartEditorSelectScene(
           {
             catalog,

@@ -1,7 +1,14 @@
 import type { Judgment, JudgmentEvent } from '../../rhythm/types.js';
 import type { CelestialAtlasId } from '../celestial/celestialCatalog.js';
 
-export type LaneEffectId = 'R32' | 'R33' | 'R34' | 'R35' | 'R36';
+export const LANE_EFFECT_IDS = [
+  'R32',
+  'R33',
+  'R34',
+  'R35',
+  'R36',
+] as const satisfies readonly CelestialAtlasId[];
+export type LaneEffectId = (typeof LANE_EFFECT_IDS)[number];
 
 const HIT_EFFECT_IDS: Record<Judgment, readonly LaneEffectId[]> = {
   perfect: ['R34', 'R35', 'R36'],

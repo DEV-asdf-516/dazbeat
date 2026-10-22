@@ -7,7 +7,9 @@ import {
   addCelestialSprite,
   playCelestialOnce,
   registerCelestialAnimations,
+  requireCelestialTexture,
 } from './celestialSprites.js';
+import type { CelestialTextureUse } from './celestialSprites.js';
 
 const GRAIN_ID = 'R50';
 const DUST_ID = 'R05';
@@ -16,6 +18,29 @@ const STAR_THREAD_ID = 'R44';
 const SHIMMER_WIPE_ID = 'R45';
 // R44 의 512px cell 중 실제로 보이는 띠의 높이. manifest R44 sourceCanvasPx [512, 128] 의 높이다.
 const STAR_THREAD_SOURCE_HEIGHT_PX = 128;
+
+export function getCelestialAtmosphereUses(
+  catalog: CelestialCatalog,
+  screen: CelestialScreen,
+): readonly CelestialTextureUse[] {
+  const layers = CELESTIAL_SCREENS[screen];
+  return [
+    ...(layers.backgroundId === null ? [] : [catalog.imagePresentations[layers.backgroundId]]),
+    ...(layers.hasGrain ? [catalog.imagePresentations[GRAIN_ID]] : []),
+    catalog.imagePresentations[DUST_ID],
+    ...layers.ambient.map(({ id }) => catalog.atlasPresentations[id]),
+  ];
+}
+
+export function getCelestialEntryTransitionUses(
+  catalog: CelestialCatalog,
+): readonly CelestialTextureUse[] {
+  return [
+    catalog.atlasPresentations[DUST_DISSOLVE_ID],
+    catalog.atlasPresentations[STAR_THREAD_ID],
+    catalog.atlasPresentations[SHIMMER_WIPE_ID],
+  ];
+}
 
 export function addCelestialAtmosphere(
   scene: Phaser.Scene,
@@ -26,6 +51,7 @@ export function addCelestialAtmosphere(
   const layers = CELESTIAL_SCREENS[screen];
   if (layers.backgroundId !== null) {
     const background = catalog.imagePresentations[layers.backgroundId];
+    requireCelestialTexture(scene, background.textureKey);
     scene.add.image(0, 0, background.textureKey).setOrigin(0, 0).setAlpha(background.opacity);
   }
   if (layers.hasGrain) {
@@ -69,5 +95,6 @@ export function playCelestialEntryTransition(
 }
 
 function addScreenTile(scene: Phaser.Scene, textureKey: string, opacity: number): void {
+  requireCelestialTexture(scene, textureKey);
   scene.add.tileSprite(0, 0, GAME_WIDTH, GAME_HEIGHT, textureKey).setOrigin(0, 0).setAlpha(opacity);
 }

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { SongCategory } from '../../data/songs.js';
 import { HOVER_CURSOR } from '../ui/cursor.js';
-import { setFittedText } from './fitText.js';
+import { setFittedText } from '../ui/fitText.js';
 import { CELESTIAL_COLORS, RADIUS, setTextColor, typeStyle } from '../ui/theme.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import type { CelestialAtlasId, CelestialCatalog } from '../celestial/celestialCatalog.js';
 import { playCelestialOnce } from '../celestial/celestialSprites.js';
 import { GAME_WIDTH } from '../config.js';
 import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
@@ -62,6 +62,12 @@ const FULL_COMBO_TWINKLE_HALO_MS = 260;
 const FULL_COMBO_SHIMMER_OFFSET_Y_PX = 64;
 // 결과 화면으로 넘어가기 전에 FULL COMBO 를 읽을 수 있을 만큼 머문다.
 const FULL_COMBO_HOLD_MS = 1100;
+
+export const ENDING_FX_IDS: readonly CelestialAtlasId[] = [
+  FULL_COMBO_TWINKLE_ID,
+  JUDGMENT_SHIMMER_ID,
+  ...GAMEPLAY_FAILURE_STARS.map(({ id }) => id),
+];
 
 export function playFullComboFx(
   scene: Phaser.Scene,
