@@ -1,4 +1,5 @@
-export type Lane = 0 | 1 | 2 | 3;
+export type LaneCount = 4 | 5 | 6;
+export type Lane = number;
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'expert';
 export type NoteType = 'tap' | 'hold';
 
@@ -20,6 +21,7 @@ export type Note = TapNote | HoldNote;
 export interface Chart {
   songId: string;
   difficulty: Difficulty;
+  laneCount: LaneCount;
   offsetMs: number;
   notes: readonly Note[];
 }

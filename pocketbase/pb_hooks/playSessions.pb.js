@@ -7,17 +7,24 @@ routerAdd(
   (e) => {
     const { getSessionExpiresAtMs } = require(`${__hooks}/lib/verifyPlay.cjs`);
     const { decideSessionIssue } = require(`${__hooks}/lib/sessionQuota.cjs`);
+    const { parseSessionRequest, InvalidSessionRequestError } = require(
+      `${__hooks}/lib/sessionRequest.cjs`,
+    );
     const { where, CHARTS, PLAY_SESSION_QUOTAS, PLAY_SESSIONS } = require(
       `${__hooks}/lib/pbQuery.cjs`,
     );
     const fail = (status, code, message) => e.json(status, { status, code, message });
 
-    const body = e.requestInfo().body;
-    const chartId = body['chartId'];
-    const chartRevision = body['chartRevision'];
-    if (typeof chartId !== 'string' || typeof chartRevision !== 'string') {
-      return fail(400, 'invalid_request', 'chartId and chartRevision must be strings.');
+    let request;
+    try {
+      request = parseSessionRequest(e.requestInfo().body);
+    } catch (error) {
+      if (error instanceof InvalidSessionRequestError) {
+        return fail(400, 'invalid_request', error.message);
+      }
+      throw error;
     }
+    const { chartId, chartRevision } = request;
     const chartFilter = where(CHARTS, [{ id: chartId }]);
     const chart = e.app.findRecordsByFilter(
       CHARTS.name,
@@ -160,6 +167,7 @@ routerAdd(
         gameEndMs: song.getFloat('gameEndMs'),
       },
       difficulty: chart.getString('difficulty'),
+      laneCount: chart.getInt('laneCount'),
       chart: {
         revision: $security.sha256(chartData),
         data: JSON.parse(chartData),

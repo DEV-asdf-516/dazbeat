@@ -38,8 +38,8 @@ const FILTER_TOP_Y_PX = LAYOUT.topBar.heightPx + LIST_MARGIN_PX;
 const FILTER_WIDTH_PX = 360;
 const FILTER_LIST_GAP_PX = 16;
 const LIST_TOP_Y_PX = FILTER_TOP_Y_PX + SEGMENTED_CONTROL_HEIGHT_PX + FILTER_LIST_GAP_PX;
-const EMPTY_TEXT_OFFSET_Y_PX = 48;
 const STATUS_RETRY_GAP_PX = 16;
+const LIST_BOTTOM_Y_PX = LAYOUT.bottomBar.topYPx - LIST_MARGIN_PX;
 const LIST_FRAME: SongListFrame = {
   leftPx: LIST_LEFT_PX,
   topYPx: LIST_TOP_Y_PX,
@@ -47,8 +47,7 @@ const LIST_FRAME: SongListFrame = {
   paddingPx: LIST_PADDING_PX,
   rowHeightPx: LIST_ROW_HEIGHT_PX,
   visibleRowCount: Math.floor(
-    (LAYOUT.bottomBar.topYPx - LIST_MARGIN_PX - LIST_TOP_Y_PX - LIST_PADDING_PX) /
-      LIST_ROW_HEIGHT_PX,
+    (LIST_BOTTOM_Y_PX - LIST_TOP_Y_PX - LIST_PADDING_PX) / LIST_ROW_HEIGHT_PX,
   ),
 };
 
@@ -110,7 +109,7 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     const noticeText = this.add
       .text(
         LIST_LEFT_PX + LIST_WIDTH_PX / 2,
-        LIST_TOP_Y_PX + EMPTY_TEXT_OFFSET_Y_PX,
+        (LIST_TOP_Y_PX + LIST_BOTTOM_Y_PX) / 2,
         '',
         typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
       )

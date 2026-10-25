@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { GameplaySession } from '../../src/rhythm/GameplaySession.js';
 import { JUDGMENT_WINDOWS } from '../../src/rhythm/judgment.js';
-import type { Chart, Note } from '../../src/rhythm/types.js';
+import type { Chart, LaneCount, Note } from '../../src/rhythm/types.js';
 
-function makeChart(notes: Note[]): Chart {
+function makeChart(notes: Note[], laneCount: LaneCount = 4): Chart {
   return {
     songId: 'test-song',
     difficulty: 'easy',
+    laneCount,
     offsetMs: 0,
     notes,
   };
 }
 
-function makeSession(notes: Note[]): GameplaySession {
-  return new GameplaySession(makeChart(notes), JUDGMENT_WINDOWS);
+function makeSession(notes: Note[], laneCount: LaneCount = 4): GameplaySession {
+  return new GameplaySession(makeChart(notes, laneCount), JUDGMENT_WINDOWS);
 }
 
 const emptyCounts = {
@@ -1280,4 +1281,164 @@ describe('GameplaySession deterministic judgment time', () => {
       },
     ]);
   });
+});
+
+describe('GameplaySession lane count', () => {
+  it.each([4, 5, 6] as const)('judges a tap on the last lane of a %iK chart', (laneCount) => {
+    const lastLane = laneCount - 1;
+    const session = makeSession(
+      [
+        {
+          type: 'tap',
+          timeMs: 1000,
+          lane: lastLane,
+        },
+      ],
+      laneCount,
+    );
+
+    expect(session.press(lastLane, 1000)).toEqual([
+      {
+        noteIndex: 0,
+        lane: lastLane,
+        kind: 'tap',
+        judgment: 'perfect',
+      },
+    ]);
+    expect(session.getProgress()).toMatchObject({ outcome: 'finished' });
+  });
+
+  it.each([5, 6] as const)(
+    'starts and releases a hold on the last lane of a %iK chart',
+    (laneCount) => {
+      const lastLane = laneCount - 1;
+      const session = makeSession(
+        [
+          {
+            type: 'hold',
+            timeMs: 1000,
+            endTimeMs: 2000,
+            lane: lastLane,
+          },
+        ],
+        laneCount,
+      );
+
+      expect(session.press(lastLane, 1000)).toEqual([
+        {
+          noteIndex: 0,
+          lane: lastLane,
+          kind: 'holdStart',
+          judgment: 'perfect',
+        },
+      ]);
+      expect(session.getNoteStatus(0)).toBe('holding');
+      expect(session.release(lastLane, 2000)).toEqual([
+        {
+          noteIndex: 0,
+          lane: lastLane,
+          kind: 'holdEnd',
+          judgment: 'perfect',
+        },
+      ]);
+      expect(session.getNoteStatus(0)).toBe('hit');
+    },
+  );
+
+  it.each([5, 6] as const)(
+    'judges simultaneous notes on the first and last lanes of a %iK chart',
+    (laneCount) => {
+      const lastLane = laneCount - 1;
+      const session = makeSession(
+        [
+          {
+            type: 'tap',
+            timeMs: 1000,
+            lane: 0,
+          },
+          {
+            type: 'tap',
+            timeMs: 1000,
+            lane: lastLane,
+          },
+        ],
+        laneCount,
+      );
+
+      expect(session.press(lastLane, 1000)).toEqual([
+        {
+          noteIndex: 1,
+          lane: lastLane,
+          kind: 'tap',
+          judgment: 'perfect',
+        },
+      ]);
+      expect(session.press(0, 1000)).toEqual([
+        {
+          noteIndex: 0,
+          lane: 0,
+          kind: 'tap',
+          judgment: 'perfect',
+        },
+      ]);
+      expect(session.getState()).toMatchObject({
+        combo: 2,
+        maxCombo: 2,
+      });
+    },
+  );
+
+  it.each([5, 6] as const)(
+    'auto-misses the last lane of a %iK chart in lane order',
+    (laneCount) => {
+      const lastLane = laneCount - 1;
+      const session = makeSession(
+        [
+          {
+            type: 'tap',
+            timeMs: 1000,
+            lane: lastLane,
+          },
+          {
+            type: 'tap',
+            timeMs: 1000,
+            lane: 0,
+          },
+        ],
+        laneCount,
+      );
+
+      expect(session.update(1131).map((event) => event.lane)).toEqual([0, lastLane]);
+    },
+  );
+
+  it.each([4, 5, 6] as const)(
+    'throws for a lane outside a %iK chart without recording the input or advancing time',
+    (laneCount) => {
+      const session = makeSession(
+        [
+          {
+            type: 'tap',
+            timeMs: 1000,
+            lane: 0,
+          },
+        ],
+        laneCount,
+      );
+
+      expect(() => session.press(laneCount, 5000)).toThrow('Lane out of range');
+      expect(() => session.release(laneCount, 5000)).toThrow('Lane out of range');
+      expect(() => session.press(-1, 5000)).toThrow('Lane out of range');
+      expect(session.getInputs()).toEqual([]);
+      expect(session.getNoteStatus(0)).toBe('pending');
+      expect(session.press(0, 1000)).toEqual([
+        {
+          noteIndex: 0,
+          lane: 0,
+          kind: 'tap',
+          judgment: 'perfect',
+        },
+      ]);
+    },
+  );
 });

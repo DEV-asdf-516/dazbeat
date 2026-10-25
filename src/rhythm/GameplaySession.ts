@@ -1,7 +1,7 @@
 import { getDistance } from '../range.js';
 import { calculateAccuracy, isCleared } from './accuracy.js';
 import { judgeHoldRelease, judgeTap } from './judgment.js';
-import { LANES } from './lanes.js';
+import { getLanes } from './lanes.js';
 import { getJudgmentScore, getNextCombo } from './score.js';
 import { getNextHp, MAX_HP } from './starlight.js';
 import type {
@@ -26,8 +26,6 @@ interface LaneEntry<T extends Note = Note> {
   note: T;
 }
 
-type PerLane<T> = [T, T, T, T];
-
 const PLAYING: GameplayProgress = { outcome: 'playing' };
 
 interface UpdateCandidate {
@@ -37,13 +35,18 @@ interface UpdateCandidate {
   judgment: Judgment;
 }
 
+function atLane<T>(values: readonly T[], lane: Lane): T {
+  return requireDefined(values[lane], 'Lane out of range', lane);
+}
+
 export class GameplaySession {
   private readonly windows: JudgmentWindows;
   private readonly canFail: boolean;
   private readonly statuses: NoteStatus[];
-  private readonly laneEntries: PerLane<LaneEntry[]> = [[], [], [], []];
-  private readonly laneCursors: PerLane<number> = [0, 0, 0, 0];
-  private readonly holdingEntries: PerLane<LaneEntry<HoldNote> | null> = [null, null, null, null];
+  private readonly lanes: readonly Lane[];
+  private readonly laneEntries: LaneEntry[][];
+  private readonly laneCursors: number[];
+  private readonly holdingEntries: (LaneEntry<HoldNote> | null)[];
   private unjudgedCount: number;
   private score = 0;
   private combo = 0;
@@ -69,8 +72,12 @@ export class GameplaySession {
     this.windows = windows;
     this.canFail = rules.canFail;
     this.statuses = chart.notes.map((): NoteStatus => 'pending');
+    this.lanes = getLanes(chart.laneCount);
+    this.laneEntries = this.lanes.map(() => []);
+    this.laneCursors = this.lanes.map(() => 0);
+    this.holdingEntries = this.lanes.map(() => null);
     chart.notes.forEach((note, noteIndex) => {
-      this.laneEntries[note.lane].push({
+      atLane(this.laneEntries, note.lane).push({
         noteIndex,
         note,
       });
@@ -140,6 +147,8 @@ export class GameplaySession {
 
   /** 실패 뒤의 입력도 기록한다. 리플레이가 같은 호출 순서를 재현해야 하기 때문이다. */
   private judgeInput(lane: Lane, kind: InputKind, songTimeMs: number): JudgmentEvent[] {
+    // 범위 밖 레인은 입력 기록·시각 전진 전에 거부해 세션 상태를 하나도 바꾸지 않는다.
+    atLane(this.laneEntries, lane);
     const judgedAtMs = this.recordInput(lane, kind, songTimeMs);
     const events = this.judgeExpired(judgedAtMs);
     const event =
@@ -158,13 +167,13 @@ export class GameplaySession {
   }
 
   private judgePress(lane: Lane, songTimeMs: number): JudgmentEvent | null {
-    if (this.hasFailed || this.holdingEntries[lane] !== null) {
+    if (this.hasFailed || atLane(this.holdingEntries, lane) !== null) {
       return null;
     }
-    const entries = this.laneEntries[lane];
+    const entries = atLane(this.laneEntries, lane);
     let selected: LaneEntry | null = null;
     let selectedDiffMs = Infinity;
-    for (let i = this.laneCursors[lane]; i < entries.length; i++) {
+    for (let i = atLane(this.laneCursors, lane); i < entries.length; i++) {
       const entry = entries[i];
       if (entry === undefined || entry.note.timeMs > songTimeMs + this.windows.badMs) {
         break;
@@ -209,7 +218,7 @@ export class GameplaySession {
   }
 
   private judgeRelease(lane: Lane, songTimeMs: number): JudgmentEvent | null {
-    const holding = this.holdingEntries[lane];
+    const holding = atLane(this.holdingEntries, lane);
     if (this.hasFailed || holding === null) {
       return null;
     }
@@ -230,8 +239,8 @@ export class GameplaySession {
       return [];
     }
     const candidates: UpdateCandidate[] = [];
-    for (const lane of LANES) {
-      const holding = this.holdingEntries[lane];
+    for (const lane of this.lanes) {
+      const holding = atLane(this.holdingEntries, lane);
       if (holding !== null && holding.note.endTimeMs < songTimeMs) {
         candidates.push({
           judgedAtMs: holding.note.endTimeMs,
@@ -240,8 +249,8 @@ export class GameplaySession {
           judgment: 'perfect',
         });
       }
-      const entries = this.laneEntries[lane];
-      for (let i = this.laneCursors[lane]; i < entries.length; i++) {
+      const entries = atLane(this.laneEntries, lane);
+      for (let i = atLane(this.laneCursors, lane); i < entries.length; i++) {
         const entry = entries[i];
         if (entry === undefined) {
           break;
@@ -322,8 +331,8 @@ export class GameplaySession {
   }
 
   private advanceCursor(lane: Lane): void {
-    const entries = this.laneEntries[lane];
-    let cursor = this.laneCursors[lane];
+    const entries = atLane(this.laneEntries, lane);
+    let cursor = atLane(this.laneCursors, lane);
     let entry = entries[cursor];
     while (entry !== undefined && this.statuses[entry.noteIndex] !== 'pending') {
       cursor += 1;

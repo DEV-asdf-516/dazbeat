@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { DIFFICULTIES, findChart } from '../../data/songs.js';
 import type { ChartRef, Song } from '../../data/songs.js';
-import type { Difficulty } from '../../rhythm/types.js';
+import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import { getDifficultyAppearance } from '../difficultyAppearance.js';
 import type { DifficultyAppearance } from '../difficultyAppearance.js';
 import { DEFAULT_CURSOR, DISABLED_CURSOR, HOVER_CURSOR } from '../ui/cursor.js';
@@ -21,6 +21,7 @@ const TAB_GAP_PX = 32;
 export interface DifficultyTabsState {
   selected: Difficulty;
   song: Song;
+  laneCount: LaneCount;
 }
 
 export class DifficultyTabs {
@@ -30,14 +31,14 @@ export class DifficultyTabs {
 
   constructor(
     scene: Phaser.Scene,
-    leftPx: number,
+    rightPx: number,
     topYPx: number,
     state: DifficultyTabsState,
     onSelect: (chart: ChartRef) => void,
   ) {
     this.state = state;
-    let xPx = leftPx;
-    this.tabs = DIFFICULTIES.map((difficulty) => {
+    let xPx = 0;
+    const tabs = DIFFICULTIES.map((difficulty) => {
       // 고르면 굵어지므로 굵은 폭으로 간격과 밑줄을 잡아 탭이 흔들리지 않게 한다.
       const text = scene.add.text(
         xPx,
@@ -65,7 +66,7 @@ export class DifficultyTabs {
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => this.setHovered(difficulty))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.setHovered(null))
         .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
-          const chart = findChart(this.state.song, difficulty);
+          const chart = findChart(this.state.song, this.state.laneCount, difficulty);
           if (chart !== undefined) {
             onSelect(chart);
           }
@@ -77,6 +78,13 @@ export class DifficultyTabs {
         underline,
       };
     });
+    // 굵은 폭으로 잰 전체 폭이 나와야 오른쪽 끝을 맞출 수 있어, 다 놓은 뒤 한꺼번에 옮긴다.
+    const shiftPx = rightPx - (xPx - TAB_GAP_PX);
+    tabs.forEach(({ text, underline }) => {
+      text.x += shiftPx;
+      underline.x += shiftPx;
+    });
+    this.tabs = tabs;
     this.refresh();
   }
 
@@ -104,7 +112,7 @@ export class DifficultyTabs {
     this.tabs.forEach(({ difficulty, text, underline }) => {
       const appearance = getDifficultyAppearance({
         isSelected: this.state.selected === difficulty,
-        isAvailable: findChart(this.state.song, difficulty) !== undefined,
+        isAvailable: findChart(this.state.song, this.state.laneCount, difficulty) !== undefined,
         isHovered: this.hovered === difficulty,
       });
       text.setFontStyle(`${appearance === 'selected' ? SELECTED_WEIGHT : LABEL_TYPE.weight}`);
@@ -112,7 +120,7 @@ export class DifficultyTabs {
         text.input.cursor = getTabCursor(appearance);
       }
       setTextColor(text, getTabColor(appearance));
-      underline.setVisible(appearance === 'selected');
+      underline.setFillStyle(this.state.song.accentColor).setVisible(appearance === 'selected');
     });
   }
 }

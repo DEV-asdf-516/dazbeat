@@ -19,6 +19,7 @@ import {
   bindWaitingKey,
   createSettingsEditorState,
   focusRow,
+  isRowShown,
   isWaitingKey,
   moveFocus,
   pressBack,
@@ -43,88 +44,130 @@ import { readKeyCapture } from './keyCapture.js';
 import { requireDefined } from '../../invariant.js';
 
 type SettingsGroup = 'audio' | 'input' | 'general';
+type SettingsColumn = 'left' | 'right';
 
-const ROWS: readonly (SettingsRow & { yPx: number })[] = [
+interface RowLayout {
+  column: SettingsColumn;
+  yPx: number;
+}
+
+// 키 행은 가장 많은 6K 까지 만들어 두고, 선택한 레인 모드보다 많은 행은 숨긴다.
+const ROWS: readonly (SettingsRow & RowLayout)[] = [
   {
     kind: 'volume',
     field: 'masterVolume',
+    column: 'left',
     yPx: 224,
   },
   {
     kind: 'volume',
     field: 'musicVolume',
+    column: 'left',
     yPx: 280,
   },
   {
     kind: 'volume',
     field: 'effectVolume',
+    column: 'left',
     yPx: 336,
   },
   {
     kind: 'inputOffset',
+    column: 'left',
     yPx: 452,
   },
   {
-    kind: 'key',
-    lane: 0,
+    kind: 'laneMode',
+    column: 'left',
     yPx: 508,
   },
   {
     kind: 'key',
-    lane: 1,
+    lane: 0,
+    column: 'left',
     yPx: 564,
   },
   {
     kind: 'key',
-    lane: 2,
+    lane: 1,
+    column: 'left',
     yPx: 620,
   },
   {
     kind: 'key',
-    lane: 3,
+    lane: 2,
+    column: 'left',
     yPx: 676,
   },
   {
+    kind: 'key',
+    lane: 3,
+    column: 'left',
+    yPx: 732,
+  },
+  {
+    kind: 'key',
+    lane: 4,
+    column: 'left',
+    yPx: 788,
+  },
+  {
+    kind: 'key',
+    lane: 5,
+    column: 'left',
+    yPx: 844,
+  },
+  {
     kind: 'scrollSpeed',
-    yPx: 792,
+    column: 'right',
+    yPx: 224,
   },
   {
     kind: 'mvMode',
-    yPx: 848,
+    column: 'right',
+    yPx: 280,
   },
   {
     kind: 'language',
-    yPx: 904,
+    column: 'right',
+    yPx: 336,
   },
 ];
-const GROUPS: readonly { group: SettingsGroup; yPx: number }[] = [
+const GROUPS: readonly ({ group: SettingsGroup } & RowLayout)[] = [
   {
     group: 'audio',
+    column: 'left',
     yPx: 184,
   },
   {
     group: 'input',
+    column: 'left',
     yPx: 412,
   },
   {
     group: 'general',
-    yPx: 752,
+    column: 'right',
+    yPx: 184,
   },
 ];
+const COLUMN_WIDTH_PX = 760;
+const COLUMN_LEFT_X_PX: Readonly<Record<SettingsColumn, number>> = {
+  left: SCREEN_LAYOUT.leftXPx,
+  right: SCREEN_LAYOUT.rightXPx - COLUMN_WIDTH_PX,
+};
 const GROUP_TITLE_WEIGHT = 700;
 const ROW_HEIGHT_PX = 56;
-const ROW_HIT_WIDTH_PX = 580;
-const LABEL_X_PX = 184;
+const ROW_HIT_WIDTH_PX = 460;
+const LABEL_OFFSET_X_PX = 24;
 const CONTROL_OFFSET_Y_PX = 4;
 const STEP_SIZE_PX = 48;
 const STEP_GAP_PX = 12;
 const VALUE_WIDTH_PX = 160;
-const DECREASE_X_PX = 760;
-const VALUE_X_PX = DECREASE_X_PX + STEP_SIZE_PX + STEP_GAP_PX + VALUE_WIDTH_PX / 2;
-const INCREASE_X_PX = VALUE_X_PX + VALUE_WIDTH_PX / 2 + STEP_GAP_PX;
-const CONTROL_RIGHT_X_PX = INCREASE_X_PX + STEP_SIZE_PX;
+const DECREASE_OFFSET_X_PX = 480;
+const VALUE_OFFSET_X_PX = DECREASE_OFFSET_X_PX + STEP_SIZE_PX + STEP_GAP_PX + VALUE_WIDTH_PX / 2;
+const INCREASE_OFFSET_X_PX = VALUE_OFFSET_X_PX + VALUE_WIDTH_PX / 2 + STEP_GAP_PX;
 const KEY_BOX_WIDTH_PX = 120;
-const KEY_BOX_X_PX = CONTROL_RIGHT_X_PX - KEY_BOX_WIDTH_PX;
+const KEY_BOX_OFFSET_X_PX = COLUMN_WIDTH_PX - KEY_BOX_WIDTH_PX;
 const KEY_BOX_HEIGHT_PX = 48;
 const CHEVRON_SIZE_PX = 16;
 // 텍스처는 2배로 그려 축소 표시해 선 끝이 매끄럽게 보이게 한다.
@@ -146,6 +189,7 @@ type RowControl =
 interface RowView {
   row: SettingsRow;
   index: number;
+  hitArea: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
   control: RowControl;
 }
@@ -206,10 +250,7 @@ export class SettingsScene extends Phaser.Scene {
       update((state) => applyPointer(state, transition));
 
     const overlay = new ControlsOverlay(this, () =>
-      getControlsGuide(
-        this.i18n.t('controls', { returnObjects: true }),
-        this.editor.settings.keyBindings,
-      ),
+      getControlsGuide(this.i18n.t('controls', { returnObjects: true }), this.editor.settings),
     );
     const view: SettingsView = {
       title: this.add.text(
@@ -218,10 +259,10 @@ export class SettingsScene extends Phaser.Scene {
         '',
         textStyle('heading', COLORS.textPrimary),
       ),
-      groups: GROUPS.map(({ group, yPx }) => ({
+      groups: GROUPS.map(({ group, column, yPx }) => ({
         group,
         text: this.add.text(
-          SCREEN_LAYOUT.leftXPx,
+          COLUMN_LEFT_X_PX[column],
           yPx,
           '',
           textStyle('secondary', COLORS.textSecondary, GROUP_TITLE_WEIGHT),
@@ -238,12 +279,7 @@ export class SettingsScene extends Phaser.Scene {
         overlay.open(),
       ),
       rowHover,
-      focusStar: addCelestialSprite(
-        this,
-        this.celestial.atlasPresentations[FOCUS_STAR_ID],
-        SCREEN_LAYOUT.leftXPx - FOCUS_STAR_GAP_PX,
-        0,
-      ),
+      focusStar: addCelestialSprite(this, this.celestial.atlasPresentations[FOCUS_STAR_ID], 0, 0),
     };
     createHeaderAuxiliaryButtons(this, [
       {
@@ -262,23 +298,24 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   private createRow(
-    row: SettingsRow & { yPx: number },
+    row: SettingsRow & RowLayout,
     index: number,
     rowHover: PointerHover<number>,
     onPointer: (transition: Transition) => void,
   ): RowView {
-    const centerYPx = getRowCenterYPx(index);
+    const leftXPx = COLUMN_LEFT_X_PX[row.column];
+    const centerYPx = row.yPx + ROW_HEIGHT_PX / 2;
     const controlYPx = row.yPx + CONTROL_OFFSET_Y_PX;
     const hitArea = this.add
-      .rectangle(SCREEN_LAYOUT.leftXPx, row.yPx, ROW_HIT_WIDTH_PX, ROW_HEIGHT_PX)
+      .rectangle(leftXPx, row.yPx, ROW_HIT_WIDTH_PX, ROW_HEIGHT_PX)
       .setOrigin(0, 0);
     rowHover.bind(hitArea, index, () => onPointer((state) => focusRow(state, index)));
     const label = this.add
-      .text(LABEL_X_PX, centerYPx, '', textStyle('primary', COLORS.textSecondary))
+      .text(leftXPx + LABEL_OFFSET_X_PX, centerYPx, '', textStyle('primary', COLORS.textSecondary))
       .setOrigin(0, 0.5);
 
     if (row.kind === 'key') {
-      const keyBox = new Button(this, KEY_BOX_X_PX, controlYPx, {
+      const keyBox = new Button(this, leftXPx + KEY_BOX_OFFSET_X_PX, controlYPx, {
         variant: 'secondary',
         focus: 'glow',
         label: '',
@@ -289,6 +326,7 @@ export class SettingsScene extends Phaser.Scene {
       return {
         row,
         index,
+        hitArea,
         label,
         control: {
           kind: 'key',
@@ -316,16 +354,20 @@ export class SettingsScene extends Phaser.Scene {
       };
     };
     const value = this.add
-      .text(VALUE_X_PX, centerYPx, '', textStyle('primary', COLORS.textPrimary))
+      .text(leftXPx + VALUE_OFFSET_X_PX, centerYPx, '', textStyle('primary', COLORS.textPrimary))
       .setOrigin(0.5);
     return {
       row,
       index,
+      hitArea,
       label,
       control: {
         kind: 'step',
         value,
-        steps: [createStep(DECREASE_X_PX, '−', -1), createStep(INCREASE_X_PX, '+', 1)],
+        steps: [
+          createStep(leftXPx + DECREASE_OFFSET_X_PX, '−', -1),
+          createStep(leftXPx + INCREASE_OFFSET_X_PX, '+', 1),
+        ],
       },
     };
   }
@@ -416,10 +458,35 @@ export class SettingsScene extends Phaser.Scene {
     const { settings, waitingLane } = this.editor;
     const language = this.displayedLanguage;
     view.title.setText(this.i18n.t('settings.title'));
-    view.focusStar.setY(getRowCenterYPx(this.editor.rowIndex));
+    const focused = requireDefined(
+      ROWS[this.editor.rowIndex],
+      'Invalid settings row index',
+      this.editor.rowIndex,
+    );
+    view.focusStar.setPosition(
+      COLUMN_LEFT_X_PX[focused.column] - FOCUS_STAR_GAP_PX,
+      focused.yPx + ROW_HEIGHT_PX / 2,
+    );
     view.groups.forEach(({ group, text }) => text.setText(this.i18n.t(`settings.groups.${group}`)));
     view.rows.forEach((rowView) => {
-      const { row, label, control } = rowView;
+      const { row, index, hitArea, label, control } = rowView;
+      const isShown = isRowShown(row, settings);
+      hitArea.setVisible(isShown);
+      label.setVisible(isShown);
+      switch (control.kind) {
+        case 'key':
+          control.keyBox.setVisible(isShown);
+          break;
+        case 'step':
+          control.value.setVisible(isShown);
+          control.steps.forEach(({ button }) => button.setVisible(isShown));
+          break;
+      }
+      if (!isShown) {
+        // 숨긴 대상은 POINTER_OUT 을 받지 못하므로 hover 를 직접 해제한다.
+        view.rowHover.release(index);
+        return;
+      }
       label.setText(this.formatLabel(row));
       this.renderLabelColor(rowView, view.rowHover);
       const value = formatRowValue(row, settings, language, waitingLane);
@@ -454,6 +521,8 @@ export class SettingsScene extends Phaser.Scene {
         return this.i18n.t(`settings.rows.${row.field}`);
       case 'inputOffset':
         return this.i18n.t('settings.rows.inputOffset');
+      case 'laneMode':
+        return this.i18n.t('settings.rows.laneMode');
       case 'scrollSpeed':
         return this.i18n.t('settings.rows.noteSpeed');
       case 'mvMode':
@@ -464,10 +533,6 @@ export class SettingsScene extends Phaser.Scene {
         return this.i18n.t('settings.rows.laneKey', { lane: row.lane + 1 });
     }
   }
-}
-
-function getRowCenterYPx(index: number): number {
-  return requireDefined(ROWS[index], 'Invalid settings row index', index).yPx + ROW_HEIGHT_PX / 2;
 }
 
 /** 흰색으로 그려 Button 이 상태별 색을 tint 로 입힌다. */

@@ -2,9 +2,8 @@ import { z } from 'zod';
 import { toParseIssue } from './parseIssue.js';
 import type { Song } from './songs.js';
 import { JUDGMENT_WINDOWS } from '../rhythm/judgment.js';
-import { LANES } from '../rhythm/lanes.js';
 import { getPlaybackStartMs, INPUT_OFFSET_RANGE_MS } from '../rhythm/playTiming.js';
-import type { Chart, InputEvent } from '../rhythm/types.js';
+import type { Chart, InputEvent, LaneCount } from '../rhythm/types.js';
 import { msToSec } from '../time.js';
 
 export interface PlaySubmission {
@@ -12,8 +11,8 @@ export interface PlaySubmission {
   events: readonly InputEvent[];
 }
 
-/** 4레인 누르기+떼기로 정상 연타를 넘는 초당 이벤트 수. */
-export const MAX_INPUT_EVENTS_PER_SECOND = 40;
+/** 한 레인 누르기+떼기로 정상 연타를 넘는 초당 이벤트 수. */
+export const MAX_INPUT_EVENTS_PER_LANE_PER_SECOND = 10;
 /** 재생 리싱크로 판정 시계가 밀릴 수 있는 여유. */
 export const EVENT_TIME_SLACK_MS = 1000;
 
@@ -36,11 +35,16 @@ interface EventTimeRangeMs {
 
 const inputOffsetMs = z.number().min(INPUT_OFFSET_RANGE_MS.min).max(INPUT_OFFSET_RANGE_MS.max);
 
-const inputEvent = z.strictObject({
-  lane: z.literal(LANES),
-  kind: z.enum(['press', 'release']),
-  songTimeMs: z.number(),
-});
+function inputEventSchema(laneCount: LaneCount) {
+  return z.strictObject({
+    lane: z
+      .int()
+      .min(0)
+      .max(laneCount - 1),
+    kind: z.enum(['press', 'release']),
+    songTimeMs: z.number(),
+  });
+}
 
 // 이벤트 시각 범위와 개수 상한은 offset 에 따라 달라지므로 offset 만 먼저 확정한다.
 const offsetSchema = z.object({ inputOffsetMs });
@@ -83,12 +87,14 @@ function checkEventTimeline(
   }
 }
 
-function submissionSchema(range: EventTimeRangeMs) {
-  const maxEvents = Math.ceil(msToSec(range.maxMs - range.minMs) * MAX_INPUT_EVENTS_PER_SECOND);
+function submissionSchema(range: EventTimeRangeMs, laneCount: LaneCount) {
+  const maxEvents = Math.ceil(
+    msToSec(range.maxMs - range.minMs) * MAX_INPUT_EVENTS_PER_LANE_PER_SECOND * laneCount,
+  );
   return z
     .object({
       inputOffsetMs,
-      events: z.array(inputEvent).max(maxEvents),
+      events: z.array(inputEventSchema(laneCount)).max(maxEvents),
     })
     .superRefine((submission, ctx) => checkEventTimeline(submission.events, range, ctx));
 }
@@ -108,5 +114,8 @@ export function parsePlaySubmission(
   chart: Chart,
 ): PlaySubmission {
   const { inputOffsetMs: submittedOffsetMs } = parseWith(offsetSchema, input);
-  return parseWith(submissionSchema(getEventTimeRangeMs(song, chart, submittedOffsetMs)), input);
+  return parseWith(
+    submissionSchema(getEventTimeRangeMs(song, chart, submittedOffsetMs), chart.laneCount),
+    input,
+  );
 }

@@ -123,10 +123,7 @@ export class CreditsScene extends Phaser.Scene {
     void this.catalog.requestRemaining();
 
     const overlay = new ControlsOverlay(this, () =>
-      getControlsGuide(
-        this.i18n.t('controls', { returnObjects: true }),
-        this.save.loadSettings().keyBindings,
-      ),
+      getControlsGuide(this.i18n.t('controls', { returnObjects: true }), this.save.loadSettings()),
     );
     let wheel = IDLE_WHEEL;
     this.input.on(

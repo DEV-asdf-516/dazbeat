@@ -13,7 +13,7 @@
 
 - `src/` 바로 아래 순수 모듈: 여러 도메인 폴더가 import해야 하는 의존성 없는 순수 모듈은 `src/` 바로 아래에 두고, 어느 폴더에서든 import할 수 있다. 서로 외에는 다른 src 폴더·프레임워크·I/O를 import하지 않는다.
   - `invariant.ts`: 불변 조건 검사(`requireDefined`). 조회 결과가 없으면 개발 오류인 곳은 직접 `=== undefined` 검사·throw를 쓰지 않고 이 함수를 쓴다. 메시지는 고정 문구 message와 바뀌는 값 subject로 나눠 넘기고, message에 템플릿 문자열을 넘기지 않는다(성공 경로에서도 문자열이 만들어진다).
-  - `range.ts`: 범위 산술(`clamp`, 거리 `getDistance`, 진행 비율 `getProgress`, 보간 `lerp`, 목록 순환·이동).
+  - `range.ts`: 범위 산술(`clamp`, 거리 `getDistance`, 진행 비율 `getProgress`, 보간 `lerp`, 목록 순환·이동). 비율·보간을 직접 계산하지 않고 이 함수를 쓴다.
   - `typeGuards.ts`: `unknown` 값 타입 가드(`isRecord`, `isString`, `isBoolean`, `isFiniteNumber`, 목록 소속 `isOneOf`). 외부 입력을 손으로 파싱할 때 `typeof` 검사를 직접 쓰지 않고 이 함수를 쓴다.
   - `json.ts`: 실패를 기본값으로 대체하는 JSON 파싱(`parseJson`, 실패 시 `undefined`). `JSON.parse` 를 try-catch 로 직접 감싸지 않는다. 실패 원인이 필요한 필수 입력은 경계에서 직접 throw한다.
   - `time.ts`: ms↔초 변환(`msToSec`, `secToMs`). 초는 외부 API(YouTube)·초당 속도 설정 경계에서만 쓰고, 변환에 `1000` 을 직접 쓰지 않는다.

@@ -2,7 +2,7 @@ import type { YouTubePlayerState } from '../../audio/YouTubePlayer.js';
 import { InvalidChartError, parseChart } from '../../data/chartSchema.js';
 import type { ChartRef, Song } from '../../data/songs.js';
 import { requireDefined } from '../../invariant.js';
-import type { Chart, Difficulty, Lane } from '../../rhythm/types.js';
+import type { Chart, Difficulty, LaneCount } from '../../rhythm/types.js';
 import { clamp } from '../../range.js';
 import {
   clearNotes,
@@ -32,7 +32,7 @@ import {
   NO_GESTURE,
   startGesture,
 } from './chartGesture.js';
-import type { EditTool, GestureLimits } from './chartGesture.js';
+import type { EditTool, GestureLimits, TimelinePointer } from './chartGesture.js';
 import {
   advancePlayback,
   createPlayhead,
@@ -51,7 +51,12 @@ export interface ChartCatalog {
 
 export interface EditList {
   readonly songs: readonly Song[];
-  applySavedChart(songId: string, difficulty: Difficulty, chartId: string): Song | undefined;
+  applySavedChart(
+    songId: string,
+    laneCount: LaneCount,
+    difficulty: Difficulty,
+    chartId: string,
+  ): Song | undefined;
 }
 
 interface EditorScreen {
@@ -92,10 +97,11 @@ export class ChartEditorController {
     this.current = INITIAL_STATE;
   }
 
-  select(song: Song, difficulty: Difficulty): void {
+  select(song: Song, laneCount: LaneCount, difficulty: Difficulty): void {
     this.requestNavigation({
       kind: 'select',
       song,
+      laneCount,
       difficulty,
     });
   }
@@ -109,11 +115,15 @@ export class ChartEditorController {
   }
 
   moveSong(delta: number): void {
-    this.selectInList(delta, null);
+    this.selectInList(delta, {});
+  }
+
+  selectLaneCount(laneCount: LaneCount): void {
+    this.selectInList(0, { laneCount });
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.selectInList(0, difficulty);
+    this.selectInList(0, { difficulty });
   }
 
   confirmPending(): void {
@@ -159,7 +169,7 @@ export class ChartEditorController {
     const { draft } = session;
     let chart: Chart;
     try {
-      chart = parseChart(toChart(draft), draft.song, draft.difficulty);
+      chart = parseChart(toChart(draft), draft.song, draft.difficulty, draft.laneCount);
     } catch (error) {
       if (!(error instanceof InvalidChartError)) {
         throw error;
@@ -192,7 +202,7 @@ export class ChartEditorController {
     });
     const chartId = await this.catalog.saveChart(draft.song, chart).catch((error: unknown) => {
       console.error(
-        `Failed to save chart for song ${draft.song.id} difficulty ${draft.difficulty}`,
+        `Failed to save chart for song ${draft.song.id} ${draft.laneCount}K difficulty ${draft.difficulty}`,
         error,
       );
       return null;
@@ -202,7 +212,7 @@ export class ChartEditorController {
       chartId === null
         ? null
         : requireDefined(
-            this.list.applySavedChart(draft.song.id, draft.difficulty, chartId),
+            this.list.applySavedChart(draft.song.id, draft.laneCount, draft.difficulty, chartId),
             'Saved chart song is not in the edit list',
             draft.song.id,
           );
@@ -241,7 +251,7 @@ export class ChartEditorController {
     }
   }
 
-  pointerDown(lane: Lane, pointerTimeMs: number): void {
+  pointerDown(pointer: TimelinePointer): void {
     const session = this.getEditableSession();
     if (session === null) {
       return;
@@ -249,10 +259,7 @@ export class ChartEditorController {
     const { draft, gesture } = startGesture(
       session.draft,
       this.current.tool,
-      {
-        lane,
-        timeMs: pointerTimeMs,
-      },
+      pointer,
       this.getGestureLimits(),
     );
     this.setSession({
@@ -261,20 +268,12 @@ export class ChartEditorController {
     });
   }
 
-  pointerMove(lane: Lane, pointerTimeMs: number): void {
+  pointerMove(pointer: TimelinePointer): void {
     const session = this.getEditableSession();
     if (session === null || session.gesture.kind === 'none') {
       return;
     }
-    const draft = continueGesture(
-      session.draft,
-      session.gesture,
-      {
-        lane,
-        timeMs: pointerTimeMs,
-      },
-      this.getGestureLimits(),
-    );
+    const draft = continueGesture(session.draft, session.gesture, pointer, this.getGestureLimits());
     this.setSession(withDraft(session, draft));
   }
 
@@ -325,8 +324,10 @@ export class ChartEditorController {
     }
   }
 
-  /** 곡 목록은 바뀔 수 있으므로 고를 때마다 다시 읽는다. */
-  private selectInList(delta: number, difficulty: Difficulty | null): void {
+  private selectInList(
+    delta: number,
+    change: { readonly laneCount?: LaneCount; readonly difficulty?: Difficulty },
+  ): void {
     const selection = getSelection(this.current);
     if (selection === null || getPending(this.current) !== null) {
       return;
@@ -345,7 +346,11 @@ export class ChartEditorController {
       'Song list has no song at clamped index',
       index + delta,
     );
-    this.select(song, difficulty ?? selection.difficulty);
+    this.select(
+      song,
+      change.laneCount ?? selection.laneCount,
+      change.difficulty ?? selection.difficulty,
+    );
   }
 
   /** 확인 팝업을 띄우기 전에 진행 중인 drag 를 거두므로, 취소 뒤에 만들다 만 Hold 가 남지 않는다. */
@@ -379,20 +384,21 @@ export class ChartEditorController {
     }
     void this.open({
       song: navigation.song,
+      laneCount: navigation.laneCount,
       difficulty: navigation.difficulty,
     });
   }
 
   private async open(selection: Selection): Promise<void> {
-    const { song, difficulty } = selection;
-    // 난이도만 바뀌면 같은 음원이므로 player 를 유지한다.
+    const { song, laneCount, difficulty } = selection;
+    // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지한다.
     if (getSelection(this.current)?.song.id !== song.id) {
       this.screen.changeSong(song);
     }
-    // 에디터는 채보가 없는 난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
-    const chartId = song.chartIds[difficulty];
+    // 에디터는 채보가 없는 레인 수·난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
+    const chartId = song.chartIds[laneCount]?.[difficulty];
     if (chartId === undefined) {
-      this.enter(startEditing(createEmptyDraft(song, difficulty)), song.gameStartMs);
+      this.enter(startEditing(createEmptyDraft(song, laneCount, difficulty)), song.gameStartMs);
       return;
     }
     const loading: EditPhase = {
@@ -403,11 +409,15 @@ export class ChartEditorController {
     const chart = await this.catalog
       .loadChart({
         song,
+        laneCount,
         difficulty,
         chartId,
       })
       .catch((error: unknown) => {
-        console.error(`Failed to load chart for song ${song.id} difficulty ${difficulty}`, error);
+        console.error(
+          `Failed to load chart for song ${song.id} ${laneCount}K difficulty ${difficulty}`,
+          error,
+        );
         return null;
       });
     if (this.current.phase !== loading) {
@@ -534,6 +544,7 @@ function isSelected(selection: Selection | null, navigation: Navigation): boolea
     navigation.kind === 'select' &&
     selection !== null &&
     selection.song.id === navigation.song.id &&
+    selection.laneCount === navigation.laneCount &&
     selection.difficulty === navigation.difficulty
   );
 }

@@ -1,4 +1,4 @@
-import type { Difficulty } from '../rhythm/types.js';
+import type { Difficulty, LaneCount } from '../rhythm/types.js';
 import { requireDefined } from '../invariant.js';
 import { clamp } from '../range.js';
 
@@ -18,6 +18,8 @@ export type Zodiac =
   | 'aquarius'
   | 'pisces';
 
+export type ChartIds = Partial<Record<LaneCount, Partial<Record<Difficulty, string>>>>;
+
 export interface Song {
   id: string;
   title: string;
@@ -28,7 +30,7 @@ export interface Song {
   constellation: Zodiac;
   gameStartMs: number;
   gameEndMs: number;
-  chartIds: Partial<Record<Difficulty, string>>;
+  chartIds: ChartIds;
   visualTheme?: string;
   credit?: readonly string[];
 }
@@ -79,19 +81,22 @@ export interface SongBatch {
  */
 export interface ChartRef {
   readonly song: Song;
+  readonly laneCount: LaneCount;
   readonly difficulty: Difficulty;
   readonly chartId: string;
 }
 
 /** 호출마다 새 값을 만드므로 비교는 difficulty 로 한다. */
-export function getAvailableCharts(song: Song): ChartRef[] {
+export function getAvailableCharts(song: Song, laneCount: LaneCount): ChartRef[] {
+  const chartIds = song.chartIds[laneCount] ?? {};
   return DIFFICULTIES.flatMap((difficulty) => {
-    const chartId = song.chartIds[difficulty];
+    const chartId = chartIds[difficulty];
     return chartId === undefined
       ? []
       : [
           {
             song,
+            laneCount,
             difficulty,
             chartId,
           },
@@ -99,16 +104,23 @@ export function getAvailableCharts(song: Song): ChartRef[] {
   });
 }
 
-export function getAvailableDifficulties(song: Song): Difficulty[] {
-  return getAvailableCharts(song).map((chart) => chart.difficulty);
+export function getAvailableDifficulties(song: Song, laneCount: LaneCount): Difficulty[] {
+  return getAvailableCharts(song, laneCount).map((chart) => chart.difficulty);
 }
 
-export function findChart(song: Song, difficulty: Difficulty): ChartRef | undefined {
-  return getAvailableCharts(song).find((chart) => chart.difficulty === difficulty);
+export function findChart(
+  song: Song,
+  laneCount: LaneCount,
+  difficulty: Difficulty,
+): ChartRef | undefined {
+  return getAvailableCharts(song, laneCount).find((chart) => chart.difficulty === difficulty);
 }
 
 export function stepChart(current: ChartRef, delta: number): ChartRef {
-  const charts = getAvailableCharts(current.song);
+  const charts = getAvailableCharts(current.song, current.laneCount);
+  if (charts.length === 0) {
+    return current;
+  }
   const index = charts.findIndex((chart) => chart.difficulty === current.difficulty);
   const next = charts[clamp(index + delta, 0, charts.length - 1)];
   return next === undefined || next.difficulty === current.difficulty ? current : next;
@@ -117,6 +129,7 @@ export function stepChart(current: ChartRef, delta: number): ChartRef {
 export function withSavedChart(
   songs: readonly Song[],
   songId: string,
+  laneCount: LaneCount,
   difficulty: Difficulty,
   chartId: string,
 ): { songs: readonly Song[]; saved: Song } {
@@ -125,7 +138,7 @@ export function withSavedChart(
     'Saved chart song is not in the current song list',
     songId,
   );
-  if (current.chartIds[difficulty] === chartId) {
+  if (current.chartIds[laneCount]?.[difficulty] === chartId) {
     return {
       songs,
       saved: current,
@@ -135,7 +148,10 @@ export function withSavedChart(
     ...current,
     chartIds: {
       ...current.chartIds,
-      [difficulty]: chartId,
+      [laneCount]: {
+        ...current.chartIds[laneCount],
+        [difficulty]: chartId,
+      },
     },
   };
   return {

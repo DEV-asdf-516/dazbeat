@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import type { SettingsRow } from '../../../src/game/settings/settingsAdjust.js';
+import type { SettingsEditorState } from '../../../src/game/settings/settingsEditorState.js';
 import {
   adjustRow,
   applyPointer,
   bindWaitingKey,
   createSettingsEditorState,
   focusRow,
+  isRowShown,
   isWaitingKey,
   moveFocus,
   pressBack,
   startWaiting,
 } from '../../../src/game/settings/settingsEditorState.js';
+import { getLanes } from '../../../src/rhythm/lanes.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 
 const ROWS: readonly SettingsRow[] = [
@@ -28,8 +31,36 @@ const ROWS: readonly SettingsRow[] = [
   },
 ];
 
+// 0: 레인 모드, 1~6: 키 lane 0~5, 7: 노트 속도
+const LANE_MODE_ROWS: readonly SettingsRow[] = [
+  { kind: 'laneMode' },
+  ...getLanes(6).map((lane): SettingsRow => ({
+    kind: 'key',
+    lane,
+  })),
+  { kind: 'scrollSpeed' },
+];
+const LANE_MODE_INDEX = 0;
+const SCROLL_SPEED_INDEX = 7;
+
 function initial() {
   return createSettingsEditorState(ROWS, DEFAULT_SETTINGS);
+}
+
+function laneModeInitial() {
+  return createSettingsEditorState(LANE_MODE_ROWS, DEFAULT_SETTINGS);
+}
+
+function keyRowIndex(lane: number): number {
+  return lane + 1;
+}
+
+function toSixLanes(state: SettingsEditorState): SettingsEditorState {
+  return adjustRow(adjustRow(state, LANE_MODE_INDEX, 1, 'ko'), LANE_MODE_INDEX, 1, 'ko');
+}
+
+function toFourLanes(state: SettingsEditorState): SettingsEditorState {
+  return adjustRow(adjustRow(state, LANE_MODE_INDEX, -1, 'ko'), LANE_MODE_INDEX, -1, 'ko');
 }
 
 describe('moveFocus', () => {
@@ -91,13 +122,13 @@ describe('startWaiting', () => {
 describe('bindWaitingKey', () => {
   it('binds the key and stops waiting', () => {
     const state = bindWaitingKey(startWaiting(initial(), 1), 'KeyA');
-    expect(state.settings.keyBindings).toEqual(['KeyA', 'KeyF', 'KeyJ', 'KeyK']);
+    expect(state.settings.keyBindings[4]).toEqual(['KeyA', 'KeyF', 'KeyJ', 'KeyK']);
     expect(isWaitingKey(state)).toBe(false);
   });
 
   it('swaps with the lane that already uses the key', () => {
     const state = bindWaitingKey(startWaiting(initial(), 1), 'KeyF');
-    expect(state.settings.keyBindings).toEqual(['KeyF', 'KeyD', 'KeyJ', 'KeyK']);
+    expect(state.settings.keyBindings[4]).toEqual(['KeyF', 'KeyD', 'KeyJ', 'KeyK']);
   });
 
   it.each([['Escape'], ['KeyD']])('keeps settings for %s and stops waiting', (code) => {
@@ -145,5 +176,98 @@ describe('pressBack', () => {
     expect(isWaitingKey(outcome.state)).toBe(false);
     expect(outcome.state.rowIndex).toBe(1);
     expect(outcome.state.settings).toBe(waiting.settings);
+  });
+});
+
+describe('lane mode', () => {
+  it('steps the lane mode from 4 to 6 and stops at 6', () => {
+    const five = adjustRow(laneModeInitial(), LANE_MODE_INDEX, 1, 'ko');
+    expect(five.settings.laneMode).toBe(5);
+    const six = adjustRow(five, LANE_MODE_INDEX, 1, 'ko');
+    expect(six.settings.laneMode).toBe(6);
+    expect(adjustRow(six, LANE_MODE_INDEX, 1, 'ko')).toBe(six);
+  });
+
+  it.each([
+    [4, 0],
+    [5, 1],
+    [6, 2],
+  ])('shows %s key rows', (laneCount, steps) => {
+    let state = laneModeInitial();
+    for (let step = 0; step < steps; step += 1) {
+      state = adjustRow(state, LANE_MODE_INDEX, 1, 'ko');
+    }
+    const keyRows = state.rows.filter(
+      (row) => row.kind === 'key' && isRowShown(row, state.settings),
+    );
+    expect(keyRows).toHaveLength(laneCount);
+  });
+
+  it('keeps focus on the lane mode row when the mode changes', () => {
+    expect(toSixLanes(laneModeInitial()).rowIndex).toBe(LANE_MODE_INDEX);
+  });
+
+  it('skips hidden key rows when moving focus', () => {
+    const lastKey = focusRow(laneModeInitial(), keyRowIndex(3));
+    const next = moveFocus(lastKey, 1);
+    expect(next.rowIndex).toBe(SCROLL_SPEED_INDEX);
+    expect(moveFocus(next, -1).rowIndex).toBe(keyRowIndex(3));
+  });
+
+  it('stops at the last shown row when only hidden rows follow', () => {
+    const rows: readonly SettingsRow[] = LANE_MODE_ROWS.slice(0, SCROLL_SPEED_INDEX);
+    const lastKey = focusRow(createSettingsEditorState(rows, DEFAULT_SETTINGS), keyRowIndex(3));
+    expect(moveFocus(lastKey, 1)).toBe(lastKey);
+  });
+
+  it('throws for a hidden row index', () => {
+    const state = laneModeInitial();
+    expect(() => focusRow(state, keyRowIndex(4))).toThrow('Invalid settings row index');
+    expect(() => adjustRow(state, keyRowIndex(4), 1, 'ko')).toThrow('Invalid settings row index');
+    expect(() => startWaiting(state, keyRowIndex(5))).toThrow('Invalid settings row index');
+  });
+
+  it('binds the sixth lane key in 6K and keeps the other modes', () => {
+    const six = toSixLanes(laneModeInitial());
+    const state = bindWaitingKey(startWaiting(six, keyRowIndex(5)), 'KeyA');
+    expect(state.settings.keyBindings[6]).toEqual(['KeyS', 'KeyD', 'KeyF', 'KeyJ', 'KeyK', 'KeyA']);
+    expect(state.settings.keyBindings[4]).toBe(DEFAULT_SETTINGS.keyBindings[4]);
+    expect(state.settings.keyBindings[5]).toBe(DEFAULT_SETTINGS.keyBindings[5]);
+  });
+
+  it('swaps with the lane that already uses the key within the mode', () => {
+    const six = toSixLanes(laneModeInitial());
+    const state = bindWaitingKey(startWaiting(six, keyRowIndex(5)), 'KeyS');
+    expect(state.settings.keyBindings[6]).toEqual(['KeyL', 'KeyD', 'KeyF', 'KeyJ', 'KeyK', 'KeyS']);
+  });
+
+  it('accepts a key used by another mode without swapping', () => {
+    const six = toSixLanes(laneModeInitial());
+    const state = bindWaitingKey(startWaiting(six, keyRowIndex(0)), 'Space');
+    expect(state.settings.keyBindings[6]).toEqual([
+      'Space',
+      'KeyD',
+      'KeyF',
+      'KeyJ',
+      'KeyK',
+      'KeyL',
+    ]);
+  });
+
+  it('keeps the keys of each mode after switching 4K to 6K and back', () => {
+    const four = bindWaitingKey(startWaiting(laneModeInitial(), keyRowIndex(0)), 'KeyQ');
+    const six = bindWaitingKey(startWaiting(toSixLanes(four), keyRowIndex(5)), 'KeyP');
+    const back = toFourLanes(six);
+    expect(back.settings.laneMode).toBe(4);
+    expect(back.settings.keyBindings[4]).toEqual(['KeyQ', 'KeyF', 'KeyJ', 'KeyK']);
+    expect(back.settings.keyBindings[6]).toEqual(['KeyS', 'KeyD', 'KeyF', 'KeyJ', 'KeyK', 'KeyP']);
+  });
+
+  it('cancels with Escape and ignores Tab in 6K', () => {
+    const waiting = startWaiting(toSixLanes(laneModeInitial()), keyRowIndex(5));
+    expect(bindWaitingKey(waiting, 'Tab')).toBe(waiting);
+    const cancelled = bindWaitingKey(waiting, 'Escape');
+    expect(isWaitingKey(cancelled)).toBe(false);
+    expect(cancelled.settings).toBe(waiting.settings);
   });
 });

@@ -14,11 +14,15 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 0,
   gameEndMs: 10000,
-  chartIds: { normal: 'chart_normal' },
+  chartIds: {
+    4: { normal: 'chart_normal' },
+    5: { hard: 'chart_hard_5k' },
+  },
 };
 
 const normalChart: ChartRef = {
   song,
+  laneCount: 4,
   difficulty: 'normal',
   chartId: 'chart_normal',
 };
@@ -26,6 +30,7 @@ const normalChart: ChartRef = {
 const validChart = {
   songId: 'test-song',
   difficulty: 'normal',
+  laneCount: 4,
   offsetMs: 0,
   notes: [
     {
@@ -128,6 +133,24 @@ describe('loadChart', () => {
     );
   });
 
+  it('rejects data whose laneCount differs from the chart ref lane count', async () => {
+    stubFetch(
+      new Response(
+        JSON.stringify({
+          data: {
+            ...validChart,
+            laneCount: 5,
+          },
+          revision: REVISION,
+        }),
+      ),
+    );
+
+    await expect(loadChart(new PocketBase('http://pb.test'), normalChart)).rejects.toThrow(
+      'laneCount',
+    );
+  });
+
   it('rejects when data is not a chart object', async () => {
     stubFetch(
       new Response(
@@ -187,6 +210,7 @@ describe('saveChart', () => {
   const normalChart: Chart = {
     songId: 'test-song',
     difficulty: 'normal',
+    laneCount: 4,
     offsetMs: 0,
     notes: [
       {
@@ -199,6 +223,17 @@ describe('saveChart', () => {
   const hardChart: Chart = {
     ...normalChart,
     difficulty: 'hard',
+  };
+  const hardChart5k: Chart = {
+    ...hardChart,
+    laneCount: 5,
+    notes: [
+      {
+        type: 'tap',
+        timeMs: 1000,
+        lane: 4,
+      },
+    ],
   };
 
   it('updates the existing chart record once and resolves its id with the saved chart and revision', async () => {
@@ -226,7 +261,32 @@ describe('saveChart', () => {
     expect(request.body).toEqual({ data: normalChart });
   });
 
-  it('finds the song record by key and creates the chart when the difficulty has no chart id', async () => {
+  it('updates only the chart id of the chart lane count and difficulty', async () => {
+    const fetchMock = stubFetchSequence([
+      new Response(
+        JSON.stringify({
+          id: 'chart_hard_5k',
+          data: hardChart5k,
+          revision: REVISION,
+        }),
+      ),
+    ]);
+
+    await expect(saveChart(new PocketBase('http://pb.test'), song, hardChart5k)).resolves.toEqual({
+      chartId: 'chart_hard_5k',
+      loaded: {
+        chart: hardChart5k,
+        revision: REVISION,
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = getCall(fetchMock, 0);
+    expect(request.method).toBe('PATCH');
+    expect(request.url.pathname).toBe('/api/collections/charts/records/chart_hard_5k');
+    expect(request.body).toEqual({ data: hardChart5k });
+  });
+
+  it('finds the song record by key and creates the chart with its lane count when only another lane count has that difficulty', async () => {
     const fetchMock = stubFetchSequence([
       new Response(
         JSON.stringify({
@@ -261,6 +321,7 @@ describe('saveChart', () => {
     expect(create.body).toEqual({
       song: 'song_record',
       difficulty: 'hard',
+      laneCount: 4,
       data: hardChart,
     });
   });

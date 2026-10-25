@@ -1,55 +1,10 @@
 @import 'pretendard/dist/web/variable/pretendardvariable.css';
-/* 모든 글자의 라틴 서체. 화면이 쓰는 굵기만 가져온다(800 은 700 으로 그린다). */
-@import '@fontsource/cormorant-garamond/latin-400.css';
-@import '@fontsource/cormorant-garamond/latin-500.css';
-@import '@fontsource/cormorant-garamond/latin-600.css';
-@import '@fontsource/cormorant-garamond/latin-700.css';
-/* 한글·일본어 명조. 글자 범위별 조각으로 나뉘어 쓰인 글자의 조각만 받는다. */
-@import '@fontsource/noto-serif-jp/400.css';
-@import '@fontsource/noto-serif-jp/500.css';
-@import '@fontsource/noto-serif-jp/600.css';
-@import '@fontsource/noto-serif-jp/700.css';
-@import '@fontsource/noto-serif-kr/400.css';
-@import '@fontsource/noto-serif-kr/500.css';
-@import '@fontsource/noto-serif-kr/600.css';
-@import '@fontsource/noto-serif-kr/700.css';
-
-/*
- * Cormorant 의 숫자는 기본이 old-style 이라 점수·시간의 0 이 소문자 o 만큼 작아진다.
- * 캔버스 글자에는 font-feature 를 줄 수 없으므로, 높이가 고른 Noto Serif KR 의 숫자만 쓰는 별칭 서체를 앞에 둔다.
- */
-@font-face {
-  font-family: 'Dazbeat Numerals';
-  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-400-normal.woff2')
-    format('woff2');
-  font-weight: 400;
-  font-display: swap;
-  unicode-range: U+0030-0039;
-}
-@font-face {
-  font-family: 'Dazbeat Numerals';
-  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-500-normal.woff2')
-    format('woff2');
-  font-weight: 500;
-  font-display: swap;
-  unicode-range: U+0030-0039;
-}
-@font-face {
-  font-family: 'Dazbeat Numerals';
-  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-600-normal.woff2')
-    format('woff2');
-  font-weight: 600;
-  font-display: swap;
-  unicode-range: U+0030-0039;
-}
-@font-face {
-  font-family: 'Dazbeat Numerals';
-  src: url('../node_modules/@fontsource/noto-serif-kr/files/noto-serif-kr-latin-700-normal.woff2')
-    format('woff2');
-  font-weight: 700;
-  font-display: swap;
-  unicode-range: U+0030-0039;
-}
+/* 일본어 고딕. Pretendard 에 일본어 한자가 대부분 없어 이 서체로 넘긴다. 화면이 쓰는 굵기만 가져온다. */
+@import '@fontsource/noto-sans-jp/400.css';
+@import '@fontsource/noto-sans-jp/500.css';
+@import '@fontsource/noto-sans-jp/600.css';
+@import '@fontsource/noto-sans-jp/700.css';
+@import '@fontsource/noto-sans-jp/800.css';
 
 html,
 body {
@@ -90,7 +45,8 @@ body {
   opacity: 0;
 }
 
-/* 게임 시작 뒤 음악이 정상 재생(running) 중이 아니면 MV 모드와 별개로 가린다. */
+/* 게임 시작 뒤 음악이 정상 재생(running) 중이 아니면 MV 모드와 별개로 가린다.
+   곡 선택 미리듣기는 소리만 내므로 곡 선택 화면에 있는 동안에도 가린다. */
 #mv-layer[data-mv-hidden] iframe {
   opacity: 0;
 }
@@ -131,7 +87,7 @@ body {
   align-items: center;
   justify-content: center;
   color: #f2f0eb;
-  font-family: 'Dazbeat Numerals', 'Cormorant Garamond', 'Noto Serif JP', 'Noto Serif KR', serif;
+  font-family: 'Pretendard Variable', 'Noto Sans JP', sans-serif;
   font-size: 20px;
   text-align: center;
 }

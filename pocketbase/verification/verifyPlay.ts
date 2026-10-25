@@ -2,10 +2,14 @@ import { InvalidChartError, parseChart } from '../../src/data/chartSchema.js';
 import { InvalidPlaySubmissionError, parsePlaySubmission } from '../../src/data/playSubmission.js';
 import { getPlayDurationMs } from '../../src/rhythm/playTiming.js';
 import { replayGameplay } from '../../src/rhythm/replay.js';
-import type { Difficulty, FinishedGameplayResult } from '../../src/rhythm/types.js';
+import type { Difficulty, FinishedGameplayResult, LaneCount } from '../../src/rhythm/types.js';
+import { secToMs } from '../../src/time.js';
 
-/** 로딩·버퍼링·일시정지를 허용하는, 플레이 길이 이후의 세션 유효 시간. */
-export const SESSION_GRACE_MS = 15 * 60 * 1000;
+/**
+ * 플레이 길이 이후의 세션 유효 시간. 일시정지가 길다고 판을 무효로 만들지 않도록 넉넉히 두고,
+ * 세션을 몰아 두는 남용은 발급 때 이전 세션을 지우는 사용자당 활성 세션 1개 규칙이 막는다.
+ */
+export const SESSION_GRACE_MS = secToMs(12 * 60 * 60);
 /** 세션은 플레이 시작 전에 발급되므로 정상 플레이는 플레이 길이 이상 걸린다. 10% 는 발급 지연 허용. */
 export const MIN_PLAY_ELAPSED_RATIO = 0.9;
 
@@ -60,6 +64,8 @@ export type PlayVerification =
 export interface PlayVerificationInput {
   song: VerificationSong;
   difficulty: Difficulty;
+  /** 차트 레코드의 레인 수. 스냅샷 JSON 의 값이 아니라 이 값을 기대값으로 파싱해 둘의 불일치를 거부한다. */
+  laneCount: LaneCount;
   chart: { revision: string; data: unknown };
   session: { chartRevision: string; issuedAtMs: number; expiresAtMs: number };
   submission: unknown;
@@ -82,7 +88,7 @@ function rejected(code: PlayRejectionCode): PlayVerification {
 }
 
 export function verifyPlay(input: PlayVerificationInput): PlayVerification {
-  const { song, difficulty, chart, session, submission, nowMs } = input;
+  const { song, difficulty, laneCount, chart, session, submission, nowMs } = input;
   if (nowMs > session.expiresAtMs) {
     return rejected('session_expired');
   }
@@ -98,6 +104,7 @@ export function verifyPlay(input: PlayVerificationInput): PlayVerification {
         gameEndMs: song.gameEndMs,
       },
       difficulty,
+      laneCount,
     );
     if (nowMs - session.issuedAtMs < MIN_PLAY_ELAPSED_RATIO * getSongPlayDurationMs(song)) {
       return rejected('too_short');

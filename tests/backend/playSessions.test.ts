@@ -16,11 +16,12 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 0,
   gameEndMs: 10000,
-  chartIds: { normal: 'chart_normal' },
+  chartIds: { 4: { normal: 'chart_normal' } },
 };
 
 const normalChart: ChartRef = {
   song,
+  laneCount: 4,
   difficulty: 'normal',
   chartId: 'chart_normal',
 };
@@ -235,6 +236,7 @@ describe('preparePlay', () => {
     return {
       songId: 'test-song',
       difficulty: 'normal',
+      laneCount: 4,
       offsetMs: 0,
       notes: [
         {

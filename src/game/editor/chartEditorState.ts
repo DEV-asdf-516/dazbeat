@@ -1,5 +1,5 @@
 import type { Song } from '../../data/songs.js';
-import type { Difficulty, Note } from '../../rhythm/types.js';
+import type { Difficulty, LaneCount, Note } from '../../rhythm/types.js';
 import { isDraftDirty } from './chartDraft.js';
 import type { ChartDraft } from './chartDraft.js';
 import type { EditTool, PointerGesture } from './chartGesture.js';
@@ -7,11 +7,17 @@ import type { Playhead, Transport } from './chartPlayback.js';
 
 export interface Selection {
   readonly song: Song;
+  readonly laneCount: LaneCount;
   readonly difficulty: Difficulty;
 }
 
 export type Navigation =
-  | { readonly kind: 'select'; readonly song: Song; readonly difficulty: Difficulty }
+  | {
+      readonly kind: 'select';
+      readonly song: Song;
+      readonly laneCount: LaneCount;
+      readonly difficulty: Difficulty;
+    }
   | { readonly kind: 'leave' };
 
 /** 전체 삭제는 되돌릴 수 없으므로 저장 여부와 관계없이 묻는다. */
@@ -89,6 +95,7 @@ const ALL_REGIONS: readonly EditorRegion[] = [
 type StateReader = (state: ChartEditorState) => unknown;
 
 const readSong: StateReader = (state) => getSession(state)?.draft.song;
+const readLaneCount: StateReader = (state) => getSession(state)?.draft.laneCount;
 const readNotes: StateReader = (state) => getSession(state)?.draft.notes;
 const readSelected: StateReader = (state) => getSession(state)?.draft.selected;
 const readSavedNotes: StateReader = (state) => getSession(state)?.draft.savedNotes;
@@ -101,14 +108,15 @@ const readTimeMs: StateReader = (state) => state.playhead.currentTimeMs;
 /** 영역마다 그릴 때 읽는 값이고, 그중 하나라도 바뀐 영역만 다시 그린다. */
 const REGION_SOURCES: Readonly<Record<EditorRegion, readonly StateReader[]>> = {
   // 저장하면 곡의 채보 목록이 바뀌어 난이도 표시가 달라진다.
-  selection: [readSong],
+  selection: [readSong, readLaneCount],
   status: [readNotes, readPending, readSavedNotes, readSaveResult],
   confirm: [readPending],
   panel: [readNotes, readSelected, readTool],
   playButton: [readTransport],
   player: [],
   playhead: [readTimeMs],
-  notes: [readTimeMs, readNotes, readSelected],
+  // 노트 위치가 레인 수를 따른다. 곡이 바뀌면 세션이 바뀌어 모든 영역을 다시 그린다.
+  notes: [readTimeMs, readNotes, readSelected, readLaneCount],
   decorations: [readPending],
 };
 
@@ -148,6 +156,7 @@ export function getSelection(state: ChartEditorState): Selection | null {
     case 'confirming':
       return {
         song: phase.session.draft.song,
+        laneCount: phase.session.draft.laneCount,
         difficulty: phase.session.draft.difficulty,
       };
   }

@@ -41,7 +41,6 @@ import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
   COLORS,
-  DATA_FONT_FAMILY,
   MOTION,
   RADIUS,
   SCREEN_LAYOUT,
@@ -119,7 +118,7 @@ const USER_NAME_EMAIL_GAP_PX = 2;
 const USER_NAME_WEIGHT = 600;
 const ACCOUNT_ACTION_GAP_PX = 24;
 const ACCOUNT_DIVIDER_ALPHA = 0.3;
-/** Pretendard 는 같은 px 에서 Cormorant 보다 커 보이므로 한 단계 줄여 이름보다 앞서지 않게 한다. */
+/** 한 단계 줄여 이름보다 앞서지 않게 한다. */
 const USER_EMAIL_TYPE = {
   sizePx: 18,
   weight: 400,
@@ -321,10 +320,7 @@ export class MainScene extends Phaser.Scene {
         )
         .setOrigin(1, 0),
       userEmail: this.add
-        .text(ACCOUNT_RIGHT_X_PX, 0, '', {
-          ...typeStyle(USER_EMAIL_TYPE, COLORS.textMuted),
-          fontFamily: DATA_FONT_FAMILY,
-        })
+        .text(ACCOUNT_RIGHT_X_PX, 0, '', typeStyle(USER_EMAIL_TYPE, COLORS.textMuted))
         .setOrigin(1, 0),
       loadingStar: addCelestialSprite(
         this,
@@ -340,10 +336,7 @@ export class MainScene extends Phaser.Scene {
     this.renderAccount(view);
     playCelestialEntryTransition(this, this.celestial, logo.getBounds());
     const overlay = new ControlsOverlay(this, () =>
-      getControlsGuide(
-        this.i18n.t('controls', { returnObjects: true }),
-        this.save.loadSettings().keyBindings,
-      ),
+      getControlsGuide(this.i18n.t('controls', { returnObjects: true }), this.save.loadSettings()),
     );
     addControlsEntry(this, SCREEN_LAYOUT.leftXPx, SCREEN_LAYOUT.hintYPx, () => overlay.open());
     // 화면이 없어진 뒤 로그인 결과가 도착해도 반영되지 않도록 진행 중인 시도를 무효로 만든다.

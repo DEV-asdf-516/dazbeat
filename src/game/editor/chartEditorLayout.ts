@@ -1,9 +1,7 @@
 import type { Song } from '../../data/songs.js';
-import { LANES } from '../../rhythm/lanes.js';
 import { getGameFraction } from '../../rhythm/playTiming.js';
-import type { Lane } from '../../rhythm/types.js';
+import type { Lane, LaneCount } from '../../rhythm/types.js';
 import { clamp } from '../../range.js';
-import { requireDefined } from '../../invariant.js';
 
 const WORK_AREA_WIDTH_PX = 1440;
 const COLUMN_GAP_PX = 24;
@@ -56,11 +54,7 @@ export interface EditorLayout {
     readonly bottomYPx: number;
     readonly playheadYPx: number;
   };
-  readonly lanes: {
-    readonly leftPx: number;
-    readonly laneWidthPx: number;
-    readonly widthPx: number;
-  };
+  readonly lanes: { readonly leftPx: number; readonly widthPx: number };
   readonly gridLabelColumnPx: number;
   readonly tools: {
     readonly leftPx: number;
@@ -124,7 +118,6 @@ export function createEditorLayout(screenWidthPx: number, screenHeightPx: number
     },
     lanes: {
       leftPx: lanesLeftPx,
-      laneWidthPx: lanesWidthPx / LANES.length,
       widthPx: lanesWidthPx,
     },
     gridLabelColumnPx: GRID_LABEL_COLUMN_PX,
@@ -151,15 +144,18 @@ export function toViewportRect(
     heightPx: (rect.heightPx * canvasBounds.heightPx) / gameHeightPx,
   };
 }
-export function getLaneCenterXPx(layout: EditorLayout, lane: Lane): number {
-  const { leftPx, laneWidthPx } = layout.lanes;
-  return leftPx + laneWidthPx * lane + laneWidthPx / 2;
+export function getLaneWidthPx(layout: EditorLayout, laneCount: LaneCount): number {
+  return layout.lanes.widthPx / laneCount;
 }
 
-export function getLaneAtXPx(layout: EditorLayout, xPx: number): Lane {
-  const { leftPx, laneWidthPx } = layout.lanes;
-  const index = clamp(Math.floor((xPx - leftPx) / laneWidthPx), 0, LANES.length - 1);
-  return requireDefined(LANES[index], 'Invalid lane index', index);
+export function getLaneCenterXPx(layout: EditorLayout, laneCount: LaneCount, lane: Lane): number {
+  const laneWidthPx = getLaneWidthPx(layout, laneCount);
+  return layout.lanes.leftPx + laneWidthPx * lane + laneWidthPx / 2;
+}
+
+export function getLaneAtXPx(layout: EditorLayout, laneCount: LaneCount, xPx: number): Lane {
+  const laneWidthPx = getLaneWidthPx(layout, laneCount);
+  return clamp(Math.floor((xPx - layout.lanes.leftPx) / laneWidthPx), 0, laneCount - 1);
 }
 
 export function getSeekXPx(

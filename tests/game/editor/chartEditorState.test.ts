@@ -40,7 +40,7 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 1000,
   gameEndMs: 10000,
-  chartIds: { normal: 'chart_normal' },
+  chartIds: { 4: { normal: 'chart_normal' } },
 };
 
 const TAP: Note = {
@@ -51,6 +51,7 @@ const TAP: Note = {
 
 const SELECTION = {
   song,
+  laneCount: 4,
   difficulty: 'normal',
 } as const;
 
@@ -58,6 +59,7 @@ function makeDraft(notes: readonly Note[]): ChartDraft {
   return createDraft(song, {
     songId: 'test-song',
     difficulty: 'normal',
+    laneCount: 4,
     offsetMs: 0,
     notes,
   });
@@ -120,8 +122,10 @@ describe('getSelection', () => {
     const savedSong: Song = {
       ...song,
       chartIds: {
-        normal: 'chart_normal',
-        hard: 'chart_hard',
+        4: {
+          normal: 'chart_normal',
+          hard: 'chart_hard',
+        },
       },
     };
     const saved = editing(
@@ -129,6 +133,7 @@ describe('getSelection', () => {
         createDraft(savedSong, {
           songId: 'test-song',
           difficulty: 'normal',
+          laneCount: 6,
           offsetMs: 0,
           notes: [TAP],
         }),
@@ -140,6 +145,7 @@ describe('getSelection', () => {
     expect(getSelection(loadFailed)).toBe(SELECTION);
     expect(getSelection(saved)).toEqual({
       song: savedSong,
+      laneCount: 6,
       difficulty: 'normal',
     });
   });
@@ -321,8 +327,10 @@ describe('getChangedRegions', () => {
     const savedSong: Song = {
       ...song,
       chartIds: {
-        normal: 'chart_normal',
-        hard: 'chart_hard',
+        4: {
+          normal: 'chart_normal',
+          hard: 'chart_hard',
+        },
       },
     };
 

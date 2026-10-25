@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { YouTubePlayerHandlers } from '../../../src/audio/YouTubePlayer.js';
 import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
 import type {
   ChartRef,
@@ -9,7 +10,7 @@ import type {
   SongQuery,
 } from '../../../src/data/songs.js';
 import { requireDefined } from '../../../src/invariant.js';
-import type { Difficulty } from '../../../src/rhythm/types.js';
+import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
 import type { SongSelectRestore } from '../../../src/game/sceneRoutes.js';
 import { SongFeed } from '../../../src/game/SongFeed.js';
 import { SongSelectController } from '../../../src/game/songSelect/SongSelectController.js';
@@ -26,8 +27,10 @@ function makeSong(
   index: number,
   category: SongCategory = 'original',
   chartIds: Song['chartIds'] = {
-    easy: `easy-${index}`,
-    hard: `hard-${index}`,
+    4: {
+      easy: `easy-${index}`,
+      hard: `hard-${index}`,
+    },
   },
 ): Song {
   return {
@@ -106,8 +109,76 @@ async function settle(
   await Promise.resolve();
 }
 
+interface FakePlayer {
+  readonly videoId: string;
+  readonly handlers: YouTubePlayerHandlers;
+  readonly playsSec: number[];
+  readonly volumes: number[];
+  isDestroyed: boolean;
+  requestPlay(fromSec: number): void;
+  setVolume(volume: number): void;
+  destroy(): void;
+}
+
+interface PendingLoad {
+  readonly resolve: () => void;
+  readonly reject: () => void;
+}
+
+/** API 로드 완료 시점과 시계는 테스트가 정한다. */
+function createPreview(volume: number) {
+  const loads: PendingLoad[] = [];
+  const players: FakePlayer[] = [];
+  const clock = { nowMs: 0 };
+  const control = { isCreateFailing: false };
+  return {
+    loads,
+    players,
+    clock,
+    control,
+    deps: {
+      players: {
+        loadApi: () =>
+          new Promise<void>((resolve, reject) => {
+            loads.push({
+              resolve,
+              reject: () => reject(new Error('Load failed')),
+            });
+          }),
+        create: (videoId: string, handlers: YouTubePlayerHandlers): FakePlayer => {
+          if (control.isCreateFailing) {
+            throw new Error('Create failed');
+          }
+          const player: FakePlayer = {
+            videoId,
+            handlers,
+            playsSec: [],
+            volumes: [],
+            isDestroyed: false,
+            requestPlay: (fromSec) => player.playsSec.push(fromSec),
+            setVolume: (value) => player.volumes.push(value),
+            destroy: () => {
+              player.isDestroyed = true;
+            },
+          };
+          players.push(player);
+          return player;
+        },
+      },
+      now: () => clock.nowMs,
+      volume,
+    },
+  };
+}
+
 /** 이미 두 페이지 이상을 받아 둔 전체 곡 목록. */
-function createHarness(songs: readonly Song[]) {
+function createHarness(
+  songs: readonly Song[],
+  laneCount: LaneCount = 4,
+  random: () => number = () => 0,
+  volume = 0.5,
+) {
+  const preview = createPreview(volume);
   const server = createServer(songs);
   const loaded = songs.slice(0, CATALOG_SIZE);
   const last = loaded.at(-1);
@@ -123,12 +194,16 @@ function createHarness(songs: readonly Song[]) {
   const open = (restore?: SongSelectRestore): SongSelectController => {
     controller = new SongSelectController(
       {
-        catalog,
-        create: (query) => {
-          const feed = new SongFeed(query, server.loadBatch);
-          created.push(feed);
-          return feed;
+        feeds: {
+          catalog,
+          create: (query) => {
+            const feed = new SongFeed(query, server.loadBatch);
+            created.push(feed);
+            return feed;
+          },
         },
+        random,
+        preview: preview.deps,
       },
       {
         render: (view, previous) =>
@@ -144,11 +219,13 @@ function createHarness(songs: readonly Song[]) {
         openSettings: (restore) => settings.push(restore),
       },
       ROWS_PER_PAGE,
+      laneCount,
       restore,
     );
     return controller;
   };
   return {
+    preview,
     server,
     catalog,
     created,
@@ -172,8 +249,8 @@ function createHarness(songs: readonly Song[]) {
   };
 }
 
-function openHarness(songs: readonly Song[]) {
-  const harness = createHarness(songs);
+function openHarness(songs: readonly Song[], laneCount: LaneCount = 4, random?: () => number) {
+  const harness = createHarness(songs, laneCount, random);
   harness.open();
   return harness;
 }
@@ -421,6 +498,7 @@ describe('SongSelectController selection', () => {
     expect(harness.plays.map(({ chart }) => chart)).toEqual([
       {
         song: harness.catalog.songs[0],
+        laneCount: 4,
         difficulty: 'hard',
         chartId: 'hard-0',
       },
@@ -437,6 +515,83 @@ describe('SongSelectController selection', () => {
     });
     harness.controller.play();
     expect(harness.plays).toHaveLength(1);
+  });
+
+  it('plays the chart of the lane count it was opened with', () => {
+    const mixed = makeSong(300, 'original', {
+      4: { easy: 'easy-4k' },
+      6: { hard: 'hard-6k' },
+    });
+    const harness = openHarness([mixed, makeSong(1)], 6);
+
+    harness.controller.play();
+
+    expect(harness.plays.map(({ chart }) => chart)).toEqual([
+      {
+        song: mixed,
+        laneCount: 6,
+        difficulty: 'hard',
+        chartId: 'hard-6k',
+      },
+    ]);
+  });
+
+  it('ignores play for a song without charts of its lane count', () => {
+    const harness = openHarness([makeSong(0)], 5);
+
+    harness.controller.play();
+
+    expect(selectedId(harness.view)).toBe('song-000');
+    expect(harness.plays).toHaveLength(0);
+  });
+});
+
+describe('SongSelectController random song', () => {
+  it('selects the candidate the injected random value picks and renders it with the previous state', () => {
+    const harness = openHarness(songs, 4, () => 0.5);
+    harness.controller.moveSong(1);
+
+    harness.controller.selectRandomSong();
+
+    expect(selectedId(harness.view)).toBe('song-003');
+    expect(harness.renders.at(-1)?.previous?.current).toMatchObject({ index: 1 });
+    expect(harness.plays).toHaveLength(0);
+  });
+
+  it('does nothing with one playable song or less', () => {
+    const harness = openHarness([makeSong(0), makeSong(1, 'original', {})], 4, () => 0);
+    const renderCount = harness.renders.length;
+
+    harness.controller.selectRandomSong();
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(selectedId(harness.view)).toBe('song-000');
+    expect(harness.plays).toHaveLength(0);
+  });
+
+  it('requests the next batch when the picked song is on the last loaded page', () => {
+    const harness = openHarness(songs, 4, () => 0.99);
+
+    harness.controller.selectRandomSong();
+
+    expect(selectedId(harness.view)).toBe('song-005');
+    expect(harness.server.calls).toHaveLength(1);
+    expect(harness.server.calls[0]?.after).toEqual(
+      harness.server.cursorOf(requireDefined(songs[5], 'Missing song', 5)),
+    );
+  });
+
+  it('does not retry a failed empty feed', async () => {
+    const harness = openHarness(songs);
+    harness.controller.selectFilter('cover');
+    await settle(harness.server.calls[0], 'reject');
+    const renderCount = harness.renders.length;
+
+    harness.controller.selectRandomSong();
+
+    expect(harness.server.calls).toHaveLength(1);
+    expect(harness.created[0]?.status).toBe('failed');
+    expect(harness.renders).toHaveLength(renderCount);
   });
 });
 
@@ -619,5 +774,416 @@ describe('SongSelectController restore', () => {
 
     expect(harness.view.state.filter).toBe('all');
     expect(selectedId(harness.view)).toBe('song-000');
+  });
+});
+
+async function flush() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+const previewSongs = songs.map((song, index): Song => ({
+  ...song,
+  youtubeVideoId: `video-${index}`,
+  gameStartMs: 5000,
+  gameEndMs: 60000,
+}));
+
+function tickAt(harness: ReturnType<typeof createHarness>, nowMs: number) {
+  harness.preview.clock.nowMs = nowMs;
+  harness.controller.tick();
+}
+
+function requirePlayer(harness: ReturnType<typeof createHarness>, index: number): FakePlayer {
+  return requireDefined(harness.preview.players[index], 'Missing player');
+}
+
+/** 지금 포커스 곡의 시도를 nowMs 에 시작해 플레이어 준비까지 진행한다. */
+async function readyPreview(harness: ReturnType<typeof createHarness>, nowMs: number) {
+  tickAt(harness, nowMs);
+  requireDefined(harness.preview.loads.at(-1), 'Missing load').resolve();
+  await flush();
+  const player = requireDefined(harness.preview.players.at(-1), 'Missing player');
+  player.handlers.onReady();
+  return player;
+}
+
+describe('SongSelectController preview timing', () => {
+  it('creates one player for the focused song only after it stays 200ms', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+
+    tickAt(harness, 199);
+    expect(harness.preview.loads).toHaveLength(0);
+
+    tickAt(harness, 200);
+    expect(harness.preview.loads).toHaveLength(1);
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+    tickAt(harness, 1000);
+
+    expect(harness.preview.loads).toHaveLength(1);
+    expect(harness.preview.players.map((player) => player.videoId)).toEqual(['video-0']);
+  });
+
+  it('creates a player only for the song it stops at while moving quickly', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+
+    harness.preview.clock.nowMs = 100;
+    harness.controller.moveSong(1);
+    tickAt(harness, 250);
+    harness.controller.moveSong(1);
+    tickAt(harness, 449);
+    expect(harness.preview.loads).toHaveLength(0);
+
+    tickAt(harness, 450);
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+
+    expect(harness.preview.players.map((player) => player.videoId)).toEqual(['video-2']);
+  });
+
+  it('destroys the playing player at once on a focus change and waits 200ms for the next song', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const first = await readyPreview(harness, 400);
+
+    harness.preview.clock.nowMs = 2000;
+    harness.controller.moveSong(1);
+
+    expect(first.isDestroyed).toBe(true);
+    tickAt(harness, 2199);
+    expect(harness.preview.loads).toHaveLength(1);
+
+    tickAt(harness, 2200);
+    requireDefined(harness.preview.loads[1], 'Missing load').resolve();
+    await flush();
+
+    expect(harness.preview.players.map((player) => player.videoId)).toEqual(['video-0', 'video-1']);
+  });
+
+  it('drops a late API load of a previous focus', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    tickAt(harness, 400);
+
+    harness.controller.moveSong(1);
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+
+    expect(harness.preview.players).toHaveLength(0);
+  });
+
+  it('ignores ready and state reports of a destroyed player', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    tickAt(harness, 400);
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+    const player = requirePlayer(harness, 0);
+
+    harness.controller.moveSong(1);
+    player.handlers.onReady();
+    player.handlers.onStateChange('playing');
+    tickAt(harness, 500);
+
+    expect(player.isDestroyed).toBe(true);
+    expect(player.playsSec).toEqual([]);
+    expect(player.volumes).toEqual([]);
+  });
+});
+
+describe('SongSelectController preview loop', () => {
+  it('starts muted at the chart start and fades in to the target volume', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+
+    expect(player.playsSec).toEqual([5]);
+    expect(player.volumes).toEqual([0]);
+
+    harness.preview.clock.nowMs = 1000;
+    player.handlers.onStateChange('playing');
+    tickAt(harness, 1500);
+    tickAt(harness, 2000);
+    tickAt(harness, 3000);
+
+    expect(player.volumes).toEqual([0, 0.25, 0.5]);
+  });
+
+  it('fades out before the 20 second span ends and replays from the chart start', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+    harness.preview.clock.nowMs = 0;
+    player.handlers.onStateChange('playing');
+
+    tickAt(harness, 19250);
+    expect(player.volumes.at(-1)).toBe(0.25);
+    tickAt(harness, 19999);
+    expect(player.playsSec).toEqual([5]);
+
+    tickAt(harness, 20000);
+    expect(player.playsSec).toEqual([5, 5]);
+    expect(player.volumes.at(-1)).toBe(0);
+
+    tickAt(harness, 20500);
+    expect(player.volumes.at(-1)).toBe(0.25);
+  });
+
+  it('replays at the span end from position reports while frames are stopped', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+    harness.preview.clock.nowMs = 0;
+    player.handlers.onStateChange('playing');
+
+    harness.preview.clock.nowMs = 19999;
+    player.handlers.onPositionReport?.(24.999);
+    expect(player.playsSec).toEqual([5]);
+
+    harness.preview.clock.nowMs = 20000;
+    player.handlers.onPositionReport?.(25);
+    expect(player.playsSec).toEqual([5, 5]);
+    expect(player.volumes.at(-1)).toBe(0);
+
+    harness.preview.clock.nowMs = 39999;
+    player.handlers.onPositionReport?.(24.999);
+    expect(player.playsSec).toEqual([5, 5]);
+    harness.preview.clock.nowMs = 40000;
+    player.handlers.onPositionReport?.(25);
+    expect(player.playsSec).toEqual([5, 5, 5]);
+  });
+
+  it('replays a song shorter than 20 seconds at its game end', async () => {
+    const short = previewSongs.map((song) => ({
+      ...song,
+      gameEndMs: 11000,
+    }));
+    const harness = createHarness(short);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+    harness.preview.clock.nowMs = 0;
+    player.handlers.onStateChange('playing');
+
+    tickAt(harness, 5999);
+    expect(player.playsSec).toEqual([5]);
+
+    tickAt(harness, 6000);
+    expect(player.playsSec).toEqual([5, 5]);
+  });
+
+  it('does not count time while buffering', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+    harness.preview.clock.nowMs = 0;
+    player.handlers.onStateChange('playing');
+    harness.preview.clock.nowMs = 3000;
+    player.handlers.onStateChange('buffering');
+
+    tickAt(harness, 20000);
+    expect(player.playsSec).toEqual([5]);
+
+    player.handlers.onStateChange('playing');
+    tickAt(harness, 36999);
+    expect(player.playsSec).toEqual([5]);
+    tickAt(harness, 37000);
+    expect(player.playsSec).toEqual([5, 5]);
+  });
+
+  it('replays at once when the video ends', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+    harness.preview.clock.nowMs = 0;
+    player.handlers.onStateChange('playing');
+    tickAt(harness, 5000);
+
+    player.handlers.onStateChange('ended');
+
+    expect(player.playsSec).toEqual([5, 5]);
+    expect(player.volumes.at(-1)).toBe(0);
+  });
+
+  it('plays muted when the target volume is zero', async () => {
+    const harness = createHarness(previewSongs, 4, () => 0, 0);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+    harness.preview.clock.nowMs = 0;
+    player.handlers.onStateChange('playing');
+    tickAt(harness, 5000);
+
+    expect(player.playsSec).toEqual([5]);
+    expect(player.volumes).toEqual([0]);
+  });
+});
+
+describe('SongSelectController preview focus', () => {
+  it('creates no player without a focused song', () => {
+    const harness = createHarness([]);
+    harness.open();
+
+    tickAt(harness, 1000);
+
+    expect(harness.preview.loads).toHaveLength(0);
+  });
+
+  it('creates no player while the feed has failed', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+
+    harness.controller.selectFilter('cover');
+    await settle(harness.server.calls[0], 'reject');
+    tickAt(harness, 5000);
+
+    expect(harness.view.notice).toBe('loadFailed');
+    expect(harness.preview.loads).toHaveLength(0);
+    expect(harness.preview.players).toHaveLength(0);
+  });
+
+  it('destroys the player when the focused song disappears', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+
+    harness.controller.selectFilter('cover');
+    tickAt(harness, 5000);
+
+    expect(harness.view.notice).toBe('loading');
+    expect(player.isDestroyed).toBe(true);
+    expect(harness.preview.loads).toHaveLength(1);
+  });
+
+  it('keeps playing the same song across a difficulty change and a feed response', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    harness.controller.moveSong(3);
+    const player = await readyPreview(harness, 400);
+    const renderCount = harness.renders.length;
+
+    harness.controller.moveDifficulty(1);
+    await settle(harness.server.calls[0]);
+    tickAt(harness, 5000);
+
+    expect(harness.renders.length).toBeGreaterThan(renderCount + 1);
+    expect(selectedId(harness.view)).toBe('song-003');
+    expect(player.isDestroyed).toBe(false);
+    expect(harness.preview.loads).toHaveLength(1);
+  });
+});
+
+describe('SongSelectController preview close', () => {
+  it('destroys the player on close', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+
+    harness.controller.close();
+
+    expect(player.isDestroyed).toBe(true);
+  });
+
+  it('ignores a late API load and ticks after close', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    tickAt(harness, 400);
+
+    harness.controller.close();
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+    tickAt(harness, 5000);
+
+    expect(harness.preview.players).toHaveLength(0);
+    expect(harness.preview.loads).toHaveLength(1);
+  });
+
+  it('ignores reports of the player after close', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    tickAt(harness, 400);
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+    const player = requirePlayer(harness, 0);
+
+    harness.controller.close();
+    player.handlers.onReady();
+    player.handlers.onStateChange('playing');
+    tickAt(harness, 5000);
+
+    expect(player.playsSec).toEqual([]);
+  });
+
+  it('plays the restored song 200ms after reopening', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    harness.controller.moveSong(2);
+    harness.controller.play();
+    harness.controller.close();
+    const restore = requireDefined(harness.plays[0], 'Missing play').restore;
+
+    harness.preview.clock.nowMs = 1000;
+    harness.open(restore);
+    tickAt(harness, 1199);
+    expect(harness.preview.loads).toHaveLength(0);
+
+    tickAt(harness, 1200);
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+
+    expect(harness.preview.players.map((player) => player.videoId)).toEqual(['video-2']);
+  });
+});
+
+describe('SongSelectController preview failures', () => {
+  it('does not retry a failed API load for the same focus but tries the next song', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    tickAt(harness, 400);
+    requireDefined(harness.preview.loads[0], 'Missing load').reject();
+    await flush();
+    tickAt(harness, 5000);
+
+    expect(harness.preview.players).toHaveLength(0);
+    expect(harness.preview.loads).toHaveLength(1);
+
+    harness.controller.play();
+    expect(harness.plays).toHaveLength(1);
+
+    harness.controller.moveSong(1);
+    tickAt(harness, 5400);
+    expect(harness.preview.loads).toHaveLength(2);
+  });
+
+  it('does not retry when creating the player throws', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    harness.preview.control.isCreateFailing = true;
+    tickAt(harness, 400);
+    requireDefined(harness.preview.loads[0], 'Missing load').resolve();
+    await flush();
+    tickAt(harness, 5000);
+
+    expect(harness.preview.players).toHaveLength(0);
+    expect(harness.preview.loads).toHaveLength(1);
+  });
+
+  it('destroys the player on a player error and does not retry the same focus', async () => {
+    const harness = createHarness(previewSongs);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+
+    player.handlers.onError('videoNotFound', 100);
+    tickAt(harness, 5000);
+
+    expect(player.isDestroyed).toBe(true);
+    expect(harness.preview.loads).toHaveLength(1);
+
+    harness.controller.moveSong(1);
+    harness.controller.moveSong(-1);
+    tickAt(harness, 5400);
+    expect(harness.preview.loads).toHaveLength(2);
   });
 });

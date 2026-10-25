@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import type { SongCategory } from '../../data/songs.js';
 import type { Judgment } from '../../rhythm/types.js';
 
 export const COLORS = {
@@ -32,6 +33,12 @@ export const CELESTIAL_COLORS = {
   highlight: 0xe9f2fa,
 } as const;
 
+/** 글자색이 같으면 분류가 구분되지 않아 달빛 파랑과 금빛으로 나눈다. 판정·상태 색과 겹치지 않게 채도를 맞춘다. */
+export const CATEGORY_COLORS: Record<SongCategory, number> = {
+  original: 0x8fc4ee,
+  cover: 0xe8c98a,
+};
+
 export const STATUS_COLORS = {
   stable: 0x9dcfe3,
   caution: 0xddbb7c,
@@ -47,16 +54,13 @@ export const JUDGMENT_COLORS: Record<Judgment, number> = {
   miss: 0xd9787e,
 };
 
-/** JP 를 KR 보다 앞에 두어 일본어 곡명의 한자·가나가 일본식 자형으로 나온다. JP 에는 한글이 없어 한글은 KR 로 넘어간다. */
-export const FONT_FAMILY =
-  '"Dazbeat Numerals", "Cormorant Garamond", "Noto Serif JP", "Noto Serif KR", serif';
+/** Pretendard 에 일본어 한자·가나가 대부분 없어 일본어는 Noto Sans JP 로 넘긴다. */
+export const FONT_FAMILY = '"Pretendard Variable", "Noto Sans JP", sans-serif';
 /**
- * Phaser 는 이 문자열을 그려 글자 높이를 잰다. 기본값은 라틴 글자뿐이라 Cormorant 기준으로 재어,
- * 그보다 높은 Noto Serif KR·JP 의 한글·가나·한자 획(ㅓ·ㅝ 윗머리 등)이 캔버스 위로 잘린다.
+ * Phaser 는 이 문자열을 그려 글자 높이를 잰다. 기본값은 라틴 글자뿐이라
+ * 그보다 높은 한글·가나·한자 획(ㅓ·ㅝ 윗머리 등)이 캔버스 위로 잘린다.
  */
 const CJK_TEST_STRING = '|MÉqgy쥐넘훨뷁あ漢';
-/** FONT_FAMILY 로 그리면 숫자만 다른 서체가 되어 한 단어가 끊겨 보이므로 한 서체로 그린다. */
-export const DATA_FONT_FAMILY = '"Pretendard Variable", sans-serif';
 
 export type TypeRole =
   | 'display'
@@ -134,6 +138,14 @@ export function setTextColor(text: Phaser.GameObjects.Text, color: number): void
   const css = cssColor(color);
   if (text.style.color !== css) {
     text.setColor(css);
+  }
+}
+
+/** setFontStyle 은 같은 굵기여도 텍스트를 다시 그리므로 바뀔 때만 적용한다. */
+export function setTextWeight(text: Phaser.GameObjects.Text, weight: number): void {
+  const fontStyle = `${weight}`;
+  if (text.style.fontStyle !== fontStyle) {
+    text.setFontStyle(fontStyle);
   }
 }
 

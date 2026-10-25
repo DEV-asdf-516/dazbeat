@@ -18,7 +18,7 @@ import {
   hasUnsavedChanges,
 } from '../../../src/game/editor/chartEditorState.js';
 import type { ChartEditorState, EditorSession } from '../../../src/game/editor/chartEditorState.js';
-import type { Chart, Difficulty, Note } from '../../../src/rhythm/types.js';
+import type { Chart, Difficulty, Lane, LaneCount, Note } from '../../../src/rhythm/types.js';
 
 const song: Song = {
   id: 'test-song',
@@ -30,14 +30,16 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 1000,
   gameEndMs: 10000,
-  chartIds: { normal: 'chart_normal' },
+  chartIds: { 4: { normal: 'chart_normal' } },
 };
 
 const savedSong: Song = {
   ...song,
   chartIds: {
-    ...song.chartIds,
-    hard: 'chart_hard',
+    4: {
+      normal: 'chart_normal',
+      hard: 'chart_hard',
+    },
   },
 };
 
@@ -69,7 +71,12 @@ interface Harness {
   readonly editor: ChartEditorController;
   readonly loads: (Pending<Chart> & { readonly ref: ChartRef })[];
   readonly saves: (Pending<string> & { readonly song: Song; readonly chart: Chart })[];
-  readonly applied: { songId: string; difficulty: Difficulty; chartId: string }[];
+  readonly applied: {
+    songId: string;
+    laneCount: LaneCount;
+    difficulty: Difficulty;
+    chartId: string;
+  }[];
   readonly changedSongs: Song[];
   readonly leftWith: (string | null)[];
   readonly requestedSec: number[];
@@ -117,9 +124,10 @@ function createHarness(): Harness {
     get songs() {
       return harness.songs;
     },
-    applySavedChart: (songId, difficulty, chartId) => {
+    applySavedChart: (songId, laneCount, difficulty, chartId) => {
       harness.applied.push({
         songId,
+        laneCount,
         difficulty,
         chartId,
       });
@@ -159,6 +167,7 @@ function makeChart(notes: readonly Note[]): Chart {
   return {
     songId: 'test-song',
     difficulty: 'normal',
+    laneCount: 4,
     offsetMs: 0,
     notes,
   };
@@ -187,7 +196,7 @@ function lastSave(harness: Harness): Harness['saves'][number] {
 /** normal 은 chart 가 있으므로 로드를 거쳐 편집한다. */
 async function openLoaded(notes: readonly Note[] = []): Promise<Harness> {
   const harness = createHarness();
-  harness.editor.select(song, 'normal');
+  harness.editor.select(song, 4, 'normal');
   lastLoad(harness).resolve(makeChart(notes));
   await flush();
   return harness;
@@ -205,8 +214,11 @@ function getDraft(harness: Harness): ChartDraft {
   return requireSession(harness.editor.state).draft;
 }
 
-function addTap(harness: Harness, timeMs: number, lane: 0 | 1 | 2 | 3 = 3): void {
-  harness.editor.pointerDown(lane, timeMs);
+function addTap(harness: Harness, timeMs: number, lane: Lane = 3): void {
+  harness.editor.pointerDown({
+    lane,
+    timeMs,
+  });
   harness.editor.pointerUp(timeMs);
 }
 
@@ -228,17 +240,19 @@ describe('opening a chart', () => {
   it('loads a difficulty with a chart and edits it once loaded', async () => {
     const harness = createHarness();
 
-    harness.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
 
     expect(harness.changedSongs).toEqual([song]);
     expect(lastLoad(harness).ref).toEqual({
       song,
+      laneCount: 4,
       difficulty: 'normal',
       chartId: 'chart_normal',
     });
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'loading' });
     expect(getSelection(harness.editor.state)).toEqual({
       song,
+      laneCount: 4,
       difficulty: 'normal',
     });
     expect(harness.editor.state.playhead.currentTimeMs).toBe(1000);
@@ -267,7 +281,7 @@ describe('opening a chart', () => {
   it('edits an empty draft for a difficulty without a chart, without a load', () => {
     const harness = createHarness();
 
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
 
     expect(harness.loads).toEqual([]);
     expect(harness.changedSongs).toEqual([song]);
@@ -280,18 +294,18 @@ describe('opening a chart', () => {
 
   it('ignores load results of a previous selection', async () => {
     const harness = createHarness();
-    harness.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
     const first = lastLoad(harness);
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     const loading = harness.editor.state;
 
     first.resolve(makeChart([TAP_AT_2000]));
     await flush();
     expect(harness.editor.state).toBe(loading);
 
-    harness.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
     const second = lastLoad(harness);
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     second.reject(new Error('network'));
     await flush();
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'loading' });
@@ -299,12 +313,12 @@ describe('opening a chart', () => {
 
   it('shows a load failure and loads again when the same chart is selected', async () => {
     const harness = createHarness();
-    harness.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
     lastLoad(harness).reject(new Error('network'));
     await flush();
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'loadFailed' });
 
-    harness.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
 
     expect(harness.loads).toHaveLength(2);
     expect(harness.changedSongs).toEqual([song]);
@@ -318,11 +332,11 @@ describe('opening a chart', () => {
     const harness = await openLoaded([TAP_AT_2000]);
     const state = harness.editor.state;
     const harnessLoading = createHarness();
-    harnessLoading.editor.select(song, 'normal');
+    harnessLoading.editor.select(song, 4, 'normal');
     const loading = harnessLoading.editor.state;
 
-    harness.editor.select(song, 'normal');
-    harnessLoading.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
+    harnessLoading.editor.select(song, 4, 'normal');
 
     expect(harness.editor.state).toBe(state);
     expect(harness.loads).toHaveLength(1);
@@ -333,10 +347,10 @@ describe('opening a chart', () => {
   it('keeps the player for another difficulty of the same song only', async () => {
     const harness = await openLoaded();
 
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
     expect(harness.changedSongs).toEqual([song]);
 
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     expect(harness.changedSongs).toEqual([song, otherSong]);
   });
 
@@ -345,7 +359,7 @@ describe('opening a chart', () => {
     const previous = requireSession(harness.editor.state);
     startPlaying(harness);
 
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
 
     const session = requireSession(harness.editor.state);
     expect(session.id).not.toBe(previous.id);
@@ -362,7 +376,7 @@ describe('opening a chart', () => {
     const harness = await openLoaded();
     harness.editor.selectTool('hold');
 
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
 
     expect(harness.editor.state.tool).toBe('hold');
   });
@@ -371,7 +385,7 @@ describe('opening a chart', () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
     void harness.editor.save();
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     harness.editor.confirmPending();
     harness.editor.close();
     const renderCount = harness.renderCount;
@@ -402,6 +416,7 @@ describe('moving in the song list', () => {
     harness.editor.moveSong(-5);
     expect(getSelection(harness.editor.state)).toEqual({
       song: first,
+      laneCount: 4,
       difficulty: 'normal',
     });
     const atStart = harness.editor.state;
@@ -411,6 +426,7 @@ describe('moving in the song list', () => {
     harness.editor.moveSong(5);
     expect(getSelection(harness.editor.state)).toEqual({
       song: last,
+      laneCount: 4,
       difficulty: 'normal',
     });
     expect(harness.changedSongs).toEqual([song, first, last]);
@@ -423,6 +439,7 @@ describe('moving in the song list', () => {
 
     expect(getSelection(harness.editor.state)).toEqual({
       song,
+      laneCount: 4,
       difficulty: 'hard',
     });
     expect(harness.changedSongs).toEqual([song]);
@@ -470,6 +487,7 @@ describe('moving in the song list', () => {
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'select',
       song: otherSong,
+      laneCount: 4,
       difficulty: 'normal',
     });
     expect(harness.changedSongs).toEqual([song]);
@@ -500,10 +518,11 @@ describe('unsaved changes confirmation', () => {
     addTap(harness, 3000);
     const dirtyDraft = getDraft(harness);
 
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'select',
       song: otherSong,
+      laneCount: 4,
       difficulty: 'normal',
     });
     expect(harness.loads).toHaveLength(1);
@@ -512,7 +531,7 @@ describe('unsaved changes confirmation', () => {
     expect(getPending(harness.editor.state)).toBeNull();
     expect(getDraft(harness)).toBe(dirtyDraft);
 
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     harness.editor.confirmPending();
     expect(getPending(harness.editor.state)).toBeNull();
     expect(harness.changedSongs).toEqual([song, otherSong]);
@@ -537,10 +556,10 @@ describe('unsaved changes confirmation', () => {
   it('keeps a held navigation against further navigation requests', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
     const held = harness.editor.state;
 
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     harness.editor.moveSong(1);
     harness.editor.selectDifficulty('expert');
 
@@ -585,7 +604,7 @@ describe('clearing notes', () => {
   it('does not ask without notes or without a draft', async () => {
     const editing = await openLoaded();
     const loading = createHarness();
-    loading.editor.select(song, 'normal');
+    loading.editor.select(song, 4, 'normal');
     const states = [editing.editor.state, loading.editor.state];
 
     editing.editor.requestClearNotes();
@@ -597,7 +616,10 @@ describe('clearing notes', () => {
   it('does not ask when the only note is a hold still being created', async () => {
     const harness = await openLoaded();
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown(3, 3000);
+    harness.editor.pointerDown({
+      lane: 3,
+      timeMs: 3000,
+    });
     expect(canClearNotes(harness.editor.state)).toBe(true);
 
     harness.editor.requestClearNotes();
@@ -622,16 +644,25 @@ describe('the open confirm dialog', () => {
     const harness = await heldWhileSavingAndPlaying();
     const held = harness.editor.state;
 
-    harness.editor.pointerDown(1, 5000);
-    harness.editor.pointerDown(0, 2000);
-    harness.editor.pointerMove(1, 5000);
+    harness.editor.pointerDown({
+      lane: 1,
+      timeMs: 5000,
+    });
+    harness.editor.pointerDown({
+      lane: 0,
+      timeMs: 2000,
+    });
+    harness.editor.pointerMove({
+      lane: 1,
+      timeMs: 5000,
+    });
     harness.editor.pointerUp(5000);
     harness.editor.seek(5000);
     harness.editor.selectTool('hold');
     harness.editor.deleteSelected();
     harness.editor.togglePlayback();
     harness.editor.requestClearNotes();
-    harness.editor.select(otherSong, 'normal');
+    harness.editor.select(otherSong, 4, 'normal');
     harness.editor.moveSong(1);
     void harness.editor.save();
 
@@ -704,8 +735,14 @@ describe('gestures', () => {
   it('adds a tap and moves it while dragging', async () => {
     const harness = await openLoaded();
 
-    harness.editor.pointerDown(1, 3000);
-    harness.editor.pointerMove(2, 4000);
+    harness.editor.pointerDown({
+      lane: 1,
+      timeMs: 3000,
+    });
+    harness.editor.pointerMove({
+      lane: 2,
+      timeMs: 4000,
+    });
     harness.editor.pointerUp(4000);
 
     expect(getNotes(harness.editor.state)).toEqual([
@@ -738,8 +775,14 @@ describe('gestures', () => {
     const harness = await openLoaded();
     harness.editor.selectTool('hold');
 
-    harness.editor.pointerDown(0, 3000);
-    harness.editor.pointerMove(0, 3500);
+    harness.editor.pointerDown({
+      lane: 0,
+      timeMs: 3000,
+    });
+    harness.editor.pointerMove({
+      lane: 0,
+      timeMs: 3500,
+    });
     harness.editor.pointerUp(3500);
 
     expect(getNotes(harness.editor.state)).toEqual([
@@ -757,7 +800,10 @@ describe('gestures', () => {
     const notes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
 
-    harness.editor.pointerDown(1, 3000);
+    harness.editor.pointerDown({
+      lane: 1,
+      timeMs: 3000,
+    });
     harness.editor.pointerUp(3000);
 
     expect(getNotes(harness.editor.state)).toBe(notes);
@@ -767,7 +813,10 @@ describe('gestures', () => {
   it('selects a note without unsaved changes', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
 
-    harness.editor.pointerDown(0, 2010);
+    harness.editor.pointerDown({
+      lane: 0,
+      timeMs: 2010,
+    });
     harness.editor.pointerUp(2010);
 
     expect(getDraft(harness).selected).toBe(getNotes(harness.editor.state)[0]);
@@ -778,7 +827,10 @@ describe('gestures', () => {
     const harness = await openLoaded([TAP_AT_2000]);
     const state = harness.editor.state;
 
-    harness.editor.pointerMove(1, 3000);
+    harness.editor.pointerMove({
+      lane: 1,
+      timeMs: 3000,
+    });
     harness.editor.pointerUp(3000);
 
     expect(harness.editor.state).toBe(state);
@@ -788,8 +840,14 @@ describe('gestures', () => {
     const harness = await openLoaded([TAP_AT_2000]);
     const notes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown(2, 5000);
-    harness.editor.pointerMove(2, 6000);
+    harness.editor.pointerDown({
+      lane: 2,
+      timeMs: 5000,
+    });
+    harness.editor.pointerMove({
+      lane: 2,
+      timeMs: 6000,
+    });
     expect(getNotes(harness.editor.state)).toHaveLength(2);
 
     harness.editor.back();
@@ -804,18 +862,25 @@ describe('gestures', () => {
     addTap(harness, 3000);
     const dirtyNotes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown(2, 5000);
+    harness.editor.pointerDown({
+      lane: 2,
+      timeMs: 5000,
+    });
 
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
 
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'select',
       song,
+      laneCount: 4,
       difficulty: 'hard',
     });
     expect(getNotes(harness.editor.state)).toBe(dirtyNotes);
     const held = harness.editor.state;
-    harness.editor.pointerMove(2, 6000);
+    harness.editor.pointerMove({
+      lane: 2,
+      timeMs: 6000,
+    });
     harness.editor.pointerUp(6000);
     expect(harness.editor.state).toBe(held);
     harness.editor.cancelPending();
@@ -880,6 +945,7 @@ describe('saving', () => {
     expect(lastSave(harness).chart).toEqual({
       songId: 'test-song',
       difficulty: 'normal',
+      laneCount: 4,
       offsetMs: 0,
       notes,
     });
@@ -899,6 +965,7 @@ describe('saving', () => {
     expect(harness.applied).toEqual([
       {
         songId: song.id,
+        laneCount: 4,
         difficulty: 'normal',
         chartId: SAVED_CHART_ID,
       },
@@ -931,7 +998,10 @@ describe('saving', () => {
     void harness.editor.save();
     const savedNotes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown(2, 6000);
+    harness.editor.pointerDown({
+      lane: 2,
+      timeMs: 6000,
+    });
 
     lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
@@ -949,11 +1019,12 @@ describe('saving', () => {
     addTap(harness, 3000);
     void harness.editor.save();
     const first = lastSave(harness);
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
     harness.editor.confirmPending();
     const reselected = harness.editor.state;
     expect(getSelection(reselected)).toEqual({
       song,
+      laneCount: 4,
       difficulty: 'hard',
     });
 
@@ -964,7 +1035,7 @@ describe('saving', () => {
     addTap(harness, 3000);
     void harness.editor.save();
     const second = lastSave(harness);
-    harness.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
     harness.editor.confirmPending();
     const loading = harness.editor.state;
     second.reject(new Error('network'));
@@ -1002,6 +1073,187 @@ describe('saving', () => {
       addTap(harness, 5000, 1);
       expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
     }
+  });
+});
+
+describe('lane counts', () => {
+  const laneSong: Song = {
+    ...song,
+    chartIds: {
+      4: { normal: 'chart_normal' },
+      5: { normal: 'chart_5k_normal' },
+    },
+  };
+
+  async function openLaneSong(notes: readonly Note[] = []): Promise<Harness> {
+    const harness = createHarness();
+    harness.songs = [laneSong, otherSong];
+    harness.editor.select(laneSong, 4, 'normal');
+    lastLoad(harness).resolve(makeChart(notes));
+    await flush();
+    return harness;
+  }
+
+  it('loads the chart of the selected lane count keeping the song and difficulty', async () => {
+    const harness = await openLaneSong();
+
+    harness.editor.selectLaneCount(5);
+
+    expect(lastLoad(harness).ref).toEqual({
+      song: laneSong,
+      laneCount: 5,
+      difficulty: 'normal',
+      chartId: 'chart_5k_normal',
+    });
+    expect(getSelection(harness.editor.state)).toEqual({
+      song: laneSong,
+      laneCount: 5,
+      difficulty: 'normal',
+    });
+    expect(harness.changedSongs).toEqual([laneSong]);
+
+    lastLoad(harness).resolve({
+      ...makeChart([
+        {
+          type: 'tap',
+          timeMs: 2000,
+          lane: 4,
+        },
+      ]),
+      laneCount: 5,
+    });
+    await flush();
+    expect(getDraft(harness).laneCount).toBe(5);
+    expect(getNotes(harness.editor.state)).toEqual([
+      {
+        type: 'tap',
+        timeMs: 2000,
+        lane: 4,
+      },
+    ]);
+  });
+
+  it('edits an empty draft for a lane count without a chart, without a load', async () => {
+    const harness = await openLaneSong();
+
+    harness.editor.selectLaneCount(6);
+
+    expect(harness.loads).toHaveLength(1);
+    const draft = getDraft(harness);
+    expect(draft.laneCount).toBe(6);
+    expect(draft.difficulty).toBe('normal');
+    expect(draft.notes).toEqual([]);
+  });
+
+  it('does nothing when the current lane count is selected again', async () => {
+    const harness = await openLaneSong();
+    const state = harness.editor.state;
+
+    harness.editor.selectLaneCount(4);
+
+    expect(harness.editor.state).toBe(state);
+  });
+
+  it('asks before switching away from unsaved changes and does not carry the notes', async () => {
+    const harness = await openLaneSong();
+    addTap(harness, 3000);
+    const edited = getNotes(harness.editor.state);
+
+    harness.editor.selectLaneCount(6);
+    expect(getPending(harness.editor.state)).toEqual({
+      kind: 'select',
+      song: laneSong,
+      laneCount: 6,
+      difficulty: 'normal',
+    });
+    harness.editor.cancelPending();
+    expect(getSelection(harness.editor.state)?.laneCount).toBe(4);
+    expect(getNotes(harness.editor.state)).toBe(edited);
+
+    harness.editor.selectLaneCount(6);
+    harness.editor.confirmPending();
+    expect(getDraft(harness).laneCount).toBe(6);
+    expect(getNotes(harness.editor.state)).toEqual([]);
+  });
+
+  it('saves a note on the last 6K lane as a 6K chart', async () => {
+    const harness = await openLaneSong();
+    harness.editor.selectLaneCount(6);
+
+    addTap(harness, 3000, 5);
+    void harness.editor.save();
+    expect(lastSave(harness).chart).toEqual({
+      songId: 'test-song',
+      difficulty: 'normal',
+      laneCount: 6,
+      offsetMs: 0,
+      notes: [
+        {
+          type: 'tap',
+          timeMs: 3000,
+          lane: 5,
+        },
+      ],
+    });
+    lastSave(harness).resolve(SAVED_CHART_ID);
+    await flush();
+
+    expect(harness.applied).toEqual([
+      {
+        songId: laneSong.id,
+        laneCount: 6,
+        difficulty: 'normal',
+        chartId: SAVED_CHART_ID,
+      },
+    ]);
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
+  });
+
+  it('marks a 4K chart with a note on lane 4 invalid', async () => {
+    const harness = await openLaneSong();
+    addTap(harness, 3000, 4);
+
+    await harness.editor.save();
+
+    expect(harness.saves).toEqual([]);
+    expect(getEditorStatus(harness.editor.state)).toMatchObject({ kind: 'invalid' });
+  });
+
+  it('keeps a late save away from the draft of another lane count but lists it as saved', async () => {
+    const harness = await openLaneSong();
+    addTap(harness, 3000);
+    void harness.editor.save();
+    harness.editor.selectLaneCount(6);
+    harness.editor.confirmPending();
+    const switched = harness.editor.state;
+
+    lastSave(harness).resolve(SAVED_CHART_ID);
+    await flush();
+
+    expect(harness.editor.state).toBe(switched);
+    expect(harness.applied).toEqual([
+      {
+        songId: laneSong.id,
+        laneCount: 4,
+        difficulty: 'normal',
+        chartId: SAVED_CHART_ID,
+      },
+    ]);
+  });
+
+  it('ignores a late load once another lane count is selected', async () => {
+    const harness = createHarness();
+    harness.songs = [laneSong, otherSong];
+    harness.editor.select(laneSong, 4, 'normal');
+    const first = lastLoad(harness);
+    harness.editor.selectLaneCount(6);
+    const switched = harness.editor.state;
+
+    first.resolve(makeChart([TAP_AT_2000]));
+    await flush();
+
+    expect(harness.editor.state).toBe(switched);
+    expect(getDraft(harness).laneCount).toBe(6);
   });
 });
 
@@ -1081,7 +1333,7 @@ describe('playback', () => {
     harness.isPlayerReady = false;
     const state = harness.editor.state;
     const loading = createHarness();
-    loading.editor.select(song, 'normal');
+    loading.editor.select(song, 4, 'normal');
     const loadingState = loading.editor.state;
 
     harness.editor.togglePlayback();
@@ -1096,7 +1348,7 @@ describe('playback', () => {
     harness.editor.togglePlayback();
     expect(getTransport(harness.editor.state).kind).toBe('starting');
 
-    harness.editor.select(song, 'hard');
+    harness.editor.select(song, 4, 'hard');
     const reopened = harness.editor.state;
     harness.editor.handlePlayerState('playing');
     harness.timeSource.currentTime = 5;
@@ -1127,7 +1379,7 @@ describe('playback', () => {
     harness.editor.seek(5000);
     expect(harness.editor.state).toBe(empty);
 
-    harness.editor.select(song, 'normal');
+    harness.editor.select(song, 4, 'normal');
     harness.editor.seek(5000);
 
     expect(harness.editor.state.playhead.currentTimeMs).toBe(5000);

@@ -1,15 +1,18 @@
 import { LANGUAGES } from '../../i18n/language.js';
 import type { Language } from '../../i18n/language.js';
+import { LANE_COUNTS } from '../../rhythm/lanes.js';
 import type { Lane } from '../../rhythm/types.js';
 import { MV_MODES, SETTINGS_LIMITS } from '../../storage/settings.js';
 import type { Settings } from '../../storage/settings.js';
 import { clamp, stepItem } from '../../range.js';
+import { requireDefined } from '../../invariant.js';
 
 export type VolumeField = 'masterVolume' | 'musicVolume' | 'effectVolume';
 
 export type SettingsRow =
   | { kind: 'volume'; field: VolumeField }
   | { kind: 'inputOffset' }
+  | { kind: 'laneMode' }
   | { kind: 'scrollSpeed' }
   | { kind: 'mvMode' }
   | { kind: 'language' }
@@ -68,6 +71,15 @@ export function adjustSetting(
             scrollSpeedPxPerSecond,
           };
     }
+    case 'laneMode': {
+      const laneMode = stepItem(LANE_COUNTS, settings.laneMode, direction);
+      return laneMode === settings.laneMode
+        ? settings
+        : {
+            ...settings,
+            laneMode,
+          };
+    }
     case 'mvMode': {
       const mvMode = stepItem(MV_MODES, settings.mvMode, direction);
       return mvMode === settings.mvMode
@@ -100,15 +112,11 @@ export function canAdjust(
   return adjustSetting(settings, row, direction, language) !== settings;
 }
 
-export function assignKey(
-  keyBindings: Settings['keyBindings'],
-  lane: Lane,
-  code: string,
-): Settings['keyBindings'] {
-  const next: [string, string, string, string] = [...keyBindings];
+export function assignKey(keys: readonly string[], lane: Lane, code: string): readonly string[] {
+  const next = [...keys];
   const otherLane = next.indexOf(code);
   if (otherLane !== -1) {
-    next[otherLane] = next[lane];
+    next[otherLane] = requireDefined(next[lane], 'Invalid key lane', lane);
   }
   next[lane] = code;
   return next;

@@ -43,11 +43,19 @@ import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextur
 import { MenuFocus } from '../ui/MenuFocus.js';
 import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
-import { COLORS, JUDGMENT_COLORS, MOTION, SCREEN_LAYOUT, textStyle } from '../ui/theme.js';
+import {
+  COLORS,
+  JUDGMENT_COLORS,
+  MOTION,
+  SCREEN_LAYOUT,
+  TYPE_SCALE,
+  textStyle,
+} from '../ui/theme.js';
 
 type MenuItem = 'retry' | 'songSelect';
 
 const LEFT_X_PX = SCREEN_LAYOUT.leftXPx;
+const RIGHT_X_PX = SCREEN_LAYOUT.rightXPx;
 const TITLE_Y_PX = 120;
 const DIFFICULTY_Y_PX = 176;
 const PRACTICE_BADGE_GAP_PX = 24;
@@ -60,15 +68,15 @@ const JUDGMENT_LABEL_Y_PX = 640;
 const JUDGMENT_COUNT_Y_PX = 676;
 /** MAX COMBO 를 판정 열의 세 번째 줄(GOOD)에 맞춰 두 줄이 같은 격자를 쓰게 한다. */
 const MAX_COMBO_X_PX = LEFT_X_PX + JUDGMENT_COLUMN_WIDTH_PX * 2;
-const JACKET_X_PX = 1400;
-const JACKET_Y_PX = 160;
-const JACKET_SIZE_PX = 400;
+// 자켓 윗변을 곡명에 맞춰 왼쪽 정보 열과 오른쪽 자켓이 한 줄에서 시작하게 한다.
+const JACKET_SIZE_PX = 480;
+const JACKET_X_PX = RIGHT_X_PX - JACKET_SIZE_PX;
+const JACKET_Y_PX = TITLE_Y_PX;
 /** 판정 표와는 넓게, RETRY 와는 좁게 띄워 한 묶음으로 보이게 한다. */
-const DIFFICULTY_TABS_Y_PX = 840;
+const DIFFICULTY_TABS_Y_PX = 808;
 const BUTTON_Y_PX = 880;
-/** quiet 버튼의 안쪽 가로 여백만큼 당겨 RETRY 라벨을 탭·판정 표와 같은 왼쪽 선에 맞춘다. */
+/** quiet 버튼의 안쪽 가로 여백만큼 밀어 TRACKS·RETRY 라벨을 정보 열 왼쪽 선·자켓 오른쪽 선에 맞춘다. */
 const QUIET_BUTTON_PADDING_X_PX = 16;
-const BUTTON_GAP_PX = 48;
 const HEADER_REVEAL_DELAY_MS = 150;
 const RANK_REVEAL_DELAY_MS = 450;
 const RANK_REVEAL_DURATION_MS = 280;
@@ -78,10 +86,11 @@ const SCORE_COUNT_DURATION_MS = 700;
 const STATS_REVEAL_DELAY_MS = 800;
 const MENU_REVEAL_DELAY_MS = 950;
 const FULL_COMBO_DELAY_MS = 1100;
+// 판정 표 오른쪽 끝과 자켓 사이 빈 칸에 둔다.
 const CONSTELLATION_BOX: ConstellationBox = {
-  leftPx: 740,
+  leftPx: 800,
   topPx: 210,
-  widthPx: 500,
+  widthPx: 420,
   heightPx: 480,
 };
 const CONSTELLATION_DELAY_MS = FULL_COMBO_DELAY_MS;
@@ -138,9 +147,10 @@ export class ResultScene extends Phaser.Scene {
     this.exit = STAYING;
     addCelestialAtmosphere(this, this.celestial, 'result');
     const keyboard = requireKeyboard(this);
-    const { song, difficulty, chartId, mode, result, restore } = data;
+    const { song, laneCount, difficulty, chartId, mode, result, restore } = data;
     let retryChart: ChartRef = {
       song,
+      laneCount,
       difficulty,
       chartId,
     };
@@ -233,12 +243,15 @@ export class ResultScene extends Phaser.Scene {
     });
     const jacket = new JacketView(this, JACKET_X_PX, JACKET_Y_PX, JACKET_SIZE_PX).setSong(song);
 
-    const retryButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, BUTTON_Y_PX, {
+    const retryButton = new Button(this, 0, BUTTON_Y_PX, {
       variant: 'quiet',
       focus: 'slide',
       label: 'RETRY',
+      // 화면의 기본 동작(Enter)이므로 TRACKS 보다 한 단계 크게 둔다.
+      labelType: TYPE_SCALE.heading,
       onActivate: () => activate('retry'),
     });
+    retryButton.setX(RIGHT_X_PX + QUIET_BUTTON_PADDING_X_PX - retryButton.width);
     const selectRetryChart = (next: ChartRef): void => {
       if (this.exit.kind === 'leaving' || next.difficulty === retryChart.difficulty) {
         return;
@@ -247,29 +260,28 @@ export class ResultScene extends Phaser.Scene {
       tabs.render({
         selected: next.difficulty,
         song,
+        laneCount,
       });
     };
     const tabs = new DifficultyTabs(
       this,
-      LEFT_X_PX,
+      RIGHT_X_PX,
       DIFFICULTY_TABS_Y_PX,
       {
         selected: difficulty,
         song,
+        laneCount,
       },
       selectRetryChart,
     );
-    const songSelectButton = new Button(
-      this,
-      retryButton.x + retryButton.width + BUTTON_GAP_PX,
-      BUTTON_Y_PX,
-      {
-        variant: 'quiet',
-        focus: 'slide',
-        label: 'TRACKS',
-        onActivate: () => activate('songSelect'),
-      },
-    );
+    const songSelectButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, 0, {
+      variant: 'quiet',
+      focus: 'slide',
+      label: 'TRACKS',
+      onActivate: () => activate('songSelect'),
+    });
+    // 글자 크기가 달라 아랫변을 맞춰야 RETRY 와 한 줄로 읽힌다.
+    songSelectButton.setY(retryButton.y + retryButton.height - songSelectButton.height);
     const menu = new MenuFocus<MenuItem>([
       {
         item: 'retry',
@@ -281,10 +293,7 @@ export class ResultScene extends Phaser.Scene {
       },
     ]);
     const overlay = new ControlsOverlay(this, () =>
-      getControlsGuide(
-        this.i18n.t('controls', { returnObjects: true }),
-        this.save.loadSettings().keyBindings,
-      ),
+      getControlsGuide(this.i18n.t('controls', { returnObjects: true }), this.save.loadSettings()),
     );
     addControlsEntry(this, LEFT_X_PX, SCREEN_LAYOUT.hintYPx, () => overlay.open());
     playCelestialEntryTransition(this, this.celestial, rankBounds);

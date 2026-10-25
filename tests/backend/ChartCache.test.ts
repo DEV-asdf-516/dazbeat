@@ -16,18 +16,22 @@ const song: Song = {
   gameStartMs: 0,
   gameEndMs: 10000,
   chartIds: {
-    normal: 'chart_normal',
-    hard: 'chart_hard',
+    4: {
+      normal: 'chart_normal',
+      hard: 'chart_hard',
+    },
   },
 };
 
 const normalChart: ChartRef = {
   song,
+  laneCount: 4,
   difficulty: 'normal',
   chartId: 'chart_normal',
 };
 const hardChart: ChartRef = {
   song,
+  laneCount: 4,
   difficulty: 'hard',
   chartId: 'chart_hard',
 };
@@ -36,6 +40,7 @@ function chartData(difficulty: 'normal' | 'hard', timeMs: number): Chart {
   return {
     songId: 'test-song',
     difficulty,
+    laneCount: 4,
     offsetMs: 0,
     notes: [
       {

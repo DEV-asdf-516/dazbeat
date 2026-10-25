@@ -246,6 +246,7 @@ type SearchParams = Record<string, string>;
 interface ChartSummary {
   readonly id: string;
   readonly difficulty: string;
+  readonly laneCount: number;
 }
 
 interface SearchItem extends RecordModel {
@@ -460,6 +461,13 @@ describe('song title search API', () => {
       'hard',
       fakeChartData('nova-original', 'hard'),
     );
+    const sixLaneHard = await createChart(
+      superuser,
+      original.id,
+      'hard',
+      fakeChartData('nova-original', 'hard', 1_000, 6),
+      6,
+    );
     const guest = createClient(url);
 
     const { items } = await search(guest, { title: 'Nova' });
@@ -472,16 +480,25 @@ describe('song title search API', () => {
     });
     expect(items[0]?.['jacket']).toBe(original['jacket']);
     const charts = [...(items[0]?.expand?.charts_via_song ?? [])].sort((a, b) =>
-      a.difficulty.localeCompare(b.difficulty),
+      a.difficulty === b.difficulty
+        ? a.laneCount - b.laneCount
+        : a.difficulty.localeCompare(b.difficulty),
     );
     expect(charts).toEqual([
       {
         id: easy.id,
         difficulty: 'easy',
+        laneCount: 4,
       },
       {
         id: hard.id,
         difficulty: 'hard',
+        laneCount: 4,
+      },
+      {
+        id: sixLaneHard.id,
+        difficulty: 'hard',
+        laneCount: 6,
       },
     ]);
     expect(items[1]).not.toHaveProperty('expand');
@@ -562,6 +579,7 @@ describe('song title search API', () => {
           {
             id: chart.id,
             difficulty: 'easy',
+            laneCount: 4,
           },
         ],
       },
@@ -581,6 +599,7 @@ describe('song title search API', () => {
         {
           id: chart.id,
           difficulty: 'easy',
+          laneCount: 4,
         },
       ],
     });

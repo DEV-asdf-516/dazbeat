@@ -18,7 +18,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "songs": [
     {
       "key": "example-song",
@@ -33,8 +33,13 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
       "credit": ["Example credit line"],
       "jacket": "example-song/jacket.jpg",
       "charts": {
-        "easy": "example-song/charts/easy.json",
-        "expert": "example-song/charts/expert.json"
+        "4": {
+          "easy": "example-song/charts/4k-easy.json",
+          "expert": "example-song/charts/4k-expert.json"
+        },
+        "6": {
+          "hard": "example-song/charts/6k-hard.json"
+        }
       }
     }
   ]
@@ -43,14 +48,24 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 - `songs` 는 1개 이상이고 `key` 는 manifest 안에서 유일해야 한다. `category`·`constellation`·난이도는 게임의 도메인 값만 쓸 수 있고, 알 수 없는 필드가 있으면 오류다. `releasedOn` 은 `YYYY-MM-DD` 형식의 YouTube 업로드일이다. `credit` 은 선택이다.
 - 재킷 확장자는 `.jpg`/`.jpeg`/`.png`/`.webp` 만 허용한다.
-- `charts` 에는 난이도 일부만 있어도 된다. 각 채보 파일은 게임의 채보 검증을 그 곡의 `key`·`gameStartMs`·`gameEndMs` 와 난이도로 통과해야 한다.
+- `version` 은 `2` 만 허용한다. 난이도를 바로 두던 version 1 manifest 는 변환하지 않고 오류로 거부한다.
+- `charts` 는 레인 수(`"4"`·`"5"`·`"6"`) → 난이도 → 채보 파일 경로이며, 레인 수·난이도 모두 일부만 있어도 된다. 각 채보 파일은 게임의 채보 검증을 그 곡의 `key`·`gameStartMs`·`gameEndMs`, 난이도, manifest 의 레인 수로 통과해야 한다.
+- 채보 파일에는 `laneCount` 필드가 있고 manifest 의 레인 수 키와 같아야 하며, 노트의 `lane` 은 `0` 부터 `laneCount - 1` 까지의 정수다. 예: `{ "songId": "example-song", "difficulty": "hard", "laneCount": 6, "offsetMs": 0, "notes": [{ "type": "tap", "timeMs": 1200, "lane": 5 }] }`
 - 검증은 모두 첫 네트워크 요청 전에 끝난다. 실패하면 실패한 파일의 절대 경로와 manifest 안의 위치를 출력하고 아무것도 쓰지 않는다.
 
 ### 실행
 
 1. `.env` 에 `VITE_POCKETBASE_URL`(예: `http://127.0.0.1:8090`), `PB_SUPERUSER_EMAIL`, `PB_SUPERUSER_PASSWORD` 를 넣는다(변수 설명은 `.env.example`).
 2. 아래 "개발 Docker 실행" 으로 로컬 PocketBase 를 띄우고, 그 인스턴스에 superuser 를 만든다.
-3. `npm run seed` 를 실행한다. `key` 로 곡을 찾아 없으면 재킷과 함께 만들고, 곡의 난이도별 채보가 없으면 만든다. 이미 있는 곡·채보는 갱신·삭제하지 않고 건너뛴다.
+3. `npm run seed` 를 실행한다. `key` 로 곡을 찾아 없으면 재킷과 함께 만들고, 곡의 레인 수·난이도 조합 채보가 없으면 만든다. 이미 있는 곡·같은 조합의 채보는 갱신·삭제하지 않고 건너뛴다.
+
+### 레인 수 마이그레이션 뒤 로컬 데이터 재생성
+
+`1792814400_add_charts_lane_count.js` 는 `charts` 에 필수 `laneCount` 를 추가하고 유일 키를 `(song, difficulty, laneCount)` 로 바꾸지만 기존 레코드를 채우지 않는다. 이 마이그레이션 전에 만든 로컬 PocketBase 의 채보는 `laneCount` 가 없어 수정·로드에 실패하므로, 로컬 데이터를 새로 만든 뒤 다시 시드한다.
+
+1. 로컬 시드 데이터를 위 version 2 형식으로 고친다(채보 파일에 `laneCount` 추가, manifest `charts` 를 레인 수 키 아래로).
+2. 로컬 PocketBase 를 멈추고 로컬 데이터 볼륨을 직접 지운다(`docker compose down -v`). 이 명령은 로컬 DB·업로드 파일을 모두 지우므로 사람이 확인하고 실행한다.
+3. 아래 "개발 Docker 실행" 으로 다시 띄우고 superuser 를 만든 뒤 `npm run seed` 를 실행한다.
 
 ### 기존 실제 데이터의 Git 추적 정리
 
@@ -69,7 +84,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 개발 Docker PocketBase 는 운영과 같은 `pb_migrations` 와 `pb_hooks` 를 쓴다.
 
-1. `npm run build:hooks` 로 서버 번들 `pocketbase/pb_hooks/lib/verifyPlay.cjs`(결과 검증)와 `pocketbase/pb_hooks/lib/sessionQuota.cjs`(세션 발급 한도 판정)를 만든다. 두 파일은 빌드 산출물이라 Git 무시 대상이며, 없으면 플레이 세션 API 가 동작하지 않는다. `src/rhythm/`, `src/data/`, `pocketbase/verification/` 을 바꾼 뒤에도 다시 빌드한다.
+1. `npm run build:hooks` 로 hook 이 `require` 하는 서버 번들 `pocketbase/pb_hooks/lib/*.cjs`(목록은 `vite.hooks.config.ts`)를 만든다. 빌드 산출물이라 Git 무시 대상이며, 없으면 플레이 세션·곡 검색 API 와 채보 저장이 동작하지 않는다. `src/rhythm/`, `src/data/`, `pocketbase/verification/` 을 바꾼 뒤에도 다시 빌드한다.
 2. `docker compose up --build` 로 PocketBase 를 띄운다. `127.0.0.1:8090` 에서만 열린다.
    - `./pocketbase/pb_migrations` → `/pb/pb_migrations`, `./pocketbase/pb_hooks` → `/pb/pb_hooks` 로 마운트된다.
    - `DAZBEAT_ALLOWED_ORIGINS` 는 Vite 개발 서버 Origin 인 `http://localhost:5173,http://127.0.0.1:5173` 이다.
@@ -85,7 +100,7 @@ PocketHost 인스턴스의 PocketBase 버전은 `pocketbase/Dockerfile` 의 `PB_
 
 ### 절차
 
-1. **빌드**: 배포할 커밋에서 `npm ci` 후 `npm run build:hooks` 를 실행해 `pocketbase/pb_hooks/lib/verifyPlay.cjs` 와 `pocketbase/pb_hooks/lib/sessionQuota.cjs` 를 만든다.
+1. **빌드**: 배포할 커밋에서 `npm ci` 후 `npm run build:hooks` 를 실행해 `pocketbase/pb_hooks/lib/` 의 서버 번들을 만든다.
 2. **수동 백업**: 관리 UI Settings › Backups 에서 백업을 만들고 zip 을 내려받는다(아래 "백업·복구"). 마이그레이션·hook 배포 전에는 반드시 한다.
 3. **SFTP 업로드**: PocketHost 의 SFTP 로 저장소의 `pocketbase/pb_migrations/` 와 `pocketbase/pb_hooks/`(빌드된 `lib/` 포함)를 인스턴스의 `pb_migrations/`, `pb_hooks/` 에 올린다. rate limit 마이그레이션 두 개(`1791532400_enable_dazbeat_rate_limits.js`, `1792121900_relax_play_session_ip_rate_limits.js`)는 한 묶음으로 다룬다. `1791532400` 이 이미 적용된 인스턴스는 이번 배포에서 `1792121900` 을 함께 올린다. `1791532400` 을 아직 보류 중이면 둘 다 빼고 올렸다가 "클라이언트 IP 와 요청 제한" 의 "배포 순서" 5단계에서 함께 올린다. 아직 적용하지 않은 마이그레이션은 파일 이름 순서로 적용되므로, `1792121900` 만 먼저 올리면 나중에 올린 `1791532400` 이 dazbeat 규칙을 10 요청 / 60초로 다시 덮는다.
 4. **재시작**: PocketHost 대시보드에서 인스턴스를 재시작한다. 새 마이그레이션은 시작할 때 적용된다.
@@ -165,6 +180,12 @@ IP 제한과 별도로 발급 hook(`pb_hooks/playSessions.pb.js`)이 로그인 �
 - **IP 제한과의 관계**: IP 제한을 대체하지 않고 그 위에 더한다. 내장 limiter 가 먼저 평가되므로 사용자 단위로 거절된 요청도 IP 버킷을 쓴다. 클라이언트 IP 판정과 무관하게 동작하므로, 아래 "실제 IP 를 얻지 못할 때" 처럼 내장 limiter 를 쓰지 않는 경우에도 유지된다.
 - **응답**: 초과하면 `429` `{"status":429,"code":"session_rate_limited",...}` 와 윈도가 끝날 때까지 남은 초를 담은 `Retry-After` 헤더를 돌려준다. 게임은 자동 재시도하지 않고 그 판을 랭킹 없이 진행한다(로컬 기록은 유지).
 - **결과 제출**: 결과 제출 hook 은 첫 요청이 리플레이 전에 세션을 소비(삭제)하고, 소비한 요청만 리플레이한 뒤 별도 트랜잭션에서 최고 기록을 갱신한다. 그래서 세션 하나당 리플레이는 최대 1회이고, 사용자당 리플레이 수는 위 발급 한도를 넘지 않는다. 결과 제출에는 사용자 단위 제한을 따로 두지 않는다. 같은 세션을 다시 제출하면 리플레이 없이 `404 session_not_found` 다.
+
+### 세션 유효 시간
+
+- 세션은 `발급 시각 + 곡 플레이 길이 + 12시간` 에 만료된다(`SESSION_GRACE_MS`, `pocketbase/verification/verifyPlay.ts`). 만료 뒤 제출은 `410 session_expired` 다.
+- 일시정지를 오래 했다가 이어서 끝까지 플레이해도 랭킹에 반영되도록 유예를 길게 둔다.
+- 발급 hook 이 같은 사용자의 이전 세션을 지우므로 사용자당 활성 세션은 1개다. 그래서 유예가 길어도 동시에 쥘 수 있는 세션 수는 늘지 않는다. 다른 탭·기기에서 새 판을 시작하면 먼저 시작한 판은 제출 때 `404 session_not_found` 로 랭킹 없이 끝난다.
 
 ### 세션 채보 스냅샷
 

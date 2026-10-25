@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { CHARTS } from '../../../src/pbCollections.js';
+import { where } from '../../../src/pbQuery.js';
 import { createTempDir, removeTempDir, startPocketBase } from './pocketBaseServer.js';
 import type { PocketBaseServer } from './pocketBaseServer.js';
 import {
@@ -48,6 +50,7 @@ describe('charts.revision', () => {
     const created = await editor.client.collection('charts').create({
       song: song.id,
       difficulty: 'easy',
+      laneCount: 4,
       data,
       revision: 'forged',
     });
@@ -63,6 +66,7 @@ describe('charts.revision', () => {
     const created = await charts.create({
       song: song.id,
       difficulty: 'normal',
+      laneCount: 4,
       data: original,
     });
 
@@ -85,11 +89,72 @@ describe('charts.revision', () => {
     const created = await server.superuser.collection('charts').create({
       song: song.id,
       difficulty: 'hard',
+      laneCount: 4,
       data,
     });
     const updated = await server.superuser
       .collection('charts')
       .update(created.id, { revision: 'forged' });
     expect(updated['revision']).toBe(expectedRevision(data));
+  });
+});
+
+describe('charts laneCount', () => {
+  it('rejects creating a chart whose data laneCount differs from the record laneCount', async () => {
+    const charts = editor.client.collection('charts');
+    await expect(
+      charts.create({
+        song: song.id,
+        difficulty: 'expert',
+        laneCount: 5,
+        data: fakeChartData('revision', 'expert'),
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      charts.create({
+        song: song.id,
+        difficulty: 'expert',
+        laneCount: 4,
+        // JSON 직렬화에서 빠지므로 laneCount 가 없는 데이터가 된다.
+        data: {
+          ...fakeChartData('revision', 'expert'),
+          laneCount: undefined,
+        },
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    const filter = where(CHARTS, [
+      {
+        song: song.id,
+        difficulty: 'expert',
+      },
+    ]);
+    const stored = await server.superuser.collection(CHARTS.name).getFullList({
+      filter: server.superuser.filter(filter.expression, filter.params),
+    });
+    expect(stored).toEqual([]);
+  });
+
+  it('rejects updating a chart so its data and record laneCount differ and keeps the record', async () => {
+    const data = fakeChartData('revision', 'expert', 1_000, 6);
+    const charts = editor.client.collection('charts');
+    const created = await charts.create({
+      song: song.id,
+      difficulty: 'expert',
+      laneCount: 6,
+      data,
+    });
+
+    await expect(
+      charts.update(created.id, { data: fakeChartData('revision', 'expert', 1_500, 5) }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(charts.update(created.id, { laneCount: 5 })).rejects.toMatchObject({
+      status: 400,
+    });
+    const stored = await server.superuser.collection('charts').getOne(created.id);
+    expect(stored).toMatchObject({
+      laneCount: 6,
+      data,
+    });
+    expect(stored['revision']).toBe(created['revision']);
   });
 });

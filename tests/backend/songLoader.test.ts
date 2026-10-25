@@ -162,7 +162,7 @@ describe('loadSongBatch', () => {
     const url = requestUrl(fetchMock, SONGS_PATH);
     expect(url.searchParams.get('expand')).toBe('charts_via_song');
     expect(url.searchParams.get('fields')).toBe(
-      '*,expand.charts_via_song.id,expand.charts_via_song.difficulty',
+      '*,expand.charts_via_song.id,expand.charts_via_song.difficulty,expand.charts_via_song.laneCount',
     );
   });
 
@@ -209,6 +209,7 @@ describe('loadSongBatch', () => {
               {
                 id: 'c2',
                 difficulty: 'easy',
+                laneCount: 4,
               },
             ],
           },
@@ -219,10 +220,22 @@ describe('loadSongBatch', () => {
               {
                 id: 'c1',
                 difficulty: 'hard',
+                laneCount: 4,
               },
               {
                 id: 'c3',
                 difficulty: 'easy',
+                laneCount: 4,
+              },
+              {
+                id: 'c4',
+                difficulty: 'hard',
+                laneCount: 5,
+              },
+              {
+                id: 'c5',
+                difficulty: 'easy',
+                laneCount: 6,
               },
             ],
           },
@@ -244,7 +257,7 @@ describe('loadSongBatch', () => {
         constellation: 'gemini',
         gameStartMs: 0,
         gameEndMs: 30000,
-        chartIds: { easy: 'c2' },
+        chartIds: { 4: { easy: 'c2' } },
         visualTheme: 'neon',
         credit: ['Song by someone', 'YouTube: channel'],
       },
@@ -259,8 +272,12 @@ describe('loadSongBatch', () => {
         gameStartMs: 0,
         gameEndMs: 30000,
         chartIds: {
-          hard: 'c1',
-          easy: 'c3',
+          4: {
+            hard: 'c1',
+            easy: 'c3',
+          },
+          5: { hard: 'c4' },
+          6: { easy: 'c5' },
         },
       },
       {
@@ -333,6 +350,35 @@ describe('loadSongBatch', () => {
       },
       'Invalid songs record s1: expand.charts_via_song[0].difficulty',
     ],
+    [
+      'a chart lane count is not supported',
+      {
+        expand: {
+          charts_via_song: [
+            {
+              id: 'c1',
+              difficulty: 'easy',
+              laneCount: 7,
+            },
+          ],
+        },
+      },
+      'Invalid songs record s1: expand.charts_via_song[0].laneCount',
+    ],
+    [
+      'a chart lane count is missing',
+      {
+        expand: {
+          charts_via_song: [
+            {
+              id: 'c1',
+              difficulty: 'easy',
+            },
+          ],
+        },
+      },
+      'Invalid songs record s1: expand.charts_via_song[0].laneCount',
+    ],
   ])('rejects when %s', async (_name, overrides, message) => {
     stubFetch(listResponse([makeSongRecord('s1', overrides)]));
 
@@ -401,6 +447,12 @@ describe('loadSongBatch with a title', () => {
               {
                 id: 'c1',
                 difficulty: 'hard',
+                laneCount: 4,
+              },
+              {
+                id: 'c2',
+                difficulty: 'hard',
+                laneCount: 6,
               },
             ],
           },
@@ -423,7 +475,10 @@ describe('loadSongBatch with a title', () => {
       expect.objectContaining({
         id: 'key-s1',
         jacketUrl: 'http://pb.test/api/files/songs_collection/s1/jacket_s1.jpg',
-        chartIds: { hard: 'c1' },
+        chartIds: {
+          4: { hard: 'c1' },
+          6: { hard: 'c2' },
+        },
       }),
       expect.objectContaining({
         id: 'key-s2',

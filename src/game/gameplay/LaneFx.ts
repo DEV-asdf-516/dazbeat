@@ -1,7 +1,8 @@
 import type Phaser from 'phaser';
-import { mapLanes } from '../../rhythm/lanes.js';
+import { requireDefined } from '../../invariant.js';
 import type { JudgmentEvent, Lane } from '../../rhythm/types.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import type { PlayfieldLayout } from './playfieldLayout.js';
 import { getHitBloomIntensity, getLaneEffectIds } from './judgmentEffects.js';
 import type { LaneEffectId } from './judgmentEffects.js';
 import { addCelestialSprite, playCelestialOnce } from '../celestial/celestialSprites.js';
@@ -10,11 +11,10 @@ import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
 import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../ui/theme.js';
 
 // 상시 halo 가 노트보다 먼저 보이지 않게 낮게 둔다.
-const JUDGE_CORE_WIDTH_PX = 480;
 const JUDGE_CORE_HEIGHT_PX = 2;
 const JUDGE_CORE_ALPHA = 0.6;
 const JUDGE_CORE_ACTIVATION_ALPHA = 0.25;
-const JUDGE_GLOW_WIDTH_PX = 520;
+const JUDGE_GLOW_EXTRA_WIDTH_PX = 40;
 const JUDGE_GLOW_HEIGHT_PX = 18;
 const JUDGE_GLOW_ALPHA = 0.14;
 const JUDGE_GLOW_ACTIVATION_ALPHA = 0.22;
@@ -71,28 +71,27 @@ interface LaneFxView {
 export class LaneFx {
   private readonly judgeGlow: Phaser.GameObjects.Image;
   private readonly judgeCore: Phaser.GameObjects.Image;
-  private readonly lanes: Record<Lane, LaneFxView>;
+  private readonly lanes: readonly LaneFxView[];
 
   constructor(
     private readonly scene: Phaser.Scene,
     celestial: CelestialCatalog,
-    laneCenterXPx: Record<Lane, number>,
+    playfield: PlayfieldLayout,
     judgeLineYPx: number,
   ) {
-    const centerXPx = (laneCenterXPx[0] + laneCenterXPx[3]) / 2;
+    const { centerXPx, widthPx } = playfield;
     this.judgeGlow = addLight(scene, LIGHT_TEXTURES.glow, centerXPx, judgeLineYPx)
-      .setDisplaySize(JUDGE_GLOW_WIDTH_PX, JUDGE_GLOW_HEIGHT_PX)
+      .setDisplaySize(widthPx + JUDGE_GLOW_EXTRA_WIDTH_PX, JUDGE_GLOW_HEIGHT_PX)
       .setTint(COLORS.holdRibbon)
       .setAlpha(JUDGE_GLOW_ALPHA)
       .setDepth(GAMEPLAY_DEPTH.judgeLine);
     this.judgeCore = scene.add
       .image(centerXPx, judgeLineYPx, ensureJudgeLineTexture(scene))
-      .setDisplaySize(JUDGE_CORE_WIDTH_PX, JUDGE_CORE_HEIGHT_PX)
+      .setDisplaySize(widthPx, JUDGE_CORE_HEIGHT_PX)
       .setAlpha(JUDGE_CORE_ALPHA)
       .setDepth(GAMEPLAY_DEPTH.judgeLine);
 
-    this.lanes = mapLanes((lane): LaneFxView => {
-      const xPx = laneCenterXPx[lane];
+    this.lanes = playfield.laneCenterXPx.map((xPx): LaneFxView => {
       const anchor = addLight(scene, LIGHT_TEXTURES.glow, xPx, judgeLineYPx)
         .setDisplaySize(ANCHOR_WIDTH_PX, ANCHOR_HEIGHT_PX)
         .setTint(COLORS.holdRibbon)
@@ -148,7 +147,7 @@ export class LaneFx {
   }
 
   press(lane: Lane): void {
-    const { anchor, pulse } = this.lanes[lane];
+    const { anchor, pulse } = this.getLane(lane);
     this.scene.tweens.killTweensOf([anchor, pulse]);
     anchor
       .setDisplaySize(ANCHOR_WIDTH_PX * ANCHOR_PRESS_SCALE, ANCHOR_HEIGHT_PX * ANCHOR_PRESS_SCALE)
@@ -174,7 +173,7 @@ export class LaneFx {
   }
 
   judge(event: JudgmentEvent): void {
-    const view = this.lanes[event.lane];
+    const view = this.getLane(event.lane);
     switch (event.judgment) {
       case 'perfect':
       case 'great':
@@ -196,6 +195,10 @@ export class LaneFx {
     }
     this.playBloom(view.bloom, getHitBloomIntensity(event.judgment));
     getLaneEffectIds(event).forEach((id) => playCelestialOnce(view.effects[id]));
+  }
+
+  private getLane(lane: Lane): LaneFxView {
+    return requireDefined(this.lanes[lane], 'Unknown lane', lane);
   }
 
   private playBloom(bloom: LaneFxView['bloom'], intensity: number): void {

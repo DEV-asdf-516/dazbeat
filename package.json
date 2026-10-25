@@ -34,9 +34,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@fontsource/cormorant-garamond": "^5.3.0",
-    "@fontsource/noto-serif-jp": "^5.3.0",
-    "@fontsource/noto-serif-kr": "^5.3.0",
+    "@fontsource/noto-sans-jp": "^5.3.1",
     "i18next": "^26.4.2",
     "phaser": "^4.2.1",
     "pocketbase": "^0.28.1",

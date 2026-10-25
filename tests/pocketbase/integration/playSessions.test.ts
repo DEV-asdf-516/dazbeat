@@ -6,7 +6,7 @@ import { PLAY_SESSIONS, SCORES } from '../../../src/pbCollections.js';
 import { where } from '../../../src/pbQuery.js';
 import { JUDGMENT_WINDOWS } from '../../../src/rhythm/judgment.js';
 import { getPlayDurationMs } from '../../../src/rhythm/playTiming.js';
-import type { Chart, Difficulty, InputEvent } from '../../../src/rhythm/types.js';
+import type { Chart, Difficulty, InputEvent, LaneCount } from '../../../src/rhythm/types.js';
 import { simulateClientPlay } from '../../rhythm/playSimulation.js';
 import { createClient, createTempDir, removeTempDir, startPocketBase } from './pocketBaseServer.js';
 import type { PocketBaseServer } from './pocketBaseServer.js';
@@ -44,10 +44,16 @@ interface PlayBody {
   [field: string]: unknown;
 }
 
-function chartOf(songKey: string, difficulty: Difficulty, notes: Chart['notes']): Chart {
+function chartOf(
+  songKey: string,
+  difficulty: Difficulty,
+  notes: Chart['notes'],
+  laneCount: LaneCount = 4,
+): Chart {
   return {
     songId: songKey,
     difficulty,
+    laneCount,
     offsetMs: 0,
     notes,
   };
@@ -133,18 +139,36 @@ const snapshotPassingChart = chartOf(MUTABLE_SONG_KEY, 'easy', tapChart.notes);
 const snapshotFailingChart = chartOf(MUTABLE_SONG_KEY, 'normal', lateFailingNotes);
 const staleIssueChart = chartOf(MUTABLE_SONG_KEY, 'hard', tapChart.notes);
 
-const tapPerfectInputs: InputEvent[] = tapChart.notes.flatMap((note) => [
-  {
-    lane: note.lane,
-    kind: 'press',
-    songTimeMs: note.timeMs,
-  },
-  {
-    lane: note.lane,
-    kind: 'release',
-    songTimeMs: note.timeMs + 50,
-  },
-]);
+// One tap per lane, the last lane included, on the same song and difficulty as tapChart.
+const wideLaneCharts = ([5, 6] as const).map((laneCount) =>
+  chartOf(
+    SONG_KEY,
+    'easy',
+    Array.from({ length: laneCount }, (_, lane) => ({
+      type: 'tap' as const,
+      timeMs: 1_000 + lane * 500,
+      lane,
+    })),
+    laneCount,
+  ),
+);
+
+function perfectTapInputs(chart: Chart): InputEvent[] {
+  return chart.notes.flatMap((note) => [
+    {
+      lane: note.lane,
+      kind: 'press',
+      songTimeMs: note.timeMs,
+    },
+    {
+      lane: note.lane,
+      kind: 'release',
+      songTimeMs: note.timeMs + 50,
+    },
+  ]);
+}
+
+const tapPerfectInputs = perfectTapInputs(tapChart);
 
 let dataDir: string;
 let server: PocketBaseServer;
@@ -280,8 +304,11 @@ beforeAll(async () => {
   editor = await createUser(server, 'editor@example.com', true);
   const song = await createSong(server.superuser, SONG_KEY, GAME_END_MS);
   const mutableSong = await createSong(server.superuser, MUTABLE_SONG_KEY, GAME_END_MS);
-  for (const chart of [tapChart, holdChart, mixedChart, failingChart]) {
-    chartRecords.set(chart, await createChart(editor.client, song.id, chart.difficulty, chart));
+  for (const chart of [tapChart, holdChart, mixedChart, failingChart, ...wideLaneCharts]) {
+    chartRecords.set(
+      chart,
+      await createChart(editor.client, song.id, chart.difficulty, chart, chart.laneCount),
+    );
   }
   for (const chart of [snapshotPassingChart, snapshotFailingChart, staleIssueChart]) {
     chartRecords.set(
@@ -381,6 +408,36 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
   it('matches the client result for a TAP chart', async () => {
     await expectServerMatchesClient(tapChart, tapPerfectInputs);
   });
+
+  it.each(wideLaneCharts)(
+    'matches the client result for a $laneCount-lane chart',
+    async (chart) => {
+      await expectServerMatchesClient(chart, perfectTapInputs(chart));
+    },
+  );
+
+  it.each(wideLaneCharts)(
+    'rejects an event outside the lanes of a $laneCount-lane chart with invalid_events',
+    async (chart) => {
+      const player = await newPlayer();
+      const sessionId = await startRankedPlay(player, chart);
+      await expectRejection(
+        submitResult(player.client, sessionId, {
+          inputOffsetMs: 0,
+          events: [
+            {
+              lane: chart.laneCount,
+              kind: 'press',
+              songTimeMs: 1_000,
+            },
+          ],
+        }),
+        400,
+        'invalid_events',
+      );
+      expect(await findScores(player.id, chart)).toEqual([]);
+    },
+  );
 
   it('matches the client result for a HOLD chart', async () => {
     await expectServerMatchesClient(holdChart, [

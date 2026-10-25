@@ -7,7 +7,7 @@ import { GameplayController } from '../../../src/game/gameplay/GameplayControlle
 import type { GameplayLoadError } from '../../../src/game/gameplay/GameplayController.js';
 import type { GameplaySceneData, PlayMode } from '../../../src/game/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
-import type { Chart, Difficulty, GameplayResult } from '../../../src/rhythm/types.js';
+import type { Chart, Difficulty, GameplayResult, LaneCount } from '../../../src/rhythm/types.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 import type { Settings } from '../../../src/storage/settings.js';
 import { msToSec, secToMs } from '../../../src/time.js';
@@ -22,12 +22,13 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 3000,
   gameEndMs: 10000,
-  chartIds: { normal: 'chart_normal' },
+  chartIds: { 4: { normal: 'chart_normal' } },
 };
 
 const chart: Chart = {
   songId: song.id,
   difficulty: 'normal',
+  laneCount: 4,
   offsetMs: 0,
   notes: [
     {
@@ -58,6 +59,35 @@ const FAIL_CHART: Chart = {
     timeMs: 4000 + index * 10,
     lane: 0 as const,
   })),
+};
+
+const FIVE_LANE_CHART: Chart = {
+  ...chart,
+  laneCount: 5,
+  notes: [
+    {
+      type: 'tap',
+      timeMs: 4000,
+      lane: 2,
+    },
+    {
+      type: 'tap',
+      timeMs: 4000,
+      lane: 4,
+    },
+  ],
+};
+
+const SIX_LANE_CHART: Chart = {
+  ...chart,
+  laneCount: 6,
+  notes: [
+    {
+      type: 'tap',
+      timeMs: 4000,
+      lane: 5,
+    },
+  ],
 };
 
 const SETTINGS: Settings = {
@@ -93,7 +123,7 @@ interface Harness {
   readonly apiLoads: Pending<void>[];
   readonly createdPlayers: { readonly videoId: string; readonly handlers: YouTubePlayerHandlers }[];
   readonly savedSettings: Settings[];
-  readonly savedResults: (readonly [string, Difficulty, GameplayResult])[];
+  readonly savedResults: (readonly [string, LaneCount, Difficulty, GameplayResult])[];
   readonly submissions: (Pending<VerifiedPlay> & {
     readonly sessionId: string;
     readonly submission: PlaySubmission;
@@ -120,6 +150,7 @@ function createHarness(
 ): Harness {
   const route: GameplaySceneData = {
     song,
+    laneCount: playedChart.laneCount,
     difficulty: 'normal',
     chartId: 'chart_normal',
     mode,
@@ -160,12 +191,12 @@ function createHarness(
           }
           harness.savedSettings.push(settings);
         },
-        saveResult: (songId, difficulty, result) => {
+        saveResult: (songId, laneCount, difficulty, result) => {
           if (harness.isSaveResultThrowing) {
             throw new Error('storage full');
           }
           harness.callOrder.push('saveResult');
-          harness.savedResults.push([songId, difficulty, result]);
+          harness.savedResults.push([songId, laneCount, difficulty, result]);
         },
       },
       prepareChart: (ref) =>
@@ -961,6 +992,99 @@ describe('GameplayController playing', () => {
   });
 });
 
+describe('GameplayController lane modes', () => {
+  it('reads lane keys from the 5K bindings and saves the run under 5 lanes', async () => {
+    const harness = createHarness('standard', FIVE_LANE_CHART);
+    await startVideo(harness);
+    moveClock(harness, 4);
+    harness.controller.tick();
+    resetCalls(harness);
+
+    harness.controller.keyDown('Space', false);
+    harness.controller.keyDown('KeyK', false);
+    harness.controller.keyDown('KeyL', false);
+    harness.controller.keyUp('KeyL');
+    harness.controller.keyUp('Space');
+    harness.controller.keyUp('KeyK');
+
+    expect(harness.screenCalls).toEqual([
+      ['pressLane', 2],
+      [
+        'showJudgments',
+        [
+          expect.objectContaining({
+            lane: 2,
+            judgment: 'perfect',
+          }),
+        ],
+      ],
+      ['pressLane', 4],
+      [
+        'showJudgments',
+        [
+          expect.objectContaining({
+            lane: 4,
+            judgment: 'perfect',
+          }),
+        ],
+      ],
+    ]);
+
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    expect(harness.savedResults).toMatchObject([[song.id, 5, 'normal', { outcome: 'finished' }]]);
+    expect(harness.submissions.map(({ submission }) => submission.events)).toEqual([
+      [
+        {
+          lane: 2,
+          kind: 'press',
+          songTimeMs: 4000,
+        },
+        {
+          lane: 4,
+          kind: 'press',
+          songTimeMs: 4000,
+        },
+        {
+          lane: 2,
+          kind: 'release',
+          songTimeMs: 4000,
+        },
+        {
+          lane: 4,
+          kind: 'release',
+          songTimeMs: 4000,
+        },
+      ],
+    ]);
+  });
+
+  it('reads KeyL as the last lane in 6K', async () => {
+    const harness = createHarness('standard', SIX_LANE_CHART);
+    await startVideo(harness);
+    moveClock(harness, 4);
+    harness.controller.tick();
+    resetCalls(harness);
+
+    harness.controller.keyDown('KeyL', false);
+
+    expect(harness.screenCalls).toEqual([
+      ['pressLane', 5],
+      [
+        'showJudgments',
+        [
+          expect.objectContaining({
+            lane: 5,
+            judgment: 'perfect',
+          }),
+        ],
+      ],
+    ]);
+  });
+});
+
 describe('GameplayController quit confirm', () => {
   it('pauses on Escape and resumes on the next Escape, ignoring repeats', async () => {
     const harness = createHarness();
@@ -1210,7 +1334,7 @@ describe('GameplayController run end', () => {
       outcome: 'finished',
       maxCombo: 1,
     };
-    expect(harness.savedResults).toMatchObject([[song.id, 'normal', result]]);
+    expect(harness.savedResults).toMatchObject([[song.id, 4, 'normal', result]]);
     expect(harness.submissions.map(({ sessionId, submission }) => [sessionId, submission])).toEqual(
       [
         [
@@ -1233,6 +1357,7 @@ describe('GameplayController run end', () => {
         'showResult',
         {
           song,
+          laneCount: 4,
           difficulty: 'normal',
           chartId: 'chart_normal',
           mode: 'standard',

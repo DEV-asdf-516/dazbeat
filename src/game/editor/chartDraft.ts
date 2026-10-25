@@ -1,10 +1,11 @@
 import type { InvalidChartError } from '../../data/chartSchema.js';
 import type { Song } from '../../data/songs.js';
-import type { Chart, Difficulty, Lane, Note } from '../../rhythm/types.js';
+import type { Chart, Difficulty, Lane, LaneCount, Note } from '../../rhythm/types.js';
 
 /** `selected` 는 `notes` 안 노트 객체 자체다. */
 export interface ChartDraft {
   readonly song: Song;
+  readonly laneCount: LaneCount;
   readonly difficulty: Difficulty;
   readonly offsetMs: number;
   /** 항상 timeMs 오름차순, 같은 timeMs 는 lane 오름차순이다. */
@@ -17,6 +18,7 @@ export function createDraft(song: Song, chart: Chart): ChartDraft {
   const notes = [...chart.notes].sort(compareNotes);
   return {
     song,
+    laneCount: chart.laneCount,
     difficulty: chart.difficulty,
     offsetMs: chart.offsetMs,
     notes,
@@ -25,10 +27,15 @@ export function createDraft(song: Song, chart: Chart): ChartDraft {
   };
 }
 
-export function createEmptyDraft(song: Song, difficulty: Difficulty): ChartDraft {
+export function createEmptyDraft(
+  song: Song,
+  laneCount: LaneCount,
+  difficulty: Difficulty,
+): ChartDraft {
   const notes: readonly Note[] = [];
   return {
     song,
+    laneCount,
     difficulty,
     offsetMs: 0,
     notes,
@@ -47,6 +54,7 @@ export function toChart(draft: ChartDraft): Chart {
   return {
     songId: draft.song.id,
     difficulty: draft.difficulty,
+    laneCount: draft.laneCount,
     offsetMs: draft.offsetMs,
     notes: draft.notes,
   };

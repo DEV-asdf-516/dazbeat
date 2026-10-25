@@ -31,7 +31,7 @@ import { SongSelectScene } from './game/songSelect/SongSelectScene.js';
 import { DEFAULT_CURSOR } from './game/ui/cursor.js';
 import { NebulaTrail } from './game/ui/NebulaTrail.js';
 import { bindPressedCursor } from './game/ui/pressedCursor.js';
-import { preloadCjkSerif, preloadUiFonts, redrawTextsWhenFontsLoad } from './game/ui/fonts.js';
+import { preloadCjkFonts, preloadUiFonts, redrawTextsWhenFontsLoad } from './game/ui/fonts.js';
 import { en } from './i18n/messages/en.js';
 import { ja } from './i18n/messages/ja.js';
 import { ko } from './i18n/messages/ko.js';
@@ -53,7 +53,7 @@ async function loadSongCatalog(): Promise<{
   // 곡명 글자를 배치마다 받아야 늦게 받은 곡명도 굳은 글자 없이 그려진다.
   const loadBatch: SongBatchLoader = async (query, after) => {
     const batch = await loadSongBatch(pb, query, after);
-    await preloadCjkSerif(batch.songs.map((song) => song.title).join(''));
+    await preloadCjkFonts(batch.songs.map((song) => song.title).join(''));
     return batch;
   };
   return {
@@ -96,7 +96,7 @@ await preloadUiFonts();
 await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
   async ([{ pb, loadBatch, firstBatch }, celestial]) => {
     // 언어를 바꿔도 굳은 글자가 남지 않도록 모든 언어의 화면 문구를 함께 받는다.
-    await preloadCjkSerif(JSON.stringify([ko, ja, en]));
+    await preloadCjkFonts(JSON.stringify([ko, ja, en]));
     const catalog = new SongFeed(ALL_SONGS_QUERY, loadBatch, firstBatch);
     const feeds: SongFeeds = {
       catalog,
@@ -122,7 +122,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
         // 서버 저장은 이미 끝났으므로 아래 곡 목록 갱신과 무관하게 캐시는 서버 상태를 따른다.
         charts.put(chartId, loaded);
         // 전체 곡 목록에 아직 받지 않은 곡의 저장은 정상이므로 반영할 곡이 없어도 넘어간다.
-        catalog.applySavedChart(song.id, chart.difficulty, chartId);
+        catalog.applySavedChart(song.id, chart.laneCount, chart.difficulty, chartId);
         return chartId;
       },
     };
@@ -130,7 +130,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
       createGameConfig([
         new MainScene(save, i18n, auth, celestial),
         new CreditsScene(save, catalog, i18n, celestial),
-        new SongSelectScene(save, feeds, i18n, celestial),
+        new SongSelectScene(save, mvLayer, feeds, i18n, celestial),
         new SettingsScene(save, i18n, initialLanguage, celestial),
         new GameplayScene(
           save,

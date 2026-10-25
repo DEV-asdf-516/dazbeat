@@ -7,8 +7,9 @@ import type { GameplaySceneData, ResultSceneData } from '../sceneRoutes.js';
 import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.js';
 import type { PreparedChart } from '../../data/playSession.js';
 import type { ChartRef } from '../../data/songs.js';
-import { LANES, mapLanes } from '../../rhythm/lanes.js';
-import type { Chart, JudgmentEvent, Lane } from '../../rhythm/types.js';
+import { requireDefined } from '../../invariant.js';
+import { getLanes } from '../../rhythm/lanes.js';
+import type { Chart, JudgmentEvent } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { MvMode } from '../../storage/settings.js';
 import { secToMs } from '../../time.js';
@@ -49,6 +50,8 @@ import { LaneFx } from './LaneFx.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { NoteLayer } from './NoteLayer.js';
 import { OrbitTrace } from './OrbitTrace.js';
+import { getPlayfieldLayout } from './playfieldLayout.js';
+import type { PlayfieldLayout } from './playfieldLayout.js';
 import { PracticeStats } from './PracticeStats.js';
 import { StarlightGauge } from './StarlightGauge.js';
 import {
@@ -60,11 +63,7 @@ import {
   textStyle,
 } from '../ui/theme.js';
 
-const LANE_WIDTH_PX = 120;
-const PLAY_AREA_WIDTH_PX = LANE_WIDTH_PX * LANES.length;
-const LANES_LEFT_PX = (GAME_WIDTH - PLAY_AREA_WIDTH_PX) / 2;
-// 판정·콤보는 레인을 따라 놓이고, 안내·종료 문구는 화면 가운데에 놓인다. 지금은 두 값이 같다.
-const LANES_CENTER_X_PX = LANES_LEFT_PX + PLAY_AREA_WIDTH_PX / 2;
+// 판정·콤보는 플레이필드 가운데에, 안내·종료 문구는 화면 가운데에 놓는다.
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
 const LANE_PANEL_ALPHA = 0.85;
 const LANE_BORDER_WIDTH_PX = 1;
@@ -129,16 +128,13 @@ const STATUS_MESSAGES = {
   string
 >;
 
-function getLaneXPx(lane: Lane): number {
-  return LANES_LEFT_PX + LANE_WIDTH_PX * lane + LANE_WIDTH_PX / 2;
-}
-
 interface LaneView {
   keyLabel: Phaser.GameObjects.Text;
 }
 
 interface GameplayView {
-  lanes: Record<Lane, LaneView>;
+  playfield: PlayfieldLayout;
+  lanes: readonly LaneView[];
   laneFx: LaneFx;
   comboGlint: Phaser.GameObjects.Sprite;
   judgmentShimmer: Phaser.GameObjects.Sprite;
@@ -190,34 +186,37 @@ export class GameplayScene extends Phaser.Scene {
     ensureLightTextures(this);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
+    const playfield = getPlayfieldLayout(GAME_WIDTH, data.laneCount);
     this.add
-      .image(LANES_LEFT_PX, 0, LIGHT_TEXTURES.fadeTop)
+      .image(playfield.leftPx, 0, LIGHT_TEXTURES.fadeTop)
       .setOrigin(0, 0)
-      .setDisplaySize(PLAY_AREA_WIDTH_PX, GAME_HEIGHT)
+      .setDisplaySize(playfield.widthPx, GAME_HEIGHT)
       .setTint(COLORS.background)
       .setAlpha(LANE_PANEL_ALPHA)
       .setDepth(GAMEPLAY_DEPTH.lanePanel);
-    [LANES_LEFT_PX, LANES_LEFT_PX + PLAY_AREA_WIDTH_PX].forEach((xPx) => {
+    [playfield.leftPx, playfield.leftPx + playfield.widthPx].forEach((xPx) => {
       this.add
         .rectangle(xPx, GAME_HEIGHT / 2, LANE_BORDER_WIDTH_PX, GAME_HEIGHT, COLORS.border)
         .setAlpha(LANE_BORDER_ALPHA)
         .setDepth(GAMEPLAY_DEPTH.lanePanel);
     });
-    LANES.slice(1).forEach((lane) => {
-      this.add
-        .rectangle(
-          LANES_LEFT_PX + LANE_WIDTH_PX * lane,
-          GAME_HEIGHT / 2,
-          LANE_DIVIDER_WIDTH_PX,
-          GAME_HEIGHT,
-          COLORS.border,
-        )
-        .setAlpha(LANE_DIVIDER_ALPHA)
-        .setDepth(GAMEPLAY_DEPTH.laneDivider);
-    });
+    getLanes(data.laneCount)
+      .slice(1)
+      .forEach((lane) => {
+        this.add
+          .rectangle(
+            playfield.leftPx + playfield.laneWidthPx * lane,
+            GAME_HEIGHT / 2,
+            LANE_DIVIDER_WIDTH_PX,
+            GAME_HEIGHT,
+            COLORS.border,
+          )
+          .setAlpha(LANE_DIVIDER_ALPHA)
+          .setDepth(GAMEPLAY_DEPTH.laneDivider);
+      });
     addHudText(
       this,
-      LANES_CENTER_X_PX,
+      playfield.centerXPx,
       COMBO_LABEL_Y_PX,
       'COMBO',
       textStyle('meta', COLORS.textMuted),
@@ -241,40 +240,41 @@ export class GameplayScene extends Phaser.Scene {
             kind: 'practice',
             stats: this.addPracticeHud(),
           };
-    const keyBindings = settings.keyBindings;
+    const laneKeys = settings.keyBindings[data.laneCount];
     const view: GameplayView = {
-      lanes: mapLanes((lane) => ({
+      playfield,
+      lanes: playfield.laneCenterXPx.map((xPx, lane) => ({
         keyLabel: addHudText(
           this,
-          getLaneXPx(lane),
+          xPx,
           KEY_LABEL_Y_PX,
-          formatKeyCode(keyBindings[lane]),
+          formatKeyCode(requireDefined(laneKeys[lane], 'Missing lane key', lane)),
           textStyle('meta', COLORS.textMuted),
         ),
       })),
-      laneFx: new LaneFx(this, this.celestial, mapLanes(getLaneXPx), JUDGE_LINE_Y_PX),
+      laneFx: new LaneFx(this, this.celestial, playfield, JUDGE_LINE_Y_PX),
       comboGlint: addHudEffect(
         this,
         this.celestial,
         COMBO_GLINT_ID,
-        LANES_CENTER_X_PX,
+        playfield.centerXPx,
         COMBO_GLINT_Y_PX,
       ),
       judgmentShimmer: addHudEffect(
         this,
         this.celestial,
         JUDGMENT_SHIMMER_ID,
-        LANES_CENTER_X_PX,
+        playfield.centerXPx,
         JUDGMENT_SHIMMER_Y_PX,
       ),
       loadingStar: addHudEffect(this, this.celestial, LOADING_STAR_ID, 0, 0),
       // 같은 depth 에서 글자 아래에 그려지도록 글자보다 먼저 만든다.
-      judgmentGlow: addLight(this, LIGHT_TEXTURES.glow, LANES_CENTER_X_PX, JUDGMENT_Y_PX)
+      judgmentGlow: addLight(this, LIGHT_TEXTURES.glow, playfield.centerXPx, JUDGMENT_Y_PX)
         .setAlpha(0)
         .setDepth(GAMEPLAY_DEPTH.text),
       judgmentText: addHudText(
         this,
-        LANES_CENTER_X_PX,
+        playfield.centerXPx,
         JUDGMENT_Y_PX,
         '',
         textStyle('judgment', COLORS.textPrimary),
@@ -282,7 +282,7 @@ export class GameplayScene extends Phaser.Scene {
       // 글자 위에 겹쳐 그리도록 글자 다음에 만든다.
       judgmentFlash: addHudText(
         this,
-        LANES_CENTER_X_PX,
+        playfield.centerXPx,
         JUDGMENT_Y_PX,
         '',
         textStyle('judgment', COLORS.note),
@@ -291,7 +291,7 @@ export class GameplayScene extends Phaser.Scene {
         .setBlendMode(Phaser.BlendModes.SCREEN),
       comboText: addHudText(
         this,
-        LANES_CENTER_X_PX,
+        playfield.centerXPx,
         COMBO_Y_PX,
         '0',
         textStyle('combo', COLORS.textPrimary),
@@ -303,7 +303,7 @@ export class GameplayScene extends Phaser.Scene {
         formatScore(0),
         textStyle('hudScore', COLORS.textPrimary),
       ).setOrigin(1, 0),
-      progress: new OrbitTrace(this, LANES_LEFT_PX, PLAY_AREA_WIDTH_PX, PROGRESS_Y_PX),
+      progress: new OrbitTrace(this, playfield.leftPx, playfield.widthPx, PROGRESS_Y_PX),
       modeHud,
       introTitle: addHudText(
         this,
@@ -456,7 +456,7 @@ export class GameplayScene extends Phaser.Scene {
   private beginPlay(view: GameplayView, chart: Chart, scrollSpeedPxPerSecond: number): PlayScreen {
     const notes = new NoteLayer(this, {
       notes: chart.notes,
-      laneCenterXPx: mapLanes(getLaneXPx),
+      laneCenterXPx: view.playfield.laneCenterXPx,
       judgeLineYPx: JUDGE_LINE_Y_PX,
       scrollSpeedPxPerSecond,
     });
@@ -476,7 +476,7 @@ export class GameplayScene extends Phaser.Scene {
       },
       pressLane: (lane) => {
         view.laneFx.press(lane);
-        this.flashKeyLabel(view.lanes[lane].keyLabel);
+        this.flashKeyLabel(requireDefined(view.lanes[lane], 'Unknown lane', lane).keyLabel);
       },
       showJudgments: (events) => this.applyJudgmentEvents(view, events),
       hideIntro: () => this.hideIntro(view),

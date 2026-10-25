@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { SongCategory } from '../../data/songs.js';
 import { HOVER_CURSOR } from '../ui/cursor.js';
 import { setFittedText } from '../ui/fitText.js';
-import { CELESTIAL_COLORS, RADIUS, setTextColor, typeStyle } from '../ui/theme.js';
+import { CATEGORY_COLORS, CELESTIAL_COLORS, RADIUS, setTextColor, typeStyle } from '../ui/theme.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 
 export interface SongListFrame {
@@ -46,10 +46,6 @@ const TAG_TYPE = {
   weight: 600,
 } as const;
 const TAG_LETTER_SPACING_PX = 1;
-const TAG_COLORS: Record<SongCategory, number> = {
-  original: CELESTIAL_COLORS.selected,
-  cover: CELESTIAL_COLORS.textSecondary,
-};
 const TAG_BORDER_ALPHA = 0.6;
 const SCROLLBAR_WIDTH_PX = 3;
 const SCROLLBAR_INSET_PX = 6;
@@ -209,7 +205,7 @@ export class SongListPanel {
       title: content.title,
       category: content.category,
     };
-    const tagColor = TAG_COLORS[content.category];
+    const tagColor = CATEGORY_COLORS[content.category];
     row.tag.setStrokeStyle(TAG_BORDER_PX, tagColor, TAG_BORDER_ALPHA);
     row.tagText.setText(content.category.toUpperCase());
     setTextColor(row.tagText, tagColor);
