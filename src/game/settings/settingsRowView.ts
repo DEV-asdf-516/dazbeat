@@ -31,7 +31,7 @@ export function formatRowValue(
       return LANGUAGE_NAMES[language];
     case 'key':
       return waitingLane === row.lane
-        ? '...'
+        ? ''
         : formatKeyCode(
             requireDefined(
               settings.keyBindings[settings.laneMode][row.lane],

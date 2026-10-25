@@ -35,6 +35,8 @@ export const en: Messages = {
   settings: {
     title: 'Settings',
     waitingKey: 'Press a key for Lane {{lane}} (Esc to cancel)',
+    resetTitle: 'Reset all settings?',
+    resetConfirm: 'Every setting except language returns to its default.',
     groups: {
       audio: 'Audio',
       input: 'Input',

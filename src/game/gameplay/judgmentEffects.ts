@@ -1,5 +1,6 @@
 import type { Judgment, JudgmentEvent } from '../../rhythm/types.js';
 import type { CelestialAtlasId } from '../celestial/celestialCatalog.js';
+import type { SoundEffect } from '../ui/soundEffects.js';
 
 export const LANE_EFFECT_IDS = [
   'R32',
@@ -34,6 +35,21 @@ export function getLaneEffectIds(
     ids.push('R32');
   }
   return ids;
+}
+
+// 레인을 칠 때마다 타격음이 나므로 PERFECT·GREAT 는 판정음을 더하지 않는다.
+const JUDGMENT_SOUND_EFFECTS: Record<Judgment, SoundEffect | null> = {
+  perfect: null,
+  great: null,
+  good: 'judgeGood',
+  bad: 'judgeBad',
+  miss: 'judgeMiss',
+};
+
+export function getJudgmentSoundEffect(
+  event: Pick<JudgmentEvent, 'kind' | 'judgment'>,
+): SoundEffect | null {
+  return event.kind === 'holdEnd' ? null : JUDGMENT_SOUND_EFFECTS[event.judgment];
 }
 
 const HIT_BLOOM_INTENSITY: Record<Judgment, number> = {

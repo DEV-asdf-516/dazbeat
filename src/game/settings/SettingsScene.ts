@@ -17,16 +17,23 @@ import {
   adjustRow,
   applyPointer,
   bindWaitingKey,
+  cancelPrompt,
+  confirmReset,
   createSettingsEditorState,
   focusRow,
   isRowShown,
   isWaitingKey,
   moveFocus,
   pressBack,
+  requestReset,
   startWaiting,
 } from './settingsEditorState.js';
 import type { SettingsEditorState } from './settingsEditorState.js';
 import { Button } from '../ui/Button.js';
+import type { SecondaryButtonColors } from '../ui/Button.js';
+import { ConfirmDialog } from '../ui/ConfirmDialog.js';
+import { HOVER_CURSOR } from '../ui/cursor.js';
+import { MENU_KEY_HINT_STYLE } from '../ui/keyHintView.js';
 import { createCanvasTexture } from '../ui/canvasTexture.js';
 import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
 import {
@@ -39,6 +46,7 @@ import { addCelestialSprite, queueCelestialTextures } from '../celestial/celesti
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { PointerHover } from '../ui/PointerHover.js';
+import { bindTextEntry } from '../ui/textEntry.js';
 import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/theme.js';
 import { readKeyCapture } from './keyCapture.js';
 import { requireDefined } from '../../invariant.js';
@@ -174,6 +182,7 @@ const CHEVRON_SIZE_PX = 16;
 const CHEVRON_TEXTURE_SCALE = 2;
 // 'primary' 글자의 '−'·'+' 획 두께에 맞춘다.
 const CHEVRON_STROKE_PX = 3;
+const CONTROL_BUTTON_COLORS: Partial<SecondaryButtonColors> = { border: COLORS.textMuted };
 const FOCUS_STAR_ID = 'R49';
 const FOCUS_STAR_GAP_PX = 24;
 
@@ -202,6 +211,7 @@ interface SettingsView {
   controlsEntry: Phaser.GameObjects.Container;
   rowHover: PointerHover<number>;
   focusStar: Phaser.GameObjects.Sprite;
+  resetDialog: ConfirmDialog;
 }
 
 type Transition = (state: SettingsEditorState) => SettingsEditorState;
@@ -280,7 +290,12 @@ export class SettingsScene extends Phaser.Scene {
       ),
       rowHover,
       focusStar: addCelestialSprite(this, this.celestial.atlasPresentations[FOCUS_STAR_ID], 0, 0),
+      resetDialog: new ConfirmDialog(this, {
+        onAccept: () => update(confirmReset),
+        onCancel: () => update(cancelPrompt),
+      }),
     };
+    this.addResetEntry(() => onPointer(requestReset));
     createHeaderAuxiliaryButtons(this, [
       {
         label: 'BACK',
@@ -295,6 +310,20 @@ export class SettingsScene extends Phaser.Scene {
       'keydown',
       handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, update, overlay)),
     );
+  }
+
+  /** 되돌릴 수 없는 동작이라 설정 행과 떨어뜨려 화면 우하단에 CONTROLS 진입점과 같은 높이로 둔다. */
+  private addResetEntry(onActivate: () => void): void {
+    const label = this.add
+      .text(
+        SCREEN_LAYOUT.rightXPx,
+        SCREEN_LAYOUT.hintYPx + MENU_KEY_HINT_STYLE.capHeightPx / 2,
+        'RESET',
+        textStyle('meta', COLORS.textSecondary),
+      )
+      .setOrigin(1, 0.5)
+      .setInteractive({ cursor: HOVER_CURSOR });
+    bindTextEntry(label, label, onActivate);
   }
 
   private createRow(
@@ -318,6 +347,7 @@ export class SettingsScene extends Phaser.Scene {
       const keyBox = new Button(this, leftXPx + KEY_BOX_OFFSET_X_PX, controlYPx, {
         variant: 'secondary',
         focus: 'glow',
+        colors: CONTROL_BUTTON_COLORS,
         label: '',
         widthPx: KEY_BOX_WIDTH_PX,
         heightPx: KEY_BOX_HEIGHT_PX,
@@ -339,6 +369,7 @@ export class SettingsScene extends Phaser.Scene {
       const button = new Button(this, xPx, controlYPx, {
         variant: 'secondary',
         focus: 'glow',
+        colors: CONTROL_BUTTON_COLORS,
         label: buttonLabel,
         widthPx: STEP_SIZE_PX,
         heightPx: STEP_SIZE_PX,
@@ -386,6 +417,18 @@ export class SettingsScene extends Phaser.Scene {
         update((state) => bindWaitingKey(state, code));
       }
       return;
+    }
+    if (this.editor.mode.kind === 'confirmingReset') {
+      switch (readMenuAction(event)) {
+        case 'confirm':
+          update(confirmReset);
+          return;
+        case 'back':
+          update(cancelPrompt);
+          return;
+        default:
+          return;
+      }
     }
     if (overlay.handleKey(event)) {
       return;
@@ -455,7 +498,8 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   private render(view: SettingsView): void {
-    const { settings, waitingLane } = this.editor;
+    const { settings, mode } = this.editor;
+    const waitingLane = mode.kind === 'waitingKey' ? mode.lane : null;
     const language = this.displayedLanguage;
     view.title.setText(this.i18n.t('settings.title'));
     const focused = requireDefined(
@@ -506,6 +550,17 @@ export class SettingsScene extends Phaser.Scene {
     view.controlsEntry.setVisible(waitingLane === null);
     if (waitingLane !== null) {
       view.waitingText.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
+    }
+    if (mode.kind === 'confirmingReset') {
+      view.resetDialog.show({
+        title: this.i18n.t('settings.resetTitle'),
+        body: this.i18n.t('settings.resetConfirm'),
+        cancelLabel: 'CANCEL',
+        acceptLabel: 'RESET',
+        acceptTone: 'danger',
+      });
+    } else {
+      view.resetDialog.hide();
     }
   }
 
