@@ -1,7 +1,5 @@
 import type { PlaybackStatus } from '../../audio/LeadInPlayback.js';
-import { LANES } from '../../rhythm/lanes.js';
 import type { Lane } from '../../rhythm/types.js';
-import type { Settings } from '../../storage/settings.js';
 import type { GameplayCommand } from './gameplayCommand.js';
 import { getQuitConfirmAction } from './quitConfirm.js';
 
@@ -96,10 +94,10 @@ export function getLaneReleaseAction(pressedLanes: PressedLanes, lane: Lane): La
   };
 }
 
-export function readGameplayKey(code: string, keyBindings: Settings['keyBindings']): GameplayKey {
-  const lane = LANES.find((candidate) => keyBindings[candidate] === code) ?? null;
+export function readGameplayKey(code: string, laneKeys: readonly string[]): GameplayKey {
+  const index = laneKeys.indexOf(code);
   return {
-    lane,
+    lane: index === -1 ? null : index,
     command: toCommand(code),
   };
 }

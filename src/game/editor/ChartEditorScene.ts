@@ -4,9 +4,9 @@ import { loadYouTubeIframeApi, YouTubePlayer } from '../../audio/YouTubePlayer.j
 import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
 import { DIFFICULTIES, getAvailableDifficulties } from '../../data/songs.js';
 import type { Song } from '../../data/songs.js';
-import { LANES, mapLanes } from '../../rhythm/lanes.js';
+import { getLanes } from '../../rhythm/lanes.js';
 import { getNoteTimeAtY, getNoteY } from '../../rhythm/notePosition.js';
-import type { Difficulty, Lane, Note } from '../../rhythm/types.js';
+import type { Difficulty, LaneCount, Note } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { DEFAULT_SETTINGS } from '../../storage/settings.js';
 import type { Settings } from '../../storage/settings.js';
@@ -35,11 +35,12 @@ import type {
   PendingAction,
   Selection,
 } from './chartEditorState.js';
-import type { EditTool } from './chartGesture.js';
+import type { EditTool, TimelinePointer } from './chartGesture.js';
 import {
   createEditorLayout,
   getLaneAtXPx,
   getLaneCenterXPx,
+  getLaneWidthPx,
   getSeekTimeMs,
   getSeekXPx,
   toViewportRect,
@@ -63,7 +64,7 @@ import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import { createCenteredEditorButton, createEditorButton } from './editorButton.js';
 import { EditorNoteLayer } from './EditorNoteLayer.js';
 import { SegmentedControl } from './SegmentedControl.js';
-import { TOOL_SEGMENTS } from './toolSegments.js';
+import { LANE_COUNT_SEGMENTS, TOOL_SEGMENTS } from './toolSegments.js';
 import { setFittedText } from '../ui/fitText.js';
 import { addKeyHintColumn } from '../ui/keyHintView.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
@@ -109,6 +110,8 @@ interface EditorView {
   playerText: Phaser.GameObjects.Text;
   grid: Phaser.GameObjects.Graphics;
   gridLabels: Phaser.GameObjects.Text[];
+  laneLines: Phaser.GameObjects.Graphics;
+  laneCountSwitch: SegmentedControl<LaneCount>;
   toolSwitch: SegmentedControl<EditTool>;
   selectionTitle: Phaser.GameObjects.Text;
   selectionValues: Phaser.GameObjects.Text[];
@@ -200,7 +203,8 @@ const SNAP_THRESHOLD_MS = secToMs(SNAP_THRESHOLD_PX / PX_PER_SECOND);
 const PICK_TOLERANCE_MS = secToMs(PICK_TOLERANCE_PX / PX_PER_SECOND);
 
 export class ChartEditorScene extends Phaser.Scene {
-  private noteLayer: { songId: string; layer: EditorNoteLayer } | null = null;
+  private noteLayer: { songId: string; laneCount: LaneCount; layer: EditorNoteLayer } | null = null;
+  private laneLinesLaneCount: LaneCount | null = null;
   private seekMarkedNotes: readonly Note[] | null = null;
   private settings: Settings = DEFAULT_SETTINGS;
   /** player 이벤트와 늦은 API 로드 결과는 시작 때 잡은 토큰이 아직 현재일 때만 반영한다. */
@@ -236,6 +240,7 @@ export class ChartEditorScene extends Phaser.Scene {
     this.settings = this.save.loadSettings();
     this.mvLayer.dataset.mvMode = 'normal';
     this.noteLayer = null;
+    this.laneLinesLaneCount = null;
     this.seekMarkedNotes = null;
     this.playerStatus = { kind: 'loading' };
     const onResize = (): void => this.placeVideoPreview();
@@ -308,7 +313,8 @@ export class ChartEditorScene extends Phaser.Scene {
       'Chart editor opened for a song not in the list',
       data.songId,
     );
-    editor.select(song, getAvailableDifficulties(song)[0] ?? 'easy');
+    const { laneMode } = this.settings;
+    editor.select(song, laneMode, getAvailableDifficulties(song, laneMode)[0] ?? 'easy');
   }
 
   private placeVideoPreview(): void {
@@ -461,7 +467,9 @@ export class ChartEditorScene extends Phaser.Scene {
           .setDepth(GAMEPLAY_DEPTH.laneDivider)
           .setVisible(false),
       ),
+      laneLines: this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider),
       ...this.createToolArea(toolSurface, {
+        onSelectLaneCount: (laneCount) => editor.selectLaneCount(laneCount),
         onSelectTool: (tool) => editor.selectTool(tool),
         onDelete: () => editor.deleteSelected(),
         onClear: () => editor.requestClearNotes(),
@@ -512,12 +520,14 @@ export class ChartEditorScene extends Phaser.Scene {
   private createToolArea(
     surface: Phaser.GameObjects.Rectangle,
     actions: {
+      onSelectLaneCount: (laneCount: LaneCount) => void;
       onSelectTool: (tool: EditTool) => void;
       onDelete: () => void;
       onClear: () => void;
     },
   ): Pick<
     EditorView,
+    | 'laneCountSwitch'
     | 'toolSwitch'
     | 'selectionTitle'
     | 'selectionValues'
@@ -526,9 +536,26 @@ export class ChartEditorScene extends Phaser.Scene {
     | 'clearButton'
     | 'dividerGlint'
   > {
+    const laneCountLabel = this.addSectionLabel(
+      this.i18n.t('chartEditor.laneSection'),
+      LAYOUT.tools.topYPx + LAYOUT.tools.paddingPx,
+    );
+    const laneCountsYPx = laneCountLabel.y + laneCountLabel.height + TOOLS_ITEM_GAP_PX;
+    const laneCountSwitch = new SegmentedControl(
+      this,
+      {
+        leftPx: TOOLS_CONTENT_LEFT_PX,
+        topYPx: laneCountsYPx,
+        widthPx: TOOLS_CONTENT_RIGHT_PX - TOOLS_CONTENT_LEFT_PX,
+      },
+      LANE_COUNT_SEGMENTS,
+      actions.onSelectLaneCount,
+    );
+    const toolRuleYPx = laneCountsYPx + laneCountSwitch.heightPx + TOOLS_SECTION_GAP_PX;
+    addHairline(this, TOOLS_CONTENT_LEFT_PX, toolRuleYPx, TOOLS_CONTENT_RIGHT_PX);
     const toolLabel = this.addSectionLabel(
       this.i18n.t('chartEditor.toolSection'),
-      LAYOUT.tools.topYPx + LAYOUT.tools.paddingPx,
+      toolRuleYPx + TOOLS_SECTION_GAP_PX,
     );
     const toolsYPx = toolLabel.y + toolLabel.height + TOOLS_ITEM_GAP_PX;
     const toolSwitch = new SegmentedControl(
@@ -604,6 +631,7 @@ export class ChartEditorScene extends Phaser.Scene {
       clearButton.y + clearButton.height + LAYOUT.tools.paddingPx - LAYOUT.tools.topYPx,
     );
     return {
+      laneCountSwitch,
       toolSwitch,
       selectionTitle,
       selectionValues,
@@ -655,20 +683,6 @@ export class ChartEditorScene extends Phaser.Scene {
 
   private createTimeline(editor: ChartEditorController): void {
     const { lanes, timeline } = LAYOUT;
-    [...LANES, LANES.length].forEach((boundary) => {
-      const isEdge = boundary === 0 || boundary === LANES.length;
-      this.add
-        .rectangle(
-          lanes.leftPx + lanes.laneWidthPx * boundary,
-          timeline.topYPx,
-          LANE_LINE_WIDTH_PX,
-          TIMELINE_HEIGHT_PX,
-          CELESTIAL_COLORS.border,
-        )
-        .setOrigin(0.5, 0)
-        .setAlpha(isEdge ? LANE_EDGE_ALPHA : LANE_LINE_ALPHA)
-        .setDepth(GAMEPLAY_DEPTH.laneDivider);
-    });
     this.add
       .rectangle(
         lanes.leftPx,
@@ -708,29 +722,44 @@ export class ChartEditorScene extends Phaser.Scene {
           );
         },
       )
-      .on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, (pointer: Phaser.Input.Pointer) =>
-        editor.pointerDown(this.getPointerLane(pointer), this.getPointerTimeMs(editor, pointer)),
-      );
+      .on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+        const timelinePointer = this.getTimelinePointer(editor, pointer);
+        if (timelinePointer !== null) {
+          editor.pointerDown(timelinePointer);
+        }
+      });
     // drag 중에는 pointer 가 timeline 밖으로 나가도 따라간다. lane·시각은 변환 함수가 제한한다.
-    this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) =>
-      editor.pointerMove(this.getPointerLane(pointer), this.getPointerTimeMs(editor, pointer)),
-    );
-    this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) =>
-      editor.pointerUp(this.getPointerTimeMs(editor, pointer)),
-    );
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
+      const timelinePointer = this.getTimelinePointer(editor, pointer);
+      if (timelinePointer !== null) {
+        editor.pointerMove(timelinePointer);
+      }
+    });
+    this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
+      const timelinePointer = this.getTimelinePointer(editor, pointer);
+      if (timelinePointer !== null) {
+        editor.pointerUp(timelinePointer.timeMs);
+      }
+    });
   }
 
-  private getPointerLane(pointer: Phaser.Input.Pointer): Lane {
-    return getLaneAtXPx(LAYOUT, pointer.x);
-  }
-
-  private getPointerTimeMs(editor: ChartEditorController, pointer: Phaser.Input.Pointer): number {
-    return getNoteTimeAtY(
-      pointer.y,
-      editor.state.playhead.currentTimeMs,
-      LAYOUT.timeline.playheadYPx,
-      PX_PER_SECOND,
-    );
+  private getTimelinePointer(
+    editor: ChartEditorController,
+    pointer: Phaser.Input.Pointer,
+  ): TimelinePointer | null {
+    const selection = getSelection(editor.state);
+    if (selection === null) {
+      return null;
+    }
+    return {
+      lane: getLaneAtXPx(LAYOUT, selection.laneCount, pointer.x),
+      timeMs: getNoteTimeAtY(
+        pointer.y,
+        editor.state.playhead.currentTimeMs,
+        LAYOUT.timeline.playheadYPx,
+        PX_PER_SECOND,
+      ),
+    };
   }
 
   private renderChanges(
@@ -749,6 +778,10 @@ export class ChartEditorScene extends Phaser.Scene {
         const selection = getSelection(state);
         this.renderSongTitle(view, selection?.song.title ?? '');
         view.difficulties.forEach((item) => this.renderDifficulty(item, selection));
+        if (selection !== null) {
+          view.laneCountSwitch.render(selection.laneCount);
+          this.renderLaneLines(view, selection.laneCount);
+        }
         return;
       }
       case 'status':
@@ -948,7 +981,8 @@ export class ChartEditorScene extends Phaser.Scene {
     selection: Selection | null,
   ): void {
     const hasChart =
-      selection !== null && getAvailableDifficulties(selection.song).includes(difficulty);
+      selection !== null &&
+      getAvailableDifficulties(selection.song, selection.laneCount).includes(difficulty);
     setTextColor(text, hasChart ? CELESTIAL_COLORS.textPrimary : CELESTIAL_COLORS.textSecondary);
     underline.setVisible(selection?.difficulty === difficulty);
   }
@@ -1009,7 +1043,7 @@ export class ChartEditorScene extends Phaser.Scene {
     }
     const notes = getNotes(state);
     this.renderSeekMarks(view, notes, selection.song);
-    this.getNoteLayer(selection.song).render(
+    this.getNoteLayer(selection.song, selection.laneCount).render(
       notes,
       getSession(state)?.draft.selected ?? null,
       state.playhead.currentTimeMs,
@@ -1077,14 +1111,35 @@ export class ChartEditorScene extends Phaser.Scene {
     });
   }
 
-  /** 노트 색이 곡 accent 를 따르므로 곡이 바뀌면 layer 를 새로 만든다. */
-  private getNoteLayer(song: Song): EditorNoteLayer {
-    if (this.noteLayer?.songId === song.id) {
+  private renderLaneLines(view: EditorView, laneCount: LaneCount): void {
+    if (this.laneLinesLaneCount === laneCount) {
+      return;
+    }
+    this.laneLinesLaneCount = laneCount;
+    const { lanes, timeline } = LAYOUT;
+    const laneWidthPx = getLaneWidthPx(LAYOUT, laneCount);
+    view.laneLines.clear();
+    [...getLanes(laneCount), laneCount].forEach((boundary) => {
+      const isEdge = boundary === 0 || boundary === laneCount;
+      view.laneLines
+        .fillStyle(CELESTIAL_COLORS.border, isEdge ? LANE_EDGE_ALPHA : LANE_LINE_ALPHA)
+        .fillRect(
+          lanes.leftPx + laneWidthPx * boundary - LANE_LINE_WIDTH_PX / 2,
+          timeline.topYPx,
+          LANE_LINE_WIDTH_PX,
+          TIMELINE_HEIGHT_PX,
+        );
+    });
+  }
+
+  /** 노트 색이 곡 accent 를, 위치가 레인 수를 따르므로 둘 중 하나가 바뀌면 layer 를 새로 만든다. */
+  private getNoteLayer(song: Song, laneCount: LaneCount): EditorNoteLayer {
+    if (this.noteLayer?.songId === song.id && this.noteLayer.laneCount === laneCount) {
       return this.noteLayer.layer;
     }
     this.noteLayer?.layer.destroy();
     const layer = new EditorNoteLayer(this, {
-      laneCenterXPx: mapLanes((lane) => getLaneCenterXPx(LAYOUT, lane)),
+      laneCenterXPx: getLanes(laneCount).map((lane) => getLaneCenterXPx(LAYOUT, laneCount, lane)),
       playheadYPx: LAYOUT.timeline.playheadYPx,
       pxPerSecond: PX_PER_SECOND,
       topYPx: LAYOUT.timeline.topYPx,
@@ -1093,6 +1148,7 @@ export class ChartEditorScene extends Phaser.Scene {
     });
     this.noteLayer = {
       songId: song.id,
+      laneCount,
       layer,
     };
     return layer;

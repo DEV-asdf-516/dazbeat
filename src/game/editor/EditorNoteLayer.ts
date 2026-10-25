@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { requireDefined } from '../../invariant.js';
 import { getNoteY } from '../../rhythm/notePosition.js';
 import type { HoldNote, Lane, Note } from '../../rhythm/types.js';
 import { ensureNoteTexture } from './editorTextures.js';
@@ -39,7 +40,7 @@ export class EditorNoteLayer {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly options: {
-      laneCenterXPx: Record<Lane, number>;
+      laneCenterXPx: readonly number[];
       playheadYPx: number;
       pxPerSecond: number;
       topYPx: number;
@@ -121,12 +122,16 @@ export class EditorNoteLayer {
     return getNoteY(noteTimeMs, currentTimeMs, playheadYPx, pxPerSecond);
   }
 
+  private getLaneCenterXPx(lane: Lane): number {
+    return requireDefined(this.options.laneCenterXPx[lane], 'Unknown note lane', lane);
+  }
+
   private isInArea(yPx: number): boolean {
     return yPx >= this.options.topYPx && yPx <= this.options.bottomYPx;
   }
 
   private createView(note: Note): NoteView {
-    const xPx = this.options.laneCenterXPx[note.lane];
+    const xPx = this.getLaneCenterXPx(note.lane);
     const head = this.scene.add
       .image(xPx, 0, this.textureKey)
       .setDisplaySize(NOTE_WIDTH_PX, NOTE_HEIGHT_PX)
@@ -183,7 +188,7 @@ export class EditorNoteLayer {
     );
     const topPx = Math.max(endYPx - NOTE_HEIGHT_PX / 2 - SELECTION_PADDING_PX, this.options.topYPx);
     this.selectionOutline
-      .setPosition(this.options.laneCenterXPx[note.lane], bottomPx)
+      .setPosition(this.getLaneCenterXPx(note.lane), bottomPx)
       .setSize(NOTE_WIDTH_PX + SELECTION_PADDING_PX * 2, Math.max(0, bottomPx - topPx))
       .setVisible(bottomPx > topPx);
   }

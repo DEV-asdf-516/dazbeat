@@ -3,6 +3,7 @@ import { getControlsGuide, readControlsKey } from '../../src/game/controlsGuide.
 import type { ControlsKeyAction } from '../../src/game/controlsGuide.js';
 import { ko } from '../../src/i18n/messages/ko.js';
 import { DEFAULT_SETTINGS } from '../../src/storage/settings.js';
+import type { LaneCount } from '../../src/rhythm/types.js';
 
 describe('readControlsKey', () => {
   it.each<[boolean, string, boolean, ControlsKeyAction]>([
@@ -41,7 +42,7 @@ describe('readControlsKey', () => {
 
 describe('getControlsGuide', () => {
   it('builds the gameplay and menu groups in order with the default lane keys', () => {
-    expect(getControlsGuide(ko.controls, DEFAULT_SETTINGS.keyBindings)).toEqual([
+    expect(getControlsGuide(ko.controls, DEFAULT_SETTINGS)).toEqual([
       {
         title: '플레이',
         rows: [
@@ -79,6 +80,10 @@ describe('getControlsGuide', () => {
             label: '카테고리 전환',
           },
           {
+            keys: ['R'],
+            label: '랜덤 곡',
+          },
+          {
             keys: ['Tab'],
             label: '설정 열기',
           },
@@ -88,8 +93,26 @@ describe('getControlsGuide', () => {
   });
 
   it('shows user lane keys in lane order', () => {
-    const [gameplay] = getControlsGuide(ko.controls, ['KeyA', 'Semicolon', 'Digit1', 'Space']);
+    const [gameplay] = getControlsGuide(ko.controls, {
+      laneMode: 4,
+      keyBindings: {
+        ...DEFAULT_SETTINGS.keyBindings,
+        4: ['KeyA', 'Semicolon', 'Digit1', 'Space'],
+      },
+    });
 
     expect(gameplay?.rows[0]?.keys).toEqual(['A', 'Semicolon', '1', 'SPACE']);
+  });
+
+  it.each<[LaneCount, string[]]>([
+    [5, ['D', 'F', 'SPACE', 'J', 'K']],
+    [6, ['S', 'D', 'F', 'J', 'K', 'L']],
+  ])('shows every lane key of the %iK mode', (laneMode, expected) => {
+    const [gameplay] = getControlsGuide(ko.controls, {
+      ...DEFAULT_SETTINGS,
+      laneMode,
+    });
+
+    expect(gameplay?.rows[0]?.keys).toEqual(expected);
   });
 });

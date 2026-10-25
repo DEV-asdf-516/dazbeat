@@ -1,4 +1,4 @@
-import type { Difficulty, FinishedGameplayResult } from '../rhythm/types.js';
+import type { Difficulty, FinishedGameplayResult, LaneCount } from '../rhythm/types.js';
 import { mergeBestRecord, parseChartRecord, recordKey } from './chartRecords.js';
 import type { ChartRecord, ChartRecords } from './chartRecords.js';
 import { DEFAULT_SETTINGS, SETTINGS_PARSERS } from './settings.js';
@@ -7,7 +7,7 @@ import { parseJson } from '../json.js';
 import { isRecord } from '../typeGuards.js';
 
 const SETTINGS_KEY = 'dazbeat:settings:v1';
-const RECORDS_KEY = 'dazbeat:records:v1';
+const RECORDS_KEY = 'dazbeat:records:v2';
 
 export class LocalSave {
   constructor(private readonly storage: Storage) {}
@@ -32,6 +32,7 @@ export class LocalSave {
       effectVolume: read('effectVolume'),
       inputOffsetMs: read('inputOffsetMs'),
       scrollSpeedPxPerSecond: read('scrollSpeedPxPerSecond'),
+      laneMode: read('laneMode'),
       keyBindings: read('keyBindings'),
       mvMode: read('mvMode'),
       language: read('language'),
@@ -50,9 +51,14 @@ export class LocalSave {
     return new Map(Object.entries(this.readRecords()));
   }
 
-  saveResult(songId: string, difficulty: Difficulty, result: FinishedGameplayResult): void {
+  saveResult(
+    songId: string,
+    laneCount: LaneCount,
+    difficulty: Difficulty,
+    result: FinishedGameplayResult,
+  ): void {
     const records = this.readRecords();
-    const key = recordKey(songId, difficulty);
+    const key = recordKey(songId, laneCount, difficulty);
     records[key] = mergeBestRecord(records[key], result);
     this.storage.setItem(RECORDS_KEY, JSON.stringify(records));
   }

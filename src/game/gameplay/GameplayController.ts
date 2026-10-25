@@ -266,7 +266,7 @@ export class GameplayController {
     if (phase.kind === 'leaving' || phase.kind === 'closed') {
       return;
     }
-    const key = readGameplayKey(code, this.settings.keyBindings);
+    const key = readGameplayKey(code, this.settings.keyBindings[this.route.laneCount]);
     switch (phase.kind) {
       case 'loading':
       case 'starting':
@@ -301,7 +301,7 @@ export class GameplayController {
       return;
     }
     const { run } = phase;
-    const { lane } = readGameplayKey(code, this.settings.keyBindings);
+    const { lane } = readGameplayKey(code, this.settings.keyBindings[this.route.laneCount]);
     if (lane === null) {
       return;
     }
@@ -552,10 +552,10 @@ export class GameplayController {
   }
 
   private finishRun(run: PlayRun, result: GameplayResult): void {
-    const { song, difficulty, chartId, mode } = this.route;
+    const { song, laneCount, difficulty, chartId, mode } = this.route;
     if (run.mode.kind === 'standard' && result.outcome === 'finished') {
       try {
-        this.deps.save.saveResult(song.id, difficulty, result);
+        this.deps.save.saveResult(song.id, laneCount, difficulty, result);
       } catch (error) {
         console.error('Failed to save result', error);
       }
@@ -573,6 +573,7 @@ export class GameplayController {
     }
     this.screen.showResult({
       song,
+      laneCount,
       difficulty,
       chartId,
       mode,

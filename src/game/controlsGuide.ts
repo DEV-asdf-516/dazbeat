@@ -15,12 +15,13 @@ export interface ControlsGroup {
 }
 
 const TOGGLE_CODE = 'KeyH';
-const CLOSE_CODE = 'Escape';
+const CLOSE_CODES: readonly string[] = [TOGGLE_CODE, 'Escape'];
 const MOVE_KEYS = '↑↓';
 const SELECT_KEY = 'Enter';
 const BACK_KEY = 'Esc';
 const ADJUST_KEYS = '←→';
 const CATEGORY_KEYS = 'Q/E';
+const RANDOM_KEY = 'R';
 const TAB_KEY = 'Tab';
 
 export function readControlsKey(
@@ -30,21 +31,19 @@ export function readControlsKey(
   if (!isOpen) {
     return event.code === TOGGLE_CODE && !event.repeat ? 'open' : 'pass';
   }
-  return (event.code === TOGGLE_CODE || event.code === CLOSE_CODE) && !event.repeat
-    ? 'close'
-    : 'block';
+  return CLOSE_CODES.includes(event.code) && !event.repeat ? 'close' : 'block';
 }
 
 export function getControlsGuide(
   messages: Messages['controls'],
-  keyBindings: Settings['keyBindings'],
+  { keyBindings, laneMode }: Pick<Settings, 'keyBindings' | 'laneMode'>,
 ): readonly ControlsGroup[] {
   return [
     {
       title: messages.gameplay.title,
       rows: [
         {
-          keys: keyBindings.map(formatKeyCode),
+          keys: keyBindings[laneMode].map(formatKeyCode),
           label: messages.gameplay.hitNotes,
         },
         {
@@ -75,6 +74,10 @@ export function getControlsGuide(
         {
           keys: [CATEGORY_KEYS],
           label: messages.menu.switchCategory,
+        },
+        {
+          keys: [RANDOM_KEY],
+          label: messages.menu.randomSong,
         },
         {
           keys: [TAB_KEY],

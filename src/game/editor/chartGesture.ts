@@ -17,7 +17,7 @@ export type PointerGesture =
   | { readonly kind: 'resizeHold' }
   | { readonly kind: 'createHold'; readonly before: ChartDraft; readonly startMs: number };
 
-interface TimelinePointer {
+export interface TimelinePointer {
   readonly lane: Lane;
   readonly timeMs: number;
 }

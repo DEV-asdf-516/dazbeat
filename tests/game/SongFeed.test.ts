@@ -238,8 +238,13 @@ describe('SongFeed', () => {
     expect(feed.songs).toHaveLength(PAGE_SIZE);
   });
 
-  it('applies a saved chart id to a listed song', () => {
-    const song = makeSong('a', { chartIds: { easy: 'c1' } });
+  it('applies a saved chart id to its lane count and difficulty of a listed song', () => {
+    const song = makeSong('a', {
+      chartIds: {
+        4: { easy: 'c1' },
+        6: { hard: 'c6' },
+      },
+    });
     const other = makeSong('b');
     const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
       songs: [song, other],
@@ -248,21 +253,25 @@ describe('SongFeed', () => {
     const listener = vi.fn();
     feed.subscribe(listener);
 
-    const saved = feed.applySavedChart('a', 'hard', 'c2');
+    const saved = feed.applySavedChart('a', 4, 'hard', 'c2');
 
     expect(saved).toEqual({
       ...song,
       chartIds: {
-        easy: 'c1',
-        hard: 'c2',
+        4: {
+          easy: 'c1',
+          hard: 'c2',
+        },
+        6: { hard: 'c6' },
       },
     });
+    expect(saved?.chartIds[6]).toBe(song.chartIds[6]);
     expect(feed.songs).toEqual([saved, other]);
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the list when the saved chart id is already listed', () => {
-    const song = makeSong('a', { chartIds: { easy: 'c1' } });
+    const song = makeSong('a', { chartIds: { 4: { easy: 'c1' } } });
     const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
       songs: [song],
       next: null,
@@ -271,7 +280,7 @@ describe('SongFeed', () => {
     const listener = vi.fn();
     feed.subscribe(listener);
 
-    expect(feed.applySavedChart('a', 'easy', 'c1')).toBe(song);
+    expect(feed.applySavedChart('a', 4, 'easy', 'c1')).toBe(song);
     expect(feed.songs).toBe(songs);
     expect(listener).not.toHaveBeenCalled();
   });
@@ -285,7 +294,7 @@ describe('SongFeed', () => {
     const listener = vi.fn();
     feed.subscribe(listener);
 
-    expect(feed.applySavedChart('missing', 'easy', 'c1')).toBeUndefined();
+    expect(feed.applySavedChart('missing', 4, 'easy', 'c1')).toBeUndefined();
     expect(feed.songs).toBe(songs);
     expect(listener).not.toHaveBeenCalled();
   });

@@ -1,7 +1,9 @@
+import { PreviewLoop } from '../../audio/PreviewLoop.js';
+import type { YouTubePlayer, YouTubePlayerHandlers } from '../../audio/YouTubePlayer.js';
 import { SONG_FILTERS } from '../../data/songs.js';
-import type { ChartRef, SongFilter } from '../../data/songs.js';
+import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import { cycleItem } from '../../range.js';
-import type { Difficulty } from '../../rhythm/types.js';
+import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { SongFeed, SongFeeds } from '../SongFeed.js';
 import type { SongSelectRestore } from '../sceneRoutes.js';
 import {
@@ -14,6 +16,7 @@ import {
   moveSong,
   openSongSelect,
   selectDifficulty,
+  selectRandomSong,
   selectSong,
   withFilter,
   withSongs,
@@ -38,18 +41,56 @@ interface ControllerState {
   readonly unsubscribe: () => void;
 }
 
+export type PreviewPlayer = Pick<YouTubePlayer, 'requestPlay' | 'setVolume' | 'destroy'>;
+
+export interface PreviewPlayerFactory {
+  loadApi(): Promise<void>;
+  create(videoId: string, handlers: YouTubePlayerHandlers): PreviewPlayer;
+}
+
+export interface SongPreviewDeps {
+  readonly players: PreviewPlayerFactory;
+  readonly now: () => number;
+  readonly volume: number;
+}
+
+export interface SongSelectDeps {
+  readonly feeds: SongFeeds;
+  readonly random: () => number;
+  readonly preview: SongPreviewDeps;
+}
+
+type PreviewState =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'waiting'; readonly song: Song; readonly focusedAtMs: number }
+  | { readonly kind: 'loadingApi'; readonly song: Song }
+  | { readonly kind: 'loadingPlayer'; readonly song: Song; readonly player: PreviewPlayer }
+  | {
+      readonly kind: 'playing';
+      readonly song: Song;
+      readonly player: PreviewPlayer;
+      readonly loop: PreviewLoop;
+    }
+  | { readonly kind: 'failed'; readonly song: Song }
+  | { readonly kind: 'closed' };
+
 type Transition = (state: SongSelectState) => SongSelectState;
+
+// 빠르게 넘기는 동안 지나가는 곡마다 플레이어를 만들지 않도록 포커스가 이만큼 머문 뒤 재생한다.
+const PREVIEW_DELAY_MS = 200;
 
 export class SongSelectController {
   private current: ControllerState;
+  private previewState: PreviewState = { kind: 'none' };
 
   constructor(
-    private readonly feeds: SongFeeds,
+    private readonly deps: SongSelectDeps,
     private readonly screen: SongSelectScreen,
     private readonly rowsPerPage: number,
+    laneCount: LaneCount,
     restore: SongSelectRestore | undefined,
   ) {
-    const { feed, state } = openSongSelect(feeds.catalog, restore);
+    const { feed, state } = openSongSelect(deps.feeds.catalog, laneCount, restore);
     this.current = this.attach(feed, state);
     this.render(null);
     if (restore === undefined) {
@@ -75,6 +116,13 @@ export class SongSelectController {
     this.applyFromUser((state) => selectDifficulty(state, difficulty));
   }
 
+  // 비활성 RANDOM 이 실패한 feed 를 다시 부르지 않도록 다음 배치는 곡이 바뀐 경우에만 요청한다.
+  selectRandomSong(): void {
+    if (this.apply((state) => selectRandomSong(state, this.deps.random))) {
+      this.requestMoreFromUser();
+    }
+  }
+
   selectFilter(filter: SongFilter): void {
     if (filter === this.current.state.filter) {
       return;
@@ -83,8 +131,8 @@ export class SongSelectController {
     this.current.unsubscribe();
     const feed =
       filter === 'all'
-        ? this.feeds.catalog
-        : this.feeds.create({
+        ? this.deps.feeds.catalog
+        : this.deps.feeds.create({
             category: filter,
             title: '',
           });
@@ -116,8 +164,26 @@ export class SongSelectController {
     });
   }
 
+  tick(): void {
+    const { previewState } = this;
+    switch (previewState.kind) {
+      case 'waiting':
+        if (this.deps.preview.now() - previewState.focusedAtMs >= PREVIEW_DELAY_MS) {
+          void this.startPreview(previewState.song);
+        }
+        return;
+      case 'playing':
+        previewState.loop.tick();
+        return;
+      default:
+        return;
+    }
+  }
+
   close(): void {
     this.current.unsubscribe();
+    this.destroyPreviewPlayer();
+    this.previewState = { kind: 'closed' };
   }
 
   private attach(feed: SongFeed, state: SongSelectState): ControllerState {
@@ -130,16 +196,22 @@ export class SongSelectController {
   }
 
   private applyFromUser(transition: Transition): void {
+    this.apply(transition);
+    this.requestMoreFromUser();
+  }
+
+  private apply(transition: Transition): boolean {
     const previous = this.current.state;
     const next = transition(previous);
-    if (next !== previous) {
-      this.current = {
-        ...this.current,
-        state: next,
-      };
-      this.render(previous);
+    if (next === previous) {
+      return false;
     }
-    this.requestMoreFromUser();
+    this.current = {
+      ...this.current,
+      state: next,
+    };
+    this.render(previous);
+    return true;
   }
 
   private handleFeedChange(): void {
@@ -174,5 +246,110 @@ export class SongSelectController {
       },
       previous,
     );
+    this.focusPreview();
+  }
+
+  private focusPreview(): void {
+    const { previewState } = this;
+    if (previewState.kind === 'closed') {
+      return;
+    }
+    const { current } = this.current.state;
+    const song = current.kind === 'song' ? current.song : null;
+    const previewSongId = previewState.kind === 'none' ? null : previewState.song.id;
+    if ((song?.id ?? null) === previewSongId) {
+      return;
+    }
+    this.destroyPreviewPlayer();
+    this.previewState =
+      song === null
+        ? { kind: 'none' }
+        : {
+            kind: 'waiting',
+            song,
+            focusedAtMs: this.deps.preview.now(),
+          };
+  }
+
+  private async startPreview(song: Song): Promise<void> {
+    const loading: PreviewState = {
+      kind: 'loadingApi',
+      song,
+    };
+    this.previewState = loading;
+    const { players, now, volume } = this.deps.preview;
+    try {
+      await players.loadApi();
+    } catch (error) {
+      if (this.previewState === loading) {
+        this.failPreview(song, error);
+      }
+      return;
+    }
+    if (this.previewState !== loading) {
+      return;
+    }
+
+    let player: PreviewPlayer;
+    const getLoop = (): PreviewLoop | null => {
+      const { previewState } = this;
+      return previewState.kind === 'playing' && previewState.player === player
+        ? previewState.loop
+        : null;
+    };
+    try {
+      player = players.create(song.youtubeVideoId, {
+        onReady: () => {
+          const { previewState } = this;
+          if (previewState.kind !== 'loadingPlayer' || previewState.player !== player) {
+            return;
+          }
+          this.previewState = {
+            kind: 'playing',
+            song,
+            player,
+            loop: new PreviewLoop(player, now, {
+              startMs: song.gameStartMs,
+              songEndMs: song.gameEndMs,
+              volume,
+            }),
+          };
+        },
+        onStateChange: (state) => getLoop()?.handleStateChange(state),
+        onPositionReport: () => getLoop()?.handlePositionReport(),
+        onError: (kind, code) => {
+          const { previewState } = this;
+          if ('player' in previewState && previewState.player === player) {
+            this.failPreview(song, {
+              kind,
+              code,
+            });
+          }
+        },
+      });
+    } catch (error) {
+      this.failPreview(song, error);
+      return;
+    }
+    this.previewState = {
+      kind: 'loadingPlayer',
+      song,
+      player,
+    };
+  }
+
+  private failPreview(song: Song, cause: unknown): void {
+    console.warn('Song preview failed', song.id, cause);
+    this.destroyPreviewPlayer();
+    this.previewState = {
+      kind: 'failed',
+      song,
+    };
+  }
+
+  private destroyPreviewPlayer(): void {
+    if ('player' in this.previewState) {
+      this.previewState.player.destroy();
+    }
   }
 }

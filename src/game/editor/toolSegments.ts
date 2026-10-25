@@ -1,4 +1,6 @@
 import type Phaser from 'phaser';
+import { LANE_COUNTS } from '../../rhythm/lanes.js';
+import type { LaneCount } from '../../rhythm/types.js';
 import type { EditTool } from './chartGesture.js';
 import type { SegmentGlyph, SegmentOption } from './SegmentedControl.js';
 
@@ -46,3 +48,10 @@ export const TOOL_SEGMENTS: readonly SegmentOption<EditTool>[] = [
     glyph: HOLD_GLYPH,
   },
 ];
+
+export const LANE_COUNT_SEGMENTS: readonly SegmentOption<LaneCount>[] = LANE_COUNTS.map(
+  (laneCount) => ({
+    value: laneCount,
+    label: `${laneCount}K`,
+  }),
+);

@@ -7,7 +7,7 @@ import {
   type VerificationSong,
 } from '../../pocketbase/verification/verifyPlay.js';
 import { replayGameplay } from '../../src/rhythm/replay.js';
-import type { Chart, InputEvent, Lane, Note } from '../../src/rhythm/types.js';
+import type { Chart, InputEvent, Lane, LaneCount, Note } from '../../src/rhythm/types.js';
 import { simulateClientPlay } from '../rhythm/playSimulation.js';
 
 // 재생 시작 1000ms(리드인 2000ms) → 플레이 길이 9000ms, 최소 소요 시간 8100ms.
@@ -53,10 +53,11 @@ function release(lane: Lane, songTimeMs: number): InputEvent {
   };
 }
 
-function makeChart(notes: Note[]): Chart {
+function makeChart(notes: Note[], laneCount: LaneCount = 4): Chart {
   return {
     songId: song.key,
     difficulty: 'normal',
+    laneCount,
     offsetMs: 0,
     notes,
   };
@@ -78,6 +79,7 @@ function makeInput(overrides: Partial<PlayVerificationInput> = {}): PlayVerifica
   return {
     song,
     difficulty: 'normal',
+    laneCount: 4,
     chart: {
       revision: REVISION,
       data: chart,
@@ -97,8 +99,8 @@ function makeInput(overrides: Partial<PlayVerificationInput> = {}): PlayVerifica
 }
 
 describe('getSessionExpiresAtMs', () => {
-  it('adds the play duration from the lead-in and a 15 minute grace', () => {
-    expect(getSessionExpiresAtMs(song, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 9000 + 900_000);
+  it('adds the play duration from the lead-in and a 12 hour grace', () => {
+    expect(getSessionExpiresAtMs(song, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 9000 + 43_200_000);
   });
 
   it('includes the lead-in wait when gameStartMs is shorter than the lead-in', () => {
@@ -108,7 +110,7 @@ describe('getSessionExpiresAtMs', () => {
       gameEndMs: 8000,
     };
 
-    expect(getSessionExpiresAtMs(earlySong, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 9500 + 900_000);
+    expect(getSessionExpiresAtMs(earlySong, ISSUED_AT_MS)).toBe(ISSUED_AT_MS + 9500 + 43_200_000);
   });
 });
 
@@ -326,6 +328,102 @@ describe('verifyPlay', () => {
         }),
       ),
     ).toMatchObject({ code: 'invalid_events' });
+  });
+
+  it.each([5, 6] as const)(
+    'verifies a %iK play on the last lane like the client simulation',
+    (laneCount) => {
+      const lastLane = laneCount - 1;
+      const laneChart = makeChart(
+        [tap(0, 3000), hold(lastLane, 3500, 4500), tap(lastLane - 1, 4000), tap(lastLane, 5000)],
+        laneCount,
+      );
+      const client = simulateClientPlay(
+        laneChart,
+        [
+          press(0, 3010),
+          release(0, 3040),
+          press(lastLane, 3520),
+          press(lastLane - 1, 3990),
+          release(lastLane - 1, 4010),
+          release(lastLane, 4480),
+          press(lastLane, 5060),
+          release(lastLane, 5090),
+        ],
+        [],
+      );
+
+      expect(
+        verifyPlay(
+          makeInput({
+            laneCount,
+            chart: {
+              revision: REVISION,
+              data: laneChart,
+            },
+            submission: {
+              inputOffsetMs: 0,
+              events: client.inputs,
+            },
+          }),
+        ),
+      ).toEqual({
+        kind: 'verified',
+        result: client.result,
+      });
+      expect(client.result.counts.miss).toBe(0);
+    },
+  );
+
+  it.each([4, 5, 6] as const)('rejects an event on a lane outside the %iK chart', (laneCount) => {
+    expect(
+      verifyPlay(
+        makeInput({
+          laneCount,
+          chart: {
+            revision: REVISION,
+            data: makeChart([tap(0, 3000)], laneCount),
+          },
+          submission: {
+            inputOffsetMs: 0,
+            events: [press(laneCount, 3000)],
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: 'rejected',
+      code: 'invalid_events',
+    });
+  });
+
+  it('scales the event count limit with the lane count', () => {
+    // 허용 구간 0~11130ms → 상한은 4K ceil(11.13 × 40) = 446개, 6K ceil(11.13 × 60) = 668개.
+    const manyEvents = Array.from({ length: 500 }, () => release(0, 2000));
+    const inputFor = (laneCount: LaneCount): PlayVerificationInput =>
+      makeInput({
+        laneCount,
+        chart: {
+          revision: REVISION,
+          data: makeChart([tap(0, 3000)], laneCount),
+        },
+        submission: {
+          inputOffsetMs: 0,
+          events: manyEvents,
+        },
+      });
+
+    expect(verifyPlay(inputFor(4))).toEqual({
+      kind: 'rejected',
+      code: 'invalid_events',
+    });
+    expect(verifyPlay(inputFor(6)).kind).toBe('verified');
+  });
+
+  it('rejects a stored chart whose lane count differs from the chart record', () => {
+    expect(verifyPlay(makeInput({ laneCount: 5 }))).toEqual({
+      kind: 'rejected',
+      code: 'chart_invalid',
+    });
   });
 
   it('maps rejection codes to HTTP statuses', () => {

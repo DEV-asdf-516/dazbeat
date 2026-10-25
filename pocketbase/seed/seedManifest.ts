@@ -11,7 +11,8 @@ import {
   type SongCategory,
   type Zodiac,
 } from '../../src/data/songs.js';
-import type { Chart, Difficulty } from '../../src/rhythm/types.js';
+import { LANE_COUNTS } from '../../src/rhythm/lanes.js';
+import type { Chart, Difficulty, LaneCount } from '../../src/rhythm/types.js';
 
 export const DEFAULT_SEED_DATA_DIR = new URL('./data/', import.meta.url);
 
@@ -38,7 +39,7 @@ export interface SeedSong {
   gameEndMs: number;
   credit?: readonly string[];
   jacket: { fileName: string; type: string; bytes: Uint8Array<ArrayBuffer> };
-  charts: readonly { difficulty: Difficulty; data: Chart }[];
+  charts: readonly { laneCount: LaneCount; difficulty: Difficulty; data: Chart }[];
 }
 
 export class InvalidSeedDataError extends Error {
@@ -50,7 +51,7 @@ export class InvalidSeedDataError extends Error {
 }
 
 const manifestSchema = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   songs: z
     .array(
       z.strictObject({
@@ -65,7 +66,10 @@ const manifestSchema = z.strictObject({
         gameEndMs: z.number(),
         credit: z.array(z.string()).optional(),
         jacket: z.string(),
-        charts: z.partialRecord(z.enum(DIFFICULTIES), z.string()),
+        charts: z.partialRecord(
+          z.templateLiteral([z.literal(LANE_COUNTS)]),
+          z.partialRecord(z.enum(DIFFICULTIES), z.string()),
+        ),
       }),
     )
     .min(1, 'must not be empty')
@@ -167,32 +171,37 @@ async function loadJacket(dataDir: URL, song: ManifestSong): Promise<SeedSong['j
 }
 
 async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['charts']> {
-  const charts: { difficulty: Difficulty; data: Chart }[] = [];
-  for (const difficulty of DIFFICULTIES) {
-    const relativePath = song.charts[difficulty];
-    if (relativePath === undefined) {
-      continue;
-    }
-    const location = `song "${song.key}" charts.${difficulty}`;
-    const url = resolveDataPath(dataDir, relativePath, location);
-    const json = parseJson((await readDataFile(url, location)).toString('utf8'), url, location);
-    try {
-      const data = parseChart(
-        json,
-        {
-          id: song.key,
-          gameStartMs: song.gameStartMs,
-          gameEndMs: song.gameEndMs,
-        },
-        difficulty,
-      );
-      charts.push({
-        difficulty,
-        data,
-      });
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new InvalidSeedDataError(fileURLToPath(url), `${location}: ${reason}`);
+  const charts: { laneCount: LaneCount; difficulty: Difficulty; data: Chart }[] = [];
+  for (const laneCount of LANE_COUNTS) {
+    const paths = song.charts[`${laneCount}`] ?? {};
+    for (const difficulty of DIFFICULTIES) {
+      const relativePath = paths[difficulty];
+      if (relativePath === undefined) {
+        continue;
+      }
+      const location = `song "${song.key}" charts.${laneCount}.${difficulty}`;
+      const url = resolveDataPath(dataDir, relativePath, location);
+      const json = parseJson((await readDataFile(url, location)).toString('utf8'), url, location);
+      try {
+        const data = parseChart(
+          json,
+          {
+            id: song.key,
+            gameStartMs: song.gameStartMs,
+            gameEndMs: song.gameEndMs,
+          },
+          difficulty,
+          laneCount,
+        );
+        charts.push({
+          laneCount,
+          difficulty,
+          data,
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new InvalidSeedDataError(fileURLToPath(url), `${location}: ${reason}`);
+      }
     }
   }
   return charts;

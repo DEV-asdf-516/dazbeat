@@ -57,10 +57,16 @@ export function createSong(
   return superuser.collection('songs').create(form);
 }
 
-export function fakeChartData(songKey: string, difficulty: string, firstNoteMs = 1_000) {
+export function fakeChartData(
+  songKey: string,
+  difficulty: string,
+  firstNoteMs = 1_000,
+  laneCount = 4,
+) {
   return {
     songId: songKey,
     difficulty,
+    laneCount,
     offsetMs: 0,
     notes: [
       {
@@ -83,10 +89,12 @@ export function createChart(
   songId: string,
   difficulty: string,
   data: unknown,
+  laneCount = 4,
 ): Promise<RecordModel> {
   return client.collection('charts').create({
     song: songId,
     difficulty,
+    laneCount,
     data,
   });
 }

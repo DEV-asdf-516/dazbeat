@@ -1,7 +1,8 @@
 import type Phaser from 'phaser';
+import { requireDefined } from '../../invariant.js';
 import type { GameplaySession } from '../../rhythm/GameplaySession.js';
 import { getNoteY } from '../../rhythm/notePosition.js';
-import type { HoldNote, Lane, Note, TapNote } from '../../rhythm/types.js';
+import type { HoldNote, Note, TapNote } from '../../rhythm/types.js';
 import { GAME_HEIGHT } from '../config.js';
 import { getHoldRibbonSpans, getNoteEmphasis } from './noteAppearance.js';
 import type { FadingSpan } from './noteAppearance.js';
@@ -31,7 +32,7 @@ type NoteView =
 
 export interface NoteLayerOptions {
   notes: readonly Note[];
-  laneCenterXPx: Record<Lane, number>;
+  laneCenterXPx: readonly number[];
   judgeLineYPx: number;
   scrollSpeedPxPerSecond: number;
 }
@@ -128,7 +129,11 @@ export class NoteLayer {
   }
 
   private createView(note: Note): NoteView {
-    const xPx = this.options.laneCenterXPx[note.lane];
+    const xPx = requireDefined(
+      this.options.laneCenterXPx[note.lane],
+      'Unknown note lane',
+      note.lane,
+    );
     const head = this.scene.add
       .image(xPx, 0, this.capTextureKey)
       .setAlpha(0)

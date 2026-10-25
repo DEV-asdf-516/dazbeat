@@ -52,7 +52,7 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
   // Only the columns the list needs, so the chart data column is never read.
   e.app
     .recordQuery(chartsCollection)
-    .select('charts.id', 'charts.song', 'charts.difficulty')
+    .select('charts.id', 'charts.song', 'charts.difficulty', 'charts.laneCount')
     .where($dbx.in('charts.song', ...songs.map((song) => song.id)))
     .all(charts);
   const chartsBySong = {};
@@ -63,6 +63,7 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
       chartsBySong[songId] = (chartsBySong[songId] || []).concat({
         id: chart.id,
         difficulty: chart.getString('difficulty'),
+        laneCount: chart.getInt('laneCount'),
       });
     });
 

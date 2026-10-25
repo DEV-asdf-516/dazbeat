@@ -1,25 +1,17 @@
 /// <reference path="../pb_data/types.d.ts" />
 // PocketHost cannot change `serve --origins`, so cross-origin browser requests are rejected here,
-// before the default CORS middleware (priority -1041) can attach allow headers. Requests without an
-// Origin header pass: rules, auth and rate limits protect them. JSVM handlers cannot see the outer
-// scope, so the allow list is read inside the handler on every request.
+// before the default CORS middleware (priority -1041) can attach allow headers. The allow list is
+// read on every request because JSVM handlers cannot see the outer scope.
 routerUse(
   new Middleware(
     (e) => {
-      const origin = e.request.header.get('Origin');
-      if (origin === '') {
-        return e.next();
-      }
-      const allowedOrigins = $os
-        .getenv('DAZBEAT_ALLOWED_ORIGINS')
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry !== '');
-      const host = e.request.host;
+      const { isOriginAllowed } = require(`${__hooks}/lib/originPolicy.cjs`);
       if (
-        allowedOrigins.includes(origin) ||
-        origin === `http://${host}` ||
-        origin === `https://${host}`
+        isOriginAllowed(
+          e.request.header.get('Origin'),
+          e.request.host,
+          $os.getenv('DAZBEAT_ALLOWED_ORIGINS'),
+        )
       ) {
         return e.next();
       }

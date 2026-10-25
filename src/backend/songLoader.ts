@@ -3,25 +3,25 @@ import type { RecordModel } from 'pocketbase';
 import { z } from 'zod';
 import { toParseIssue } from '../data/parseIssue.js';
 import { DIFFICULTIES, SONG_CATEGORIES, ZODIACS } from '../data/songs.js';
-import type { Song, SongBatch, SongBatchCursor, SongQuery } from '../data/songs.js';
+import type { ChartIds, Song, SongBatch, SongBatchCursor, SongQuery } from '../data/songs.js';
 import { CHARTS, SONGS } from '../pbCollections.js';
 import { after, backRelation, desc, select, sort, where } from '../pbQuery.js';
+import { LANE_COUNTS } from '../rhythm/lanes.js';
 import { isFiniteNumber, isOneOf, isString } from '../typeGuards.js';
 import { readRecordField } from './recordField.js';
 
 const SONG_BATCH_SIZE = 100;
 const SONG_ORDER = [desc('releasedOn'), desc('id')];
-const SONG_CHARTS = backRelation(CHARTS, 'song', ['id', 'difficulty']);
+const SONG_CHARTS = backRelation(CHARTS, 'song', ['id', 'difficulty', 'laneCount']);
 const SONG_SEARCH_PATH = '/api/dazbeat/songs/search';
 
 const isCategory = isOneOf(SONG_CATEGORIES);
 const isZodiac = isOneOf(ZODIACS);
 
-type ChartIds = Song['chartIds'];
-
 const chartRecord = z.object({
   id: z.string(),
   difficulty: z.enum(DIFFICULTIES),
+  laneCount: z.literal(LANE_COUNTS),
 });
 
 // 차트가 없는 곡은 PocketBase 가 expand 나 charts_via_song 을 빼고 보낸다.
@@ -48,8 +48,11 @@ function readChartIds(record: RecordModel): ChartIds {
     throw new Error(`Invalid songs record ${record.id}: ${path} ${reason}`);
   }
   const chartIds: ChartIds = {};
-  (result.data?.charts_via_song ?? []).forEach(({ id, difficulty }) => {
-    chartIds[difficulty] = id;
+  (result.data?.charts_via_song ?? []).forEach(({ id, difficulty, laneCount }) => {
+    chartIds[laneCount] = {
+      ...chartIds[laneCount],
+      [difficulty]: id,
+    };
   });
   return chartIds;
 }

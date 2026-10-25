@@ -2,11 +2,17 @@
 // revision is the hash of the stored chart data, recomputed on every save so request bodies cannot forge it.
 // JSVM handlers cannot see the outer scope, so each handler computes it inline.
 onRecordCreate((e) => {
-  e.record.set('revision', $security.sha256(toString(e.record.get('data'))));
+  const { checkChartLaneCount } = require(`${__hooks}/lib/chartRecord.cjs`);
+  const data = toString(e.record.get('data'));
+  checkChartLaneCount(data, e.record.getInt('laneCount'));
+  e.record.set('revision', $security.sha256(data));
   e.next();
 }, 'charts');
 
 onRecordUpdate((e) => {
-  e.record.set('revision', $security.sha256(toString(e.record.get('data'))));
+  const { checkChartLaneCount } = require(`${__hooks}/lib/chartRecord.cjs`);
+  const data = toString(e.record.get('data'));
+  checkChartLaneCount(data, e.record.getInt('laneCount'));
+  e.record.set('revision', $security.sha256(data));
   e.next();
 }, 'charts');

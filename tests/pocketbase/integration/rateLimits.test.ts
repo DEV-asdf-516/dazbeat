@@ -20,6 +20,7 @@ const AUTH_RULE_WAIT_MS = 3_500;
 const chart: Chart = {
   songId: SONG_KEY,
   difficulty: 'easy',
+  laneCount: 4,
   offsetMs: 0,
   notes: [
     {

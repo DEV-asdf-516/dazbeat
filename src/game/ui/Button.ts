@@ -57,7 +57,6 @@ export type ButtonOptions = ButtonContentOptions &
   (
     | {
         variant: 'primary';
-        labelSizePx?: number;
       }
     | {
         variant: 'secondary';
@@ -151,7 +150,7 @@ function resolveStyle(options: ButtonOptions): {
         },
         labelStyle: typeStyle(
           {
-            sizePx: options.labelSizePx ?? TYPE_SCALE.primary.sizePx,
+            sizePx: TYPE_SCALE.primary.sizePx,
             weight: PRIMARY_LABEL_WEIGHT,
           },
           colors.label,

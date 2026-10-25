@@ -49,15 +49,22 @@ export async function seedPocketBase(pb: PocketBase, songs: readonly SeedSong[])
     const chartFilter = where(CHARTS, [{ song: songId }]);
     const existingCharts = await pb.collection(CHARTS.name).getFullList({
       filter: pb.filter(chartFilter.expression, chartFilter.params),
-      ...select(CHARTS, ['difficulty']),
+      ...select(CHARTS, ['difficulty', 'laneCount']),
     });
     for (const chart of song.charts) {
-      if (existingCharts.some((existing) => existing['difficulty'] === chart.difficulty)) {
+      if (
+        existingCharts.some(
+          (existing) =>
+            existing['difficulty'] === chart.difficulty &&
+            existing['laneCount'] === chart.laneCount,
+        )
+      ) {
         continue;
       }
       await pb.collection('charts').create({
         song: songId,
         difficulty: chart.difficulty,
+        laneCount: chart.laneCount,
         data: chart.data,
       });
     }

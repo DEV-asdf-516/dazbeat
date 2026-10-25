@@ -1,6 +1,6 @@
 import { withSavedChart } from '../data/songs.js';
 import type { Song, SongBatch, SongBatchCursor, SongQuery } from '../data/songs.js';
-import type { Difficulty } from '../rhythm/types.js';
+import type { Difficulty, LaneCount } from '../rhythm/types.js';
 
 export type SongFeedStatus = 'hasMore' | 'loading' | 'failed' | 'complete';
 export type SongBatchLoader = (
@@ -51,11 +51,16 @@ export class SongFeed {
     } while (this.current === 'hasMore' || this.current === 'loading');
   }
 
-  applySavedChart(songId: string, difficulty: Difficulty, chartId: string): Song | undefined {
+  applySavedChart(
+    songId: string,
+    laneCount: LaneCount,
+    difficulty: Difficulty,
+    chartId: string,
+  ): Song | undefined {
     if (!this.loaded.some((song) => song.id === songId)) {
       return undefined;
     }
-    const { songs, saved } = withSavedChart(this.loaded, songId, difficulty, chartId);
+    const { songs, saved } = withSavedChart(this.loaded, songId, laneCount, difficulty, chartId);
     if (songs !== this.loaded) {
       this.loaded = songs;
       this.notify();

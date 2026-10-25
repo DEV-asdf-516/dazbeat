@@ -1,10 +1,11 @@
 import { findChart, getAvailableCharts, stepChart } from '../../data/songs.js';
 import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
-import type { Difficulty } from '../../rhythm/types.js';
+import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { ChartRecord } from '../../storage/chartRecords.js';
 import type { CelestialStaticId } from '../celestial/celestialCatalog.js';
 import { getDifficultyAppearance } from '../difficultyAppearance.js';
 import type { DifficultyAppearance } from '../difficultyAppearance.js';
+import { requireDefined } from '../../invariant.js';
 import { clamp } from '../../range.js';
 import type { SongFeed, SongFeedStatus } from '../SongFeed.js';
 import type { SongSelectRestore } from '../sceneRoutes.js';
@@ -21,6 +22,7 @@ export type SongSelection =
 export interface SongSelectState {
   readonly filter: SongFilter;
   readonly songs: readonly Song[];
+  readonly laneCount: LaneCount;
   readonly current: SongSelection;
 }
 
@@ -40,21 +42,36 @@ type SongSelectTarget = Pick<SongSelectRestore, 'index' | 'songId' | 'difficulty
 export function createSongSelectState(
   songs: readonly Song[],
   filter: SongFilter,
+  laneCount: LaneCount,
   target?: SongSelectTarget,
 ): SongSelectState {
   if (target === undefined) {
     return {
       filter,
       songs,
-      current: selectAt(songs, 0, null),
+      laneCount,
+      current: selectAt(songs, laneCount, 0, null),
+    };
+  }
+  if (songs.length === 0) {
+    return {
+      filter,
+      songs,
+      laneCount,
+      current: {
+        kind: 'none',
+        difficulty: target.difficulty,
+      },
     };
   }
   const found = songs.findIndex((song) => song.id === target.songId);
   return {
     filter,
     songs,
+    laneCount,
     current: selectAt(
       songs,
+      laneCount,
       found === -1 ? clamp(target.index, 0, songs.length - 1) : found,
       target.difficulty,
     ),
@@ -63,18 +80,19 @@ export function createSongSelectState(
 
 export function openSongSelect(
   catalog: SongFeed,
+  laneCount: LaneCount,
   restore: SongSelectRestore | undefined,
 ): { readonly feed: SongFeed; readonly state: SongSelectState } {
   if (restore === undefined) {
     return {
       feed: catalog,
-      state: createSongSelectState(catalog.songs, 'all'),
+      state: createSongSelectState(catalog.songs, 'all', laneCount),
     };
   }
   const { feed } = restore;
   return {
     feed,
-    state: createSongSelectState(feed.songs, feed.query.category, restore),
+    state: createSongSelectState(feed.songs, feed.query.category, laneCount, restore),
   };
 }
 
@@ -206,7 +224,8 @@ export function getSongRows(state: SongSelectState, rowsPerPage: number): SongRo
       kind: 'song',
       song,
       isSelected: slot === selectedSlot,
-      recordChart: difficulty === null ? null : (findChart(song, difficulty) ?? null),
+      recordChart:
+        difficulty === null ? null : (findChart(song, state.laneCount, difficulty) ?? null),
     };
   });
 }
@@ -219,12 +238,16 @@ export function getSongDifficultyAppearance(
   const { current } = state;
   return getDifficultyAppearance({
     isSelected: current.kind === 'song' && difficulty === current.chart?.difficulty,
-    isAvailable: current.kind === 'song' && findChart(current.song, difficulty) !== undefined,
+    isAvailable:
+      current.kind === 'song' && findChart(current.song, state.laneCount, difficulty) !== undefined,
     isHovered,
   });
 }
 
 export function moveSong(state: SongSelectState, delta: number): SongSelectState {
+  if (state.songs.length === 0) {
+    return state;
+  }
   const index = state.current.kind === 'song' ? state.current.index : 0;
   return selectSong(state, clamp(index + delta, 0, state.songs.length - 1));
 }
@@ -236,8 +259,26 @@ export function selectSong(state: SongSelectState, index: number): SongSelectSta
   }
   return {
     ...state,
-    current: selectAt(state.songs, index, getSelectedDifficulty(current)),
+    current: selectAt(state.songs, state.laneCount, index, getSelectedDifficulty(current)),
   };
+}
+
+export function canSelectRandomSong(state: SongSelectState): boolean {
+  return getRandomCandidates(state).length > 0;
+}
+
+export function selectRandomSong(state: SongSelectState, random: () => number): SongSelectState {
+  const candidates = getRandomCandidates(state);
+  if (candidates.length === 0) {
+    return state;
+  }
+  return selectSong(
+    state,
+    requireDefined(
+      candidates[Math.floor(random() * candidates.length)],
+      'Random value must be in [0, 1)',
+    ),
+  );
 }
 
 export function moveDifficulty(state: SongSelectState, delta: 1 | -1): SongSelectState {
@@ -254,7 +295,7 @@ export function selectDifficulty(state: SongSelectState, difficulty: Difficulty)
   if (current.kind === 'none' || difficulty === current.chart?.difficulty) {
     return state;
   }
-  const chart = findChart(current.song, difficulty);
+  const chart = findChart(current.song, state.laneCount, difficulty);
   return chart === undefined ? state : withChart(state, current, chart);
 }
 
@@ -266,7 +307,8 @@ export function withFilter(
   return {
     filter,
     songs,
-    current: selectAt(songs, 0, getSelectedDifficulty(state.current)),
+    laneCount: state.laneCount,
+    current: selectAt(songs, state.laneCount, 0, getSelectedDifficulty(state.current)),
   };
 }
 
@@ -280,6 +322,7 @@ export function withSongs(state: SongSelectState, songs: readonly Song[]): SongS
     songs,
     current: selectAt(
       songs,
+      state.laneCount,
       current.kind === 'song' ? current.index : 0,
       getSelectedDifficulty(current),
     ),
@@ -307,6 +350,7 @@ function withChart(
 
 function selectAt(
   songs: readonly Song[],
+  laneCount: LaneCount,
   index: number,
   previous: Difficulty | null,
 ): SongSelection {
@@ -317,13 +361,24 @@ function selectAt(
       difficulty: previous,
     };
   }
-  const charts = getAvailableCharts(song);
+  const charts = getAvailableCharts(song, laneCount);
   return {
     kind: 'song',
     index,
     song,
     chart: charts.find((chart) => chart.difficulty === previous) ?? charts[0] ?? null,
   };
+}
+
+function getRandomCandidates(state: SongSelectState): number[] {
+  const playable = state.songs.flatMap((song, index) =>
+    getAvailableCharts(song, state.laneCount).length > 0 ? [index] : [],
+  );
+  if (playable.length <= 1) {
+    return [];
+  }
+  const { current } = state;
+  return playable.filter((index) => current.kind !== 'song' || index !== current.index);
 }
 
 function getSelectedDifficulty(current: SongSelection): Difficulty | null {

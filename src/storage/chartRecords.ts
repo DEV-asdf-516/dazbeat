@@ -1,4 +1,4 @@
-import type { Difficulty, FinishedGameplayResult } from '../rhythm/types.js';
+import type { Difficulty, FinishedGameplayResult, LaneCount } from '../rhythm/types.js';
 import { isBoolean, isFiniteNumber, isRecord } from '../typeGuards.js';
 
 export interface ChartRecord {
@@ -10,8 +10,8 @@ export interface ChartRecord {
 
 export type ChartRecords = ReadonlyMap<string, ChartRecord>;
 
-export function recordKey(songId: string, difficulty: Difficulty): string {
-  return `${songId}/${difficulty}`;
+export function recordKey(songId: string, laneCount: LaneCount, difficulty: Difficulty): string {
+  return `${songId}/${laneCount}k/${difficulty}`;
 }
 
 export function parseChartRecord(value: unknown): ChartRecord | undefined {
@@ -35,9 +35,10 @@ export function parseChartRecord(value: unknown): ChartRecord | undefined {
 export function getChartRecord(
   records: ChartRecords,
   songId: string,
+  laneCount: LaneCount,
   difficulty: Difficulty,
 ): ChartRecord | null {
-  return records.get(recordKey(songId, difficulty)) ?? null;
+  return records.get(recordKey(songId, laneCount, difficulty)) ?? null;
 }
 
 export function mergeBestRecord(

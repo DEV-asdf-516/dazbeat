@@ -99,6 +99,7 @@ export class NebulaTrail {
         radiusPx,
       );
       for (const stop of NEBULA_STOPS) {
+        // lerp(alpha, 0, offset) 와 같지만, 중심에서 멀수록 alpha 를 줄인다는 뜻이 보이도록 곱셈으로 둔다.
         const stopAlpha = stop.offset === 1 ? 0 : alpha * (1 - stop.offset);
         gradient.addColorStop(stop.offset, `rgba(${stop.rgb}, ${stopAlpha})`);
       }

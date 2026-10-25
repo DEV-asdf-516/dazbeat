@@ -13,7 +13,7 @@ const AUXILIARY_LABEL_TYPE = {
   weight: 500,
 } as const;
 const AUXILIARY_BUTTON_HEIGHT_PX = 44;
-// 곡 선택 화면의 SETTINGS 자리를 메뉴형 화면 머리글 보조 버튼의 기준으로 삼는다.
+// 메뉴형 화면 머리글 보조 버튼이 화면마다 같은 오른쪽 끝에 오게 한다.
 const HEADER_AUXILIARY_RIGHT_X_PX = 1800;
 
 export function createAuxiliaryButton(
@@ -32,7 +32,6 @@ export function createAuxiliaryButton(
   });
 }
 
-/** 화면마다 제목 서체가 달라도 같은 자리에 오도록 곡 선택 필터 탭과 같은 primary 한 줄의 세로 중심에 맞춘다. */
 export function createHeaderAuxiliaryButtons(
   scene: Phaser.Scene,
   items: readonly { label: string; onActivate: () => void }[],

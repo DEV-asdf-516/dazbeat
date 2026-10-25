@@ -265,7 +265,9 @@ describe('migrations', () => {
     await expectDazbeatRules(server.superuser, 30);
   });
 
-  it('keep existing data and backfill chart revisions', async () => {
+  // 이 피처의 laneCount 훅은 laneCount 필드가 생기기 전 revision 백필에서 저장을 거부하므로,
+  // 미배포 정책대로 채보가 있는 옛 DB 는 재생성하고 여기서는 채보 없이 기존 데이터 보존만 본다.
+  it('keep existing users and songs', async () => {
     const dataDir = await tempDir('migrations-existing');
     const oldMigrationsDir = await tempDir('migrations-old');
     const emptyHooksDir = await tempDir('hooks-empty');
@@ -283,9 +285,6 @@ describe('migrations', () => {
     await excludeLoopbackFromRateLimits(oldServer.superuser);
     const user = await createUser(oldServer, 'existing@example.com', true);
     const song = await createSong(oldServer.superuser, 'existing');
-    const data = fakeChartData('existing', 'easy');
-    const chart = await createChart(oldServer.superuser, song.id, 'easy', data);
-    expect(chart['revision']).toBeUndefined();
     await oldServer.stop();
 
     const server = await start({ dataDir });
@@ -300,12 +299,35 @@ describe('migrations', () => {
     expect(storedSong.id).toBe(song.id);
     expect(storedSong['key']).toBe('existing');
     expect(storedSong['jacket']).toBe(song['jacket']);
-    const storedChart = await superuser.collection('charts').getOne(chart.id);
-    expect(storedChart['data']).toEqual(data);
-    expect(storedChart['revision']).toMatch(/^[0-9a-f]{64}$/);
+  });
 
-    const resaved = await superuser.collection('charts').update(chart.id, { data });
-    expect(resaved['revision']).toBe(storedChart['revision']);
+  it('allow one chart per song, difficulty and lane count', async () => {
+    const { superuser } = await start({ dataDir: await tempDir('migrations-lane-count') });
+    await excludeLoopbackFromRateLimits(superuser);
+    const charts = await superuser.collections.getOne('charts');
+    expect(fieldSummary(charts)).toContainEqual({
+      name: 'laneCount',
+      type: 'number',
+      required: true,
+    });
+    expect(charts.indexes).toContain(
+      'CREATE UNIQUE INDEX `idx_charts_song_difficulty_lane_count` ON `charts` (song, difficulty, laneCount)',
+    );
+    const song = await createSong(superuser, 'lanes');
+
+    await createChart(superuser, song.id, 'easy', fakeChartData('lanes', 'easy'));
+    const fiveLane = await createChart(
+      superuser,
+      song.id,
+      'easy',
+      fakeChartData('lanes', 'easy', 1_000, 5),
+      5,
+    );
+    expect(fiveLane['laneCount']).toBe(5);
+    await expect(
+      createChart(superuser, song.id, 'easy', fakeChartData('lanes', 'easy', 1_500)),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(await superuser.collection('charts').getFullList()).toHaveLength(2);
   });
 
   it('backfill the release dates of the seeded songs only', async () => {
