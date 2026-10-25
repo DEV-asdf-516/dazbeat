@@ -354,10 +354,12 @@ describe('opening a chart', () => {
     expect(harness.changedSongs).toEqual([song, otherSong]);
   });
 
-  it('starts every chart paused at gameStartMs with a fresh session', async () => {
+  it('starts another chart of the same song paused where playback was, with a fresh session', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
     const previous = requireSession(harness.editor.state);
     startPlaying(harness);
+    harness.timeSource.currentTime = 4;
+    harness.editor.advancePlayback();
 
     harness.editor.select(song, 4, 'hard');
 
@@ -366,7 +368,7 @@ describe('opening a chart', () => {
     expect(session.gesture).toEqual({ kind: 'none' });
     expect(session.saveResult).toEqual({ kind: 'idle' });
     expect(harness.editor.state.playhead).toEqual({
-      currentTimeMs: 1000,
+      currentTimeMs: 4000,
       transport: { kind: 'paused' },
     });
     expect(harness.pauseCount).toBe(1);
@@ -630,7 +632,7 @@ describe('clearing notes', () => {
 });
 
 describe('the open confirm dialog', () => {
-  async function heldWhileSavingAndPlaying(): Promise<Harness> {
+  async function heldWhileSaving(): Promise<Harness> {
     const harness = await openLoaded([TAP_AT_2000]);
     addTap(harness, 3000);
     void harness.editor.save();
@@ -641,7 +643,7 @@ describe('the open confirm dialog', () => {
   }
 
   it('ignores editing, selection, playback and save input', async () => {
-    const harness = await heldWhileSavingAndPlaying();
+    const harness = await heldWhileSaving();
     const held = harness.editor.state;
 
     harness.editor.pointerDown({
@@ -670,28 +672,15 @@ describe('the open confirm dialog', () => {
     expect(harness.saves).toHaveLength(1);
   });
 
-  it('keeps following the player and applies the save result', async () => {
-    const harness = await heldWhileSavingAndPlaying();
-
-    harness.timeSource.currentTime = 5;
-    harness.editor.advancePlayback();
-    expect(harness.editor.state.playhead.currentTimeMs).toBe(5000);
+  it('pauses playback when opened and applies the save result', async () => {
+    const harness = await heldWhileSaving();
+    expect(getTransport(harness.editor.state)).toEqual({ kind: 'paused' });
+    expect(harness.pauseCount).toBe(1);
 
     lastSave(harness).resolve(SAVED_CHART_ID);
     await flush();
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
-
-    harness.editor.handlePlayerState('paused');
-    expect(getTransport(harness.editor.state)).toEqual({ kind: 'paused' });
     expect(getPending(harness.editor.state)).toEqual({ kind: 'leave' });
-  });
-
-  it('stops playback on a player error', async () => {
-    const harness = await heldWhileSavingAndPlaying();
-
-    harness.editor.stopPlayback();
-
-    expect(getTransport(harness.editor.state)).toEqual({ kind: 'paused' });
   });
 
   it('hides the divider glint only while open', async () => {
@@ -1131,6 +1120,30 @@ describe('lane counts', () => {
         lane: 4,
       },
     ]);
+  });
+
+  it('opens another lane count paused where playback was', async () => {
+    const harness = await openLaneSong();
+    startPlaying(harness);
+    harness.timeSource.currentTime = 4;
+    harness.editor.advancePlayback();
+
+    harness.editor.selectLaneCount(5);
+    expect(harness.editor.state.playhead).toEqual({
+      currentTimeMs: 4000,
+      transport: { kind: 'paused' },
+    });
+    lastLoad(harness).resolve({
+      ...makeChart([]),
+      laneCount: 5,
+    });
+    await flush();
+
+    expect(harness.editor.state.playhead).toEqual({
+      currentTimeMs: 4000,
+      transport: { kind: 'paused' },
+    });
+    expect(harness.pauseCount).toBe(1);
   });
 
   it('edits an empty draft for a lane count without a chart, without a load', async () => {
