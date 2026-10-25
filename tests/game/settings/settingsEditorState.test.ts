@@ -5,12 +5,15 @@ import {
   adjustRow,
   applyPointer,
   bindWaitingKey,
+  cancelPrompt,
+  confirmReset,
   createSettingsEditorState,
   focusRow,
   isRowShown,
   isWaitingKey,
   moveFocus,
   pressBack,
+  requestReset,
   startWaiting,
 } from '../../../src/game/settings/settingsEditorState.js';
 import { getLanes } from '../../../src/rhythm/lanes.js';
@@ -109,7 +112,10 @@ describe('adjustRow', () => {
 describe('startWaiting', () => {
   it('waits for the lane of a key row', () => {
     const state = startWaiting(initial(), 2);
-    expect(state.waitingLane).toBe(1);
+    expect(state.mode).toEqual({
+      kind: 'waitingKey',
+      lane: 1,
+    });
     expect(isWaitingKey(state)).toBe(true);
   });
 
@@ -176,6 +182,57 @@ describe('pressBack', () => {
     expect(isWaitingKey(outcome.state)).toBe(false);
     expect(outcome.state.rowIndex).toBe(1);
     expect(outcome.state.settings).toBe(waiting.settings);
+  });
+});
+
+describe('reset', () => {
+  const changed = () => bindWaitingKey(startWaiting(adjustRow(initial(), 0, -1, 'ko'), 1), 'KeyA');
+
+  it('asks for confirmation without changing settings', () => {
+    const state = changed();
+    const confirming = requestReset(state);
+    expect(confirming.mode).toEqual({ kind: 'confirmingReset' });
+    expect(confirming.settings).toBe(state.settings);
+    expect(requestReset(confirming)).toBe(confirming);
+  });
+
+  it('restores the defaults but keeps the language when confirmed', () => {
+    const state = {
+      ...changed(),
+      settings: {
+        ...changed().settings,
+        language: 'ja' as const,
+      },
+    };
+    const reset = confirmReset(requestReset(state));
+    expect(reset.settings).toEqual({
+      ...DEFAULT_SETTINGS,
+      language: 'ja',
+    });
+    expect(reset.mode).toEqual({ kind: 'browsing' });
+  });
+
+  it.each([
+    ['cancel', cancelPrompt],
+    [
+      'back',
+      (state: SettingsEditorState) => {
+        const outcome = pressBack(state);
+        if (outcome.kind !== 'stay') {
+          throw new Error('expected to stay');
+        }
+        return outcome.state;
+      },
+    ],
+  ])('keeps the settings on %s', (_, close) => {
+    const state = changed();
+    const closed = close(requestReset(state));
+    expect(closed.settings).toBe(state.settings);
+    expect(closed.mode).toEqual({ kind: 'browsing' });
+  });
+
+  it('throws when reset is not being confirmed', () => {
+    expect(() => confirmReset(initial())).toThrow('Reset is not being confirmed');
   });
 });
 

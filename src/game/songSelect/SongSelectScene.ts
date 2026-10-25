@@ -68,6 +68,7 @@ import { setFittedText } from '../ui/fitText.js';
 import { ensureLightTextures } from '../ui/lightTextures.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import { PointerHover } from '../ui/PointerHover.js';
+import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
 import {
   CATEGORY_COLORS,
   CELESTIAL_COLORS,
@@ -323,6 +324,7 @@ export class SongSelectScene extends Phaser.Scene {
       ...getCelestialEntryTransitionUses(this.celestial),
       ...CELESTIAL_IDS.map((id) => this.celestial.atlasPresentations[id]),
     ]);
+    queueSoundEffects(this);
   }
 
   create(data: SongSelectSceneData): void {
@@ -359,6 +361,7 @@ export class SongSelectScene extends Phaser.Scene {
       render: (shown, previous) => this.show(view, shown, previous),
       play: (chart, restore) => this.play(chart, restore),
       openSettings: (restore) => this.openSettings(restore),
+      playFocusSound: () => soundEffects.play('menuFocus'),
     };
     if (this.mode === 'practice') {
       this.add.text(FILTER_X_PX, MODE_LABEL_Y_PX, 'PRACTICE', {
@@ -436,6 +439,7 @@ export class SongSelectScene extends Phaser.Scene {
       delete this.mvLayer.dataset.mvHidden;
     });
     const settings = this.save.loadSettings();
+    const soundEffects = new SoundEffects(this, settings);
     const controller = new SongSelectController(
       {
         feeds: this.feeds,

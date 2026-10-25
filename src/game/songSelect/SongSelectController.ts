@@ -32,6 +32,7 @@ export interface SongSelectScreen {
   render(view: SongSelectView, previous: SongSelectState | null): void;
   play(chart: ChartRef, restore: SongSelectRestore): void;
   openSettings(restore: SongSelectRestore): void;
+  playFocusSound(): void;
 }
 
 interface ControllerState {
@@ -99,7 +100,10 @@ export class SongSelectController {
   }
 
   moveSong(delta: number): void {
-    this.applyFromUser((state) => moveSong(state, delta));
+    if (this.apply((state) => moveSong(state, delta))) {
+      this.screen.playFocusSound();
+    }
+    this.requestMoreFromUser();
   }
 
   selectRow(slot: number): void {

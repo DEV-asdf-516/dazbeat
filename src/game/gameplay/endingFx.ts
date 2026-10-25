@@ -1,13 +1,11 @@
 import Phaser from 'phaser';
+import { requireDefined } from '../../invariant.js';
 import type { CelestialAtlasId, CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { playCelestialOnce } from '../celestial/celestialSprites.js';
 import { GAME_WIDTH } from '../config.js';
-import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
 import { COLORS, GAMEPLAY_DEPTH, JUDGMENT_COLORS, MOTION, textStyle } from '../ui/theme.js';
 import { GAMEPLAY_FAILURE_STARS } from './failureStars.js';
 import { addHudEffect, addHudText, setTextShadow } from './hudObjects.js';
 import type { TextShadow } from './hudObjects.js';
-import { JUDGMENT_SHIMMER_ID } from './judgmentEffects.js';
 import type { StarlightGauge } from './StarlightGauge.js';
 
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
@@ -17,10 +15,33 @@ const FAILURE_STAR_STAGGER_MS = 100;
 const FAILURE_STAR_FADE_MS = 360;
 const FAILED_Y_PX = 440;
 const FAILED_HOLD_MS = 600;
-// 콤보 숫자·COMBO 라벨·반짝임(y 360~470)과 판정 글자(y 780) 사이에 둔다.
-const FULL_COMBO_Y_PX = 600;
-const FULL_COMBO_POP_SCALE = 1.25;
-const FULL_COMBO_FLASH_MS = 360;
+// 콤보 숫자·COMBO 라벨(y 360~430)과 판정 글자(y 780) 사이에 둔다.
+const ENDING_TITLE_Y_PX = 600;
+const ENDING_POP_SCALE = 1.12;
+const ENDING_FLASH_MS = 360;
+// 결과 화면으로 넘어가기 전에 CLEAR·FULL COMBO 를 읽을 수 있을 만큼 머문다.
+const ENDING_HOLD_MS = 1100;
+const ENDING_STREAK_WIDTH_PX = 900;
+const ENDING_STREAK_ALPHA = 0.6;
+const ENDING_STREAK_REVEAL_MS = 420;
+const ENDING_STREAK_FADE_DELAY_MS = 520;
+const ENDING_STREAK_FADE_MS = 900;
+const CLEAR_STREAK = {
+  key: 'ending-streak',
+  url: '/assets/ui/gameplay/ending-streak.png',
+} as const;
+// 곱하기 tint 로는 은청색 빛줄기가 금색이 되지 않아 금색으로 섞은 이미지를 따로 둔다.
+const FULL_COMBO_STREAK = {
+  key: 'ending-streak-gold',
+  url: '/assets/ui/gameplay/ending-streak-gold.png',
+} as const;
+const CLEAR_LETTER_SPACING_PX = 6;
+const CLEAR_SHADOW: TextShadow = {
+  offsetXPx: 0,
+  offsetYPx: 3,
+  color: 'rgba(120, 160, 220, 0.55)',
+  blurPx: 24,
+} as const;
 // 영상이 밝아도 금색 글자가 읽히도록 글자 바로 뒤에 짙은 밤색 그림자를 깐다.
 const FULL_COMBO_SHADOW: TextShadow = {
   offsetXPx: 0,
@@ -28,46 +49,41 @@ const FULL_COMBO_SHADOW: TextShadow = {
   color: 'rgba(8, 15, 32, 0.85)',
   blurPx: 14,
 } as const;
-// 둥근 빛 하나를 가로로 늘리면 큰 타원이 되므로, 둥근 빛 여럿을 글자를 따라 겹쳐 글자 모양대로 번지게 한다.
-// SCREEN 으로 겹쳐 더해지므로 하나의 alpha 는 낮게 둔다.
-const FULL_COMBO_GLOW_POINTS = [-0.8, -0.4, 0, 0.4, 0.8] as const;
-const FULL_COMBO_GLOW_SIZE_PX = [56, 150] as const;
-const FULL_COMBO_GLOW_PEAK_ALPHA = 0.32;
-const FULL_COMBO_GLOW_REST_ALPHA = 0.16;
-const FULL_COMBO_TWINKLE_ID = 'R28';
-const FULL_COMBO_TWINKLES = [
-  {
-    x: -1.06,
-    y: -0.85,
-    haloSizePx: 44,
-    delayMs: 100,
-  },
-  {
-    x: 1.08,
-    y: -0.6,
-    haloSizePx: 32,
-    delayMs: 260,
-  },
-  {
-    x: 0.98,
-    y: 1.0,
-    haloSizePx: 40,
-    delayMs: 420,
-  },
-] as const;
-// 매니페스트 scaleRange 의 최대값이다. 십자만으로는 작아서 뒤에 금빛 광점을 함께 키웠다 줄인다.
-const FULL_COMBO_TWINKLE_SCALE = 0.25;
-const FULL_COMBO_TWINKLE_HALO_MS = 260;
-// 64px 글자의 아랫선과 겹치지 않는 높이에서 판정 반짝임과 같은 천체 효과를 한 번 튼다.
-const FULL_COMBO_SHIMMER_OFFSET_Y_PX = 64;
-// 결과 화면으로 넘어가기 전에 FULL COMBO 를 읽을 수 있을 만큼 머문다.
-const FULL_COMBO_HOLD_MS = 1100;
+const FULL_COMBO_SPARKLE_IDS = [
+  'R07',
+  'R09',
+  'R08',
+  'R06',
+] as const satisfies readonly CelestialAtlasId[];
+// 반짝이가 박자처럼 두 번(짝, 짝) 터지도록 묶음마다 시작 시각을 둔다.
+const FULL_COMBO_SPARKLE_BEATS_MS = [0, 230] as const;
+const FULL_COMBO_SPARKLES_PER_BEAT = 9;
+const FULL_COMBO_SPARKLE_RADIUS_PX = {
+  x: 270,
+  y: 78,
+} as const;
+// 고르게 나눈 각도·반경에서 조금씩 흐트러뜨려 줄지어 보이지 않게 한다.
+const FULL_COMBO_SPARKLE_ANGLE_JITTER_RAD = 0.2;
+const FULL_COMBO_SPARKLE_RADIUS_SCALE = [0.85, 1.15] as const;
+const FULL_COMBO_SPARKLE_ROTATION_RAD = [0, 0.6] as const;
+const FULL_COMBO_SPARKLE_SCALE = [0.17, 0.34] as const;
+const FULL_COMBO_SPARKLE_DRIFT_PX = 20;
+const FULL_COMBO_SPARKLE_JITTER_MS = 60;
+const FULL_COMBO_SPARKLE_POP_MS = 100;
+const FULL_COMBO_SPARKLE_FADE_MS = [320, 500] as const;
+
+export const ENDING_IMAGES = [CLEAR_STREAK, FULL_COMBO_STREAK] as const;
 
 export const ENDING_FX_IDS: readonly CelestialAtlasId[] = [
-  FULL_COMBO_TWINKLE_ID,
-  JUDGMENT_SHIMMER_ID,
+  ...FULL_COMBO_SPARKLE_IDS,
   ...GAMEPLAY_FAILURE_STARS.map(({ id }) => id),
 ];
+
+export function playClearFx(scene: Phaser.Scene, onDone: () => void): void {
+  const label = addEndingTitle(scene, 'CLEAR', COLORS.noteShade, CLEAR_SHADOW, CLEAR_STREAK.key);
+  label.setLetterSpacing(CLEAR_LETTER_SPACING_PX);
+  scene.time.delayedCall(MOTION.mediumMs + ENDING_HOLD_MS, onDone);
+}
 
 export function playFullComboFx(
   scene: Phaser.Scene,
@@ -75,33 +91,108 @@ export function playFullComboFx(
   onDone: () => void,
 ): void {
   const color = JUDGMENT_COLORS.perfect;
-  // 같은 depth 에서 글로우 → 글자 → 플래시 순으로 겹치도록 만드는 순서를 지킨다.
-  // 글로우 위치는 글자 폭을 알아야 정해지므로 글자를 만든 뒤 옮긴다.
-  const glows = FULL_COMBO_GLOW_POINTS.map((point) => ({
-    point,
-    image: addLight(scene, LIGHT_TEXTURES.glow, SCREEN_CENTER_X_PX, FULL_COMBO_Y_PX)
+  addEndingTitle(scene, 'FULL COMBO', color, FULL_COMBO_SHADOW, FULL_COMBO_STREAK.key);
+  FULL_COMBO_SPARKLE_BEATS_MS.forEach((beatMs, beat) => {
+    for (let index = 0; index < FULL_COMBO_SPARKLES_PER_BEAT; index += 1) {
+      // 두 번째 묶음은 첫 묶음 사이사이에서 터지도록 각도를 반 칸 돌린다.
+      const angle =
+        ((index + beat / 2) / FULL_COMBO_SPARKLES_PER_BEAT) * Math.PI * 2 +
+        Phaser.Math.FloatBetween(
+          -FULL_COMBO_SPARKLE_ANGLE_JITTER_RAD,
+          FULL_COMBO_SPARKLE_ANGLE_JITTER_RAD,
+        );
+      const radius = Phaser.Math.FloatBetween(...FULL_COMBO_SPARKLE_RADIUS_SCALE);
+      const directionX = Math.cos(angle);
+      const directionY = Math.sin(angle);
+      const xPx = SCREEN_CENTER_X_PX + directionX * FULL_COMBO_SPARKLE_RADIUS_PX.x * radius;
+      const yPx = ENDING_TITLE_Y_PX + directionY * FULL_COMBO_SPARKLE_RADIUS_PX.y * radius;
+      const id = requireDefined(
+        FULL_COMBO_SPARKLE_IDS[index % FULL_COMBO_SPARKLE_IDS.length],
+        'Missing sparkle id',
+        index,
+      );
+      const sparkle = addHudEffect(scene, celestial, id, xPx, yPx)
+        .setTint(color)
+        .setRotation(Phaser.Math.FloatBetween(...FULL_COMBO_SPARKLE_ROTATION_RAD))
+        .setScale(0);
+      const delayMs = beatMs + Phaser.Math.FloatBetween(0, FULL_COMBO_SPARKLE_JITTER_MS);
+      const fadeMs = Phaser.Math.FloatBetween(...FULL_COMBO_SPARKLE_FADE_MS);
+      scene.tweens.chain({
+        targets: sparkle,
+        tweens: [
+          {
+            scale: Phaser.Math.FloatBetween(...FULL_COMBO_SPARKLE_SCALE),
+            delay: delayMs,
+            duration: FULL_COMBO_SPARKLE_POP_MS,
+            ease: 'Back.Out',
+          },
+          {
+            scale: 0,
+            duration: fadeMs,
+            ease: 'Cubic.Out',
+          },
+        ],
+        onComplete: () => sparkle.destroy(),
+      });
+      scene.tweens.add({
+        targets: sparkle,
+        x: xPx + directionX * FULL_COMBO_SPARKLE_DRIFT_PX,
+        y: yPx + directionY * FULL_COMBO_SPARKLE_DRIFT_PX,
+        delay: delayMs,
+        duration: FULL_COMBO_SPARKLE_POP_MS + fadeMs,
+        ease: 'Cubic.Out',
+      });
+    }
+  });
+  scene.time.delayedCall(MOTION.mediumMs + ENDING_HOLD_MS, onDone);
+}
+
+function addEndingTitle(
+  scene: Phaser.Scene,
+  text: string,
+  color: number,
+  shadow: TextShadow,
+  streakKey: string,
+): Phaser.GameObjects.Text {
+  // 빛줄기는 선택 리소스라 로드에 실패했으면 글자만 띄운다.
+  if (scene.textures.exists(streakKey)) {
+    const streak = scene.add
+      .image(SCREEN_CENTER_X_PX, ENDING_TITLE_Y_PX, streakKey)
       .setDepth(GAMEPLAY_DEPTH.text)
-      .setTint(color)
-      .setDisplaySize(FULL_COMBO_GLOW_SIZE_PX[0], FULL_COMBO_GLOW_SIZE_PX[0])
-      .setAlpha(0),
-  }));
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(ENDING_STREAK_ALPHA);
+    streak.setScale(ENDING_STREAK_WIDTH_PX / streak.width).setCrop(0, 0, 0, streak.height);
+    // 왼쪽부터 오른쪽으로 펼쳐지도록 잘라 보이는 폭을 늘린다.
+    scene.tweens.addCounter({
+      from: 0,
+      to: streak.width,
+      duration: ENDING_STREAK_REVEAL_MS,
+      ease: 'Cubic.Out',
+      onUpdate: (tween) => streak.setCrop(0, 0, tween.getValue() ?? 0, streak.height),
+    });
+    scene.tweens.add({
+      targets: streak,
+      alpha: 0,
+      delay: ENDING_STREAK_FADE_DELAY_MS,
+      duration: ENDING_STREAK_FADE_MS,
+      onComplete: () => streak.destroy(),
+    });
+  }
   const label = setTextShadow(
-    addHudText(scene, SCREEN_CENTER_X_PX, FULL_COMBO_Y_PX, 'FULL COMBO', textStyle('title', color)),
-    FULL_COMBO_SHADOW,
+    addHudText(scene, SCREEN_CENTER_X_PX, ENDING_TITLE_Y_PX, text, textStyle('title', color)),
+    shadow,
   )
     .setAlpha(0)
-    .setScale(FULL_COMBO_POP_SCALE);
+    .setScale(ENDING_POP_SCALE);
   const flash = addHudText(
     scene,
     SCREEN_CENTER_X_PX,
-    FULL_COMBO_Y_PX,
-    'FULL COMBO',
+    ENDING_TITLE_Y_PX,
+    text,
     textStyle('title', COLORS.note),
   )
     .setBlendMode(Phaser.BlendModes.SCREEN)
-    .setScale(FULL_COMBO_POP_SCALE);
-  const halfWidthPx = label.width / 2;
-  const halfHeightPx = label.height / 2;
+    .setScale(ENDING_POP_SCALE);
   // 플래시가 글자와 같은 크기로 줄어들어야 획이 어긋나 겹쳐 보이지 않는다.
   scene.tweens.add({
     targets: [label, flash],
@@ -117,56 +208,10 @@ export function playFullComboFx(
   scene.tweens.add({
     targets: flash,
     alpha: 0,
-    duration: FULL_COMBO_FLASH_MS,
+    duration: ENDING_FLASH_MS,
     ease: 'Quad.Out',
   });
-  glows.forEach(({ point, image }) => image.setX(SCREEN_CENTER_X_PX + point * halfWidthPx));
-  scene.tweens.chain({
-    targets: glows.map(({ image }) => image),
-    tweens: [
-      {
-        alpha: FULL_COMBO_GLOW_PEAK_ALPHA,
-        displayWidth: FULL_COMBO_GLOW_SIZE_PX[1],
-        displayHeight: FULL_COMBO_GLOW_SIZE_PX[1],
-        duration: MOTION.mediumMs,
-        ease: 'Cubic.Out',
-      },
-      {
-        alpha: FULL_COMBO_GLOW_REST_ALPHA,
-        duration: MOTION.mediumMs,
-      },
-    ],
-  });
-  FULL_COMBO_TWINKLES.forEach(({ x, y, haloSizePx, delayMs }) => {
-    const xPx = SCREEN_CENTER_X_PX + x * halfWidthPx;
-    const yPx = FULL_COMBO_Y_PX + y * halfHeightPx;
-    const halo = addLight(scene, LIGHT_TEXTURES.star, xPx, yPx)
-      .setDepth(GAMEPLAY_DEPTH.text)
-      .setTint(color)
-      .setDisplaySize(0, 0);
-    scene.tweens.add({
-      targets: halo,
-      displayWidth: haloSizePx,
-      displayHeight: haloSizePx,
-      delay: delayMs,
-      duration: FULL_COMBO_TWINKLE_HALO_MS,
-      ease: 'Quad.Out',
-      yoyo: true,
-    });
-    const twinkle = addHudEffect(scene, celestial, FULL_COMBO_TWINKLE_ID, xPx, yPx);
-    twinkle.setScale(FULL_COMBO_TWINKLE_SCALE);
-    // 광점이 가장 클 때 십자가 번쩍이도록 광점이 커지는 시간만큼 늦춘다.
-    scene.time.delayedCall(delayMs + FULL_COMBO_TWINKLE_HALO_MS, () => playCelestialOnce(twinkle));
-  });
-  const shimmer = addHudEffect(
-    scene,
-    celestial,
-    JUDGMENT_SHIMMER_ID,
-    SCREEN_CENTER_X_PX,
-    FULL_COMBO_Y_PX + FULL_COMBO_SHIMMER_OFFSET_Y_PX,
-  );
-  playCelestialOnce(shimmer);
-  scene.time.delayedCall(MOTION.mediumMs + FULL_COMBO_HOLD_MS, onDone);
+  return label;
 }
 
 export function playFailureFx(

@@ -7,6 +7,7 @@ export class MenuFocus<T> {
 
   constructor(
     private readonly entries: readonly { item: T; button: Button }[],
+    private readonly onFocusChange: () => void,
     focusedItem?: T,
   ) {
     this.index = Math.max(
@@ -17,8 +18,13 @@ export class MenuFocus<T> {
   }
 
   move(delta: 1 | -1): void {
-    this.index = clamp(this.index + delta, 0, this.entries.length - 1);
+    const next = clamp(this.index + delta, 0, this.entries.length - 1);
+    if (next === this.index) {
+      return;
+    }
+    this.index = next;
     this.render();
+    this.onFocusChange();
   }
 
   getFocused(): T {

@@ -41,6 +41,7 @@ import { formatAccuracy, formatScore } from '../ui/format.js';
 import { JacketView, queueJacketLoads } from '../ui/jacket.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { MenuFocus } from '../ui/MenuFocus.js';
+import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
 import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
@@ -135,6 +136,7 @@ export class ResultScene extends Phaser.Scene {
 
   preload(): void {
     queueJacketLoads(this, this.jacketSongs);
+    queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
       ...getCelestialAtmosphereUses(this.celestial, 'result'),
       ...getCelestialEntryTransitionUses(this.celestial),
@@ -147,6 +149,7 @@ export class ResultScene extends Phaser.Scene {
     this.exit = STAYING;
     addCelestialAtmosphere(this, this.celestial, 'result');
     const keyboard = requireKeyboard(this);
+    const soundEffects = new SoundEffects(this, this.save.loadSettings());
     const { song, laneCount, difficulty, chartId, mode, result, restore } = data;
     let retryChart: ChartRef = {
       song,
@@ -282,16 +285,19 @@ export class ResultScene extends Phaser.Scene {
     });
     // 글자 크기가 달라 아랫변을 맞춰야 RETRY 와 한 줄로 읽힌다.
     songSelectButton.setY(retryButton.y + retryButton.height - songSelectButton.height);
-    const menu = new MenuFocus<MenuItem>([
-      {
-        item: 'retry',
-        button: retryButton,
-      },
-      {
-        item: 'songSelect',
-        button: songSelectButton,
-      },
-    ]);
+    const menu = new MenuFocus<MenuItem>(
+      [
+        {
+          item: 'retry',
+          button: retryButton,
+        },
+        {
+          item: 'songSelect',
+          button: songSelectButton,
+        },
+      ],
+      () => soundEffects.play('menuFocus'),
+    );
     const overlay = new ControlsOverlay(this, () =>
       getControlsGuide(this.i18n.t('controls', { returnObjects: true }), this.save.loadSettings()),
     );

@@ -37,6 +37,7 @@ import {
 } from '../celestial/celestialSprites.js';
 import { queueImageLoads } from '../ui/imageLoad.js';
 import { MenuFocus } from '../ui/MenuFocus.js';
+import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
 import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
@@ -180,7 +181,8 @@ export class MainScene extends Phaser.Scene {
   };
   private menuItems: readonly MainMenuItem[] = [];
   private menuButtons: readonly Button[] = [];
-  private menu = new MenuFocus<MenuItem>([]);
+  private menu = new MenuFocus<MenuItem>([], () => undefined);
+  private playFocusSound: () => void = () => undefined;
   private exit: SceneExit<SceneRequest> = STAYING;
 
   constructor(
@@ -211,6 +213,7 @@ export class MainScene extends Phaser.Scene {
       ],
       'main scene image',
     );
+    queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
       ...getCelestialAtmosphereUses(this.celestial, 'main'),
       ...getCelestialEntryTransitionUses(this.celestial),
@@ -222,6 +225,8 @@ export class MainScene extends Phaser.Scene {
 
   create(): void {
     this.exit = STAYING;
+    const soundEffects = new SoundEffects(this, this.save.loadSettings());
+    this.playFocusSound = () => soundEffects.play('menuFocus');
     addCelestialAtmosphere(this, this.celestial, 'main');
     // 배경 바로 위에 두어 로고·메뉴·계정 UI 가 캐릭터 앞에 그려지게 한다.
     if (this.textures.exists(CHARACTER_TEXTURE_KEY)) {
@@ -390,6 +395,7 @@ export class MainScene extends Phaser.Scene {
           button: view.youtubeButton,
         },
       ],
+      () => this.playFocusSound(),
       focusedItem,
     );
   }

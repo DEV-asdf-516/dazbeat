@@ -8,15 +8,8 @@ import type { Button } from './Button.js';
 import { HOVER_CURSOR } from './cursor.js';
 import { MENU_KEY_HINT_STYLE, createKeyCap, placeKeyCap } from './keyHintView.js';
 import type { KeyCap, KeyHintStyle } from './keyHintView.js';
-import {
-  CELESTIAL_COLORS,
-  COLORS,
-  MODAL,
-  MOTION,
-  TYPE_SCALE,
-  setTextColor,
-  typeStyle,
-} from './theme.js';
+import { CELESTIAL_COLORS, COLORS, MODAL, MOTION, TYPE_SCALE, typeStyle } from './theme.js';
+import { bindTextEntry } from './textEntry.js';
 
 // 확인 팝업(ConfirmDialog)과 같은 여백·글자 크기로 맞춘다.
 const PADDING_PX = 32;
@@ -286,29 +279,12 @@ export function addControlsEntry(
     widthPx,
     ENTRY_ROW_HEIGHT_PX,
   );
-  let isPressed = false;
   entry.setInteractive({
     hitArea,
     hitAreaCallback: (area: Phaser.Geom.Rectangle, x: number, y: number) =>
       Phaser.Geom.Rectangle.Contains(area, x, y),
     cursor: HOVER_CURSOR,
   });
-  entry.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => {
-    setTextColor(label, COLORS.textPrimary);
-  });
-  entry.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
-    isPressed = false;
-    setTextColor(label, COLORS.textSecondary);
-  });
-  entry.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-    isPressed = true;
-  });
-  entry.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
-    if (!isPressed) {
-      return;
-    }
-    isPressed = false;
-    onActivate();
-  });
+  bindTextEntry(entry, label, onActivate);
   return entry;
 }

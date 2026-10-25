@@ -13,7 +13,13 @@ import type { Chart, JudgmentEvent } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { MvMode } from '../../storage/settings.js';
 import { secToMs } from '../../time.js';
-import { ENDING_FX_IDS, playFailureFx, playFullComboFx } from './endingFx.js';
+import {
+  ENDING_FX_IDS,
+  ENDING_IMAGES,
+  playClearFx,
+  playFailureFx,
+  playFullComboFx,
+} from './endingFx.js';
 import { GameplayController } from './GameplayController.js';
 import type {
   GameplayFrame,
@@ -31,6 +37,7 @@ import {
   LANE_EFFECT_IDS,
   getHitBloomIntensity,
   getJudgmentPopScale,
+  getJudgmentSoundEffect,
   hasJudgmentGlow,
   hasJudgmentShimmer,
 } from './judgmentEffects.js';
@@ -46,9 +53,11 @@ import {
 } from '../celestial/celestialSprites.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { formatKeyCode, formatScore } from '../ui/format.js';
+import { queueImageLoads } from '../ui/imageLoad.js';
 import { LaneFx } from './LaneFx.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { NoteLayer } from './NoteLayer.js';
+import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
 import { OrbitTrace } from './OrbitTrace.js';
 import { getPlayfieldLayout } from './playfieldLayout.js';
 import type { PlayfieldLayout } from './playfieldLayout.js';
@@ -99,6 +108,9 @@ const MV_MODE_X_PX = 120;
 const MV_MODE_Y_PX = 144;
 const MV_MODE_HOLD_MS = 700;
 const MV_MODE_FADE_MS = 300;
+// 곡이 끝나면 레인·판정 HUD 를 먼저 걷어 입력이 끝났음을 보여 준 뒤 종료 연출을 띄운다.
+const PLAYFIELD_CLEAR_MS = 450;
+const PLAYFIELD_SINK_PX = 24;
 const ERROR_MESSAGE_Y_PX = 480;
 const ERROR_HINT_Y_PX = 540;
 const ERROR_BUTTON_Y_PX = 600;
@@ -134,6 +146,8 @@ interface LaneView {
 
 interface GameplayView {
   playfield: PlayfieldLayout;
+  playfieldChrome: readonly Phaser.GameObjects.GameObject[];
+  soundEffects: SoundEffects;
   lanes: readonly LaneView[];
   laneFx: LaneFx;
   comboGlint: Phaser.GameObjects.Sprite;
@@ -176,6 +190,8 @@ export class GameplayScene extends Phaser.Scene {
       ...getCelestialAtmosphereUses(this.celestial, 'gameplay'),
       ...CELESTIAL_IDS.map((id) => this.celestial.atlasPresentations[id]),
     ]);
+    queueImageLoads(this, ENDING_IMAGES, 'ending effect');
+    queueSoundEffects(this);
   }
 
   create(data: GameplaySceneData): void {
@@ -187,22 +203,22 @@ export class GameplayScene extends Phaser.Scene {
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const playfield = getPlayfieldLayout(GAME_WIDTH, data.laneCount);
-    this.add
+    const lanePanel = this.add
       .image(playfield.leftPx, 0, LIGHT_TEXTURES.fadeTop)
       .setOrigin(0, 0)
       .setDisplaySize(playfield.widthPx, GAME_HEIGHT)
       .setTint(COLORS.background)
       .setAlpha(LANE_PANEL_ALPHA)
       .setDepth(GAMEPLAY_DEPTH.lanePanel);
-    [playfield.leftPx, playfield.leftPx + playfield.widthPx].forEach((xPx) => {
+    const laneBorders = [playfield.leftPx, playfield.leftPx + playfield.widthPx].map((xPx) =>
       this.add
         .rectangle(xPx, GAME_HEIGHT / 2, LANE_BORDER_WIDTH_PX, GAME_HEIGHT, COLORS.border)
         .setAlpha(LANE_BORDER_ALPHA)
-        .setDepth(GAMEPLAY_DEPTH.lanePanel);
-    });
-    getLanes(data.laneCount)
+        .setDepth(GAMEPLAY_DEPTH.lanePanel),
+    );
+    const laneDividers = getLanes(data.laneCount)
       .slice(1)
-      .forEach((lane) => {
+      .map((lane) =>
         this.add
           .rectangle(
             playfield.leftPx + playfield.laneWidthPx * lane,
@@ -212,9 +228,9 @@ export class GameplayScene extends Phaser.Scene {
             COLORS.border,
           )
           .setAlpha(LANE_DIVIDER_ALPHA)
-          .setDepth(GAMEPLAY_DEPTH.laneDivider);
-      });
-    addHudText(
+          .setDepth(GAMEPLAY_DEPTH.laneDivider),
+      );
+    const comboLabel = addHudText(
       this,
       playfield.centerXPx,
       COMBO_LABEL_Y_PX,
@@ -243,6 +259,8 @@ export class GameplayScene extends Phaser.Scene {
     const laneKeys = settings.keyBindings[data.laneCount];
     const view: GameplayView = {
       playfield,
+      playfieldChrome: [lanePanel, ...laneBorders, ...laneDividers, comboLabel],
+      soundEffects: new SoundEffects(this, settings),
       lanes: playfield.laneCenterXPx.map((xPx, lane) => ({
         keyLabel: addHudText(
           this,
@@ -475,12 +493,14 @@ export class GameplayScene extends Phaser.Scene {
         this.renderHud(view, hud, frame);
       },
       pressLane: (lane) => {
+        view.soundEffects.play('lanePress');
         view.laneFx.press(lane);
         this.flashKeyLabel(requireDefined(view.lanes[lane], 'Unknown lane', lane).keyLabel);
       },
       showJudgments: (events) => this.applyJudgmentEvents(view, events),
       hideIntro: () => this.hideIntro(view),
-      playFullCombo: (onDone) => playFullComboFx(this, this.celestial, onDone),
+      playFullCombo: (onDone) =>
+        this.clearPlayfield(view, () => playFullComboFx(this, this.celestial, onDone)),
       // 확인창이 열려 있어도 keyup 판정으로 실패할 수 있으므로 확인창만 숨긴다.
       playFailure: (onDone) => {
         const { modeHud } = view;
@@ -490,6 +510,7 @@ export class GameplayScene extends Phaser.Scene {
         view.quitDialog.hide();
         playFailureFx(this, this.celestial, modeHud.starlight, onDone);
       },
+      playClear: (onDone) => this.clearPlayfield(view, () => playClearFx(this, onDone)),
     };
   }
 
@@ -594,6 +615,29 @@ export class GameplayScene extends Phaser.Scene {
     this.mvLayer.dataset.mvHidden = '';
   }
 
+  private clearPlayfield(view: GameplayView, onCleared: () => void): void {
+    const targets = [
+      ...view.playfieldChrome,
+      ...view.lanes.map(({ keyLabel }) => keyLabel),
+      view.comboText,
+      view.comboGlint,
+      view.judgmentShimmer,
+      view.judgmentGlow,
+      view.judgmentText,
+      view.judgmentFlash,
+    ];
+    this.tweens.killTweensOf(targets);
+    this.tweens.add({
+      targets,
+      alpha: 0,
+      y: `+=${PLAYFIELD_SINK_PX}`,
+      duration: PLAYFIELD_CLEAR_MS,
+      ease: 'Cubic.Out',
+    });
+    view.laneFx.fadeOut(PLAYFIELD_CLEAR_MS, PLAYFIELD_SINK_PX);
+    this.time.delayedCall(PLAYFIELD_CLEAR_MS, onCleared);
+  }
+
   private flashKeyLabel(keyLabel: Phaser.GameObjects.Text): void {
     this.tweens.killTweensOf(keyLabel);
     keyLabel.setColor(cssColor(COLORS.textPrimary));
@@ -607,7 +651,13 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private applyJudgmentEvents(view: GameplayView, events: readonly JudgmentEvent[]): void {
-    events.forEach((event) => view.laneFx.judge(event));
+    events.forEach((event) => {
+      view.laneFx.judge(event);
+      const effect = getJudgmentSoundEffect(event);
+      if (effect !== null) {
+        view.soundEffects.play(effect);
+      }
+    });
     const lastEvent = events.at(-1);
     if (lastEvent === undefined) {
       return;

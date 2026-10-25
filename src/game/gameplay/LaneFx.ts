@@ -167,6 +167,28 @@ export class LaneFx {
     });
   }
 
+  fadeOut(durationMs: number, sinkPx: number): void {
+    const targets = [
+      this.judgeGlow,
+      this.judgeCore,
+      ...this.lanes.flatMap(({ anchor, pulse, missShade, effects, bloom }) => [
+        anchor,
+        pulse,
+        missShade,
+        ...Object.values(effects),
+        ...Object.values(bloom),
+      ]),
+    ];
+    this.scene.tweens.killTweensOf(targets);
+    this.scene.tweens.add({
+      targets,
+      alpha: 0,
+      y: `+=${sinkPx}`,
+      duration: durationMs,
+      ease: 'Cubic.Out',
+    });
+  }
+
   setActivation(level: number): void {
     this.judgeGlow.setAlpha(JUDGE_GLOW_ALPHA + JUDGE_GLOW_ACTIVATION_ALPHA * level);
     this.judgeCore.setAlpha(JUDGE_CORE_ALPHA + JUDGE_CORE_ACTIVATION_ALPHA * level);

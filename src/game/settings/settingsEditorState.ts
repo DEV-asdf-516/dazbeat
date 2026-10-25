@@ -1,16 +1,24 @@
 import type { Language } from '../../i18n/language.js';
 import type { Lane } from '../../rhythm/types.js';
+import { DEFAULT_SETTINGS } from '../../storage/settings.js';
 import type { Settings } from '../../storage/settings.js';
 import { adjustSetting, assignKey } from './settingsAdjust.js';
 import type { SettingsRow } from './settingsAdjust.js';
 import { requireDefined } from '../../invariant.js';
 
+export type SettingsMode =
+  | { readonly kind: 'browsing' }
+  | { readonly kind: 'waitingKey'; readonly lane: Lane }
+  | { readonly kind: 'confirmingReset' };
+
 export interface SettingsEditorState {
   readonly rows: readonly SettingsRow[];
   readonly settings: Settings;
   readonly rowIndex: number;
-  readonly waitingLane: Lane | null;
+  readonly mode: SettingsMode;
 }
+
+const BROWSING: SettingsMode = { kind: 'browsing' };
 
 export function createSettingsEditorState(
   rows: readonly SettingsRow[],
@@ -20,7 +28,7 @@ export function createSettingsEditorState(
     rows,
     settings,
     rowIndex: 0,
-    waitingLane: null,
+    mode: BROWSING,
   };
 }
 
@@ -29,7 +37,7 @@ export function isRowShown(row: SettingsRow, settings: Settings): boolean {
 }
 
 export function isWaitingKey(state: SettingsEditorState): boolean {
-  return state.waitingLane !== null;
+  return state.mode.kind === 'waitingKey';
 }
 
 export function focusRow(state: SettingsEditorState, index: number): SettingsEditorState {
@@ -80,15 +88,28 @@ export function startWaiting(state: SettingsEditorState, index: number): Setting
   return {
     ...state,
     rowIndex: index,
-    waitingLane: row.lane,
+    mode: {
+      kind: 'waitingKey',
+      lane: row.lane,
+    },
   };
 }
 
+export function requestReset(state: SettingsEditorState): SettingsEditorState {
+  return state.mode.kind === 'confirmingReset'
+    ? state
+    : {
+        ...state,
+        mode: { kind: 'confirmingReset' },
+      };
+}
+
 export function bindWaitingKey(state: SettingsEditorState, code: string): SettingsEditorState {
-  const lane = state.waitingLane;
-  if (lane === null) {
+  const { mode } = state;
+  if (mode.kind !== 'waitingKey') {
     throw new Error('No lane is waiting for a key');
   }
+  const { lane } = mode;
   // 플레이 중 Tab 은 항상 MV 모드 전환이어야 하므로 레인 키로 받지 않는다.
   if (code === 'Tab') {
     return state;
@@ -98,12 +119,12 @@ export function bindWaitingKey(state: SettingsEditorState, code: string): Settin
   if (code === 'Escape' || keys[lane] === code) {
     return {
       ...state,
-      waitingLane: null,
+      mode: BROWSING,
     };
   }
   return {
     ...state,
-    waitingLane: null,
+    mode: BROWSING,
     settings: {
       ...state.settings,
       keyBindings: {
@@ -114,31 +135,46 @@ export function bindWaitingKey(state: SettingsEditorState, code: string): Settin
   };
 }
 
-function cancelWaiting(state: SettingsEditorState): SettingsEditorState {
-  return state.waitingLane === null
+// 언어까지 기본값(브라우저 언어)으로 돌리면 읽지 못하는 언어로 바뀔 수 있어 언어는 남긴다.
+export function confirmReset(state: SettingsEditorState): SettingsEditorState {
+  if (state.mode.kind !== 'confirmingReset') {
+    throw new Error('Reset is not being confirmed');
+  }
+  return {
+    ...state,
+    mode: BROWSING,
+    settings: {
+      ...DEFAULT_SETTINGS,
+      language: state.settings.language,
+    },
+  };
+}
+
+export function cancelPrompt(state: SettingsEditorState): SettingsEditorState {
+  return state.mode.kind === 'browsing'
     ? state
     : {
         ...state,
-        waitingLane: null,
+        mode: BROWSING,
       };
 }
 
 export type BackOutcome = { kind: 'leave' } | { kind: 'stay'; state: SettingsEditorState };
 
 export function pressBack(state: SettingsEditorState): BackOutcome {
-  return isWaitingKey(state)
-    ? {
+  return state.mode.kind === 'browsing'
+    ? { kind: 'leave' }
+    : {
         kind: 'stay',
-        state: cancelWaiting(state),
-      }
-    : { kind: 'leave' };
+        state: cancelPrompt(state),
+      };
 }
 
 export function applyPointer(
   state: SettingsEditorState,
   transition: (state: SettingsEditorState) => SettingsEditorState,
 ): SettingsEditorState {
-  return isWaitingKey(state) ? cancelWaiting(state) : transition(state);
+  return state.mode.kind === 'browsing' ? transition(state) : cancelPrompt(state);
 }
 
 function getRow(state: SettingsEditorState, index: number): SettingsRow {

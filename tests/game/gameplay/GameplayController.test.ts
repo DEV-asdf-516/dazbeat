@@ -281,6 +281,10 @@ function createHarness(
             record('playFailure');
             harness.effectDones.push(onDone);
           },
+          playClear: (onDone) => {
+            record('playClear');
+            harness.effectDones.push(onDone);
+          },
         };
       },
       showResult: (data) => {
@@ -1368,7 +1372,7 @@ describe('GameplayController run end', () => {
     expect(harness.callOrder).toEqual(['saveResult', 'submit', 'showResult']);
   });
 
-  it('shows the result right away when the run is not a full combo', async () => {
+  it('plays the clear effect and then shows the result when the run is not a full combo', async () => {
     const harness = createHarness();
     await startVideo(harness);
     moveClock(harness, 5);
@@ -1378,7 +1382,16 @@ describe('GameplayController run end', () => {
     moveClock(harness, 10);
     harness.controller.tick();
 
-    expect(harness.screenCalls.map(([name]) => name)).toEqual(['drawFrame', 'showResult']);
+    expect(harness.screenCalls.map(([name]) => name)).toEqual(['drawFrame', 'playClear']);
+    expect(harness.savedResults).toEqual([]);
+
+    runEffectDone(harness);
+
+    expect(harness.screenCalls.map(([name]) => name)).toEqual([
+      'drawFrame',
+      'playClear',
+      'showResult',
+    ]);
     expect(harness.savedResults).toHaveLength(1);
     expect(harness.submissions).toHaveLength(1);
   });
@@ -1389,6 +1402,7 @@ describe('GameplayController run end', () => {
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
+    runEffectDone(harness);
 
     expect(harness.savedResults).toHaveLength(1);
     expect(harness.submissions).toEqual([]);
@@ -1401,6 +1415,7 @@ describe('GameplayController run end', () => {
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
+    runEffectDone(harness);
 
     expect(harness.screenCalls.at(-1)?.[0]).toBe('showResult');
     requireDefined(harness.submissions[0], 'submission was not requested').reject(
@@ -1415,6 +1430,7 @@ describe('GameplayController run end', () => {
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
+    runEffectDone(harness);
 
     expect(harness.savedResults).toEqual([]);
     expect(harness.submissions).toEqual([]);

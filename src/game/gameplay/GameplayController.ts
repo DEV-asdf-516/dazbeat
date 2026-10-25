@@ -76,6 +76,7 @@ export interface PlayScreen {
   hideIntro(): void;
   playFullCombo(onDone: () => void): void;
   playFailure(onDone: () => void): void;
+  playClear(onDone: () => void): void;
 }
 
 export type QuitConfirmReason = 'userPaused' | 'resyncFailed';
@@ -513,7 +514,7 @@ export class GameplayController {
       run.playScreen.playFullCombo(onDone);
       return;
     }
-    onDone();
+    run.playScreen.playClear(onDone);
   }
 
   private showPlaybackStatus(run: PlayRun, status: PlaybackStatus): void {

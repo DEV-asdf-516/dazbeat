@@ -190,6 +190,7 @@ function createHarness(
   const renders: { view: SongSelectView; previous: SongSelectState | null }[] = [];
   const plays: { chart: ChartRef; restore: SongSelectRestore }[] = [];
   const settings: SongSelectRestore[] = [];
+  let focusSounds = 0;
   let controller: SongSelectController | undefined;
   const open = (restore?: SongSelectRestore): SongSelectController => {
     controller = new SongSelectController(
@@ -217,6 +218,9 @@ function createHarness(
             restore,
           }),
         openSettings: (restore) => settings.push(restore),
+        playFocusSound: () => {
+          focusSounds += 1;
+        },
       },
       ROWS_PER_PAGE,
       laneCount,
@@ -233,6 +237,9 @@ function createHarness(
     plays,
     settings,
     open,
+    get focusSounds(): number {
+      return focusSounds;
+    },
     get controller(): SongSelectController {
       if (controller === undefined) {
         throw new Error('Not opened');
@@ -543,6 +550,45 @@ describe('SongSelectController selection', () => {
 
     expect(selectedId(harness.view)).toBe('song-000');
     expect(harness.plays).toHaveLength(0);
+  });
+});
+
+describe('SongSelectController focus sound', () => {
+  it('plays the focus sound once when moveSong changes the selected song', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.moveSong(1);
+
+    expect(selectedId(harness.view)).toBe('song-001');
+    expect(harness.focusSounds).toBe(1);
+  });
+
+  it('stays silent when moveSong is blocked at the start of the list', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.moveSong(-1);
+
+    expect(selectedId(harness.view)).toBe('song-000');
+    expect(harness.focusSounds).toBe(0);
+  });
+
+  it('stays silent for selection changes other than moveSong', () => {
+    const harness = openHarness(songs, 4, () => 0.5);
+    const rendered = (): number => harness.renders.length;
+    const changes = [
+      () => harness.controller.selectRow(1),
+      () => harness.controller.moveDifficulty(1),
+      () => harness.controller.selectDifficulty('easy'),
+      () => harness.controller.selectRandomSong(),
+      () => harness.controller.selectFilter('cover'),
+    ];
+
+    for (const change of changes) {
+      const before = rendered();
+      change();
+      expect(rendered()).toBeGreaterThan(before);
+    }
+    expect(harness.focusSounds).toBe(0);
   });
 });
 

@@ -15,7 +15,6 @@ export function createGameConfig(scenes: Phaser.Scene[]): Phaser.Types.Core.Game
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
     scene: scenes,
-    audio: { noAudio: true },
     dom: { createContainer: true },
   };
 }
