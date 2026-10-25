@@ -237,6 +237,7 @@ export class GameplayScene extends Phaser.Scene {
       'COMBO',
       textStyle('meta', COLORS.textMuted),
     );
+    const rightHudStartIndex = this.children.list.length;
     addHudText(
       this,
       SCORE_RIGHT_X_PX,
@@ -256,6 +257,18 @@ export class GameplayScene extends Phaser.Scene {
             kind: 'practice',
             stats: this.addPracticeHud(),
           };
+    const scoreText = addHudText(
+      this,
+      SCORE_RIGHT_X_PX,
+      SCORE_Y_PX,
+      formatScore(0),
+      textStyle('hudScore', COLORS.textPrimary),
+    ).setOrigin(1, 0);
+    // 창 폭이 바뀌면 오른쪽 끝을 따라 함께 옮기도록 묶는다. 묶음 안에서도 기존 depth 순서로 그린다.
+    const rightHud = this.add
+      .container(0, 0, this.children.list.slice(rightHudStartIndex))
+      .sort('depth')
+      .setDepth(GAMEPLAY_DEPTH.text);
     const laneKeys = settings.keyBindings[data.laneCount];
     const view: GameplayView = {
       playfield,
@@ -314,13 +327,7 @@ export class GameplayScene extends Phaser.Scene {
         '0',
         textStyle('combo', COLORS.textPrimary),
       ).setAlpha(COMBO_ALPHA),
-      scoreText: addHudText(
-        this,
-        SCORE_RIGHT_X_PX,
-        SCORE_Y_PX,
-        formatScore(0),
-        textStyle('hudScore', COLORS.textPrimary),
-      ).setOrigin(1, 0),
+      scoreText,
       progress: new OrbitTrace(this, playfield.leftPx, playfield.widthPx, PROGRESS_Y_PX),
       modeHud,
       introTitle: addHudText(
@@ -403,6 +410,23 @@ export class GameplayScene extends Phaser.Scene {
       settings,
     );
 
+    // 노트·레인은 창 크기와 무관하게 창 높이에 맞추고 남는 폭은 양옆으로 늘리거나 자른다.
+    // 점수 묶음은 오른쪽 끝을 따라오되 레인에 닿기 전에 멈추고, 더 좁으면 창 밖으로 잘린다.
+    const minRightHudOffsetPx = playfield.leftPx + playfield.widthPx - rightHud.getBounds().left;
+    const fitToWindow = (): void => {
+      const { width, height } = this.scale.parentSize;
+      const gameWidthPx = Math.round((GAME_HEIGHT * width) / height);
+      if (gameWidthPx !== this.scale.width) {
+        this.scale.setGameSize(gameWidthPx, GAME_HEIGHT);
+      }
+      const edgeOffsetPx = (gameWidthPx - GAME_WIDTH) / 2;
+      this.cameras.main.setScroll(-edgeOffsetPx, 0);
+      rightHud.setX(Math.max(edgeOffsetPx, minRightHudOffsetPx));
+      view.mvModeText.setX(MV_MODE_X_PX - edgeOffsetPx);
+    };
+    fitToWindow();
+    this.scale.on(Phaser.Scale.Events.RESIZE, fitToWindow);
+
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.code === 'Tab') {
         // 브라우저가 Tab 으로 포커스를 옮기지 않게 한다.
@@ -419,6 +443,9 @@ export class GameplayScene extends Phaser.Scene {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       this.events.off(Phaser.Scenes.Events.UPDATE, onUpdate);
+      this.scale.off(Phaser.Scale.Events.RESIZE, fitToWindow);
+      // 다른 화면은 1920×1080 배치를 FIT 으로 맞춘다.
+      this.scale.setGameSize(GAME_WIDTH, GAME_HEIGHT);
       controller.close();
       // mv-layer 는 채보 에디터도 쓰므로 가림을 남기지 않는다.
       delete this.mvLayer.dataset.mvHidden;
