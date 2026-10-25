@@ -282,18 +282,6 @@ export class SongSelectController {
     };
     this.previewState = loading;
     const { players, now, volume } = this.deps.preview;
-    try {
-      await players.loadApi();
-    } catch (error) {
-      if (this.previewState === loading) {
-        this.failPreview(song, error);
-      }
-      return;
-    }
-    if (this.previewState !== loading) {
-      return;
-    }
-
     let player: PreviewPlayer;
     const getLoop = (): PreviewLoop | null => {
       const { previewState } = this;
@@ -302,6 +290,10 @@ export class SongSelectController {
         : null;
     };
     try {
+      await players.loadApi();
+      if (this.previewState !== loading) {
+        return;
+      }
       player = players.create(song.youtubeVideoId, {
         onReady: () => {
           const { previewState } = this;
@@ -332,7 +324,9 @@ export class SongSelectController {
         },
       });
     } catch (error) {
-      this.failPreview(song, error);
+      if (this.previewState === loading) {
+        this.failPreview(song, error);
+      }
       return;
     }
     this.previewState = {

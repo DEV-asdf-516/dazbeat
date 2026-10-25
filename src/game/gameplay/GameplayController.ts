@@ -165,6 +165,7 @@ export class GameplayController {
     let failure: GameplayLoadError = { kind: 'chartLoadFailed' };
     let chart: Chart;
     let mode: RunMode;
+    let player: GameplayPlayer;
     try {
       if (this.route.mode === 'standard') {
         const prepared = await this.deps.prepareChart(this.route);
@@ -184,18 +185,10 @@ export class GameplayController {
 
       failure = { kind: 'playerLoadFailed' };
       await this.deps.players.loadApi();
-    } catch (error) {
-      if (this.phase === loading) {
-        this.fail(failure, error);
+      if (this.phase !== loading) {
+        return;
       }
-      return;
-    }
-    if (this.phase !== loading) {
-      return;
-    }
 
-    let player: GameplayPlayer;
-    try {
       player = this.deps.players.create(this.route.song.youtubeVideoId, {
         onReady: () => {
           if (this.phase !== loading) {
@@ -256,7 +249,9 @@ export class GameplayController {
         },
       });
     } catch (error) {
-      this.fail({ kind: 'playerLoadFailed' }, error);
+      if (this.phase === loading) {
+        this.fail(failure, error);
+      }
       return;
     }
     this.player = player;

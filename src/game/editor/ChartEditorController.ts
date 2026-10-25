@@ -406,31 +406,31 @@ export class ChartEditorController {
       selection,
     };
     this.enter(loading, song.gameStartMs);
-    const chart = await this.catalog
-      .loadChart({
+    let chart: Chart;
+    try {
+      chart = await this.catalog.loadChart({
         song,
         laneCount,
         difficulty,
         chartId,
-      })
-      .catch((error: unknown) => {
-        console.error(
-          `Failed to load chart for song ${song.id} ${laneCount}K difficulty ${difficulty}`,
-          error,
-        );
-        return null;
       });
-    if (this.current.phase !== loading) {
+    } catch (error) {
+      console.error(
+        `Failed to load chart for song ${song.id} ${laneCount}K difficulty ${difficulty}`,
+        error,
+      );
+      if (this.current.phase === loading) {
+        this.enter(
+          {
+            kind: 'loadFailed',
+            selection,
+          },
+          this.current.playhead.currentTimeMs,
+        );
+      }
       return;
     }
-    if (chart === null) {
-      this.enter(
-        {
-          kind: 'loadFailed',
-          selection,
-        },
-        this.current.playhead.currentTimeMs,
-      );
+    if (this.current.phase !== loading) {
       return;
     }
     const draft = createDraft(song, chart);
