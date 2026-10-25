@@ -1,4 +1,4 @@
-import { clamp } from '../../range.js';
+import { cycleItem } from '../../range.js';
 import type { Button } from './Button.js';
 import { requireDefined } from '../../invariant.js';
 
@@ -7,7 +7,7 @@ export class MenuFocus<T> {
 
   constructor(
     private readonly entries: readonly { item: T; button: Button }[],
-    private readonly onFocusChange: () => void,
+    private readonly onFocusChange: (item: T) => void,
     focusedItem?: T,
   ) {
     this.index = Math.max(
@@ -18,13 +18,14 @@ export class MenuFocus<T> {
   }
 
   move(delta: 1 | -1): void {
-    const next = clamp(this.index + delta, 0, this.entries.length - 1);
+    const current = requireDefined(this.entries[this.index], 'Invalid menu index', this.index);
+    const next = this.entries.indexOf(cycleItem(this.entries, current, delta));
     if (next === this.index) {
       return;
     }
     this.index = next;
     this.render();
-    this.onFocusChange();
+    this.onFocusChange(this.getFocused());
   }
 
   getFocused(): T {

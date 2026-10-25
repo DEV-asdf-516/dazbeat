@@ -38,6 +38,7 @@ import {
 import { queueImageLoads } from '../ui/imageLoad.js';
 import { MenuFocus } from '../ui/MenuFocus.js';
 import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
+import { YOUTUBE_HEART_IMAGE, playYoutubeHearts } from './youtubeHearts.js';
 import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
@@ -206,6 +207,7 @@ export class MainScene extends Phaser.Scene {
           key: YOUTUBE_ICON_TEXTURE_KEY,
           url: YOUTUBE_ICON_PATH,
         },
+        YOUTUBE_HEART_IMAGE,
         {
           key: CHARACTER_TEXTURE_KEY,
           url: CHARACTER_PATH,
@@ -302,6 +304,9 @@ export class MainScene extends Phaser.Scene {
       youtubeButton.setIcon(YOUTUBE_ICON_TEXTURE_KEY, YOUTUBE_ICON_SIZE_PX);
     }
     youtubeButton.alignX(ACCOUNT_BUTTON_RIGHT_X_PX, 1);
+    youtubeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () =>
+      playYoutubeHearts(this, youtubeButton),
+    );
     const view: AccountView = {
       hasGoogleIcon: this.textures.exists(GOOGLE_ICON_TEXTURE_KEY),
       button: accountButton,
@@ -387,15 +392,16 @@ export class MainScene extends Phaser.Scene {
       [
         ...entries,
         {
-          item: 'account',
-          button: view.button,
-        },
-        {
           item: 'youtube',
           button: view.youtubeButton,
         },
       ],
-      () => this.playFocusSound(),
+      (item) => {
+        this.playFocusSound();
+        if (item === 'youtube') {
+          playYoutubeHearts(this, view.youtubeButton);
+        }
+      },
       focusedItem,
     );
   }
