@@ -391,21 +391,23 @@ export class ChartEditorController {
 
   private async open(selection: Selection): Promise<void> {
     const { song, laneCount, difficulty } = selection;
-    // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지한다.
-    if (getSelection(this.current)?.song.id !== song.id) {
+    // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지하고, 보던 위치에서 이어 편집한다.
+    const isSameSong = getSelection(this.current)?.song.id === song.id;
+    if (!isSameSong) {
       this.screen.changeSong(song);
     }
+    const startTimeMs = isSameSong ? this.current.playhead.currentTimeMs : song.gameStartMs;
     // 에디터는 채보가 없는 레인 수·난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
     const chartId = song.chartIds[laneCount]?.[difficulty];
     if (chartId === undefined) {
-      this.enter(startEditing(createEmptyDraft(song, laneCount, difficulty)), song.gameStartMs);
+      this.enter(startEditing(createEmptyDraft(song, laneCount, difficulty)), startTimeMs);
       return;
     }
     const loading: EditPhase = {
       kind: 'loading',
       selection,
     };
-    this.enter(loading, song.gameStartMs);
+    this.enter(loading, startTimeMs);
     let chart: Chart;
     try {
       chart = await this.catalog.loadChart({
@@ -434,7 +436,12 @@ export class ChartEditorController {
       return;
     }
     const draft = createDraft(song, chart);
-    this.enter(startEditing(draft), getOpeningTimeMs(draft.notes, this.timing.openingLeadMs, song));
+    this.enter(
+      startEditing(draft),
+      isSameSong
+        ? this.current.playhead.currentTimeMs
+        : getOpeningTimeMs(draft.notes, this.timing.openingLeadMs, song),
+    );
   }
 
   private enter(phase: EditPhase, currentTimeMs: number): void {
@@ -467,10 +474,14 @@ export class ChartEditorController {
   }
 
   private confirm(session: EditorSession, pending: PendingAction): void {
-    this.setPhase({
-      kind: 'confirming',
-      session,
-      pending,
+    this.setState({
+      ...this.current,
+      phase: {
+        kind: 'confirming',
+        session,
+        pending,
+      },
+      playhead: pausePlayback(this.current.playhead),
     });
   }
 
