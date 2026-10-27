@@ -4,8 +4,6 @@ import { createCanvasTexture } from './canvasTexture.js';
 export const LIGHT_TEXTURES = {
   glow: 'light:glow',
   star: 'light:star',
-  column: 'light:column',
-  fadeTop: 'light:fadeTop',
   ribbon: 'light:ribbon',
 } as const;
 
@@ -13,9 +11,6 @@ export type LightTexture = (typeof LIGHT_TEXTURES)[keyof typeof LIGHT_TEXTURES];
 
 const GLOW_SIZE_PX = 128;
 const STAR_SIZE_PX = 32;
-const COLUMN_WIDTH_PX = 16;
-const COLUMN_HEIGHT_PX = 256;
-const COLUMN_SOLID_START = 0.3;
 const RIBBON_WIDTH_PX = 32;
 const RIBBON_HEIGHT_PX = 4;
 const RIBBON_EDGE_PX = 2;
@@ -49,51 +44,6 @@ export function ensureLightTextures(scene: Phaser.Scene): void {
       STAR_SIZE_PX,
     );
   });
-  createCanvasTexture(
-    scene,
-    LIGHT_TEXTURES.column,
-    COLUMN_WIDTH_PX,
-    COLUMN_HEIGHT_PX,
-    (context) => {
-      fillGradient(
-        context,
-        context.createLinearGradient(0, COLUMN_HEIGHT_PX, 0, 0),
-        [
-          [0, white(1)],
-          [1, white(0)],
-        ],
-        COLUMN_WIDTH_PX,
-        COLUMN_HEIGHT_PX,
-      );
-      // 레인 경계에서 딱 끊기는 상자처럼 보이지 않게 좌우 끝도 감쇠한다.
-      maskHorizontally(context, COLUMN_WIDTH_PX, COLUMN_HEIGHT_PX, [
-        [0, 0],
-        [COLUMN_SOLID_START, 1],
-        [1 - COLUMN_SOLID_START, 1],
-        [1, 0],
-      ]);
-    },
-  );
-  createCanvasTexture(
-    scene,
-    LIGHT_TEXTURES.fadeTop,
-    COLUMN_WIDTH_PX,
-    COLUMN_HEIGHT_PX,
-    (context) => {
-      fillGradient(
-        context,
-        context.createLinearGradient(0, 0, 0, COLUMN_HEIGHT_PX),
-        [
-          [0, white(0)],
-          [0.3, white(0.55)],
-          [0.8, white(1)],
-          [1, white(1)],
-        ],
-        COLUMN_WIDTH_PX,
-        COLUMN_HEIGHT_PX,
-      );
-    },
-  );
   createCanvasTexture(
     scene,
     LIGHT_TEXTURES.ribbon,
