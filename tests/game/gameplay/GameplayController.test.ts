@@ -5,7 +5,11 @@ import type { PlaySubmission } from '../../../src/data/playSubmission.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { GameplayController } from '../../../src/game/gameplay/GameplayController.js';
 import type { GameplayLoadError } from '../../../src/game/gameplay/GameplayController.js';
-import type { GameplaySceneData, PlayMode } from '../../../src/game/sceneRoutes.js';
+import type {
+  GameplaySceneData,
+  PlayMode,
+  ResultSceneData,
+} from '../../../src/game/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { Chart, Difficulty, GameplayResult, LaneCount } from '../../../src/rhythm/types.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
@@ -129,6 +133,7 @@ interface Harness {
     readonly submission: PlaySubmission;
   })[];
   readonly effectDones: (() => void)[];
+  readonly shownResults: ResultSceneData[];
   readonly chart: Chart;
   // 프레임마다 그린 곡 시간.
   readonly songTimes: number[];
@@ -168,6 +173,7 @@ function createHarness(
     savedResults: [],
     submissions: [],
     effectDones: [],
+    shownResults: [],
     chart: playedChart,
     songTimes: [],
     rankedSessionId: 'session-1',
@@ -289,6 +295,7 @@ function createHarness(
       },
       showResult: (data) => {
         harness.callOrder.push('showResult');
+        harness.shownResults.push(data);
         record('showResult', data);
       },
       backToSongSelect: () => record('backToSongSelect'),
@@ -297,6 +304,10 @@ function createHarness(
     settings,
   );
   return Object.assign(harness, { controller });
+}
+
+function getShownAchievements(harness: Harness): Promise<readonly string[]> {
+  return requireDefined(harness.shownResults[0], 'result was not shown').newAchievements;
 }
 
 function flush(): Promise<void> {
@@ -1283,6 +1294,7 @@ describe('GameplayController failure', () => {
     ]);
     expect(harness.savedResults).toEqual([]);
     expect(harness.submissions).toEqual([]);
+    await expect(getShownAchievements(harness)).resolves.toEqual([]);
   });
 
   it('does not fail in practice for the same misses', async () => {
@@ -1423,6 +1435,61 @@ describe('GameplayController run end', () => {
     );
     await flush();
     expect(console.warn).toHaveBeenCalledWith('Failed to submit ranked play', expect.any(Error));
+  });
+
+  it('passes the new achievements of the submission response to the result', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    requireDefined(harness.submissions[0], 'submission was not requested').resolve({
+      score: 0,
+      accuracy: 0,
+      maxCombo: 0,
+      cleared: true,
+      bestScore: 0,
+      newAchievements: ['FIRST_FINISH', 'FIRST_CLEAR'],
+    });
+
+    await expect(getShownAchievements(harness)).resolves.toEqual(['FIRST_FINISH', 'FIRST_CLEAR']);
+  });
+
+  it('passes no new achievements when the submission is rejected', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    requireDefined(harness.submissions[0], 'submission was not requested').reject(
+      new Error('network'),
+    );
+
+    await expect(getShownAchievements(harness)).resolves.toEqual([]);
+    expect(console.warn).toHaveBeenCalledWith('Failed to submit ranked play', expect.any(Error));
+  });
+
+  it('passes no new achievements without a ranked session', async () => {
+    const harness = createHarness();
+    harness.rankedSessionId = null;
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    await expect(getShownAchievements(harness)).resolves.toEqual([]);
+  });
+
+  it('passes no new achievements in practice', async () => {
+    const harness = createHarness('practice');
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    await expect(getShownAchievements(harness)).resolves.toEqual([]);
   });
 
   it('neither saves nor submits in practice', async () => {

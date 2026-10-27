@@ -46,11 +46,7 @@ import {
   addCelestialAtmosphere,
   getCelestialAtmosphereUses,
 } from '../celestial/celestialAtmosphere.js';
-import {
-  playCelestialOnce,
-  queueCelestialTextures,
-  setCelestialLoopActive,
-} from '../celestial/celestialSprites.js';
+import { playCelestialOnce, queueCelestialTextures } from '../celestial/celestialSprites.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { formatKeyCode, formatScore } from '../ui/format.js';
 import { queueImageLoads } from '../ui/imageLoad.js';
@@ -58,28 +54,51 @@ import { LaneFx } from './LaneFx.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { NoteLayer } from './NoteLayer.js';
 import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
+import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
+import { NoticeText } from '../ui/NoticeText.js';
 import { OrbitTrace } from './OrbitTrace.js';
-import { getPlayfieldLayout } from './playfieldLayout.js';
-import type { PlayfieldLayout } from './playfieldLayout.js';
+import { getPlayfieldLayout, getPlayfieldTrapezoid, getPlayfieldXAtY } from './playfieldLayout.js';
+import type { PlayfieldLayout, Trapezoid } from './playfieldLayout.js';
 import { PracticeStats } from './PracticeStats.js';
 import { StarlightGauge } from './StarlightGauge.js';
+import { fillTrapezoid } from './trapezoidFill.js';
 import {
   COLORS,
   GAMEPLAY_DEPTH,
   JUDGMENT_COLORS,
   MOTION,
-  cssColor,
+  setTextColor,
   textStyle,
 } from '../ui/theme.js';
 
 // 판정·콤보는 플레이필드 가운데에, 안내·종료 문구는 화면 가운데에 놓는다.
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
 const LANE_PANEL_ALPHA = 0.85;
-const LANE_BORDER_WIDTH_PX = 1;
-const LANE_BORDER_ALPHA = 0.5;
+// 세로 프로필은 [화면 높이 비율, alpha] 정지점이고 정지점 사이는 선형이다.
+const LANE_PANEL_PROFILE: VerticalProfile = [
+  [0, 0],
+  [0.3, 0.55],
+  [0.8, 1],
+  [1, 1],
+];
+const LANE_LINE_PROFILE: VerticalProfile = [
+  [0, 0],
+  [0.35, 0.6],
+  [0.85, 1],
+  [1, 0.6],
+];
+const LANE_EDGE_SHADE_COLOR = 0x05080f;
+const LANE_EDGE_SHADE_WIDTH_PX = 10;
+const LANE_EDGE_SHADE_ALPHA = 0.85;
+const LANE_EDGE_SHADOW_COLOR = 0x04060c;
+const LANE_EDGE_SHADOW_WIDTH_PX = 10;
+const LANE_EDGE_SHADOW_ALPHA = 0.9;
+const LANE_BORDER_COLOR = 0xa9bedc;
+const LANE_BORDER_WIDTH_PX = 2;
+const LANE_BORDER_ALPHA = 0.75;
+const LANE_DIVIDER_COLOR = 0x7f93b3;
 const LANE_DIVIDER_WIDTH_PX = 1;
-const LANE_DIVIDER_ALPHA = 0.6;
-const JUDGE_LINE_Y_PX = 920;
+const LANE_DIVIDER_ALPHA = 0.4;
 const KEY_LABEL_Y_PX = 968;
 const JUDGMENT_Y_PX = 780;
 const JUDGMENT_HOLD_MS = 300;
@@ -119,8 +138,6 @@ const COMBO_GLINT_ID = 'R37';
 const COMBO_GLINT_Y_PX = COMBO_LABEL_Y_PX + 40;
 // 판정 글자의 최대 pop scale 에서도 글자와 겹치지 않는 높이다.
 const JUDGMENT_SHIMMER_Y_PX = JUDGMENT_Y_PX + 56;
-const LOADING_STAR_ID = 'R47';
-const LOADING_STAR_GAP_PX = 24;
 const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   COMBO_GLINT_ID,
   LOADING_STAR_ID,
@@ -140,6 +157,8 @@ const STATUS_MESSAGES = {
   string
 >;
 
+type VerticalProfile = readonly (readonly [heightRatio: number, alpha: number])[];
+
 interface LaneView {
   keyLabel: Phaser.GameObjects.Text;
 }
@@ -152,7 +171,6 @@ interface GameplayView {
   laneFx: LaneFx;
   comboGlint: Phaser.GameObjects.Sprite;
   judgmentShimmer: Phaser.GameObjects.Sprite;
-  loadingStar: Phaser.GameObjects.Sprite;
   judgmentGlow: Phaser.GameObjects.Image;
   judgmentText: Phaser.GameObjects.Text;
   judgmentFlash: Phaser.GameObjects.Text;
@@ -162,7 +180,7 @@ interface GameplayView {
   modeHud: ModeHud;
   introTitle: Phaser.GameObjects.Text;
   introDifficulty: Phaser.GameObjects.Text;
-  statusText: Phaser.GameObjects.Text;
+  status: NoticeText;
   countdownText: Phaser.GameObjects.Text;
   mvModeText: Phaser.GameObjects.Text;
   quitDialog: ConfirmDialog;
@@ -203,32 +221,91 @@ export class GameplayScene extends Phaser.Scene {
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const playfield = getPlayfieldLayout(GAME_WIDTH, data.laneCount);
-    const lanePanel = this.add
-      .image(playfield.leftPx, 0, LIGHT_TEXTURES.fadeTop)
-      .setOrigin(0, 0)
-      .setDisplaySize(playfield.widthPx, GAME_HEIGHT)
-      .setTint(COLORS.background)
-      .setAlpha(LANE_PANEL_ALPHA)
-      .setDepth(GAMEPLAY_DEPTH.lanePanel);
-    const laneBorders = [playfield.leftPx, playfield.leftPx + playfield.widthPx].map((xPx) =>
-      this.add
-        .rectangle(xPx, GAME_HEIGHT / 2, LANE_BORDER_WIDTH_PX, GAME_HEIGHT, COLORS.border)
-        .setAlpha(LANE_BORDER_ALPHA)
-        .setDepth(GAMEPLAY_DEPTH.lanePanel),
+    const laneChrome = this.add.graphics().setDepth(GAMEPLAY_DEPTH.lanePanel);
+    fillVerticalProfile(
+      laneChrome,
+      LANE_PANEL_PROFILE,
+      (topYPx, bottomYPx) =>
+        getPlayfieldTrapezoid(
+          playfield,
+          playfield.leftPx,
+          playfield.leftPx + playfield.widthPx,
+          topYPx,
+          bottomYPx,
+        ),
+      COLORS.background,
+      {
+        left: LANE_PANEL_ALPHA,
+        right: LANE_PANEL_ALPHA,
+      },
     );
-    const laneDividers = getLanes(data.laneCount)
+    // 어두운 테두리와 그 바깥 그림자를 경계선 아래에 깔아 레인 가장자리를 배경에서 떼어 낸다.
+    const edgeXPx = [playfield.leftPx, playfield.leftPx + playfield.widthPx] as const;
+    const shadeHalfPx = LANE_EDGE_SHADE_WIDTH_PX / 2;
+    const shadowOuterPx = shadeHalfPx + LANE_EDGE_SHADOW_WIDTH_PX;
+    edgeXPx.forEach((xPx) =>
+      fillVerticalProfile(
+        laneChrome,
+        LANE_LINE_PROFILE,
+        getLineBand(playfield, xPx, -shadeHalfPx, shadeHalfPx),
+        LANE_EDGE_SHADE_COLOR,
+        {
+          left: LANE_EDGE_SHADE_ALPHA,
+          right: LANE_EDGE_SHADE_ALPHA,
+        },
+      ),
+    );
+    fillVerticalProfile(
+      laneChrome,
+      LANE_LINE_PROFILE,
+      getLineBand(playfield, edgeXPx[0], -shadowOuterPx, -shadeHalfPx),
+      LANE_EDGE_SHADOW_COLOR,
+      {
+        left: 0,
+        right: LANE_EDGE_SHADOW_ALPHA,
+      },
+    );
+    fillVerticalProfile(
+      laneChrome,
+      LANE_LINE_PROFILE,
+      getLineBand(playfield, edgeXPx[1], shadeHalfPx, shadowOuterPx),
+      LANE_EDGE_SHADOW_COLOR,
+      {
+        left: LANE_EDGE_SHADOW_ALPHA,
+        right: 0,
+      },
+    );
+    edgeXPx.forEach((xPx) =>
+      fillVerticalProfile(
+        laneChrome,
+        LANE_LINE_PROFILE,
+        getLineBand(playfield, xPx, -LANE_BORDER_WIDTH_PX / 2, LANE_BORDER_WIDTH_PX / 2),
+        LANE_BORDER_COLOR,
+        {
+          left: LANE_BORDER_ALPHA,
+          right: LANE_BORDER_ALPHA,
+        },
+      ),
+    );
+    const laneDividers = this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider);
+    getLanes(data.laneCount)
       .slice(1)
-      .map((lane) =>
-        this.add
-          .rectangle(
+      .forEach((lane) =>
+        fillVerticalProfile(
+          laneDividers,
+          LANE_LINE_PROFILE,
+          getLineBand(
+            playfield,
             playfield.leftPx + playfield.laneWidthPx * lane,
-            GAME_HEIGHT / 2,
-            LANE_DIVIDER_WIDTH_PX,
-            GAME_HEIGHT,
-            COLORS.border,
-          )
-          .setAlpha(LANE_DIVIDER_ALPHA)
-          .setDepth(GAMEPLAY_DEPTH.laneDivider),
+            -LANE_DIVIDER_WIDTH_PX / 2,
+            LANE_DIVIDER_WIDTH_PX / 2,
+          ),
+          LANE_DIVIDER_COLOR,
+          {
+            left: LANE_DIVIDER_ALPHA,
+            right: LANE_DIVIDER_ALPHA,
+          },
+        ),
       );
     const comboLabel = addHudText(
       this,
@@ -270,20 +347,26 @@ export class GameplayScene extends Phaser.Scene {
       .sort('depth')
       .setDepth(GAMEPLAY_DEPTH.text);
     const laneKeys = settings.keyBindings[data.laneCount];
+    const progressLeftXPx = getPlayfieldXAtY(playfield, playfield.leftPx, PROGRESS_Y_PX);
+    const progressRightXPx = getPlayfieldXAtY(
+      playfield,
+      playfield.leftPx + playfield.widthPx,
+      PROGRESS_Y_PX,
+    );
     const view: GameplayView = {
       playfield,
-      playfieldChrome: [lanePanel, ...laneBorders, ...laneDividers, comboLabel],
+      playfieldChrome: [laneChrome, laneDividers, comboLabel],
       soundEffects: new SoundEffects(this, settings),
       lanes: playfield.laneCenterXPx.map((xPx, lane) => ({
         keyLabel: addHudText(
           this,
-          xPx,
+          getPlayfieldXAtY(playfield, xPx, KEY_LABEL_Y_PX),
           KEY_LABEL_Y_PX,
           formatKeyCode(requireDefined(laneKeys[lane], 'Missing lane key', lane)),
           textStyle('meta', COLORS.textMuted),
         ),
       })),
-      laneFx: new LaneFx(this, this.celestial, playfield, JUDGE_LINE_Y_PX),
+      laneFx: new LaneFx(this, this.celestial, playfield),
       comboGlint: addHudEffect(
         this,
         this.celestial,
@@ -298,7 +381,6 @@ export class GameplayScene extends Phaser.Scene {
         playfield.centerXPx,
         JUDGMENT_SHIMMER_Y_PX,
       ),
-      loadingStar: addHudEffect(this, this.celestial, LOADING_STAR_ID, 0, 0),
       // 같은 depth 에서 글자 아래에 그려지도록 글자보다 먼저 만든다.
       judgmentGlow: addLight(this, LIGHT_TEXTURES.glow, playfield.centerXPx, JUDGMENT_Y_PX)
         .setAlpha(0)
@@ -328,7 +410,12 @@ export class GameplayScene extends Phaser.Scene {
         textStyle('combo', COLORS.textPrimary),
       ).setAlpha(COMBO_ALPHA),
       scoreText,
-      progress: new OrbitTrace(this, playfield.leftPx, playfield.widthPx, PROGRESS_Y_PX),
+      progress: new OrbitTrace(
+        this,
+        progressLeftXPx,
+        progressRightXPx - progressLeftXPx,
+        PROGRESS_Y_PX,
+      ),
       modeHud,
       introTitle: addHudText(
         this,
@@ -344,12 +431,10 @@ export class GameplayScene extends Phaser.Scene {
         data.difficulty.toUpperCase(),
         textStyle('secondary', COLORS.textSecondary),
       ),
-      statusText: addHudText(
+      status: new NoticeText(
         this,
-        SCREEN_CENTER_X_PX,
-        STATUS_Y_PX,
-        '',
-        textStyle('meta', COLORS.textMuted),
+        this.celestial,
+        addHudText(this, SCREEN_CENTER_X_PX, STATUS_Y_PX, '', textStyle('meta', COLORS.textMuted)),
       ),
       countdownText: addHudText(
         this,
@@ -412,7 +497,11 @@ export class GameplayScene extends Phaser.Scene {
 
     // 노트·레인은 창 크기와 무관하게 창 높이에 맞추고 남는 폭은 양옆으로 늘리거나 자른다.
     // 점수 묶음은 오른쪽 끝을 따라오되 레인에 닿기 전에 멈추고, 더 좁으면 창 밖으로 잘린다.
-    const minRightHudOffsetPx = playfield.leftPx + playfield.widthPx - rightHud.getBounds().left;
+    // 레인은 아래로 갈수록 넓으므로 묶음 아래끝 높이의 레인 오른쪽 끝을 기준으로 한다.
+    const rightHudBounds = rightHud.getBounds();
+    const minRightHudOffsetPx =
+      getPlayfieldXAtY(playfield, playfield.leftPx + playfield.widthPx, rightHudBounds.bottom) -
+      rightHudBounds.left;
     const fitToWindow = (): void => {
       const { width, height } = this.scale.parentSize;
       const gameWidthPx = Math.round((GAME_HEIGHT * width) / height);
@@ -468,10 +557,11 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private setStatus(view: GameplayView, status: GameplayStatus): void {
-    view.statusText.setText(
+    view.status.show(
       status.kind === 'paused' || status.kind === 'countdown' || status.kind === 'none'
         ? ''
         : this.i18n.t(STATUS_MESSAGES[status.kind]),
+      isLoadingStatus(status) || status.kind === 'resuming',
     );
     const { countdownText } = view;
     const digitText = status.kind === 'countdown' ? `${status.digit}` : '';
@@ -490,19 +580,12 @@ export class GameplayScene extends Phaser.Scene {
         });
       }
     }
-    const isWaiting = isLoadingStatus(status) || status.kind === 'resuming';
-    if (isWaiting) {
-      const bounds = view.statusText.getBounds();
-      view.loadingStar.setPosition(bounds.left - LOADING_STAR_GAP_PX, bounds.centerY);
-    }
-    setCelestialLoopActive(view.loadingStar, isWaiting);
   }
 
   private beginPlay(view: GameplayView, chart: Chart, scrollSpeedPxPerSecond: number): PlayScreen {
     const notes = new NoteLayer(this, {
       notes: chart.notes,
-      laneCenterXPx: view.playfield.laneCenterXPx,
-      judgeLineYPx: JUDGE_LINE_Y_PX,
+      playfield: view.playfield,
       scrollSpeedPxPerSecond,
     });
     const hud = {
@@ -510,7 +593,7 @@ export class GameplayScene extends Phaser.Scene {
       score: 0,
     };
     return {
-      approachMs: secToMs(JUDGE_LINE_Y_PX / scrollSpeedPxPerSecond),
+      approachMs: secToMs(view.playfield.judgeLineYPx / scrollSpeedPxPerSecond),
       drawFrame: (frame) => {
         view.laneFx.setActivation(frame.activation.level);
         if (frame.activation.reachedFull) {
@@ -603,7 +686,7 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private openQuitConfirm(view: GameplayView, reason: QuitConfirmReason): void {
-    view.statusText.setVisible(false);
+    view.status.setVisible(false);
     view.countdownText.setVisible(false);
     const isResyncFailed = reason === 'resyncFailed';
     view.quitDialog.show({
@@ -617,7 +700,7 @@ export class GameplayScene extends Phaser.Scene {
 
   private closeQuitConfirm(view: GameplayView): void {
     view.quitDialog.hide();
-    view.statusText.setVisible(true);
+    view.status.setVisible(true);
     view.countdownText.setVisible(true);
   }
 
@@ -667,13 +750,13 @@ export class GameplayScene extends Phaser.Scene {
 
   private flashKeyLabel(keyLabel: Phaser.GameObjects.Text): void {
     this.tweens.killTweensOf(keyLabel);
-    keyLabel.setColor(cssColor(COLORS.textPrimary));
+    setTextColor(keyLabel, COLORS.textPrimary);
     // 색은 tween 대상이 아니므로 fast 길이의 빈 tween 완료 시점에 되돌린다. 연타 시 이전 tween 은 정리된다.
     this.tweens.add({
       targets: keyLabel,
       alpha: 1,
       duration: MOTION.fastMs,
-      onComplete: () => keyLabel.setColor(cssColor(COLORS.textMuted)),
+      onComplete: () => setTextColor(keyLabel, COLORS.textMuted),
     });
   }
 
@@ -695,11 +778,8 @@ export class GameplayScene extends Phaser.Scene {
     const intensity = getHitBloomIntensity(judgment);
     const popScale = getJudgmentPopScale(judgment);
     this.tweens.killTweensOf([judgmentText, judgmentFlash, judgmentGlow]);
-    judgmentText
-      .setText(judgment.toUpperCase())
-      .setColor(cssColor(color))
-      .setAlpha(1)
-      .setScale(popScale);
+    setTextColor(judgmentText, color);
+    judgmentText.setText(judgment.toUpperCase()).setAlpha(1).setScale(popScale);
     this.tweens.add({
       targets: judgmentText,
       alpha: 0,
@@ -775,4 +855,44 @@ export class GameplayScene extends Phaser.Scene {
     );
     this.cameras.main.fadeOut(MOTION.mediumMs);
   }
+}
+
+// 정지점 사이 구간마다 사다리꼴 하나를 채우고 구간 안은 꼭짓점 alpha 보간에 맡긴다.
+function fillVerticalProfile(
+  graphics: Phaser.GameObjects.Graphics,
+  profile: VerticalProfile,
+  getBand: (topYPx: number, bottomYPx: number) => Trapezoid,
+  color: number,
+  sideAlphas: { readonly left: number; readonly right: number },
+): void {
+  profile.slice(1).forEach(([bottomRatio, bottomAlpha], index) => {
+    const [topRatio, topAlpha] = requireDefined(profile[index], 'Missing profile stop', index);
+    fillTrapezoid(graphics, getBand(topRatio * GAME_HEIGHT, bottomRatio * GAME_HEIGHT), color, {
+      topLeft: topAlpha * sideAlphas.left,
+      topRight: topAlpha * sideAlphas.right,
+      bottomLeft: bottomAlpha * sideAlphas.left,
+      bottomRight: bottomAlpha * sideAlphas.right,
+    });
+  });
+}
+
+// 선은 레인 폭에 비례해 가늘어지지 않고 높이와 무관하게 같은 화면 폭으로 그린다.
+function getLineBand(
+  playfield: PlayfieldLayout,
+  boundaryXPx: number,
+  leftOffsetPx: number,
+  rightOffsetPx: number,
+): (topYPx: number, bottomYPx: number) => Trapezoid {
+  return (topYPx, bottomYPx) => {
+    const topXPx = getPlayfieldXAtY(playfield, boundaryXPx, topYPx);
+    const bottomXPx = getPlayfieldXAtY(playfield, boundaryXPx, bottomYPx);
+    return {
+      topYPx,
+      bottomYPx,
+      topLeftXPx: topXPx + leftOffsetPx,
+      topRightXPx: topXPx + rightOffsetPx,
+      bottomLeftXPx: bottomXPx + leftOffsetPx,
+      bottomRightXPx: bottomXPx + rightOffsetPx,
+    };
+  };
 }

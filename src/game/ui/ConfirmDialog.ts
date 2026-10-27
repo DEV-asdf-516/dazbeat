@@ -1,8 +1,8 @@
 import type Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
 import { Button } from './Button.js';
 import type { QuietButtonColors, SecondaryButtonColors } from './Button.js';
-import { CELESTIAL_COLORS, MODAL, MOTION, STATUS_COLORS, typeStyle } from './theme.js';
+import { ModalFrame } from './ModalFrame.js';
+import { CELESTIAL_COLORS, STATUS_COLORS, typeStyle } from './theme.js';
 
 export type ConfirmTone = 'default' | 'danger';
 
@@ -59,38 +59,14 @@ const ACCEPT_TONE_COLORS: Record<ConfirmTone, number> = {
 };
 
 export class ConfirmDialog {
-  private readonly scene: Phaser.Scene;
-  private readonly backdrop: Phaser.GameObjects.Rectangle;
-  private readonly container: Phaser.GameObjects.Container;
-  private readonly shadow: Phaser.GameObjects.Rectangle;
-  private readonly panel: Phaser.GameObjects.Rectangle;
+  private readonly frame: ModalFrame;
   private readonly title: Phaser.GameObjects.Text;
   private readonly body: Phaser.GameObjects.Text;
   private readonly cancel: Button;
   private readonly accept: Button;
 
   constructor(scene: Phaser.Scene, actions: { onCancel: () => void; onAccept: () => void }) {
-    this.scene = scene;
-    this.backdrop = scene.add
-      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, CELESTIAL_COLORS.background, MODAL.backdropAlpha)
-      .setOrigin(0, 0)
-      .setInteractive()
-      .setDepth(MODAL.depth);
-    this.shadow = scene.add
-      .rectangle(
-        MODAL.shadowOffsetXPx,
-        MODAL.shadowOffsetYPx,
-        PANEL_WIDTH_PX,
-        0,
-        MODAL.shadowColor,
-        MODAL.shadowAlpha,
-      )
-      .setOrigin(0, 0)
-      .setRounded(MODAL.panelRadiusPx);
-    this.panel = scene.add
-      .rectangle(0, 0, PANEL_WIDTH_PX, 0, MODAL.panelColor)
-      .setOrigin(0, 0)
-      .setRounded(MODAL.panelRadiusPx);
+    this.frame = new ModalFrame(scene, null);
     this.title = scene.add.text(PADDING_PX, 0, '', {
       ...typeStyle(TITLE_TYPE, CELESTIAL_COLORS.textPrimary),
       lineSpacing: TITLE_LINE_SPACING_PX,
@@ -127,17 +103,13 @@ export class ConfirmDialog {
       borderWidthPx: BUTTON_BORDER_PX,
       focus: 'glow',
     });
-    this.container = scene.add
-      .container(0, 0, [this.shadow, this.panel, this.title, this.body, this.cancel, this.accept])
-      .setDepth(MODAL.depth);
-    this.backdrop.setVisible(false);
-    this.container.setVisible(false);
+    this.frame.container.add([this.title, this.body, this.cancel, this.accept]);
     this.cancel.setEnabled(false);
     this.accept.setEnabled(false);
   }
 
   show(content: ConfirmDialogContent): void {
-    const isAlreadyVisible = this.container.visible;
+    const isAlreadyVisible = this.frame.isOpen;
     this.title.setText(content.title).setY(PADDING_PX);
     this.body.setText(content.body).setY(this.title.y + this.title.height + BODY_GAP_PX);
     const toneColor = ACCEPT_TONE_COLORS[content.acceptTone];
@@ -154,38 +126,20 @@ export class ConfirmDialog {
     const acceptXPx = PANEL_WIDTH_PX - PADDING_PX - this.accept.width;
     this.accept.setPosition(acceptXPx, actionsTopYPx);
     this.cancel.setPosition(acceptXPx - BUTTON_GAP_PX - this.cancel.width, actionsTopYPx);
-    const panelHeightPx = actionsTopYPx + BUTTON_HEIGHT_PX + PADDING_PX;
-    this.panel.setSize(PANEL_WIDTH_PX, panelHeightPx);
-    this.shadow.setSize(PANEL_WIDTH_PX, panelHeightPx);
-    this.container.setPosition(
-      (GAME_WIDTH - PANEL_WIDTH_PX) / 2,
-      (GAME_HEIGHT - panelHeightPx) / 2,
-    );
+    this.frame.setPanelSize(PANEL_WIDTH_PX, actionsTopYPx + BUTTON_HEIGHT_PX + PADDING_PX);
     if (isAlreadyVisible) {
       return;
     }
-    this.backdrop.setVisible(true);
-    this.container.setVisible(true);
+    this.frame.open();
     this.cancel.setEnabled(true);
     this.accept.setEnabled(true);
-    this.scene.tweens.add({
-      targets: [this.backdrop, this.container],
-      alpha: {
-        from: 0,
-        to: 1,
-      },
-      duration: MOTION.fastMs,
-      ease: 'Sine.Out',
-    });
   }
 
   hide(): void {
-    if (!this.container.visible) {
+    if (!this.frame.isOpen) {
       return;
     }
-    this.scene.tweens.killTweensOf([this.backdrop, this.container]);
-    this.backdrop.setVisible(false);
-    this.container.setVisible(false);
+    this.frame.close();
     this.cancel.setEnabled(false);
     this.accept.setEnabled(false);
   }

@@ -73,6 +73,8 @@ export interface SongBatchCursor {
 export interface SongBatch {
   readonly songs: readonly Song[];
   readonly next: SongBatchCursor | null;
+  /** 첫 배치에서만 세는 조건에 맞는 전체 곡 수. 이어 받는 배치와, 숨긴 곡이 있을 수 있어 세지 않은 검색은 null. */
+  readonly totalCount: number | null;
 }
 
 /**

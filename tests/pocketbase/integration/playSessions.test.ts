@@ -24,6 +24,9 @@ const FRAME_TIMES_MS = Array.from(
   (_, index) => index * FRAME_INTERVAL_MS,
 );
 
+// The granted achievements are checked in achievements.test.ts; here only their presence is.
+const ANY_ACHIEVEMENTS: unknown = expect.any(Array);
+
 interface SessionResponse {
   sessionId: string;
   expiresAt: string;
@@ -288,6 +291,7 @@ async function expectServerMatchesClient(
   expect(response).toEqual({
     ...expected,
     bestScore: expected.score,
+    newAchievements: ANY_ACHIEVEMENTS,
   });
   const [stored, ...others] = await findScores(player.id, chart);
   expect(others).toEqual([]);
@@ -767,6 +771,7 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     expect(response).toEqual({
       ...expected,
       bestScore: expected.score,
+      newAchievements: ANY_ACHIEVEMENTS,
     });
     expect(await sessionExists(sessionId)).toBe(false);
     const [stored, ...others] = await findScores(player.id, snapshotPassingChart);

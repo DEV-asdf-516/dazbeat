@@ -6,6 +6,7 @@ routerUse(
   new Middleware(
     (e) => {
       const { isOriginAllowed } = require(`${__hooks}/lib/originPolicy.cjs`);
+      const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
       if (
         isOriginAllowed(
           e.request.header.get('Origin'),
@@ -15,8 +16,8 @@ routerUse(
       ) {
         return e.next();
       }
-      return e.json(403, {
-        status: 403,
+      return e.json(HTTP_STATUS.forbidden, {
+        status: HTTP_STATUS.forbidden,
         code: 'origin_not_allowed',
         message: 'Requests from this origin are not allowed.',
       });

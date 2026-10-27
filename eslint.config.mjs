@@ -12,6 +12,7 @@ export default tseslint.config(
       '.claude/**',
       '.codex/**',
       'pocketbase/pb_hooks/lib/**',
+      'pocketbase/pb_data/**',
     ],
   },
   {

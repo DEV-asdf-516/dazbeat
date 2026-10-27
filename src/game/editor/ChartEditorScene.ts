@@ -32,6 +32,7 @@ import {
 import type {
   ChartEditorState,
   EditorRegion,
+  EditorStatus,
   PendingAction,
   Selection,
 } from './chartEditorState.js';
@@ -66,18 +67,21 @@ import { EditorNoteLayer } from './EditorNoteLayer.js';
 import { SegmentedControl } from './SegmentedControl.js';
 import { LANE_COUNT_SEGMENTS, TOOL_SEGMENTS } from './toolSegments.js';
 import { setFittedText } from '../ui/fitText.js';
+import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
+import { NoticeText } from '../ui/NoticeText.js';
 import { addKeyHintColumn } from '../ui/keyHintView.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
   CELESTIAL_COLORS,
   GAMEPLAY_DEPTH,
-  INDICATOR,
   RADIUS,
+  addTextUnderline,
   setTextColor,
   typeStyle,
 } from '../ui/theme.js';
 import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './editorTheme.js';
-import { addBarHairlines, addHairline, HAIRLINE_PX } from './hairline.js';
+import { addBarHairlines } from './hairline.js';
+import { addHairline, HAIRLINE_PX } from '../ui/hairline.js';
 import { requireDefined } from '../../invariant.js';
 import { msToSec, secToMs } from '../../time.js';
 
@@ -99,7 +103,7 @@ type PlayerStatus =
 interface EditorView {
   songTitle: Phaser.GameObjects.Text;
   difficulties: DifficultyItem[];
-  statusText: Phaser.GameObjects.Text;
+  status: NoticeText;
   saveButton: Button;
   unsavedDot: Phaser.GameObjects.Arc;
   timeText: Phaser.GameObjects.Text;
@@ -226,6 +230,7 @@ export class ChartEditorScene extends Phaser.Scene {
   preload(): void {
     queueCelestialTextures(this, this.celestial, [
       this.celestial.atlasPresentations[DIVIDER_GLINT_ID],
+      this.celestial.atlasPresentations[LOADING_STAR_ID],
     ]);
   }
 
@@ -404,17 +409,21 @@ export class ChartEditorScene extends Phaser.Scene {
         )
         .setOrigin(0, 0.5),
       difficulties,
-      statusText: this.add
-        .text(statusRightXPx, topCenterYPx, '', {
-          ...typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
-          align: 'right',
-          wordWrap: {
-            width: statusRightXPx - statusLeftXPx,
-            useAdvancedWrap: true,
-          },
-          maxLines: STATUS_MAX_LINES,
-        })
-        .setOrigin(1, 0.5),
+      status: new NoticeText(
+        this,
+        this.celestial,
+        this.add
+          .text(statusRightXPx, topCenterYPx, '', {
+            ...typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
+            align: 'right',
+            wordWrap: {
+              width: statusRightXPx - statusLeftXPx,
+              useAdvancedWrap: true,
+            },
+            maxLines: STATUS_MAX_LINES,
+          })
+          .setOrigin(1, 0.5),
+      ),
       saveButton,
       unsavedDot: this.add
         .circle(
@@ -663,15 +672,7 @@ export class ChartEditorScene extends Phaser.Scene {
         .setOrigin(0, 0.5)
         .setInteractive({ cursor: HOVER_CURSOR });
       text.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => onSelect(difficulty));
-      const underline = this.add
-        .rectangle(
-          xPx,
-          centerYPx + text.height / 2 + INDICATOR.underlineOffsetPx,
-          text.width,
-          INDICATOR.underlineThicknessPx,
-          CELESTIAL_COLORS.selected,
-        )
-        .setOrigin(0, 0);
+      const underline = addTextUnderline(this, text, CELESTIAL_COLORS.selected);
       xPx += text.width + DIFFICULTY_GAP_PX;
       return {
         difficulty,
@@ -930,7 +931,8 @@ export class ChartEditorScene extends Phaser.Scene {
   }
 
   private renderStatus(view: EditorView, state: ChartEditorState): void {
-    view.statusText.setText(this.getStatusMessage(state));
+    const status = getEditorStatus(state);
+    view.status.show(this.getStatusMessage(status), status.kind === 'loading');
     view.saveButton.setEnabled(canSave(state));
     view.unsavedDot.setVisible(hasUnsavedChanges(state));
   }
@@ -987,8 +989,7 @@ export class ChartEditorScene extends Phaser.Scene {
     underline.setVisible(selection?.difficulty === difficulty);
   }
 
-  private getStatusMessage(state: ChartEditorState): string {
-    const status = getEditorStatus(state);
+  private getStatusMessage(status: EditorStatus): string {
     switch (status.kind) {
       case 'noSongs':
         return this.i18n.t('chartEditor.noSongs');
@@ -1156,7 +1157,9 @@ export class ChartEditorScene extends Phaser.Scene {
 
   private handleKey(editor: ChartEditorController, event: KeyboardEvent): void {
     const action = readMenuAction(event);
-    if (action === 'confirm') {
+    if (event.code === 'KeyZ' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
+      editor.undo();
+    } else if (action === 'confirm') {
       editor.confirmPending();
     } else if (event.code === 'Space') {
       // 누르고 있는 동안의 반복 입력으로 재생과 일시정지가 번갈아 바뀌지 않게 한다.

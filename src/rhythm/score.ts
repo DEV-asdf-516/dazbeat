@@ -28,3 +28,7 @@ export function getNextCombo(combo: number, judgment: Judgment): number {
 export function isFullCombo(counts: JudgmentCounts): boolean {
   return counts.good === 0 && counts.bad === 0 && counts.miss === 0;
 }
+
+export function isAllPerfect(counts: JudgmentCounts): boolean {
+  return counts.great === 0 && isFullCombo(counts);
+}

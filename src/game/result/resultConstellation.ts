@@ -3,8 +3,8 @@ import { getRank } from '../../rhythm/rank.js';
 import { isFullCombo } from '../../rhythm/score.js';
 import type { GameplayResult } from '../../rhythm/types.js';
 import type { PlayMode } from '../sceneRoutes.js';
-import { ZODIAC_FIGURES } from './zodiacFigures.js';
-import type { ZodiacFigure } from './zodiacFigures.js';
+import { ZODIAC_FIGURES } from '../celestial/zodiacFigures.js';
+import type { ZodiacFigure } from '../celestial/zodiacFigures.js';
 import { getProgress, lerp } from '../../range.js';
 import { requireDefined } from '../../invariant.js';
 

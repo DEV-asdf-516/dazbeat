@@ -3,6 +3,7 @@ import { InvalidPlaySubmissionError, parsePlaySubmission } from '../../src/data/
 import { getPlayDurationMs } from '../../src/rhythm/playTiming.js';
 import { replayGameplay } from '../../src/rhythm/replay.js';
 import type { Difficulty, FinishedGameplayResult, LaneCount } from '../../src/rhythm/types.js';
+import { HTTP_STATUS } from '../../src/httpStatus.js';
 import { secToMs } from '../../src/time.js';
 
 /**
@@ -32,27 +33,27 @@ export const PLAY_REJECTION_RESPONSES: Record<
   { status: number; message: string }
 > = {
   session_expired: {
-    status: 410,
+    status: HTTP_STATUS.gone,
     message: 'The play session has expired.',
   },
   chart_changed: {
-    status: 409,
+    status: HTTP_STATUS.conflict,
     message: 'The chart has changed since the play session was issued.',
   },
   chart_invalid: {
-    status: 500,
+    status: HTTP_STATUS.internalServerError,
     message: 'The stored chart is invalid.',
   },
   too_short: {
-    status: 422,
+    status: HTTP_STATUS.unprocessableContent,
     message: 'The result was submitted sooner than the play could finish.',
   },
   invalid_events: {
-    status: 400,
+    status: HTTP_STATUS.badRequest,
     message: 'The submitted input events are invalid.',
   },
   not_finished: {
-    status: 422,
+    status: HTTP_STATUS.unprocessableContent,
     message: 'The replayed play did not finish.',
   },
 };

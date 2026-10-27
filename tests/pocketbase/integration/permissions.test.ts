@@ -37,6 +37,12 @@ const PUBLIC_SCORE_FIELDS = [
 
 type Role = 'guest' | 'user' | 'editor';
 
+interface ServerOnlyRecord {
+  collection: string;
+  record: RecordModel;
+  forgedField: string;
+}
+
 let dataDir: string;
 let server: PocketBaseServer;
 let song: RecordModel;
@@ -46,6 +52,7 @@ let scoredChart: RecordModel;
 let currentScore: RecordModel;
 let playSession: RecordModel;
 let playSessionQuota: RecordModel;
+const achievementRecords: ServerOnlyRecord[] = [];
 let user: TestUser;
 let editor: TestUser;
 // Owns the public score, so no tested role is the owner who may view the expanded profile.
@@ -64,6 +71,69 @@ function clientFor(role: Role): PocketBase {
 
 function expectStatus(request: Promise<unknown>, status: number): Promise<void> {
   return expect(request).rejects.toMatchObject({ status });
+}
+
+// One valid body per server-only achievement collection; forgedField is what a client would most
+// want to rewrite.
+function achievementRecordBodies(userId: string) {
+  return [
+    {
+      collection: 'play_results',
+      forgedField: 'score',
+      body: {
+        user: userId,
+        session: `session-${userId}`,
+        song: song.id,
+        chart: chart.id,
+        difficulty: 'easy',
+        laneCount: 4,
+        chartRevision: String(chart['revision']),
+        constellation: 'gemini',
+        score: 900_000,
+        accuracy: 0.95,
+        maxCombo: 2,
+        counts: {
+          perfect: 2,
+          great: 0,
+          good: 0,
+          bad: 0,
+          miss: 0,
+        },
+        cleared: true,
+      },
+    },
+    {
+      collection: 'achievement_marks',
+      forgedField: 'chartRevision',
+      body: {
+        user: userId,
+        kind: 'ap',
+        song: song.id,
+        difficulty: 'easy',
+        chart: chart.id,
+        chartRevision: String(chart['revision']),
+        constellation: 'gemini',
+        source: 'play',
+      },
+    },
+    {
+      collection: 'song_masteries',
+      forgedField: 'song',
+      body: {
+        user: userId,
+        song: song.id,
+        kind: 'ap',
+      },
+    },
+    {
+      collection: 'earned_achievements',
+      forgedField: 'achievement',
+      body: {
+        user: userId,
+        achievement: 'FIRST_CLEAR',
+      },
+    },
+  ];
 }
 
 function scoreBody(userId: string, chartRevision: string) {
@@ -114,6 +184,13 @@ beforeAll(async () => {
     windowStartedAt: new Date(nowMs).toISOString(),
     issuedCount: 1,
   });
+  for (const { collection, forgedField, body } of achievementRecordBodies(user.id)) {
+    achievementRecords.push({
+      collection,
+      record: await superuser.collection(collection).create(body),
+      forgedField,
+    });
+  }
 });
 
 afterAll(async () => {
@@ -210,6 +287,23 @@ describe.each<Role>(['guest', 'user', 'editor'])('%s', (role) => {
     expect(stored['windowStartedAt']).toBe(playSessionQuota['windowStartedAt']);
   });
 
+  it('cannot reach the achievement record collections at all', async () => {
+    const pb = clientFor(role);
+    const ownerId = role === 'editor' ? editor.id : user.id;
+    const bodies = achievementRecordBodies(ownerId);
+    for (const [index, { collection, record, forgedField }] of achievementRecords.entries()) {
+      const records = pb.collection(collection);
+      await expectStatus(records.getList(), SUPERUSER_ONLY);
+      await expectStatus(records.getOne(record.id), SUPERUSER_ONLY);
+      await expectStatus(records.create(bodies[index]?.body), SUPERUSER_ONLY);
+      await expectStatus(records.update(record.id, { [forgedField]: 'forged' }), SUPERUSER_ONLY);
+      await expectStatus(records.delete(record.id), SUPERUSER_ONLY);
+      const stored = await server.superuser.collection(collection).getOne(record.id);
+      expect(stored[forgedField]).toEqual(record[forgedField]);
+      expect(await server.superuser.collection(collection).getFullList()).toHaveLength(1);
+    }
+  });
+
   it('sees only current-revision scores without sensitive fields', async () => {
     const pb = clientFor(role);
     const scores = await pb.collection('scores').getFullList({ expand: 'user' });
@@ -281,5 +375,43 @@ describe('isEditor', () => {
     );
     const stored = await server.superuser.collection('users').getOne(account.id);
     expect(stored['isEditor']).toBe(!isEditor);
+  });
+});
+
+describe('profile fields', () => {
+  it.each([
+    ['nickname', 'Forged'],
+    ['featuredAchievement', 'FIRST_CLEAR'],
+  ])('cannot set %s on sign-up', async (field, value) => {
+    const email = `signup-${field.toLowerCase()}@example.com`;
+    await expectStatus(
+      createClient(server.url)
+        .collection('users')
+        .create({
+          email,
+          password: 'signup-password',
+          passwordConfirm: 'signup-password',
+          [field]: value,
+        }),
+      CREATE_RULE_FAILED,
+    );
+    const filter = where(USERS, [{ email }]);
+    const users = await server.superuser.collection(USERS.name).getFullList({
+      filter: server.superuser.filter(filter.expression, filter.params),
+    });
+    expect(users).toEqual([]);
+  });
+
+  it.each([
+    ['nickname', 'Forged'],
+    ['featuredAchievement', 'FIRST_CLEAR'],
+  ])('cannot change %s through the users API', async (field, value) => {
+    const before = await server.superuser.collection('users').getOne(user.id);
+    await expectStatus(
+      user.client.collection('users').update(user.id, { [field]: value }),
+      UPDATE_RULE_FAILED,
+    );
+    const stored = await server.superuser.collection('users').getOne(user.id);
+    expect(stored[field]).toBe(before[field]);
   });
 });

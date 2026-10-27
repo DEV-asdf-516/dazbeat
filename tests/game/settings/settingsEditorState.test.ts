@@ -9,12 +9,14 @@ import {
   confirmReset,
   createSettingsEditorState,
   focusRow,
+  hoverRow,
   isRowShown,
   isWaitingKey,
   moveFocus,
   pressBack,
   requestReset,
   startWaiting,
+  unhoverRow,
 } from '../../../src/game/settings/settingsEditorState.js';
 import { getLanes } from '../../../src/rhythm/lanes.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
@@ -71,11 +73,11 @@ describe('moveFocus', () => {
     expect(moveFocus(initial(), 1).rowIndex).toBe(1);
   });
 
-  it('returns the same state at both ends', () => {
+  it('wraps around at both ends', () => {
     const first = initial();
-    expect(moveFocus(first, -1)).toBe(first);
     const last = focusRow(first, ROWS.length - 1);
-    expect(moveFocus(last, 1)).toBe(last);
+    expect(moveFocus(first, -1).rowIndex).toBe(ROWS.length - 1);
+    expect(moveFocus(last, 1).rowIndex).toBe(0);
   });
 });
 
@@ -271,10 +273,10 @@ describe('lane mode', () => {
     expect(moveFocus(next, -1).rowIndex).toBe(keyRowIndex(3));
   });
 
-  it('stops at the last shown row when only hidden rows follow', () => {
+  it('wraps past hidden rows to the first row when only hidden rows follow', () => {
     const rows: readonly SettingsRow[] = LANE_MODE_ROWS.slice(0, SCROLL_SPEED_INDEX);
     const lastKey = focusRow(createSettingsEditorState(rows, DEFAULT_SETTINGS), keyRowIndex(3));
-    expect(moveFocus(lastKey, 1)).toBe(lastKey);
+    expect(moveFocus(lastKey, 1).rowIndex).toBe(0);
   });
 
   it('throws for a hidden row index', () => {
@@ -326,5 +328,34 @@ describe('lane mode', () => {
     const cancelled = bindWaitingKey(waiting, 'Escape');
     expect(isWaitingKey(cancelled)).toBe(false);
     expect(cancelled.settings).toBe(waiting.settings);
+  });
+});
+
+describe('hover', () => {
+  it('hovers a row without changing focus or mode', () => {
+    const waiting = startWaiting(initial(), 1);
+    const state = hoverRow(waiting, 2);
+    expect(state.hoveredRowIndex).toBe(2);
+    expect(state.rowIndex).toBe(1);
+    expect(state.mode).toBe(waiting.mode);
+  });
+
+  it('returns the same state for the hovered row and for unhovering another row', () => {
+    const state = hoverRow(initial(), 2);
+    expect(hoverRow(state, 2)).toBe(state);
+    expect(unhoverRow(state, 1)).toBe(state);
+    expect(unhoverRow(state, 2).hoveredRowIndex).toBeNull();
+  });
+
+  it('releases the hover of a key row hidden by fewer lanes', () => {
+    const six = hoverRow(toSixLanes(laneModeInitial()), keyRowIndex(5));
+    const five = adjustRow(six, LANE_MODE_INDEX, -1, 'ko');
+    expect(five.settings.laneMode).toBe(5);
+    expect(five.hoveredRowIndex).toBeNull();
+  });
+
+  it('keeps the hover of a row that stays shown', () => {
+    const six = hoverRow(toSixLanes(laneModeInitial()), keyRowIndex(4));
+    expect(adjustRow(six, LANE_MODE_INDEX, -1, 'ko').hoveredRowIndex).toBe(keyRowIndex(4));
   });
 });

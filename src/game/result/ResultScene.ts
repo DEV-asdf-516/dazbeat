@@ -4,7 +4,6 @@ import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { PlayMode, ResultSceneData, SceneRequest, SongSelectRestore } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { getControlsGuide } from '../controlsGuide.js';
 import {
   CONSTELLATION_LOOKS,
   getConstellationLines,
@@ -16,22 +15,22 @@ import type {
   ConstellationPlan,
   ConstellationPoint,
 } from './resultConstellation.js';
-import { DifficultyTabs } from './DifficultyTabs.js';
+import { AchievementToasts } from './AchievementToasts.js';
+import { ResultController } from './ResultController.js';
 import { RESULT_NODE_ID, planResultFinish } from './resultFinish.js';
 import type { FinishAnchor, FinishCue } from './resultFinish.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import { stepChart } from '../../data/songs.js';
+import { findChart, stepChart } from '../../data/songs.js';
+import { requireDefined } from '../../invariant.js';
+import { DIFFICULTY_TAB_ITEMS, getDifficultyAppearance } from '../difficultyAppearance.js';
 import type { ChartRef, Song } from '../../data/songs.js';
 import { getRank } from '../../rhythm/rank.js';
 import { JUDGMENTS } from '../../rhythm/judgment.js';
+import type { Difficulty } from '../../rhythm/types.js';
 import { Button } from '../ui/Button.js';
-import {
-  addCelestialAtmosphere,
-  getCelestialAtmosphereUses,
-  getCelestialEntryTransitionUses,
-  playCelestialEntryTransition,
-} from '../celestial/celestialAtmosphere.js';
+import { TextTabs } from '../ui/TextTabs.js';
+import type { TextTabsLayout, TextTabsStyle } from '../ui/TextTabs.js';
 import {
   addCelestialSprite,
   playCelestialOnce,
@@ -42,8 +41,8 @@ import { JacketView, queueJacketLoads } from '../ui/jacket.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { MenuFocus } from '../ui/MenuFocus.js';
 import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
-import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
-import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
+import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
+import type { MenuAction } from '../ui/menuInput.js';
 import {
   COLORS,
   JUDGMENT_COLORS,
@@ -75,6 +74,18 @@ const JACKET_X_PX = RIGHT_X_PX - JACKET_SIZE_PX;
 const JACKET_Y_PX = TITLE_Y_PX;
 /** 판정 표와는 넓게, RETRY 와는 좁게 띄워 한 묶음으로 보이게 한다. */
 const DIFFICULTY_TABS_Y_PX = 808;
+const DIFFICULTY_TABS_LAYOUT: TextTabsLayout = {
+  xPx: RIGHT_X_PX,
+  align: 'right',
+  topYPx: DIFFICULTY_TABS_Y_PX,
+};
+const DIFFICULTY_TABS_STYLE: TextTabsStyle = {
+  /** 버튼보다 한 단계 작은 글자로, RETRY 에 딸린 고르개임을 보이게 한다. */
+  type: TYPE_SCALE.secondary,
+  selectedWeight: 700,
+  gapPx: 32,
+  normalColor: COLORS.textSecondary,
+};
 const BUTTON_Y_PX = 880;
 /** quiet 버튼의 안쪽 가로 여백만큼 밀어 TRACKS·RETRY 라벨을 정보 열 왼쪽 선·자켓 오른쪽 선에 맞춘다. */
 const QUIET_BUTTON_PADDING_X_PX = 16;
@@ -138,8 +149,7 @@ export class ResultScene extends Phaser.Scene {
     queueJacketLoads(this, this.jacketSongs);
     queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
-      ...getCelestialAtmosphereUses(this.celestial, 'result'),
-      ...getCelestialEntryTransitionUses(this.celestial),
+      ...getMenuSceneTextureUses(this.celestial, 'result'),
       this.celestial.atlasPresentations[RESULT_NODE_ID],
       ...this.celestial.nodeOnlyFinish.map((step) => step.presentation),
     ]);
@@ -147,16 +157,21 @@ export class ResultScene extends Phaser.Scene {
 
   create(data: ResultSceneData): void {
     this.exit = STAYING;
-    addCelestialAtmosphere(this, this.celestial, 'result');
-    const keyboard = requireKeyboard(this);
+    const chrome = new MenuSceneChrome(this, {
+      celestial: this.celestial,
+      screen: 'result',
+      readControlsMessages: () => this.i18n.t('controls', { returnObjects: true }),
+      readSettings: () => this.save.loadSettings(),
+    });
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
-    const { song, laneCount, difficulty, chartId, mode, result, restore } = data;
+    const { song, laneCount, difficulty, chartId, mode, result, newAchievements, restore } = data;
     let retryChart: ChartRef = {
       song,
       laneCount,
       difficulty,
       chartId,
     };
+    let hoveredDifficulty: Difficulty | null = null;
     const activate = (item: MenuItem): void => this.activate(item, retryChart, mode, restore);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
@@ -260,23 +275,47 @@ export class ResultScene extends Phaser.Scene {
         return;
       }
       retryChart = next;
-      tabs.render({
-        selected: next.difficulty,
-        song,
-        laneCount,
-      });
+      renderTabs();
     };
-    const tabs = new DifficultyTabs(
+    const tabs = new TextTabs(
       this,
-      RIGHT_X_PX,
-      DIFFICULTY_TABS_Y_PX,
+      DIFFICULTY_TAB_ITEMS,
+      DIFFICULTY_TABS_LAYOUT,
+      DIFFICULTY_TABS_STYLE,
       {
-        selected: difficulty,
-        song,
-        laneCount,
+        onSelect: (tabDifficulty) =>
+          selectRetryChart(
+            requireDefined(
+              findChart(song, laneCount, tabDifficulty),
+              'Missing chart for difficulty tab',
+              tabDifficulty,
+            ),
+          ),
+        onHover: (tabDifficulty) => {
+          if (hoveredDifficulty !== tabDifficulty) {
+            hoveredDifficulty = tabDifficulty;
+            renderTabs();
+          }
+        },
+        onUnhover: (tabDifficulty) => {
+          if (hoveredDifficulty === tabDifficulty) {
+            hoveredDifficulty = null;
+            renderTabs();
+          }
+        },
       },
-      selectRetryChart,
     );
+    const renderTabs = (): void =>
+      tabs.render(
+        (tabDifficulty) =>
+          getDifficultyAppearance({
+            isSelected: retryChart.difficulty === tabDifficulty,
+            isAvailable: findChart(song, laneCount, tabDifficulty) !== undefined,
+            isHovered: hoveredDifficulty === tabDifficulty,
+          }),
+        song.accentColor,
+      );
+    renderTabs();
     const songSelectButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, 0, {
       variant: 'quiet',
       focus: 'slide',
@@ -298,11 +337,13 @@ export class ResultScene extends Phaser.Scene {
       ],
       () => soundEffects.play('menuFocus'),
     );
-    const overlay = new ControlsOverlay(this, () =>
-      getControlsGuide(this.i18n.t('controls', { returnObjects: true }), this.save.loadSettings()),
-    );
-    addControlsEntry(this, LEFT_X_PX, SCREEN_LAYOUT.hintYPx, () => overlay.open());
-    playCelestialEntryTransition(this, this.celestial, rankBounds);
+    chrome.start(rankBounds, {
+      isLeaving: () => this.exit.kind === 'leaving',
+      handleMenuKey: (action) =>
+        this.handleMenuKey(action, menu, activate, (delta) =>
+          selectRetryChart(stepChart(retryChart, delta)),
+        ),
+    });
     const presentation = getResultPresentation(mode, result);
     this.playFinish(
       planResultFinish(
@@ -345,31 +386,29 @@ export class ResultScene extends Phaser.Scene {
     if (presentation.hasFullComboLabel) {
       this.revealFullCombo(rankBounds, song.accentColor);
     }
-    keyboard.on(
-      'keydown',
-      handleEachEventOnce((event: KeyboardEvent) =>
-        this.handleKey(event, menu, overlay, activate, (delta) =>
-          selectRetryChart(stepChart(retryChart, delta)),
-        ),
-      ),
+    const toasts = new AchievementToasts(this, this.i18n.t('achievements.unlocked'));
+    const controller = new ResultController(
+      {
+        showAchievements: (ids) =>
+          toasts.show(
+            ids.map((id) => ({
+              id,
+              name: this.i18n.t(`achievements.names.${id}`),
+            })),
+          ),
+      },
+      newAchievements,
     );
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
-  private handleKey(
-    event: KeyboardEvent,
+  private handleMenuKey(
+    action: MenuAction | null,
     menu: MenuFocus<MenuItem>,
-    overlay: ControlsOverlay,
     activate: (item: MenuItem) => void,
     stepRetryChart: (delta: 1 | -1) => void,
   ): void {
-    if (this.exit.kind === 'leaving') {
-      return;
-    }
-    if (overlay.handleKey(event)) {
-      return;
-    }
     // 곡 선택 화면처럼 ←→ 는 난이도, 메뉴 이동은 ↑↓ 다.
-    const action = readMenuAction(event);
     switch (action) {
       case 'left':
       case 'right':

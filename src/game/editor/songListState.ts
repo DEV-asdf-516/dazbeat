@@ -197,16 +197,6 @@ export function readSongListCommand(
   switch (key.code) {
     case 'Slash':
       return { kind: 'focusSearch' };
-    case 'KeyQ':
-      return {
-        kind: 'cycleCategory',
-        delta: -1,
-      };
-    case 'KeyE':
-      return {
-        kind: 'cycleCategory',
-        delta: 1,
-      };
     case 'KeyR':
       return { kind: 'retry' };
   }
@@ -225,6 +215,16 @@ export function readSongListCommand(
       return { kind: 'edit' };
     case 'back':
       return { kind: 'leave' };
+    case 'previousTab':
+      return {
+        kind: 'cycleCategory',
+        delta: -1,
+      };
+    case 'nextTab':
+      return {
+        kind: 'cycleCategory',
+        delta: 1,
+      };
     case 'left':
     case 'right':
     case null:

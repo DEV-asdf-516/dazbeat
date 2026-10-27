@@ -13,8 +13,9 @@ import {
 const USER: AuthUser = {
   id: 'user-1',
   email: 'player@example.com',
-  name: 'Player',
+  nickname: 'Player',
   isEditor: false,
+  featuredAchievement: null,
 };
 
 describe('createAccountState', () => {

@@ -1,12 +1,13 @@
+import type { AchievementId } from '../../data/achievements.js';
 import type { AccountState } from '../accountState.js';
 
 export type AccountPanel = UserPanel | CornerPanel;
 
 export interface UserPanel {
   readonly kind: 'user';
-  readonly name: string;
+  readonly nickname: string;
+  readonly featuredAchievement: AchievementId | null;
   readonly email: string;
-  readonly actionLabel: string;
 }
 
 export interface CornerPanel {
@@ -19,15 +20,14 @@ const CORNER_LABELS = {
   guest: 'SIGN IN WITH GOOGLE',
   signingIn: 'CANCEL',
 } as const;
-const SIGN_OUT_LABEL = 'SIGN OUT';
 
 export function getAccountPanel(account: AccountState, hasGoogleIcon: boolean): AccountPanel {
   if (account.kind === 'signedIn') {
     return {
       kind: 'user',
-      name: account.user.name,
+      nickname: account.user.nickname,
+      featuredAchievement: account.user.featuredAchievement,
       email: account.user.email,
-      actionLabel: SIGN_OUT_LABEL,
     };
   }
   return {

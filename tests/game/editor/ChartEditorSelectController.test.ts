@@ -46,9 +46,10 @@ function createServer(songs: readonly Song[]) {
   const recordIdOf = (song: Song): string =>
     `r${String(songs.length - songs.indexOf(song)).padStart(4, '0')}`;
   const loadBatch = (query: SongQuery, after: SongBatchCursor | null): Promise<SongBatch> => {
-    const matched = songs
+    const inQuery = songs
       .filter((song) => query.category === 'all' || song.category === query.category)
-      .filter((song) => song.title.includes(query.title))
+      .filter((song) => song.title.includes(query.title));
+    const matched = inQuery
       .filter((song) => after === null || recordIdOf(song) < after.recordId)
       .slice(0, PAGE_SIZE);
     const last = matched.at(-1);
@@ -61,6 +62,7 @@ function createServer(songs: readonly Song[]) {
               recordId: recordIdOf(last),
             }
           : null,
+      totalCount: after === null ? inQuery.length : null,
     };
     return new Promise<SongBatch>((resolve, reject) => {
       calls.push({

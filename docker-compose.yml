@@ -4,11 +4,10 @@ services:
     ports:
       - '127.0.0.1:8090:8090'
     volumes:
-      - pb_data:/pb/pb_data
+      - ./pocketbase/pb_data:/pb/pb_data
       - ./pocketbase/pb_migrations:/pb/pb_migrations
       - ./pocketbase/pb_hooks:/pb/pb_hooks
     environment:
       DAZBEAT_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-
-volumes:
-  pb_data: {}
+      DAZBEAT_GOOGLE_CLIENT_ID: ${DAZBEAT_GOOGLE_CLIENT_ID:-}
+      DAZBEAT_GOOGLE_CLIENT_SECRET: ${DAZBEAT_GOOGLE_CLIENT_SECRET:-}

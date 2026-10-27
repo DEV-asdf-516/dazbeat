@@ -4,7 +4,7 @@ import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { ChartRecord } from '../../storage/chartRecords.js';
 import type { CelestialStaticId } from '../celestial/celestialCatalog.js';
 import { getDifficultyAppearance } from '../difficultyAppearance.js';
-import type { DifficultyAppearance } from '../difficultyAppearance.js';
+import type { TabAppearance } from '../ui/TextTabs.js';
 import { requireDefined } from '../../invariant.js';
 import { clamp } from '../../range.js';
 import type { SongFeed, SongFeedStatus } from '../SongFeed.js';
@@ -19,11 +19,21 @@ export type SongSelection =
       readonly chart: ChartRef | null;
     };
 
+export const SONG_SELECT_ACTIONS = ['random', 'play'] as const;
+export type SongSelectAction = (typeof SONG_SELECT_ACTIONS)[number];
+
+export type SongSelectHover =
+  | { readonly kind: 'filter'; readonly filter: SongFilter }
+  | { readonly kind: 'row'; readonly slot: number }
+  | { readonly kind: 'action'; readonly action: SongSelectAction }
+  | { readonly kind: 'difficulty'; readonly difficulty: Difficulty };
+
 export interface SongSelectState {
   readonly filter: SongFilter;
   readonly songs: readonly Song[];
   readonly laneCount: LaneCount;
   readonly current: SongSelection;
+  readonly hover: SongSelectHover | null;
 }
 
 export type SongRowView =
@@ -51,6 +61,7 @@ export function createSongSelectState(
       songs,
       laneCount,
       current: selectAt(songs, laneCount, 0, null),
+      hover: null,
     };
   }
   if (songs.length === 0) {
@@ -62,6 +73,7 @@ export function createSongSelectState(
         kind: 'none',
         difficulty: target.difficulty,
       },
+      hover: null,
     };
   }
   const found = songs.findIndex((song) => song.id === target.songId);
@@ -75,6 +87,7 @@ export function createSongSelectState(
       found === -1 ? clamp(target.index, 0, songs.length - 1) : found,
       target.difficulty,
     ),
+    hover: null,
   };
 }
 
@@ -130,6 +143,11 @@ export function getSongSelectNotice(
   }
 }
 
+// 빈 목록의 로딩은 notice 가 알리고, 곡이 보이는 동안 다음 배치를 받을 때만 목록 아래에 따로 알린다.
+export function isLoadingMoreSongs(loadedCount: number, status: SongFeedStatus): boolean {
+  return loadedCount > 0 && status === 'loading';
+}
+
 export function getPlayableSelection(state: SongSelectState): ChartRef | null {
   return state.current.kind === 'song' ? state.current.chart : null;
 }
@@ -178,7 +196,7 @@ export function getSongRowNodeId(
 export interface SongPage {
   readonly startIndex: number;
   readonly pageNumber: number;
-  readonly pageCount: number;
+  readonly loadedPageCount: number;
   readonly selectedSlot: number | null;
 }
 
@@ -190,7 +208,7 @@ export function getSongPage(state: SongSelectState, rowsPerPage: number): SongPa
   return {
     startIndex,
     pageNumber: pageIndex + 1,
-    pageCount: Math.ceil(state.songs.length / rowsPerPage),
+    loadedPageCount: Math.ceil(state.songs.length / rowsPerPage),
     selectedSlot: current.kind === 'song' ? songIndex - startIndex : null,
   };
 }
@@ -234,7 +252,7 @@ export function getSongDifficultyAppearance(
   state: SongSelectState,
   difficulty: Difficulty,
   isHovered: boolean,
-): DifficultyAppearance {
+): TabAppearance {
   const { current } = state;
   return getDifficultyAppearance({
     isSelected: current.kind === 'song' && difficulty === current.chart?.difficulty,
@@ -242,6 +260,19 @@ export function getSongDifficultyAppearance(
       current.kind === 'song' && findChart(current.song, state.laneCount, difficulty) !== undefined,
     isHovered,
   });
+}
+
+/** 고른 필터는 hover 보다 먼저 본다. */
+export function getFilterAppearance(state: SongSelectState, filter: SongFilter): TabAppearance {
+  if (state.filter === filter) {
+    return 'selected';
+  }
+  return isSameHover(state.hover, {
+    kind: 'filter',
+    filter,
+  })
+    ? 'emphasized'
+    : 'normal';
 }
 
 export function moveSong(state: SongSelectState, delta: number): SongSelectState {
@@ -265,6 +296,10 @@ export function selectSong(state: SongSelectState, index: number): SongSelectSta
 
 export function canSelectRandomSong(state: SongSelectState): boolean {
   return getRandomCandidates(state).length > 0;
+}
+
+export function isActionEnabled(state: SongSelectState, action: SongSelectAction): boolean {
+  return action === 'random' ? canSelectRandomSong(state) : getPlayableSelection(state) !== null;
 }
 
 export function selectRandomSong(state: SongSelectState, random: () => number): SongSelectState {
@@ -309,6 +344,7 @@ export function withFilter(
     songs,
     laneCount: state.laneCount,
     current: selectAt(songs, state.laneCount, 0, getSelectedDifficulty(state.current)),
+    hover: state.hover,
   };
 }
 
@@ -329,9 +365,54 @@ export function withSongs(state: SongSelectState, songs: readonly Song[]): SongS
   };
 }
 
+export function setHover(state: SongSelectState, target: SongSelectHover): SongSelectState {
+  return isSameHover(state.hover, target)
+    ? state
+    : {
+        ...state,
+        hover: target,
+      };
+}
+
+export function clearHover(state: SongSelectState, target: SongSelectHover): SongSelectState {
+  return isSameHover(state.hover, target)
+    ? {
+        ...state,
+        hover: null,
+      }
+    : state;
+}
+
+// 빈 줄과 누를 수 없게 된 RANDOM, PLAY 는 씬이 입력을 꺼 Phaser 가 POINTER_OUT 을 보내지 않으므로 hover 를 여기서 푼다.
+export function releaseHover(state: SongSelectState, rowsPerPage: number): SongSelectState {
+  const { hover } = state;
+  if (hover === null) {
+    return state;
+  }
+  switch (hover.kind) {
+    case 'filter':
+    case 'difficulty':
+      return state;
+    case 'row':
+      return getSongPage(state, rowsPerPage).startIndex + hover.slot >= state.songs.length
+        ? {
+            ...state,
+            hover: null,
+          }
+        : state;
+    case 'action':
+      return isActionEnabled(state, hover.action)
+        ? state
+        : {
+            ...state,
+            hover: null,
+          };
+  }
+}
+
 export function isOnLastLoadedPage(state: SongSelectState, rowsPerPage: number): boolean {
-  const { pageNumber, pageCount } = getSongPage(state, rowsPerPage);
-  return pageNumber >= pageCount;
+  const { pageNumber, loadedPageCount } = getSongPage(state, rowsPerPage);
+  return pageNumber >= loadedPageCount;
 }
 
 function withChart(
@@ -379,6 +460,22 @@ function getRandomCandidates(state: SongSelectState): number[] {
   }
   const { current } = state;
   return playable.filter((index) => current.kind !== 'song' || index !== current.index);
+}
+
+function isSameHover(hover: SongSelectHover | null, target: SongSelectHover): boolean {
+  if (hover === null) {
+    return false;
+  }
+  switch (hover.kind) {
+    case 'filter':
+      return target.kind === 'filter' && target.filter === hover.filter;
+    case 'row':
+      return target.kind === 'row' && target.slot === hover.slot;
+    case 'action':
+      return target.kind === 'action' && target.action === hover.action;
+    case 'difficulty':
+      return target.kind === 'difficulty' && target.difficulty === hover.difficulty;
+  }
 }
 
 function getSelectedDifficulty(current: SongSelection): Difficulty | null {

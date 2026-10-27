@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 
-export type MenuAction = 'up' | 'down' | 'left' | 'right' | 'confirm' | 'back';
+export type MenuAction =
+  'up' | 'down' | 'left' | 'right' | 'previousTab' | 'nextTab' | 'confirm' | 'back';
 
 export function readMenuAction(event: Pick<KeyboardEvent, 'code' | 'repeat'>): MenuAction | null {
   switch (event.code) {
@@ -16,6 +17,10 @@ export function readMenuAction(event: Pick<KeyboardEvent, 'code' | 'repeat'>): M
     case 'ArrowRight':
     case 'KeyD':
       return 'right';
+    case 'KeyQ':
+      return 'previousTab';
+    case 'KeyE':
+      return 'nextTab';
     case 'Enter':
       return event.repeat ? null : 'confirm';
     case 'Escape':

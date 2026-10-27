@@ -1,7 +1,7 @@
 import { copyFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type PocketBase from 'pocketbase';
-import type { CollectionModel } from 'pocketbase';
+import type { CollectionModel, RecordModel } from 'pocketbase';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   REPO_MIGRATIONS_DIR,
@@ -51,6 +51,30 @@ const QUERY_INDEXES = [
     name: 'idx_play_sessions_chart',
   },
 ];
+const CATEGORY_INDEX_MIGRATION = '1792901100_add_songs_category_index.js';
+const ACHIEVEMENT_MIGRATIONS = [
+  '1792900800_create_achievement_records.js',
+  '1792900900_backfill_achievement_marks.js',
+  '1792901000_add_users_profile_fields.js',
+];
+const ACHIEVEMENT_COLLECTIONS = [
+  'play_results',
+  'achievement_marks',
+  'song_masteries',
+  'earned_achievements',
+];
+const MARK_FIELDS = [
+  'user',
+  'kind',
+  'song',
+  'difficulty',
+  'chart',
+  'chartRevision',
+  'constellation',
+  'source',
+];
+const PROFILE_FIELDS = ['nickname', 'featuredAchievement'];
+const DEFAULT_NICKNAME = /^과즙이\d{4}$/;
 const DAZBEAT_LABELS = ['POST /api/dazbeat/play-sessions', 'POST /api/dazbeat/play-sessions/'];
 
 const tempDirs: string[] = [];
@@ -114,6 +138,7 @@ describe('migrations', () => {
       'CREATE UNIQUE INDEX idx_songs_key ON songs (key)',
       'CREATE INDEX `idx_songs_released_on_id` ON `songs` (releasedOn DESC, id DESC)',
       'CREATE INDEX `idx_songs_title_nocase` ON `songs` (title COLLATE NOCASE)',
+      'CREATE INDEX `idx_songs_category_released_on_id` ON `songs` (category, releasedOn DESC, id DESC)',
     ]);
 
     const charts = await collections.getOne('charts');
@@ -361,13 +386,15 @@ describe('migrations', () => {
   });
 
   it("apply and roll back this feature's migrations on existing data", async () => {
+    // The category index is built on releasedOn, so it cannot exist before this feature either.
+    const rolledBackMigrations = [...FEATURE_MIGRATIONS, CATEGORY_INDEX_MIGRATION];
     const dataDir = await tempDir('migrations-rollback');
     const oldMigrationsDir = await tempDir('migrations-before-feature');
     const emptyHooksDir = await tempDir('hooks-empty');
     const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
     await Promise.all(
       repoMigrations
-        .filter((file) => !FEATURE_MIGRATIONS.includes(file))
+        .filter((file) => !rolledBackMigrations.includes(file))
         .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
     );
     const startOld = () =>
@@ -409,7 +436,7 @@ describe('migrations', () => {
     await expectExistingSong(upgraded.superuser);
     await upgraded.stop();
 
-    await migrateDown(dataDir, FEATURE_MIGRATIONS.length);
+    await migrateDown(dataDir, rolledBackMigrations.length);
     // The repository directory would re-apply the reverted migrations on serve.
     const rolledBack = await startOld();
     expect(await hasReleasedOn(rolledBack.superuser)).toBe(false);
@@ -420,5 +447,227 @@ describe('migrations', () => {
     const reapplied = await start({ dataDir });
     expect(await hasReleasedOn(reapplied.superuser)).toBe(true);
     expect(await findQueryIndexes(reapplied.superuser)).toEqual(allIndexNames);
+  });
+
+  it('backfill marks and default nicknames for existing data and roll them back', async () => {
+    const dataDir = await tempDir('migrations-achievements');
+    const oldMigrationsDir = await tempDir('migrations-before-achievements');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => !ACHIEVEMENT_MIGRATIONS.includes(file))
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+
+    const oldServer = await startOld();
+    const { superuser: oldSuperuser } = oldServer;
+    await excludeLoopbackFromRateLimits(oldSuperuser);
+    const user = await createUser(oldServer, 'scorer@example.com');
+    const otherUser = await createUser(oldServer, 'other@example.com');
+    const oldUsers = await oldSuperuser.collections.getOne('users');
+    const song = await createSong(oldSuperuser, 'backfill');
+    const easy = await createChart(
+      oldSuperuser,
+      song.id,
+      'easy',
+      fakeChartData('backfill', 'easy'),
+    );
+    const expert = await createChart(
+      oldSuperuser,
+      song.id,
+      'expert',
+      fakeChartData('backfill', 'expert'),
+    );
+    const counts = (great: number, good: number) => ({
+      perfect: 10,
+      great,
+      good,
+      bad: 0,
+      miss: 0,
+    });
+    const scores = [
+      {
+        chart: easy,
+        chartRevision: 'all',
+        accuracy: 0.97,
+        cleared: true,
+        counts: counts(0, 0),
+      },
+      {
+        chart: easy,
+        chartRevision: 'fc',
+        accuracy: 0.9,
+        cleared: true,
+        counts: counts(2, 0),
+      },
+      {
+        chart: expert,
+        chartRevision: 's',
+        accuracy: 0.95,
+        cleared: true,
+        counts: counts(1, 1),
+      },
+      {
+        chart: expert,
+        chartRevision: 'failed',
+        accuracy: 0.5,
+        cleared: false,
+        counts: counts(0, 0),
+      },
+    ];
+    for (const { chart, ...score } of scores) {
+      await oldSuperuser.collection('scores').create({
+        user: user.id,
+        chart: chart.id,
+        score: 900_000,
+        maxCombo: 10,
+        ...score,
+      });
+    }
+    await oldServer.stop();
+
+    const mark = (kind: string, chart: RecordModel, chartRevision: string) => ({
+      user: user.id,
+      kind,
+      song: song.id,
+      difficulty: String(chart['difficulty']),
+      chart: chart.id,
+      chartRevision,
+      constellation: '',
+      source: 'backfill',
+    });
+    const expectedMarks = [
+      mark('clear', easy, 'all'),
+      mark('s', easy, 'all'),
+      mark('fc', easy, 'all'),
+      mark('ap', easy, 'all'),
+      mark('clear', easy, 'fc'),
+      mark('fc', easy, 'fc'),
+      mark('clear', expert, 's'),
+      mark('s', expert, 's'),
+    ];
+    const findMarks = async (superuser: PocketBase) =>
+      (await superuser.collection('achievement_marks').getFullList()).map((record) =>
+        Object.fromEntries(MARK_FIELDS.map((field) => [field, String(record[field])])),
+      );
+    const findCollectionNames = async (superuser: PocketBase): Promise<string[]> =>
+      (await superuser.collections.getFullList())
+        .map(({ name }) => name)
+        .filter((name) => ACHIEVEMENT_COLLECTIONS.includes(name))
+        .sort();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await findMarks(upgraded.superuser)).toEqual(expect.arrayContaining(expectedMarks));
+    expect(await findMarks(upgraded.superuser)).toHaveLength(expectedMarks.length);
+    expect(await upgraded.superuser.collection('play_results').getFullList()).toEqual([]);
+    const nicknames = await Promise.all(
+      [user, otherUser].map(async ({ id }) =>
+        String((await upgraded.superuser.collection('users').getOne(id))['nickname']),
+      ),
+    );
+    for (const nickname of nicknames) {
+      expect(nickname).toMatch(DEFAULT_NICKNAME);
+    }
+    expect(new Set(nicknames).size).toBe(nicknames.length);
+    const upgradedUsers = await upgraded.superuser.collections.getOne('users');
+    expect(fieldSummary(upgradedUsers)).toEqual(
+      expect.arrayContaining([
+        {
+          name: 'nickname',
+          type: 'text',
+          required: true,
+        },
+        {
+          name: 'featuredAchievement',
+          type: 'text',
+          required: false,
+        },
+      ]),
+    );
+    expect(upgradedUsers.indexes).toContain(
+      'CREATE UNIQUE INDEX `idx_users_nickname_nocase` ON `users` (nickname COLLATE NOCASE)',
+    );
+    await upgraded.stop();
+
+    await migrateDown(dataDir, 1);
+    const withoutProfile = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    const rolledBackUsers = await withoutProfile.superuser.collections.getOne('users');
+    expect(
+      fieldSummary(rolledBackUsers).filter(({ name }) => PROFILE_FIELDS.includes(name)),
+    ).toEqual([]);
+    expect(rolledBackUsers.indexes).toEqual(oldUsers.indexes);
+    expect(rolledBackUsers).toMatchObject({
+      createRule: oldUsers.createRule,
+      updateRule: oldUsers.updateRule,
+    });
+    await withoutProfile.stop();
+
+    await migrateDown(dataDir, 1);
+    const withoutBackfill = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await findMarks(withoutBackfill.superuser)).toEqual([]);
+    await withoutBackfill.stop();
+
+    await migrateDown(dataDir, 1);
+    const rolledBack = await startOld();
+    expect(await findCollectionNames(rolledBack.superuser)).toEqual([]);
+    await rolledBack.stop();
+
+    const reapplied = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await findCollectionNames(reapplied.superuser)).toEqual(
+      [...ACHIEVEMENT_COLLECTIONS].sort(),
+    );
+    expect(await findMarks(reapplied.superuser)).toHaveLength(expectedMarks.length);
+  });
+
+  it('add the songs category index and remove it on rollback', async () => {
+    const dataDir = await tempDir('migrations-category-index');
+    const oldMigrationsDir = await tempDir('migrations-before-category-index');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file !== CATEGORY_INDEX_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const hasCategoryIndex = async (superuser: PocketBase): Promise<boolean> =>
+      (await superuser.collections.getOne('songs')).indexes.some((index) =>
+        index.includes('idx_songs_category_released_on_id'),
+      );
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await hasCategoryIndex(upgraded.superuser)).toBe(true);
+    await upgraded.stop();
+
+    await migrateDown(dataDir, 1);
+    const rolledBack = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await hasCategoryIndex(rolledBack.superuser)).toBe(false);
   });
 });
