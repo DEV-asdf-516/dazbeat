@@ -26,5 +26,5 @@
     "vite.hooks.config.ts",
     "vitest.integration.config.ts"
   ],
-  "exclude": ["node_modules", "dist", "coverage", ".agent-work"]
+  "exclude": ["node_modules", "dist", "coverage", ".agent-work", "pocketbase/pb_data"]
 }
