@@ -46,6 +46,8 @@ const USER_RECORD: RecordModel = {
   collectionName: 'users',
   email: 'player@example.com',
   name: 'Player',
+  nickname: 'Star',
+  featuredAchievement: '',
   avatar: 'avatar.png',
   verified: true,
   isEditor: false,
@@ -151,8 +153,11 @@ describe('submitPlay', () => {
     });
   });
 
-  it('resolves the verified result', async () => {
-    respondWith(200, verifiedResponse);
+  it('resolves the verified result with its new achievements', async () => {
+    respondWith(200, {
+      ...verifiedResponse,
+      newAchievements: ['FIRST_FINISH', 'FIRST_CLEAR'],
+    });
 
     await expect(submitPlay(signedInClient(), 'session1', submission)).resolves.toEqual({
       score: 1000000,
@@ -160,7 +165,39 @@ describe('submitPlay', () => {
       maxCombo: 1,
       cleared: true,
       bestScore: 1000000,
+      newAchievements: ['FIRST_FINISH', 'FIRST_CLEAR'],
     });
+  });
+
+  it('drops unknown achievement IDs with a warning and keeps the result', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    respondWith(200, {
+      ...verifiedResponse,
+      newAchievements: ['FIRST_FINISH', 'COMBO_100', 'PLAY_3'],
+    });
+
+    const play = await submitPlay(signedInClient(), 'session1', submission);
+
+    expect(play.newAchievements).toEqual(['FIRST_FINISH', 'PLAY_3']);
+    expect(play.score).toBe(1000000);
+    expect(warn).toHaveBeenCalledWith(expect.any(String), 'COMBO_100');
+  });
+
+  it('resolves no new achievements when the response has no newAchievements field', async () => {
+    respondWith(200, verifiedResponse);
+
+    const play = await submitPlay(signedInClient(), 'session1', submission);
+
+    expect(play.newAchievements).toEqual([]);
+  });
+
+  it('rejects when newAchievements is not a list of strings', async () => {
+    respondWith(200, {
+      ...verifiedResponse,
+      newAchievements: [1],
+    });
+
+    await expect(submitPlay(signedInClient(), 'session1', submission)).rejects.toThrow();
   });
 
   it('rejects when the response is not a verified result', async () => {

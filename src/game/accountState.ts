@@ -1,4 +1,5 @@
 import type { AuthUser } from '../data/account.js';
+import { isShallowEqual } from '../shallowEqual.js';
 
 export type AccountState =
   | { readonly kind: 'guest'; readonly hasSignInFailed: boolean }
@@ -10,6 +11,7 @@ export interface AccountAuth {
   signIn(): Promise<AuthUser | null>;
   cancelSignIn(): void;
   signOut(): void;
+  refresh(): Promise<AuthUser | null>;
 }
 
 function guest(hasSignInFailed: boolean): AccountState {
@@ -59,6 +61,27 @@ export function cancelSignIn(current: AccountState, attempt: AccountState): Acco
 
 export function failSignIn(current: AccountState, attempt: AccountState): AccountState {
   return whenCurrent(current, attempt, guest(true));
+}
+
+/** 거절(`null`)은 저장된 세션이 무효가 된 것이라 실패 안내 없이 게스트로 둔다. */
+export function completeRefresh(
+  current: AccountState,
+  attempt: AccountState,
+  user: AuthUser | null,
+): AccountState {
+  if (current !== attempt) {
+    return current;
+  }
+  if (user === null) {
+    return guest(false);
+  }
+  if (attempt.kind === 'signedIn' && isShallowEqual(attempt.user, user)) {
+    return current;
+  }
+  return {
+    kind: 'signedIn',
+    user,
+  };
 }
 
 export function canOpenChartEditor(user: AuthUser | null): boolean {

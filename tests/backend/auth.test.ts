@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cancelSignInWithGoogle,
   getCurrentUser,
+  refreshCurrentUser,
   signInWithGoogle,
   signOut,
 } from '../../src/backend/auth.js';
@@ -14,6 +15,8 @@ const USER_RECORD_WITHOUT_IS_EDITOR: RecordModel = {
   collectionName: 'users',
   email: 'player@example.com',
   name: 'Player',
+  nickname: 'Star',
+  featuredAchievement: '',
   avatar: 'avatar.png',
   verified: true,
 };
@@ -69,16 +72,29 @@ describe('getCurrentUser', () => {
     expect(getCurrentUser(pb)).toBeNull();
   });
 
-  it('returns only id, email, name and isEditor of a valid auth record', () => {
+  it('returns only id, email, nickname, isEditor and the featured achievement of a valid auth record', () => {
     const pb = new PocketBase('http://pb.test');
     pb.authStore.save(makeToken(nowSeconds() + 3600), USER_RECORD);
 
     expect(getCurrentUser(pb)).toEqual({
       id: 'user1',
       email: 'player@example.com',
-      name: 'Player',
+      nickname: 'Star',
       isEditor: false,
+      featuredAchievement: null,
     });
+  });
+
+  it('reads an unknown featured achievement as none and warns', () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(makeToken(nowSeconds() + 3600), {
+      ...USER_RECORD,
+      featuredAchievement: 'RETIRED_ACHIEVEMENT',
+    });
+
+    expect(getCurrentUser(pb)?.featuredAchievement).toBeNull();
+    expect(consoleWarn).toHaveBeenCalledOnce();
   });
 
   it('returns null when the token is expired', () => {
@@ -92,10 +108,20 @@ describe('getCurrentUser', () => {
     const pb = new PocketBase('http://pb.test');
     pb.authStore.save(makeToken(nowSeconds() + 3600), {
       ...USER_RECORD,
-      name: 7,
+      nickname: 7,
     });
 
-    expect(() => getCurrentUser(pb)).toThrow('Invalid users record user1: name');
+    expect(() => getCurrentUser(pb)).toThrow('Invalid users record user1: nickname');
+  });
+
+  it('throws when the auth record has no nickname', () => {
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(makeToken(nowSeconds() + 3600), {
+      ...USER_RECORD,
+      nickname: undefined,
+    });
+
+    expect(() => getCurrentUser(pb)).toThrow('Invalid users record user1: nickname');
   });
 
   it('returns isEditor true when the auth record is an editor', () => {
@@ -126,6 +152,122 @@ describe('getCurrentUser', () => {
   });
 });
 
+function jsonResponse(status: number, body: object): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+describe('refreshCurrentUser', () => {
+  it('sends the stored token to auth-refresh, stores the new session and returns its user', async () => {
+    const pb = new PocketBase('http://pb.test');
+    const storedToken = makeToken(nowSeconds() + 3600);
+    const refreshedToken = makeToken(nowSeconds() + 7200);
+    pb.authStore.save(storedToken, USER_RECORD);
+    const fetchSpy = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        jsonResponse(200, {
+          token: refreshedToken,
+          record: {
+            ...USER_RECORD,
+            nickname: 'Nova',
+            isEditor: true,
+            featuredAchievement: 'FIRST_CLEAR',
+          },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const user = await refreshCurrentUser(pb);
+
+    const expectedUser = {
+      id: 'user1',
+      email: 'player@example.com',
+      nickname: 'Nova',
+      isEditor: true,
+      featuredAchievement: 'FIRST_CLEAR',
+    };
+    expect(user).toEqual(expectedUser);
+    const [url, init] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toEqual(
+      expect.stringContaining('http://pb.test/api/collections/users/auth-refresh'),
+    );
+    expect(init?.method).toBe('POST');
+    expect(new Headers(init?.headers).get('Authorization')).toBe(storedToken);
+    expect(pb.authStore.token).toBe(refreshedToken);
+    expect(getCurrentUser(pb)).toEqual(expectedUser);
+  });
+
+  it.each([401, 403])('clears the stored session and returns null on %s', async (status) => {
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(makeToken(nowSeconds() + 3600), USER_RECORD);
+    vi.stubGlobal('fetch', () => Promise.resolve(jsonResponse(status, { message: 'rejected' })));
+
+    await expect(refreshCurrentUser(pb)).resolves.toBeNull();
+    expect(getCurrentUser(pb)).toBeNull();
+  });
+
+  it.each([
+    ['a network failure', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['a server error', () => Promise.resolve(jsonResponse(500, { message: 'oops' }))],
+  ])('rejects and keeps the stored session on %s', async (_label, fetchStub) => {
+    const pb = new PocketBase('http://pb.test');
+    const storedToken = makeToken(nowSeconds() + 3600);
+    pb.authStore.save(storedToken, USER_RECORD);
+    const user = getCurrentUser(pb);
+    vi.stubGlobal('fetch', fetchStub);
+
+    await expect(refreshCurrentUser(pb)).rejects.toThrow();
+    expect(pb.authStore.token).toBe(storedToken);
+    expect(getCurrentUser(pb)).toEqual(user);
+  });
+
+  it('rejects when the refreshed record cannot be parsed', async () => {
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(makeToken(nowSeconds() + 3600), USER_RECORD);
+    const invalidRecord = { ...USER_RECORD };
+    invalidRecord.nickname = 42;
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        jsonResponse(200, {
+          token: makeToken(nowSeconds() + 7200),
+          record: invalidRecord,
+        }),
+      ),
+    );
+
+    await expect(refreshCurrentUser(pb)).rejects.toThrow();
+  });
+
+  it('rejects and leaves the store empty when signing out during the refresh', async () => {
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(makeToken(nowSeconds() + 3600), USER_RECORD);
+    vi.stubGlobal('fetch', pendingUntilAbortFetch);
+    const refresh = refreshCurrentUser(pb);
+
+    signOut(pb);
+
+    await expect(refresh).rejects.toThrow();
+    expect(pb.authStore.token).toBe('');
+    expect(getCurrentUser(pb)).toBeNull();
+  });
+
+  it('rejects when a Google sign-in starts during the refresh', async () => {
+    stubBrowser();
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(makeToken(nowSeconds() + 3600), USER_RECORD);
+    const refresh = refreshCurrentUser(pb);
+
+    const signIn = signInWithGoogle(pb, new EventTarget());
+
+    await expect(refresh).rejects.toThrow();
+    cancelSignInWithGoogle(pb);
+    await signIn;
+  });
+});
+
 describe('signOut', () => {
   it('clears the current user', () => {
     const pb = new PocketBase('http://pb.test');
@@ -149,8 +291,9 @@ describe('signInWithGoogle', () => {
     await expect(signInWithGoogle(pb, new EventTarget())).resolves.toEqual({
       id: 'user1',
       email: 'player@example.com',
-      name: 'Player',
+      nickname: 'Star',
       isEditor: false,
+      featuredAchievement: null,
     });
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ provider: 'google' }));
   });
