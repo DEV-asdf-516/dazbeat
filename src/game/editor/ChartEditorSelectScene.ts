@@ -21,7 +21,14 @@ import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
 import { handleEachEventOnce, requireKeyboard } from '../ui/menuInput.js';
 import { SEGMENTED_CONTROL_HEIGHT_PX, SegmentedControl } from './SegmentedControl.js';
 import { SongListPanel } from './SongListPanel.js';
-import { SongSearchInput } from './SongSearchInput.js';
+import { TextInput } from '../ui/TextInput.js';
+import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
+import { NoticeText } from '../ui/NoticeText.js';
+import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import {
+  queueCelestialTextures,
+  registerCelestialAnimations,
+} from '../celestial/celestialSprites.js';
 import { addKeyHintRow } from '../ui/keyHintView.js';
 import type { SongListFrame } from './SongListPanel.js';
 import { CELESTIAL_COLORS, typeStyle } from '../ui/theme.js';
@@ -37,6 +44,7 @@ const LIST_LEFT_PX = (GAME_WIDTH - LIST_WIDTH_PX) / 2;
 const FILTER_TOP_Y_PX = LAYOUT.topBar.heightPx + LIST_MARGIN_PX;
 const FILTER_WIDTH_PX = 360;
 const FILTER_LIST_GAP_PX = 16;
+const SEARCH_MAX_LENGTH = 100;
 const LIST_TOP_Y_PX = FILTER_TOP_Y_PX + SEGMENTED_CONTROL_HEIGHT_PX + FILTER_LIST_GAP_PX;
 const STATUS_RETRY_GAP_PX = 16;
 const LIST_BOTTOM_Y_PX = LAYOUT.bottomBar.topYPx - LIST_MARGIN_PX;
@@ -58,8 +66,15 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     private readonly feeds: SongFeeds,
     private readonly auth: AccountAuth,
     private readonly i18n: I18n,
+    private readonly celestial: CelestialCatalog,
   ) {
     super(SCENE_KEYS.chartEditorSelect);
+  }
+
+  preload(): void {
+    queueCelestialTextures(this, this.celestial, [
+      this.celestial.atlasPresentations[LOADING_STAR_ID],
+    ]);
   }
 
   create(data: ChartEditorSelectSceneData): void {
@@ -68,6 +83,7 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       startScene(this, 'main');
       return;
     }
+    registerCelestialAnimations(this, this.celestial);
     this.exit = STAYING;
     this.createChrome();
     const centerYPx = LAYOUT.topBar.centerYPx;
@@ -84,7 +100,7 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       })),
       (category) => controller.selectCategory(category),
     );
-    const search = new SongSearchInput(
+    const search = new TextInput(
       this,
       {
         leftPx: LIST_LEFT_PX + FILTER_WIDTH_PX + FILTER_LIST_GAP_PX,
@@ -92,7 +108,12 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         widthPx: LIST_WIDTH_PX - FILTER_WIDTH_PX - FILTER_LIST_GAP_PX,
         heightPx: SEGMENTED_CONTROL_HEIGHT_PX,
       },
-      this.i18n.t('chartEditorSelect.searchPlaceholder'),
+      {
+        label: this.i18n.t('chartEditorSelect.searchPlaceholder'),
+        maxLength: SEARCH_MAX_LENGTH,
+        type: EDITOR_TYPE_SCALE.body,
+        enterKeyHint: 'search',
+      },
     );
     // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, () => search.blur());
@@ -106,14 +127,18 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         controller.scroll(read.rows);
       },
     });
-    const noticeText = this.add
-      .text(
-        LIST_LEFT_PX + LIST_WIDTH_PX / 2,
-        (LIST_TOP_Y_PX + LIST_BOTTOM_Y_PX) / 2,
-        '',
-        typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
-      )
-      .setOrigin(0.5, 0.5);
+    const notice = new NoticeText(
+      this,
+      this.celestial,
+      this.add
+        .text(
+          LIST_LEFT_PX + LIST_WIDTH_PX / 2,
+          (LIST_TOP_Y_PX + LIST_BOTTOM_Y_PX) / 2,
+          '',
+          typeStyle(EDITOR_TYPE_SCALE.body, CELESTIAL_COLORS.textSecondary),
+        )
+        .setOrigin(0.5, 0.5),
+    );
     const retryButton = createAuxiliaryButton(this, 0, centerYPx, {
       label: 'RETRY',
       onActivate: () => controller.retry(),
@@ -139,9 +164,10 @@ export class ChartEditorSelectScene extends Phaser.Scene {
           topIndex: view.topIndex,
           songCount: view.songCount,
         });
-        noticeText
-          .setText(view.notice === null ? '' : this.translateNotice(view.notice))
-          .setVisible(view.notice !== null);
+        notice.show(
+          view.notice === null ? '' : this.translateNotice(view.notice),
+          view.notice?.kind === 'loading',
+        );
         statusText
           .setText(view.status === null ? '' : this.translateStatus(view.status))
           .setVisible(view.status !== null);

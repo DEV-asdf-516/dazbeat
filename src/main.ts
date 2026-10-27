@@ -3,12 +3,19 @@ import PocketBase from 'pocketbase';
 import {
   cancelSignInWithGoogle,
   getCurrentUser,
+  refreshCurrentUser,
   signInWithGoogle,
   signOut,
 } from './backend/auth.js';
 import { ChartCache } from './backend/ChartCache.js';
 import { loadChart, saveChart } from './backend/charts.js';
 import { preparePlay, submitPlay } from './backend/playSessions.js';
+import {
+  changeNickname,
+  isNicknameAvailable,
+  loadProfile,
+  setFeaturedAchievement,
+} from './backend/profile.js';
 import { loadSongBatch } from './backend/songLoader.js';
 import type { PreparedChart } from './data/playSession.js';
 import { ALL_SONGS_QUERY } from './data/songs.js';
@@ -23,10 +30,12 @@ import { CreditsScene } from './game/credits/CreditsScene.js';
 import { GameplayScene } from './game/gameplay/GameplayScene.js';
 import type { RankedPlay } from './game/gameplay/GameplayController.js';
 import { MainScene } from './game/main/MainScene.js';
+import type { ProfileDeps } from './game/profile/ProfileController.js';
+import { ProfileScene } from './game/profile/ProfileScene.js';
 import { ResultScene } from './game/result/ResultScene.js';
 import { SettingsScene } from './game/settings/SettingsScene.js';
-import { SongFeed } from './game/SongFeed.js';
-import type { SongBatchLoader, SongFeeds } from './game/SongFeed.js';
+import { SharedSongFeeds } from './game/SongFeed.js';
+import type { SongBatchLoader } from './game/SongFeed.js';
 import { SongSelectScene } from './game/songSelect/SongSelectScene.js';
 import { DEFAULT_CURSOR } from './game/ui/cursor.js';
 import { NebulaTrail } from './game/ui/NebulaTrail.js';
@@ -97,17 +106,17 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
   async ([{ pb, loadBatch, firstBatch }, celestial]) => {
     // 언어를 바꿔도 굳은 글자가 남지 않도록 모든 언어의 화면 문구를 함께 받는다.
     await preloadCjkFonts(JSON.stringify([ko, ja, en]));
-    const catalog = new SongFeed(ALL_SONGS_QUERY, loadBatch, firstBatch);
-    const feeds: SongFeeds = {
-      catalog,
-      create: (query) => new SongFeed(query, loadBatch),
-    };
+    const feeds = new SharedSongFeeds(loadBatch, firstBatch);
+    const { catalog } = feeds;
+    // 첫 화면은 첫 배치로 띄우고, 곡 선택의 랜덤과 목록 끝 이동이 기다리지 않도록 나머지 곡은 뒤에서 받는다.
+    void catalog.requestRemaining();
     const charts = new ChartCache(pb);
     const auth: AccountAuth = {
       getCurrentUser: () => getCurrentUser(pb),
       signIn: () => signInWithGoogle(pb, window),
       cancelSignIn: () => cancelSignInWithGoogle(pb),
       signOut: () => signOut(pb),
+      refresh: () => refreshCurrentUser(pb),
     };
     const prepareChart = (ref: ChartRef): Promise<PreparedChart> => preparePlay(pb, charts, ref);
     const loadPracticeChart = async (ref: ChartRef): Promise<Chart> =>
@@ -115,14 +124,25 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
     const rankedPlay: RankedPlay = {
       submit: (sessionId, submission) => submitPlay(pb, sessionId, submission),
     };
+    const profileDeps: ProfileDeps = {
+      isSignedIn: () => getCurrentUser(pb) !== null,
+      loadProfile: () => loadProfile(pb),
+      changeNickname: (nickname) => changeNickname(pb, nickname),
+      isNicknameAvailable: (nickname) => isNicknameAvailable(pb, nickname),
+      wait: (delayMs) =>
+        new Promise((resolve) => {
+          setTimeout(resolve, delayMs);
+        }),
+      setFeaturedAchievement: (id) => setFeaturedAchievement(pb, id),
+    };
     const editorCharts: ChartCatalog = {
       loadChart: async (ref) => (await loadChart(pb, ref)).chart,
       saveChart: async (song, chart) => {
         const { chartId, loaded } = await saveChart(pb, song, chart);
         // 서버 저장은 이미 끝났으므로 아래 곡 목록 갱신과 무관하게 캐시는 서버 상태를 따른다.
         charts.put(chartId, loaded);
-        // 전체 곡 목록에 아직 받지 않은 곡의 저장은 정상이므로 반영할 곡이 없어도 넘어간다.
-        catalog.applySavedChart(song.id, chart.laneCount, chart.difficulty, chartId);
+        // 받아 둔 목록에 아직 없는 곡의 저장은 정상이므로 반영할 곡이 없어도 넘어간다.
+        feeds.applySavedChart(song.id, chart.laneCount, chart.difficulty, chartId);
         return chartId;
       },
     };
@@ -132,6 +152,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
         new CreditsScene(save, catalog, i18n, celestial),
         new SongSelectScene(save, mvLayer, feeds, i18n, celestial),
         new SettingsScene(save, i18n, initialLanguage, celestial),
+        new ProfileScene(save, i18n, celestial, profileDeps),
         new GameplayScene(
           save,
           mvLayer,
@@ -142,7 +163,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
           rankedPlay,
         ),
         new ResultScene(save, i18n, celestial),
-        new ChartEditorSelectScene(feeds, auth, i18n),
+        new ChartEditorSelectScene(feeds, auth, i18n, celestial),
         new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
       ]),
     );
