@@ -92,39 +92,45 @@ body {
   text-align: center;
 }
 
-/* 채보 에디터 선택 화면의 곡명 검색창. 값은 SongSearchInput 이 theme 토큰으로 넣는다. */
-.song-search {
+/* 캔버스 위에 띄우는 입력란(에디터 곡명 검색, 프로필 닉네임). 값은 TextInput 이 theme 토큰으로 넣는다. */
+.text-input {
   appearance: none;
   box-sizing: border-box;
-  width: var(--song-search-width);
-  height: var(--song-search-height);
+  width: var(--text-input-width);
+  height: var(--text-input-height);
   margin: 0;
-  padding: 0 var(--song-search-padding-x);
-  border: 1px solid var(--song-search-border);
-  border-radius: var(--song-search-radius);
+  padding: 0 var(--text-input-padding-x);
+  border: 1px solid var(--text-input-border);
+  border-radius: var(--text-input-radius);
   outline: none;
-  background: var(--song-search-surface);
-  color: var(--song-search-text);
-  caret-color: var(--song-search-selected);
-  font-family: var(--song-search-font-family);
-  font-size: var(--song-search-font-size);
-  font-weight: var(--song-search-font-weight);
-  transition: border-color var(--song-search-transition);
+  background: var(--text-input-surface);
+  color: var(--text-input-text);
+  caret-color: var(--text-input-selected);
+  font-family: var(--text-input-font-family);
+  font-size: var(--text-input-font-size);
+  font-weight: var(--text-input-font-weight);
+  transition: border-color var(--text-input-transition);
 }
 
-.song-search:hover {
-  border-color: var(--song-search-border-hover);
+.text-input--bare {
+  border: 0;
+  padding: 0;
+  background: transparent;
 }
 
-.song-search:focus {
-  border-color: var(--song-search-selected);
+.text-input:hover {
+  border-color: var(--text-input-border-hover);
 }
 
-.song-search::placeholder {
-  color: var(--song-search-placeholder);
+.text-input:focus {
+  border-color: var(--text-input-selected);
+}
+
+.text-input::placeholder {
+  color: var(--text-input-placeholder);
   opacity: 1;
 }
 
-.song-search::selection {
-  background: var(--song-search-selection);
+.text-input::selection {
+  background: var(--text-input-selection);
 }

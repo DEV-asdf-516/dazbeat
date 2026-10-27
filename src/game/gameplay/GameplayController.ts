@@ -7,6 +7,7 @@ import type {
   YouTubePlayer,
   YouTubePlayerHandlers,
 } from '../../audio/YouTubePlayer.js';
+import type { AchievementId } from '../../data/achievements.js';
 import type { PreparedChart, VerifiedPlay } from '../../data/playSession.js';
 import type { PlaySubmission } from '../../data/playSubmission.js';
 import type { ChartRef } from '../../data/songs.js';
@@ -549,6 +550,7 @@ export class GameplayController {
 
   private finishRun(run: PlayRun, result: GameplayResult): void {
     const { song, laneCount, difficulty, chartId, mode } = this.route;
+    let newAchievements: Promise<readonly AchievementId[]> = Promise.resolve([]);
     if (run.mode.kind === 'standard' && result.outcome === 'finished') {
       try {
         this.deps.save.saveResult(song.id, laneCount, difficulty, result);
@@ -557,13 +559,15 @@ export class GameplayController {
       }
       const { rankedSessionId } = run.mode;
       if (rankedSessionId !== null) {
-        void this.deps.rankedPlay
+        newAchievements = this.deps.rankedPlay
           .submit(rankedSessionId, {
             inputOffsetMs: this.settings.inputOffsetMs,
             events: run.session.getInputs(),
           })
+          .then((play) => play.newAchievements)
           .catch((error: unknown) => {
             console.warn('Failed to submit ranked play', error);
+            return [];
           });
       }
     }
@@ -574,6 +578,7 @@ export class GameplayController {
       chartId,
       mode,
       result,
+      newAchievements,
     });
   }
 

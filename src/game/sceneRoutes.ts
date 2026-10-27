@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import type { AchievementId } from '../data/achievements.js';
 import type { ChartRef } from '../data/songs.js';
 import type { Difficulty, GameplayResult } from '../rhythm/types.js';
 import { requestSceneExit } from './sceneExit.js';
@@ -12,6 +13,7 @@ export const SCENE_KEYS = {
   result: 'Result',
   settings: 'Settings',
   credits: 'Credits',
+  profile: 'Profile',
   chartEditorSelect: 'ChartEditorSelect',
   chartEditor: 'ChartEditor',
 } as const;
@@ -38,6 +40,7 @@ export interface GameplaySceneData extends ChartRef {
 export interface ResultSceneData extends ChartRef {
   readonly mode: PlayMode;
   result: GameplayResult;
+  readonly newAchievements: Promise<readonly AchievementId[]>;
   readonly restore?: SongSelectRestore;
 }
 
@@ -65,6 +68,7 @@ export interface SceneDataMap {
   result: ResultSceneData;
   settings: SettingsSceneData;
   credits: undefined;
+  profile: undefined;
   chartEditorSelect: ChartEditorSelectSceneData;
   chartEditor: ChartEditorSceneData;
 }

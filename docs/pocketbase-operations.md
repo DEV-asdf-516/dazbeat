@@ -64,8 +64,8 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 `1792814400_add_charts_lane_count.js` 는 `charts` 에 필수 `laneCount` 를 추가하고 유일 키를 `(song, difficulty, laneCount)` 로 바꾸지만 기존 레코드를 채우지 않는다. 이 마이그레이션 전에 만든 로컬 PocketBase 의 채보는 `laneCount` 가 없어 수정·로드에 실패하므로, 로컬 데이터를 새로 만든 뒤 다시 시드한다.
 
 1. 로컬 시드 데이터를 위 version 2 형식으로 고친다(채보 파일에 `laneCount` 추가, manifest `charts` 를 레인 수 키 아래로).
-2. 로컬 PocketBase 를 멈추고 로컬 데이터 볼륨을 직접 지운다(`docker compose down -v`). 이 명령은 로컬 DB·업로드 파일을 모두 지우므로 사람이 확인하고 실행한다.
-3. 아래 "개발 Docker 실행" 으로 다시 띄우고 superuser 를 만든 뒤 `npm run seed` 를 실행한다.
+2. 로컬 PocketBase 를 멈추고(`docker compose stop pocketbase`) 데이터 폴더 `pocketbase/pb_data/` 를 다른 이름으로 옮겨 둔다. 계정과 플레이 기록, 업로드 파일이 모두 그 안에 있으므로 사람이 확인하고 실행한다. `docker compose down -v` 는 이 폴더를 지우지 않는다.
+3. 아래 "개발 Docker 실행" 으로 다시 띄우고 superuser 를 만든 뒤 `npm run seed` 를 실행한다. Google 로그인 설정도 데이터 폴더와 함께 사라지므로 `.env` 의 `DAZBEAT_GOOGLE_CLIENT_ID`·`DAZBEAT_GOOGLE_CLIENT_SECRET` 이 있는지 확인한다(아래 "로컬 Google 로그인").
 
 ### 기존 실제 데이터의 Git 추적 정리
 
@@ -86,9 +86,19 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 1. `npm run build:hooks` 로 hook 이 `require` 하는 서버 번들 `pocketbase/pb_hooks/lib/*.cjs`(목록은 `vite.hooks.config.ts`)를 만든다. 빌드 산출물이라 Git 무시 대상이며, 없으면 플레이 세션·곡 검색 API 와 채보 저장이 동작하지 않는다. `src/rhythm/`, `src/data/`, `pocketbase/verification/` 을 바꾼 뒤에도 다시 빌드한다.
 2. `docker compose up --build` 로 PocketBase 를 띄운다. `127.0.0.1:8090` 에서만 열린다.
-   - `./pocketbase/pb_migrations` → `/pb/pb_migrations`, `./pocketbase/pb_hooks` → `/pb/pb_hooks` 로 마운트된다.
+   - `./pocketbase/pb_data` → `/pb/pb_data`, `./pocketbase/pb_migrations` → `/pb/pb_migrations`, `./pocketbase/pb_hooks` → `/pb/pb_hooks` 로 마운트된다. DB 와 업로드 파일은 Git 무시 대상인 `pocketbase/pb_data/` 에 남아, 컨테이너나 Docker 볼륨을 지워도 사라지지 않는다.
    - `DAZBEAT_ALLOWED_ORIGINS` 는 Vite 개발 서버 Origin 인 `http://localhost:5173,http://127.0.0.1:5173` 이다.
+   - `DAZBEAT_GOOGLE_CLIENT_ID`, `DAZBEAT_GOOGLE_CLIENT_SECRET` 은 `.env` 에서 받아 넘긴다(아래 "로컬 Google 로그인").
 3. hook 이나 번들을 바꾼 뒤에는 `docker compose restart pocketbase` 로 다시 읽게 한다.
+
+### 로컬 Google 로그인
+
+Google OAuth 클라이언트 값은 DB 에만 저장되므로 데이터 폴더 `pocketbase/pb_data/` 를 새로 만들면 함께 사라진다. 그래서 로컬에서는 `.env` 에 두고 `pocketbase/pb_hooks/googleAuth.pb.js` 가 서버가 켜질 때마다 users 컬렉션의 Google provider 를 그 값으로 맞춘다. 값이 같으면 저장하지 않고, 변수가 없으면(PocketHost) 관리 UI 의 설정을 그대로 둔다.
+
+1. Google Cloud Console 의 OAuth 클라이언트(웹 애플리케이션) 승인된 리디렉션 URI 에 `http://127.0.0.1:8090/api/oauth2-redirect` 를 넣는다.
+2. 그 클라이언트의 ID 와 보안 비밀을 `.env` 의 `DAZBEAT_GOOGLE_CLIENT_ID`, `DAZBEAT_GOOGLE_CLIENT_SECRET` 에 넣는다.
+3. `docker compose up -d` 로 컨테이너를 다시 만든다(`restart` 는 바뀐 환경변수를 읽지 않는다).
+4. `curl -s 'http://127.0.0.1:8090/api/collections/users/auth-methods?fields=oauth2'` 의 `providers` 에 `google` 이 있는지 확인한다.
 
 통합 테스트(`npm run test:integration`)는 Docker 를 쓰지 않는다. `pocketbase/Dockerfile` 의 `PB_VERSION` 과 같은 버전의 PocketBase 바이너리를 내려받아 임시 데이터 디렉터리로 띄운다.
 
@@ -261,6 +271,38 @@ done
 ### 실제 IP 를 얻지 못할 때
 
 진단 라우트의 어느 헤더에도 실제 클라이언트 IP 가 오지 않거나 4단계에서 `realIP` 가 실제 IP 가 되지 않으면, 운영에서 PocketBase 내장 limiter 를 쓰지 않는다. rate limit 마이그레이션 두 개(`1791532400`, `1792121900`)를 모두 올리지 않고(이미 적용됐다면 관리 UI Settings › Rate limits 에서 limiter 를 끈다) PocketHost 엣지 제한만 남긴다. 이 경우 내장 rate limit 은 "적용 안 됨"으로 보고한다. 사용자 단위 발급 제한(20회/60초)은 클라이언트 IP 판정과 무관한 hook 의 제한이라 이 경우에도 그대로 동작한다. 사용자당 활성 세션은 유일 인덱스로 1개로 묶여 있어 세션 행 수는 여전히 제한된다.
+
+## 업적과 프로필
+
+### 컬렉션
+
+| 컬렉션 | 내용 |
+|---|---|
+| `play_results` | 검증을 통과한 판 1행(세션당 최대 1행). 총 플레이 횟수와 PLAY 계열 업적의 근거 |
+| `achievement_marks` | 채보 단위 달성 증거(clear, s, fc, ap). `source` 가 `play` 면 제출, `backfill` 이면 소급 |
+| `song_masteries` | 곡 마스터 달성 이력. 한 번 기록되면 지우지 않는다 |
+| `earned_achievements` | 획득 업적(= 컬렉션 요소). `earnedAt` 은 서버가 한 번 쓰고 바꾸지 않는다 |
+
+네 컬렉션 모두 API 규칙이 `null` 이라 관리자와 hook 만 읽고 쓴다. 사용자 관계는 cascade 라 계정을 지우면 함께 지워지고, 곡과 채보는 id 문자열이라 곡이나 채보를 지워도 달성 이력은 남는다. `users` 에는 `nickname`(필수, 대소문자 무시 유일)과 `featuredAchievement`(대표 컬렉션, 빈 값 가능)가 추가되며, 일반 users API 로는 둘 다 만들거나 바꿀 수 없다.
+
+### 경로
+
+| 경로 | 동작 |
+|---|---|
+| `POST /api/dazbeat/play-sessions/{sessionId}/result` | 기존 결과 제출. 최고 점수 트랜잭션 안에서 판, 증거, 업적을 함께 기록하고 응답에 `newAchievements` 를 더한다 |
+| `GET /api/dazbeat/profile` | 본인 스냅샷으로 평가해 새 업적을 지급한 뒤 닉네임, 통계, 117개 진행 상태를 돌려준다 |
+| `POST /api/dazbeat/profile/nickname` | 닉네임 변경. `400 invalid_nickname`, `409 nickname_taken`, `400 invalid_request` |
+| `GET /api/dazbeat/profile/nickname/available?nickname=…` | 입력 중 닉네임 사용 가능 여부 안내(`{ available }`). 저장 때 다시 확인한다. `400 invalid_nickname`, `400 invalid_request` |
+| `POST /api/dazbeat/profile/featured` | 대표 컬렉션 지정과 해제. `409 achievement_not_earned`, `400 invalid_request` |
+
+네 프로필 경로는 로그인이 필요하다(비로그인 `401`). 다른 사용자의 프로필을 보는 경로는 없다.
+
+### 소급과 집계 시작 시점
+
+- `1792900900_backfill_achievement_marks.js` 는 적용 시점의 `scores` 최고 기록에서 증명되는 mark 만 `achievement_marks`(source `backfill`, 별자리 빈 값)로 옮긴다. 업적은 지급하지 않고, 그 사용자의 다음 프로필 조회나 다음 제출의 평가가 지급한다.
+- 플레이 횟수(FIRST_FINISH, PLAY 계열)와 황도 순례는 소급하지 않는다. `play_results` 는 이 기능을 배포한 뒤 검증된 판부터 쌓이므로, 총 플레이 횟수는 배포 시점부터 센다.
+- `1792901000_add_users_profile_fields.js` 는 기존 사용자마다 `과즙이` + 4자리 숫자 기본 닉네임을 채운 뒤 `nickname` 을 필수로 바꾼다. 새 계정은 `users.pb.js` 훅이 저장 전에 같은 규칙으로 채운다. 4자리가 모두 쓰인 뒤에만 자릿수가 늘어난다.
+- 되돌릴 때는 파일 이름 역순으로 down 한다. 닉네임 마이그레이션 down 은 두 필드와 인덱스, 규칙 불변식을 지우고, 소급 down 은 `backfill` 증거만 지운다.
 
 ## 백업·복구
 
