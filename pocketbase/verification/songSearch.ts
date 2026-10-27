@@ -2,7 +2,7 @@ import { SONG_CATEGORIES } from '../../src/data/songs.js';
 import type { SongCategory } from '../../src/data/songs.js';
 import { SONGS } from '../../src/pbCollections.js';
 import type { CompiledFilter, FilterValue } from '../../src/pbQuery.js';
-import { condition, likePattern } from '../../src/pbSql.js';
+import { column, condition, likePattern } from '../../src/pbSql.js';
 import { isOneOf, isString } from '../../src/typeGuards.js';
 
 const MAX_TITLE_LENGTH = 100;
@@ -106,7 +106,7 @@ export function buildSongSearchQuery(input: SongSearchInput): SongSearchQuery {
       : {
           join: {
             table: 'songs_title_fts',
-            on: 'songs_title_fts.songId = songs.id',
+            on: `songs_title_fts.songId = ${column(SONGS, 'id')}`,
           },
           expression: 'songs_title_fts MATCH {:match}',
           params: { match: `"${title.term.replace(/"/g, '""')}"` },
@@ -117,15 +117,15 @@ export function buildSongSearchQuery(input: SongSearchInput): SongSearchQuery {
       ? null
       : {
           // 카테고리 인덱스는 그 카테고리 곡을 거의 다 읽게 되므로, 단항 + 로 막아 제목 인덱스를 쓰게 한다.
-          expression: '+songs.category = {:category}',
+          expression: `+${column(SONGS, 'category')} = {:category}`,
           params: { category },
         },
     cursor === null
       ? null
       : {
           expression:
-            '(songs.releasedOn < {:afterReleasedOn} OR ' +
-            '(songs.releasedOn = {:afterReleasedOn} AND songs.id < {:afterId}))',
+            `(${column(SONGS, 'releasedOn')} < {:afterReleasedOn} OR ` +
+            `(${column(SONGS, 'releasedOn')} = {:afterReleasedOn} AND ${column(SONGS, 'id')} < {:afterId}))`,
           params: {
             afterReleasedOn: cursor.releasedOn,
             afterId: cursor.id,
@@ -136,7 +136,7 @@ export function buildSongSearchQuery(input: SongSearchInput): SongSearchQuery {
   return {
     join,
     condition: clauses.map((clause) => clause.expression).join(' AND '),
-    orderBy: ['songs.releasedOn DESC', 'songs.id DESC'],
+    orderBy: [`${column(SONGS, 'releasedOn')} DESC`, `${column(SONGS, 'id')} DESC`],
     limit: SONG_SEARCH_BATCH_SIZE,
     shouldCount: cursor === null,
     params: clauses.reduce<Record<string, FilterValue>>(

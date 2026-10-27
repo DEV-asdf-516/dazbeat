@@ -79,6 +79,13 @@ export function placeKeyCap(keyCap: KeyCap, capLeftPx: number, centerYPx: number
   keyCap.key.setPosition(capLeftPx + keyCap.cap.width / 2, centerYPx);
 }
 
+// 키캡을 키보다 먼저 넣어 키가 키캡 위에 그려지게 한다.
+export function getKeyCapObjects(
+  keyCap: KeyCap,
+): readonly [Phaser.GameObjects.Rectangle, Phaser.GameObjects.Text] {
+  return [keyCap.cap, keyCap.key];
+}
+
 function createItems(scene: Phaser.Scene, text: string, style: KeyHintStyle): KeyHintItem[] {
   return parseKeyHints(text).map((hint) => ({
     ...createKeyCap(scene, hint.key, style),
@@ -93,7 +100,6 @@ function placeItem(item: KeyHintItem, capLeftPx: number, labelLeftPx: number, yP
   item.label.setPosition(labelLeftPx, yPx);
 }
 
-/** 키캡을 키보다 먼저 넣어 키가 키캡 위에 그려지게 한다. */
 function addContainer(
   scene: Phaser.Scene,
   xPx: number,
@@ -103,7 +109,7 @@ function addContainer(
   return scene.add.container(
     xPx,
     yPx,
-    items.flatMap(({ cap, key, label }) => [cap, key, label]),
+    items.flatMap((item) => [...getKeyCapObjects(item), item.label]),
   );
 }
 

@@ -11,20 +11,79 @@ export const LANE_EFFECT_IDS = [
 ] as const satisfies readonly CelestialAtlasId[];
 export type LaneEffectId = (typeof LANE_EFFECT_IDS)[number];
 
-const HIT_EFFECT_IDS: Record<Judgment, readonly LaneEffectId[]> = {
-  perfect: ['R34', 'R35', 'R36'],
-  great: ['R34', 'R35'],
-  good: ['R34'],
-  bad: [],
-  miss: [],
+export const JUDGMENT_SHIMMER_ID = 'R38' satisfies CelestialAtlasId;
+
+export interface JudgmentEffect {
+  readonly intensity: number;
+  readonly popScale: number;
+  readonly hasHitBloom: boolean;
+  readonly hasGlow: boolean;
+  readonly hasShimmer: boolean;
+  readonly sound: SoundEffect | null;
+  readonly hitEffectIds: readonly LaneEffectId[];
+}
+
+const JUDGMENT_EFFECTS: Record<Judgment, JudgmentEffect> = {
+  perfect: {
+    intensity: 1,
+    popScale: 1.18,
+    hasHitBloom: true,
+    // 뒤의 빛은 PERFECT·GREAT 에만 공기처럼 옅게 남긴다.
+    hasGlow: true,
+    hasShimmer: true,
+    // 레인을 칠 때마다 타격음이 나므로 PERFECT·GREAT 는 판정음을 더하지 않는다.
+    sound: null,
+    // 배열 순서가 재생 순서다.
+    hitEffectIds: ['R34', 'R35', 'R36'],
+  },
+  great: {
+    intensity: 0.75,
+    popScale: 1.08,
+    hasHitBloom: true,
+    hasGlow: true,
+    hasShimmer: true,
+    sound: null,
+    hitEffectIds: ['R34', 'R35'],
+  },
+  good: {
+    intensity: 0.45,
+    popScale: 1,
+    hasHitBloom: true,
+    hasGlow: false,
+    hasShimmer: true,
+    sound: 'judgeGood',
+    hitEffectIds: ['R34'],
+  },
+  bad: {
+    intensity: 0,
+    popScale: 1,
+    hasHitBloom: false,
+    hasGlow: false,
+    hasShimmer: false,
+    sound: 'judgeBad',
+    hitEffectIds: [],
+  },
+  miss: {
+    intensity: 0,
+    popScale: 1,
+    hasHitBloom: false,
+    hasGlow: false,
+    hasShimmer: false,
+    sound: 'judgeMiss',
+    hitEffectIds: [],
+  },
 };
+
+export function getJudgmentEffect(judgment: Judgment): JudgmentEffect {
+  return JUDGMENT_EFFECTS[judgment];
+}
 
 // 반환 순서가 재생 순서다.
 export function getLaneEffectIds(
   event: Pick<JudgmentEvent, 'kind' | 'judgment'>,
 ): readonly LaneEffectId[] {
   const { kind, judgment } = event;
-  const ids = [...HIT_EFFECT_IDS[judgment]];
+  const ids = [...JUDGMENT_EFFECTS[judgment].hitEffectIds];
   if (judgment === 'miss') {
     return ids;
   }
@@ -37,54 +96,8 @@ export function getLaneEffectIds(
   return ids;
 }
 
-// 레인을 칠 때마다 타격음이 나므로 PERFECT·GREAT 는 판정음을 더하지 않는다.
-const JUDGMENT_SOUND_EFFECTS: Record<Judgment, SoundEffect | null> = {
-  perfect: null,
-  great: null,
-  good: 'judgeGood',
-  bad: 'judgeBad',
-  miss: 'judgeMiss',
-};
-
 export function getJudgmentSoundEffect(
   event: Pick<JudgmentEvent, 'kind' | 'judgment'>,
 ): SoundEffect | null {
-  return event.kind === 'holdEnd' ? null : JUDGMENT_SOUND_EFFECTS[event.judgment];
-}
-
-const HIT_BLOOM_INTENSITY: Record<Judgment, number> = {
-  perfect: 1,
-  great: 0.75,
-  good: 0.45,
-  bad: 0,
-  miss: 0,
-};
-
-export function getHitBloomIntensity(judgment: Judgment): number {
-  return HIT_BLOOM_INTENSITY[judgment];
-}
-
-export const JUDGMENT_SHIMMER_ID = 'R38' satisfies CelestialAtlasId;
-
-export function hasJudgmentShimmer(judgment: Judgment): boolean {
-  return judgment !== 'bad' && judgment !== 'miss';
-}
-
-const JUDGMENT_POP_SCALE: Record<Judgment, number> = {
-  perfect: 1.18,
-  great: 1.08,
-  good: 1,
-  bad: 1,
-  miss: 1,
-};
-
-export function getJudgmentPopScale(judgment: Judgment): number {
-  return JUDGMENT_POP_SCALE[judgment];
-}
-
-// 뒤의 빛은 PERFECT·GREAT 에만 공기처럼 옅게 남긴다.
-const JUDGMENT_GLOW_MIN_INTENSITY = 0.75;
-
-export function hasJudgmentGlow(judgment: Judgment): boolean {
-  return getHitBloomIntensity(judgment) >= JUDGMENT_GLOW_MIN_INTENSITY;
+  return event.kind === 'holdEnd' ? null : JUDGMENT_EFFECTS[event.judgment].sound;
 }

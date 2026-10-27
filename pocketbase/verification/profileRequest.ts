@@ -1,6 +1,10 @@
 import { findAchievement } from '../../src/data/achievements.js';
 import type { AchievementId } from '../../src/data/achievements.js';
-import { NICKNAME_MAX_LENGTH, parseNickname } from '../../src/data/nickname.js';
+import {
+  NICKNAME_MAX_LENGTH,
+  NICKNAME_MIN_LENGTH,
+  parseNickname,
+} from '../../src/data/nickname.js';
 import type { Nickname } from '../../src/data/nickname.js';
 import { USERS } from '../../src/pbCollections.js';
 import { column, columns, condition, notEqualTo, oneOf } from '../../src/pbSql.js';
@@ -32,7 +36,7 @@ export function parseNicknameRequest(body: unknown): Nickname {
   if (nickname === undefined) {
     throw new InvalidProfileRequestError(
       'invalid_nickname',
-      'A nickname must be 2 to 16 letters, digits, Hangul syllables, _ or -.',
+      `A nickname must be ${NICKNAME_MIN_LENGTH} to ${NICKNAME_MAX_LENGTH} letters, digits, Hangul syllables, _ or -.`,
     );
   }
   return nickname;

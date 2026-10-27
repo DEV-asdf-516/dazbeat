@@ -25,7 +25,6 @@ import {
 
 const SEARCH_MIGRATION = '1792641600_add_song_title_search.js';
 const SEARCH_ROUTE = '/api/dazbeat/songs/search';
-const SEARCH_BATCH_SIZE = 100;
 const SQL_ROUTE = '/api/test/sql';
 // Only the copied hooks directory gets this route, so the repository hooks never expose raw SQL.
 const SQL_ROUTE_HOOK = `/// <reference path="../pb_data/types.d.ts" />
@@ -271,6 +270,7 @@ async function startSearchServer(): Promise<PocketBaseServer> {
 interface SearchResponse {
   items: SearchItem[];
   totalItems: number | null;
+  next: { releasedOn: string; recordId: string } | null;
 }
 
 function search(client: PocketBase, params: SearchParams): Promise<SearchResponse> {
@@ -282,7 +282,7 @@ async function searchTitles(client: PocketBase, title: string): Promise<string[]
   return items.map((item) => String(item['title'])).sort();
 }
 
-/** Follows the cursor of each full batch until a short one, like the client does. */
+/** Follows the response next until it is null, like the client does. */
 async function searchAll(
   client: PocketBase,
   params: SearchParams,
@@ -292,15 +292,14 @@ async function searchAll(
   const totals: (number | null)[] = [];
   let cursor: SearchParams = {};
   for (;;) {
-    const { items, totalItems } = await search(client, {
+    const { items, totalItems, next } = await search(client, {
       ...params,
       ...cursor,
     });
     ids.push(...items.map((item) => item.id));
     batchSizes.push(items.length);
     totals.push(totalItems);
-    const last = items.at(-1);
-    if (items.length < SEARCH_BATCH_SIZE || last === undefined) {
+    if (next === null) {
       return {
         ids,
         batchSizes,
@@ -308,8 +307,8 @@ async function searchAll(
       };
     }
     cursor = {
-      afterReleasedOn: last.releasedOn,
-      afterId: last.id,
+      afterReleasedOn: next.releasedOn,
+      afterId: next.recordId,
     };
   }
 }
@@ -446,6 +445,7 @@ describe('song title search API', () => {
     await expect(search(guest, { title: '𝄞'.repeat(100) })).resolves.toEqual({
       items: [],
       totalItems: 0,
+      next: null,
     });
   });
 
@@ -609,6 +609,7 @@ describe('song title search API', () => {
     await expect(search(guest, { title: 'Guarded' })).resolves.toEqual({
       items: [],
       totalItems: null,
+      next: null,
     });
     const asSuperuser = await search(superuser, { title: 'Guarded' });
     expect(asSuperuser.items.map((item) => item.id)).toEqual([song.id]);

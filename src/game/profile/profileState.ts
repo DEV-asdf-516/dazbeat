@@ -9,6 +9,7 @@ import type { Nickname } from '../../data/nickname.js';
 import type { NicknameChangeFailure, Profile } from '../../data/profile.js';
 import { requireDefined } from '../../invariant.js';
 import { clamp, cycleItem, stepItem } from '../../range.js';
+import { isShallowEqual } from '../../shallowEqual.js';
 import type { TabAppearance } from '../ui/TextTabs.js';
 
 type ProfilePage = 'summary' | 'collection';
@@ -118,15 +119,16 @@ function withCollection(
   set: AchievementSet,
   focusedId: AchievementId,
 ): LoadedProfileState {
-  if (state.collection.set === set && state.collection.focusedId === focusedId) {
+  const collection = {
+    set,
+    focusedId,
+  };
+  if (isShallowEqual(state.collection, collection)) {
     return state;
   }
   return {
     ...state,
-    collection: {
-      set,
-      focusedId,
-    },
+    collection,
   };
 }
 
@@ -256,14 +258,30 @@ export function selectFocused(state: LoadedProfileState, target?: SummaryFocus):
           : openCollection(state, focus),
     };
   }
+  switch (getFeaturedAction(state)) {
+    case 'none':
+      return NO_SELECTION;
+    case 'equip':
+      return {
+        kind: 'saveFeatured',
+        id: state.collection.focusedId,
+      };
+    case 'unequip':
+      return {
+        kind: 'saveFeatured',
+        id: null,
+      };
+  }
+}
+
+export type FeaturedAction = 'none' | 'equip' | 'unequip';
+
+export function getFeaturedAction(state: LoadedProfileState): FeaturedAction {
   const id = state.collection.focusedId;
   if (!isEarned(state, id)) {
-    return NO_SELECTION;
+    return 'none';
   }
-  return {
-    kind: 'saveFeatured',
-    id: state.profile.featuredAchievement === id ? null : id,
-  };
+  return state.profile.featuredAchievement === id ? 'unequip' : 'equip';
 }
 
 export function closeCollection(state: LoadedProfileState): LoadedProfileState {
@@ -348,7 +366,7 @@ export function startNicknameSave(state: LoadedProfileState): LoadedProfileState
   };
 }
 
-export function saveNickname(state: LoadedProfileState, nickname: string): LoadedProfileState {
+export function saveNickname(state: LoadedProfileState, nickname: Nickname): LoadedProfileState {
   return {
     ...state,
     profile: {

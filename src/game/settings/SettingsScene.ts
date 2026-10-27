@@ -15,16 +15,16 @@ import type { SceneExit } from '../sceneExit.js';
 import {
   adjustRow,
   applyPointer,
-  bindWaitingKey,
   cancelPrompt,
   confirmReset,
   createSettingsEditorState,
   focusRow,
+  getRowAppearance,
   hoverRow,
   isRowShown,
-  isWaitingKey,
   moveFocus,
   pressBack,
+  readSettingsKey,
   requestReset,
   startWaiting,
   unhoverRow,
@@ -39,13 +39,12 @@ import { MENU_KEY_HINT_STYLE } from '../ui/keyHintView.js';
 import { createCanvasTexture } from '../ui/canvasTexture.js';
 import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
 import { addCelestialSprite, queueCelestialTextures } from '../celestial/celestialSprites.js';
-import { readMenuAction, requireKeyboard } from '../ui/menuInput.js';
+import { requireKeyboard } from '../ui/menuInput.js';
 import type { MenuAction } from '../ui/menuInput.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
 import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
 import { bindTextEntry } from '../ui/textEntry.js';
 import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/theme.js';
-import { readKeyCapture } from './keyCapture.js';
 import { requireDefined } from '../../invariant.js';
 import { isShallowEqual } from '../../shallowEqual.js';
 
@@ -403,26 +402,14 @@ export class SettingsScene extends Phaser.Scene {
     event: KeyboardEvent,
     update: (transition: Transition) => void,
   ): boolean {
-    if (isWaitingKey(this.editor)) {
-      const code = readKeyCapture(event);
-      if (code !== null) {
-        update((state) => bindWaitingKey(state, code));
-      }
-      return true;
+    const result = readSettingsKey(this.editor, event);
+    switch (result.kind) {
+      case 'pass':
+        return false;
+      case 'state':
+        update(() => result.state);
+        return true;
     }
-    if (this.editor.mode.kind === 'confirmingReset') {
-      switch (readMenuAction(event)) {
-        case 'confirm':
-          update(confirmReset);
-          return true;
-        case 'back':
-          update(cancelPrompt);
-          return true;
-        default:
-          return true;
-      }
-    }
-    return false;
   }
 
   private handleMenuKey(action: MenuAction | null, update: (transition: Transition) => void): void {
@@ -570,9 +557,12 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   private renderLabelColor(rowView: RowView): void {
-    const isEmphasized =
-      rowView.index === this.editor.rowIndex || rowView.index === this.editor.hoveredRowIndex;
-    setTextColor(rowView.label, isEmphasized ? COLORS.textPrimary : COLORS.textSecondary);
+    setTextColor(
+      rowView.label,
+      getRowAppearance(this.editor, rowView.index) === 'emphasized'
+        ? COLORS.textPrimary
+        : COLORS.textSecondary,
+    );
   }
 
   private formatLabel(row: SettingsRow): string {

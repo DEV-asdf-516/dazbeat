@@ -1,7 +1,7 @@
 import type { Song } from '../../data/songs.js';
 import { getGameFraction } from '../../rhythm/playTiming.js';
 import type { Lane, LaneCount } from '../../rhythm/types.js';
-import { clamp } from '../../range.js';
+import { clamp, getProgress, lerp } from '../../range.js';
 
 const WORK_AREA_WIDTH_PX = 1440;
 const COLUMN_GAP_PX = 24;
@@ -163,16 +163,16 @@ export function getSeekXPx(
   timeMs: number,
   song: Pick<Song, 'gameStartMs' | 'gameEndMs'>,
 ): number {
-  const fraction = getGameFraction(song.gameStartMs, song.gameEndMs, timeMs);
-  return layout.seek.leftPx + fraction * layout.seek.widthPx;
+  const { leftPx, widthPx } = layout.seek;
+  return lerp(leftPx, leftPx + widthPx, getGameFraction(song.gameStartMs, song.gameEndMs, timeMs));
 }
 
-/** clamp·반올림은 기존 `seek()` 가 한다. */
+/** 반올림은 기존 `seek()` 가 한다. */
 export function getSeekTimeMs(
   layout: EditorLayout,
   xPx: number,
   song: Pick<Song, 'gameStartMs' | 'gameEndMs'>,
 ): number {
-  const fraction = (xPx - layout.seek.leftPx) / layout.seek.widthPx;
-  return song.gameStartMs + fraction * (song.gameEndMs - song.gameStartMs);
+  const { leftPx, widthPx } = layout.seek;
+  return lerp(song.gameStartMs, song.gameEndMs, getProgress(xPx, leftPx, leftPx + widthPx));
 }

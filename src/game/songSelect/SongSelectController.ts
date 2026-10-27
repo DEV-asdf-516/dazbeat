@@ -87,7 +87,6 @@ type PreviewState =
 
 type Transition = (state: SongSelectState) => SongSelectState;
 
-
 const PREVIEW_DELAY_MS = 200;
 
 export class SongSelectController {

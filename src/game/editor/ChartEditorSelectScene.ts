@@ -165,8 +165,12 @@ export class ChartEditorSelectScene extends Phaser.Scene {
           songCount: view.songCount,
         });
         notice.show(
-          view.notice === null ? '' : this.translateNotice(view.notice),
-          view.notice?.kind === 'loading',
+          view.notice === null
+            ? { kind: 'none' }
+            : {
+                kind: view.notice.kind === 'loading' ? 'loading' : 'text',
+                text: this.translateNotice(view.notice),
+              },
         );
         statusText
           .setText(view.status === null ? '' : this.translateStatus(view.status))

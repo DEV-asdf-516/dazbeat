@@ -1,6 +1,7 @@
 import type { Lane } from '../../rhythm/types.js';
 import {
   addNote,
+  MIN_HOLD_DURATION_MS,
   moveSelectedNote,
   resizeSelectedHold,
   restoreNotes,
@@ -78,7 +79,7 @@ export function startGesture(
     draft: addNote(draft, {
       type: 'hold',
       timeMs: startMs,
-      endTimeMs: startMs + 1,
+      endTimeMs: startMs + MIN_HOLD_DURATION_MS,
       lane,
     }),
     gesture: {

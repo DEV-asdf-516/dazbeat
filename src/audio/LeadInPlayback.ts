@@ -1,5 +1,6 @@
 import type { YouTubePlayer, YouTubePlayerState } from './YouTubePlayer.js';
 import { getDistance } from '../range.js';
+import { isShallowEqual } from '../shallowEqual.js';
 import { msToSec, secToMs } from '../time.js';
 
 export type LeadInPlayer = Pick<YouTubePlayer, 'requestPlay' | 'pause' | 'resume' | 'setVolume'>;
@@ -805,7 +806,7 @@ export class LeadInPlayback {
       return;
     }
     const { status } = this;
-    if (isSameStatus(status, this.shownStatus)) {
+    if (isShallowEqual(status, this.shownStatus)) {
       return;
     }
     this.shownStatus = status;
@@ -866,10 +867,6 @@ function getResyncWaitFromAtMs(step: ResyncStep): number | null {
     case 'counting':
       return null;
   }
-}
-
-function isSameStatus(a: PlaybackStatus, b: PlaybackStatus): boolean {
-  return a.kind === 'countdown' && b.kind === 'countdown' ? a.digit === b.digit : a.kind === b.kind;
 }
 
 function getDigit(remainingMs: number): 1 | 2 | 3 {

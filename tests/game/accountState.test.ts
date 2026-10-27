@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthUser } from '../../src/data/account.js';
+import { parseNickname } from '../../src/data/nickname.js';
+import type { Nickname } from '../../src/data/nickname.js';
 import {
   cancelSignIn,
   canCurrentUserOpenChartEditor,
@@ -9,11 +11,16 @@ import {
   failSignIn,
   startSignIn,
 } from '../../src/game/accountState.js';
+import { requireDefined } from '../../src/invariant.js';
+
+function nickname(input: string): Nickname {
+  return requireDefined(parseNickname(input), 'Invalid test nickname', input);
+}
 
 const USER: AuthUser = {
   id: 'user-1',
   email: 'player@example.com',
-  nickname: 'Player',
+  nickname: nickname('Player'),
   isEditor: false,
   featuredAchievement: null,
 };

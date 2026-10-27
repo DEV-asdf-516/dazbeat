@@ -127,13 +127,13 @@ export class YouTubePlayer {
           if (!this.ready) {
             return;
           }
-          const state = typeof event.data === 'number' ? PLAYER_STATES.get(event.data) : undefined;
+          const state = isFiniteNumber(event.data) ? PLAYER_STATES.get(event.data) : undefined;
           if (state !== undefined) {
             handlers.onStateChange(state);
           }
         },
         onError: (event) => {
-          const code = typeof event.data === 'number' ? event.data : UNKNOWN_ERROR_CODE;
+          const code = isFiniteNumber(event.data) ? event.data : UNKNOWN_ERROR_CODE;
           handlers.onError(ERROR_KINDS.get(code) ?? 'unknown', code);
         },
       },

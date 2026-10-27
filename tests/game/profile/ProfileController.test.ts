@@ -1,18 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ACHIEVEMENT_IDS } from '../../../src/data/achievements.js';
 import type { AchievementId } from '../../../src/data/achievements.js';
+import { parseNickname } from '../../../src/data/nickname.js';
+import type { Nickname } from '../../../src/data/nickname.js';
 import { ProfileRequestError } from '../../../src/data/profile.js';
 import type { Profile, ProfileRequestErrorKind } from '../../../src/data/profile.js';
 import { ProfileController } from '../../../src/game/profile/ProfileController.js';
 import type { ProfileDeps } from '../../../src/game/profile/ProfileController.js';
 import type { ProfileState } from '../../../src/game/profile/profileState.js';
+import { requireDefined } from '../../../src/invariant.js';
+
+function nickname(input: string): Nickname {
+  return requireDefined(parseNickname(input), 'Invalid test nickname', input);
+}
 
 const EARNED_AT_MS = Date.parse('2026-10-21T09:12:33.000Z');
 const EARNED: readonly AchievementId[] = ['FIRST_CLEAR', 'FIRST_FINISH'];
 
 function createProfile(overrides: Partial<Profile> = {}): Profile {
   return {
-    nickname: '과즙이4829',
+    nickname: nickname('과즙이4829'),
     featuredAchievement: null,
     stats: {
       playCount: 3,
@@ -65,7 +72,7 @@ interface Harness {
   readonly rendered: ProfileState[];
   readonly previous: (ProfileState | null)[];
   readonly loads: Pending<Profile>[];
-  readonly nicknames: { nickname: string; response: Pending<string> }[];
+  readonly nicknames: { nickname: string; response: Pending<Nickname> }[];
   readonly waits: { delayMs: number; done: Pending<void> }[];
   readonly checks: { nickname: string; response: Pending<boolean> }[];
   readonly featured: { id: AchievementId | null; response: Pending<AchievementId | null> }[];
@@ -93,7 +100,7 @@ function createHarness(isSignedIn = true): Harness {
       return load.promise;
     },
     changeNickname: (nickname) => {
-      const response = pending<string>();
+      const response = pending<Nickname>();
       nicknames.push({
         nickname,
         response,
@@ -547,7 +554,7 @@ describe('ProfileController nickname', () => {
     expect(harness.loaded().nickname).toEqual({ kind: 'saving' });
     expect(harness.nicknames.map(({ nickname }) => nickname)).toEqual(['별빛_01']);
 
-    harness.nicknames[0]?.response.resolve('별빛_01');
+    harness.nicknames[0]?.response.resolve(nickname('별빛_01'));
     await flush();
 
     expect(harness.loaded().nickname).toEqual({ kind: 'idle' });
@@ -589,7 +596,7 @@ describe('ProfileController nickname', () => {
     const count = harness.rendered.length;
     harness.controller.close();
 
-    harness.nicknames[0]?.response.resolve('별빛');
+    harness.nicknames[0]?.response.resolve(nickname('별빛'));
     await flush();
 
     expect(harness.rendered).toHaveLength(count);

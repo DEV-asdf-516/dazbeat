@@ -6,7 +6,7 @@ import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import { getPlayfieldTrapezoid } from './playfieldLayout.js';
 import type { PlayfieldLayout } from './playfieldLayout.js';
 import { fillTrapezoid } from './trapezoidFill.js';
-import { getHitBloomIntensity, getLaneEffectIds } from './judgmentEffects.js';
+import { getJudgmentEffect, getLaneEffectIds } from './judgmentEffects.js';
 import type { LaneEffectId } from './judgmentEffects.js';
 import { addCelestialSprite, playCelestialOnce } from '../celestial/celestialSprites.js';
 import { ensureJudgeLineTexture } from './gameplayTextures.js';
@@ -16,11 +16,11 @@ import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../ui/theme.js';
 // 상시 halo 가 노트보다 먼저 보이지 않게 낮게 둔다.
 const JUDGE_CORE_HEIGHT_PX = 3;
 const JUDGE_CORE_ALPHA = 0.75;
-const JUDGE_CORE_ACTIVATION_ALPHA = 0.25;
+const JUDGE_CORE_ACTIVE_ALPHA = 1;
 const JUDGE_GLOW_EXTRA_WIDTH_PX = 40;
 const JUDGE_GLOW_HEIGHT_PX = 18;
 const JUDGE_GLOW_ALPHA = 0.2;
-const JUDGE_GLOW_ACTIVATION_ALPHA = 0.22;
+const JUDGE_GLOW_ACTIVE_ALPHA = 0.42;
 const ANCHOR_WIDTH_RATIO = 112 / 120;
 const ANCHOR_HEIGHT_PX = 24;
 const ANCHOR_IDLE_ALPHA = 0.1;
@@ -202,8 +202,8 @@ export class LaneFx {
   }
 
   setActivation(level: number): void {
-    this.judgeGlow.setAlpha(JUDGE_GLOW_ALPHA + JUDGE_GLOW_ACTIVATION_ALPHA * level);
-    this.judgeCore.setAlpha(JUDGE_CORE_ALPHA + JUDGE_CORE_ACTIVATION_ALPHA * level);
+    this.judgeGlow.setAlpha(lerp(JUDGE_GLOW_ALPHA, JUDGE_GLOW_ACTIVE_ALPHA, level));
+    this.judgeCore.setAlpha(lerp(JUDGE_CORE_ALPHA, JUDGE_CORE_ACTIVE_ALPHA, level));
   }
 
   judge(event: JudgmentEvent): void {
@@ -227,9 +227,11 @@ export class LaneFx {
         });
         break;
     }
-    const intensity = getHitBloomIntensity(event.judgment);
-    this.playBloom(view.bloom, intensity);
-    this.playPillar(view, intensity);
+    const { hasHitBloom, intensity } = getJudgmentEffect(event.judgment);
+    if (hasHitBloom) {
+      this.playBloom(view.bloom, intensity);
+      this.playPillar(view, intensity);
+    }
     getLaneEffectIds(event).forEach((id) => playCelestialOnce(view.effects[id]));
   }
 
@@ -238,9 +240,6 @@ export class LaneFx {
   }
 
   private playBloom(bloom: LaneFxView['bloom'], intensity: number): void {
-    if (intensity === 0) {
-      return;
-    }
     for (const layer of Object.keys(HIT_BLOOM) as HitBloomLayer[]) {
       const { widthPx, heightPx, alpha, durationMs } = HIT_BLOOM[layer];
       const image = bloom[layer];
@@ -260,9 +259,6 @@ export class LaneFx {
 
   // 사다리꼴은 크기를 tween 할 수 없으므로 alpha tween 의 진행률로 매 프레임 다시 그린다.
   private playPillar({ pillar, xPx }: LaneFxView, intensity: number): void {
-    if (intensity === 0) {
-      return;
-    }
     const { widthLaneRatio, heightPx, alpha, durationMs } = HIT_PILLAR;
     const draw = (progress: number): void => {
       pillar.clear();

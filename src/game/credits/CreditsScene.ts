@@ -12,7 +12,8 @@ import { queueCelestialTextures } from '../celestial/celestialSprites.js';
 import { setFittedText } from '../ui/fitText.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
 import type { MenuAction } from '../ui/menuInput.js';
-import { CELESTIAL_COLORS, COLORS, SCREEN_LAYOUT, textStyle } from '../ui/theme.js';
+import { ScrollBar } from '../ui/ScrollBar.js';
+import { COLORS, SCREEN_LAYOUT, textStyle } from '../ui/theme.js';
 import { IDLE_WHEEL, readWheelRows } from '../wheelRows.js';
 import {
   INITIAL_CREDITS_STATE,
@@ -38,8 +39,6 @@ const SONG_GAP_PX = 40;
 const ROW_STRIDE_PX = CREDIT_LINE_SPACING_PX * (1 + CREDIT_LINE_COUNT) + SONG_GAP_PX;
 const GRID_HEIGHT_PX = ROW_STRIDE_PX * GRID.visibleRowCount - SONG_GAP_PX;
 const SCROLLBAR_X_PX = SCREEN_LAYOUT.rightXPx + 16;
-const SCROLLBAR_WIDTH_PX = 3;
-const SCROLLBAR_TRACK_ALPHA = 0.3;
 
 interface CellView {
   title: Phaser.GameObjects.Text;
@@ -48,7 +47,7 @@ interface CellView {
 
 interface CreditsView {
   cells: CellView[];
-  scrollThumb: Phaser.GameObjects.Rectangle;
+  scrollBar: ScrollBar;
 }
 
 export class CreditsScene extends Phaser.Scene {
@@ -92,29 +91,19 @@ export class CreditsScene extends Phaser.Scene {
       },
     ]);
 
-    this.add
-      .rectangle(
-        SCROLLBAR_X_PX,
-        GRID_TOP_Y_PX,
-        SCROLLBAR_WIDTH_PX,
-        GRID_HEIGHT_PX,
-        CELESTIAL_COLORS.border,
-        SCROLLBAR_TRACK_ALPHA,
-      )
-      .setOrigin(0, 0);
     const view: CreditsView = {
       cells: Array.from({ length: GRID.columnCount * GRID.visibleRowCount }, (_, index) =>
         this.createCell(index),
       ),
-      scrollThumb: this.add
-        .rectangle(SCROLLBAR_X_PX, GRID_TOP_Y_PX, SCROLLBAR_WIDTH_PX, 0, CELESTIAL_COLORS.selected)
-        .setOrigin(0, 0),
+      scrollBar: new ScrollBar(this, SCROLLBAR_X_PX),
     };
 
-    const applyCatalogChange = (): void =>
-      this.applyTransition(view, (state) => withCreditSongs(state, this.catalog.songs));
-    applyCatalogChange();
-    const unsubscribe = this.catalog.subscribe(applyCatalogChange);
+    // 곡이 없어 state 가 그대로여도 스크롤 트랙은 보여야 하므로 처음 한 번은 전이와 무관하게 그린다.
+    this.state = withCreditSongs(this.state, this.catalog.songs);
+    this.render(view);
+    const unsubscribe = this.catalog.subscribe(() =>
+      this.applyTransition(view, (state) => withCreditSongs(state, this.catalog.songs)),
+    );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribe);
     void this.catalog.requestRemaining();
 
@@ -172,10 +161,13 @@ export class CreditsScene extends Phaser.Scene {
       });
     });
     const rowCount = Math.max(getCreditRowCount(this.state, GRID), 1);
-    view.scrollThumb
-      .setVisible(rowCount > GRID.visibleRowCount)
-      .setPosition(SCROLLBAR_X_PX, GRID_TOP_Y_PX + (GRID_HEIGHT_PX * topRow) / rowCount)
-      .setSize(SCROLLBAR_WIDTH_PX, (GRID_HEIGHT_PX * GRID.visibleRowCount) / rowCount);
+    view.scrollBar.render({
+      topYPx: GRID_TOP_Y_PX,
+      heightPx: GRID_HEIGHT_PX,
+      visibleCount: GRID.visibleRowCount,
+      totalCount: rowCount,
+      firstIndex: topRow,
+    });
   }
 
   private createCell(index: number): CellView {

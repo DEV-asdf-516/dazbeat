@@ -36,7 +36,7 @@ import type {
 export interface ProfileDeps {
   isSignedIn(): boolean;
   loadProfile(): Promise<Profile>;
-  changeNickname(nickname: Nickname): Promise<string>;
+  changeNickname(nickname: Nickname): Promise<Nickname>;
   isNicknameAvailable(nickname: Nickname): Promise<boolean>;
   wait(delayMs: number): Promise<void>;
   setFeaturedAchievement(id: AchievementId | null): Promise<AchievementId | null>;

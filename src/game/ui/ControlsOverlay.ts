@@ -5,8 +5,8 @@ import { createAuxiliaryButton } from './auxiliaryButton.js';
 import { getCloseIconTexture } from './closeIcon.js';
 import { QUIET_PADDING_PX } from './Button.js';
 import type { Button } from './Button.js';
-import { HOVER_CURSOR } from './cursor.js';
-import { MENU_KEY_HINT_STYLE, createKeyCap, placeKeyCap } from './keyHintView.js';
+import { setContainerHitArea } from './hoverTarget.js';
+import { MENU_KEY_HINT_STYLE, createKeyCap, getKeyCapObjects, placeKeyCap } from './keyHintView.js';
 import type { KeyCap, KeyHintStyle } from './keyHintView.js';
 import { ModalFrame } from './ModalFrame.js';
 import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from './theme.js';
@@ -180,14 +180,10 @@ export class ControlsOverlay {
         yPx += ROW_HEIGHT_PX;
       });
     });
-    // 키캡을 키보다 먼저 넣어 키가 키캡 위에 그려지게 한다.
     this.contentObjects = groups.flatMap((group) => [
       group.divider,
       group.title,
-      ...group.rows.flatMap((row) => [
-        row.label,
-        ...row.keyCaps.flatMap(({ cap, key }) => [cap, key]),
-      ]),
+      ...group.rows.flatMap((row) => [row.label, ...row.keyCaps.flatMap(getKeyCapObjects)]),
     ]);
     this.frame.container.add([...this.contentObjects]);
     this.closeButton.alignX(contentRightPx + QUIET_PADDING_PX.xPx, 1);
@@ -210,21 +206,9 @@ export function addControlsEntry(
     .setOrigin(0, 0.5);
   const widthPx = labelLeftPx + label.width;
   const entry = scene.add
-    .container(leftPx, topYPx, [keyCap.cap, keyCap.key, label])
+    .container(leftPx, topYPx, [...getKeyCapObjects(keyCap), label])
     .setSize(widthPx, ENTRY_ROW_HEIGHT_PX);
-  // Phaser 는 Container 의 hit 좌표에 displayOrigin(크기의 절반)을 더하므로 그만큼 옮긴다.
-  const hitArea = new Phaser.Geom.Rectangle(
-    widthPx / 2,
-    ENTRY_ROW_HEIGHT_PX / 2,
-    widthPx,
-    ENTRY_ROW_HEIGHT_PX,
-  );
-  entry.setInteractive({
-    hitArea,
-    hitAreaCallback: (area: Phaser.Geom.Rectangle, x: number, y: number) =>
-      Phaser.Geom.Rectangle.Contains(area, x, y),
-    cursor: HOVER_CURSOR,
-  });
+  setContainerHitArea(entry, new Phaser.Geom.Rectangle(), widthPx, ENTRY_ROW_HEIGHT_PX);
   bindTextEntry(entry, label, onActivate);
   return entry;
 }

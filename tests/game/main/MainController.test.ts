@@ -1,20 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthUser } from '../../../src/data/account.js';
+import { parseNickname } from '../../../src/data/nickname.js';
+import type { Nickname } from '../../../src/data/nickname.js';
 import type { AccountState } from '../../../src/game/accountState.js';
 import { MainController } from '../../../src/game/main/MainController.js';
 import { requireDefined } from '../../../src/invariant.js';
 
+function nickname(input: string): Nickname {
+  return requireDefined(parseNickname(input), 'Invalid test nickname', input);
+}
+
 const USER: AuthUser = {
   id: 'user1',
   email: 'player@example.com',
-  nickname: 'Star',
+  nickname: nickname('Star'),
   isEditor: false,
   featuredAchievement: null,
 };
 const OTHER_USER: AuthUser = {
   id: 'user2',
   email: 'other@example.com',
-  nickname: 'Moon',
+  nickname: nickname('Moon'),
   isEditor: false,
   featuredAchievement: null,
 };
@@ -114,7 +120,7 @@ describe('MainController', () => {
 
       const refreshed: AuthUser = {
         ...USER,
-        nickname: 'Nova',
+        nickname: nickname('Nova'),
         isEditor: true,
         featuredAchievement: 'FIRST_CLEAR',
       };

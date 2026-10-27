@@ -3,7 +3,7 @@ import type { Language } from '../i18n/language.js';
 import { LANE_COUNTS } from '../rhythm/lanes.js';
 import { INPUT_OFFSET_RANGE_MS } from '../rhythm/playTiming.js';
 import type { LaneCount } from '../rhythm/types.js';
-import { isFiniteNumber, isOneOf, isRecord } from '../typeGuards.js';
+import { isFiniteNumber, isOneOf, isRecord, isString } from '../typeGuards.js';
 
 export type MvMode = 'normal' | 'dim' | 'blur' | 'off';
 
@@ -68,7 +68,7 @@ function parseInRange(value: unknown, { min, max }: Range): number | undefined {
 const isLaneCount = isOneOf(LANE_COUNTS);
 
 function isKeyCode(value: unknown): value is string {
-  return typeof value === 'string' && value !== '';
+  return isString(value) && value !== '';
 }
 
 function parseLaneKeys(value: unknown, laneCount: LaneCount): readonly string[] | undefined {
@@ -87,17 +87,19 @@ function parseKeyBindings(value: unknown): KeyBindings | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
-  const four = parseLaneKeys(value[4], 4);
-  const five = parseLaneKeys(value[5], 5);
-  const six = parseLaneKeys(value[6], 6);
-  if (four === undefined || five === undefined || six === undefined) {
-    return undefined;
+  // 기본값은 타입을 채우는 시작값일 뿐이고, 레인 수마다 저장된 키로 덮어쓰거나 실패한다.
+  let bindings = DEFAULT_SETTINGS.keyBindings;
+  for (const laneCount of LANE_COUNTS) {
+    const keys = parseLaneKeys(value[laneCount], laneCount);
+    if (keys === undefined) {
+      return undefined;
+    }
+    bindings = {
+      ...bindings,
+      [laneCount]: keys,
+    };
   }
-  return {
-    4: four,
-    5: five,
-    6: six,
-  };
+  return bindings;
 }
 
 export const SETTINGS_PARSERS: {

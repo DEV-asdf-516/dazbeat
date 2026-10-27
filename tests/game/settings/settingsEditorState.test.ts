@@ -9,11 +9,12 @@ import {
   confirmReset,
   createSettingsEditorState,
   focusRow,
+  getRowAppearance,
   hoverRow,
   isRowShown,
-  isWaitingKey,
   moveFocus,
   pressBack,
+  readSettingsKey,
   requestReset,
   startWaiting,
   unhoverRow,
@@ -118,7 +119,7 @@ describe('startWaiting', () => {
       kind: 'waitingKey',
       lane: 1,
     });
-    expect(isWaitingKey(state)).toBe(true);
+    expect(state.mode.kind).toBe('waitingKey');
   });
 
   it('only focuses a non-key row', () => {
@@ -131,7 +132,7 @@ describe('bindWaitingKey', () => {
   it('binds the key and stops waiting', () => {
     const state = bindWaitingKey(startWaiting(initial(), 1), 'KeyA');
     expect(state.settings.keyBindings[4]).toEqual(['KeyA', 'KeyF', 'KeyJ', 'KeyK']);
-    expect(isWaitingKey(state)).toBe(false);
+    expect(state.mode.kind).not.toBe('waitingKey');
   });
 
   it('swaps with the lane that already uses the key', () => {
@@ -142,19 +143,105 @@ describe('bindWaitingKey', () => {
   it.each([['Escape'], ['KeyD']])('keeps settings for %s and stops waiting', (code) => {
     const state = bindWaitingKey(startWaiting(initial(), 1), code);
     expect(state.settings).toBe(DEFAULT_SETTINGS);
-    expect(isWaitingKey(state)).toBe(false);
+    expect(state.mode.kind).not.toBe('waitingKey');
   });
 
   it('ignores Tab and keeps waiting', () => {
     const waiting = startWaiting(initial(), 1);
     const state = bindWaitingKey(waiting, 'Tab');
     expect(state).toBe(waiting);
-    expect(isWaitingKey(state)).toBe(true);
+    expect(state.mode.kind).toBe('waitingKey');
     expect(state.settings.keyBindings).toBe(DEFAULT_SETTINGS.keyBindings);
   });
 
   it('throws when no lane is waiting', () => {
     expect(() => bindWaitingKey(initial(), 'KeyA')).toThrow('No lane is waiting');
+  });
+});
+
+describe('readSettingsKey', () => {
+  function readState(
+    state: SettingsEditorState,
+    code: string,
+    repeat = false,
+  ): SettingsEditorState {
+    const result = readSettingsKey(state, {
+      code,
+      repeat,
+    });
+    if (result.kind !== 'state') {
+      throw new Error('expected a state');
+    }
+    return result.state;
+  }
+
+  it('binds a new key to the waiting lane and goes back to browsing', () => {
+    const state = readState(startWaiting(initial(), 1), 'KeyA');
+    expect(state.settings.keyBindings[4]).toEqual(['KeyA', 'KeyF', 'KeyJ', 'KeyK']);
+    expect(state.mode).toEqual({ kind: 'browsing' });
+  });
+
+  it('takes a repeated key while waiting without changing the state', () => {
+    const waiting = startWaiting(initial(), 1);
+    expect(readState(waiting, 'KeyA', true)).toBe(waiting);
+  });
+
+  it('stops waiting on Escape without binding', () => {
+    const state = readState(startWaiting(initial(), 1), 'Escape');
+    expect(state.settings).toBe(DEFAULT_SETTINGS);
+    expect(state.mode).toEqual({ kind: 'browsing' });
+  });
+
+  it('takes Tab while waiting without changing the state', () => {
+    const waiting = startWaiting(initial(), 1);
+    expect(readState(waiting, 'Tab')).toBe(waiting);
+  });
+
+  it('resets to the defaults but keeps the language on Enter while confirming', () => {
+    const changed = bindWaitingKey(startWaiting(adjustRow(initial(), 0, -1, 'ko'), 1), 'KeyA');
+    const confirming = requestReset({
+      ...changed,
+      settings: {
+        ...changed.settings,
+        language: 'ja',
+      },
+    });
+    const state = readState(confirming, 'Enter');
+    expect(state.settings).toEqual({
+      ...DEFAULT_SETTINGS,
+      language: 'ja',
+    });
+    expect(state.mode).toEqual({ kind: 'browsing' });
+  });
+
+  it('keeps the settings on Escape while confirming', () => {
+    const confirming = requestReset(adjustRow(initial(), 0, -1, 'ko'));
+    const state = readState(confirming, 'Escape');
+    expect(state.settings).toBe(confirming.settings);
+    expect(state.mode).toEqual({ kind: 'browsing' });
+  });
+
+  it('takes other keys while confirming without changing the state', () => {
+    const confirming = requestReset(initial());
+    expect(readState(confirming, 'KeyA')).toBe(confirming);
+  });
+
+  it('passes keys while browsing', () => {
+    expect(
+      readSettingsKey(initial(), {
+        code: 'Enter',
+        repeat: false,
+      }),
+    ).toEqual({ kind: 'pass' });
+  });
+});
+
+describe('getRowAppearance', () => {
+  it('emphasizes the focused and hovered rows only', () => {
+    const state = hoverRow(focusRow(initial(), 1), 2);
+    expect(getRowAppearance(state, 1)).toBe('emphasized');
+    expect(getRowAppearance(state, 2)).toBe('emphasized');
+    expect(getRowAppearance(state, 0)).toBe('normal');
   });
 });
 
@@ -165,7 +252,7 @@ describe('applyPointer', () => {
 
   it('only cancels waiting instead of applying the transition', () => {
     const state = applyPointer(startWaiting(initial(), 1), (current) => focusRow(current, 2));
-    expect(isWaitingKey(state)).toBe(false);
+    expect(state.mode.kind).not.toBe('waitingKey');
     expect(state.rowIndex).toBe(1);
   });
 });
@@ -181,7 +268,7 @@ describe('pressBack', () => {
     if (outcome.kind !== 'stay') {
       throw new Error('expected to stay');
     }
-    expect(isWaitingKey(outcome.state)).toBe(false);
+    expect(outcome.state.mode.kind).not.toBe('waitingKey');
     expect(outcome.state.rowIndex).toBe(1);
     expect(outcome.state.settings).toBe(waiting.settings);
   });
@@ -326,7 +413,7 @@ describe('lane mode', () => {
     const waiting = startWaiting(toSixLanes(laneModeInitial()), keyRowIndex(5));
     expect(bindWaitingKey(waiting, 'Tab')).toBe(waiting);
     const cancelled = bindWaitingKey(waiting, 'Escape');
-    expect(isWaitingKey(cancelled)).toBe(false);
+    expect(cancelled.mode.kind).not.toBe('waitingKey');
     expect(cancelled.settings).toBe(waiting.settings);
   });
 });

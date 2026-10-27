@@ -16,6 +16,8 @@ export interface SegmentOption<T> {
   glyph?: SegmentGlyph;
 }
 
+type SegmentAppearance = 'selected' | 'hovered' | 'idle';
+
 interface Segment<T> {
   option: SegmentOption<T>;
   label: Phaser.GameObjects.Text;
@@ -129,7 +131,7 @@ export class SegmentedControl<T extends string | number> {
 
   private refresh(): void {
     this.segments.forEach(({ option, label, glyph }) => {
-      const color = this.segmentColor(option.value);
+      const color = this.getSegmentColor(option.value);
       setTextColor(label, color);
       if (glyph !== null) {
         glyph.spec.draw(glyph.graphics.clear(), color);
@@ -137,11 +139,21 @@ export class SegmentedControl<T extends string | number> {
     });
   }
 
-  private segmentColor(value: T): number {
-    if (value === this.selected) {
-      return CELESTIAL_COLORS.textPrimary;
+  private getSegmentColor(value: T): number {
+    switch (this.getAppearance(value)) {
+      case 'selected':
+      case 'hovered':
+        return CELESTIAL_COLORS.textPrimary;
+      case 'idle':
+        return CELESTIAL_COLORS.textSecondary;
     }
-    return value === this.hovered ? CELESTIAL_COLORS.textPrimary : CELESTIAL_COLORS.textSecondary;
+  }
+
+  private getAppearance(value: T): SegmentAppearance {
+    if (value === this.selected) {
+      return 'selected';
+    }
+    return value === this.hovered ? 'hovered' : 'idle';
   }
 
   private requireSegment(value: T): Segment<T> {

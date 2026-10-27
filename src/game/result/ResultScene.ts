@@ -21,13 +21,19 @@ import { RESULT_NODE_ID, planResultFinish } from './resultFinish.js';
 import type { FinishAnchor, FinishCue } from './resultFinish.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
-import { findChart, stepChart } from '../../data/songs.js';
-import { requireDefined } from '../../invariant.js';
-import { DIFFICULTY_TAB_ITEMS, getDifficultyAppearance } from '../difficultyAppearance.js';
+import {
+  createResultState,
+  getRetryTabAppearance,
+  hoverDifficulty,
+  selectRetryDifficulty,
+  stepRetryChart,
+  unhoverDifficulty,
+} from './resultState.js';
+import type { ResultState } from './resultState.js';
+import { DIFFICULTY_TAB_ITEMS } from '../difficultyAppearance.js';
 import type { ChartRef, Song } from '../../data/songs.js';
 import { getRank } from '../../rhythm/rank.js';
 import { JUDGMENTS } from '../../rhythm/judgment.js';
-import type { Difficulty } from '../../rhythm/types.js';
 import { Button } from '../ui/Button.js';
 import { TextTabs } from '../ui/TextTabs.js';
 import type { TextTabsLayout, TextTabsStyle } from '../ui/TextTabs.js';
@@ -165,14 +171,13 @@ export class ResultScene extends Phaser.Scene {
     });
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
     const { song, laneCount, difficulty, chartId, mode, result, newAchievements, restore } = data;
-    let retryChart: ChartRef = {
+    let state = createResultState({
       song,
       laneCount,
       difficulty,
       chartId,
-    };
-    let hoveredDifficulty: Difficulty | null = null;
-    const activate = (item: MenuItem): void => this.activate(item, retryChart, mode, restore);
+    });
+    const activate = (item: MenuItem): void => this.activate(item, state.retryChart, mode, restore);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const titleText = this.add.text(
@@ -270,11 +275,11 @@ export class ResultScene extends Phaser.Scene {
       onActivate: () => activate('retry'),
     });
     retryButton.setX(RIGHT_X_PX + QUIET_BUTTON_PADDING_X_PX - retryButton.width);
-    const selectRetryChart = (next: ChartRef): void => {
-      if (this.exit.kind === 'leaving' || next.difficulty === retryChart.difficulty) {
+    const applyState = (next: ResultState): void => {
+      if (next === state) {
         return;
       }
-      retryChart = next;
+      state = next;
       renderTabs();
     };
     const tabs = new TextTabs(
@@ -283,38 +288,17 @@ export class ResultScene extends Phaser.Scene {
       DIFFICULTY_TABS_LAYOUT,
       DIFFICULTY_TABS_STYLE,
       {
-        onSelect: (tabDifficulty) =>
-          selectRetryChart(
-            requireDefined(
-              findChart(song, laneCount, tabDifficulty),
-              'Missing chart for difficulty tab',
-              tabDifficulty,
-            ),
-          ),
-        onHover: (tabDifficulty) => {
-          if (hoveredDifficulty !== tabDifficulty) {
-            hoveredDifficulty = tabDifficulty;
-            renderTabs();
+        onSelect: (tabDifficulty) => {
+          if (this.exit.kind !== 'leaving') {
+            applyState(selectRetryDifficulty(state, tabDifficulty));
           }
         },
-        onUnhover: (tabDifficulty) => {
-          if (hoveredDifficulty === tabDifficulty) {
-            hoveredDifficulty = null;
-            renderTabs();
-          }
-        },
+        onHover: (tabDifficulty) => applyState(hoverDifficulty(state, tabDifficulty)),
+        onUnhover: (tabDifficulty) => applyState(unhoverDifficulty(state, tabDifficulty)),
       },
     );
     const renderTabs = (): void =>
-      tabs.render(
-        (tabDifficulty) =>
-          getDifficultyAppearance({
-            isSelected: retryChart.difficulty === tabDifficulty,
-            isAvailable: findChart(song, laneCount, tabDifficulty) !== undefined,
-            isHovered: hoveredDifficulty === tabDifficulty,
-          }),
-        song.accentColor,
-      );
+      tabs.render((tabDifficulty) => getRetryTabAppearance(state, tabDifficulty), song.accentColor);
     renderTabs();
     const songSelectButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, 0, {
       variant: 'quiet',
@@ -336,13 +320,16 @@ export class ResultScene extends Phaser.Scene {
         },
       ],
       () => soundEffects.play('menuFocus'),
+      'retry',
     );
     chrome.start(rankBounds, {
       isLeaving: () => this.exit.kind === 'leaving',
       handleMenuKey: (action) =>
-        this.handleMenuKey(action, menu, activate, (delta) =>
-          selectRetryChart(stepChart(retryChart, delta)),
-        ),
+        this.handleMenuKey(action, menu, activate, (delta) => {
+          if (this.exit.kind !== 'leaving') {
+            applyState(stepRetryChart(state, delta));
+          }
+        }),
     });
     const presentation = getResultPresentation(mode, result);
     this.playFinish(

@@ -4,6 +4,7 @@ import type { RecordModel } from 'pocketbase';
 import type { AuthUser } from '../data/account.js';
 import { findAchievement } from '../data/achievements.js';
 import type { AchievementId } from '../data/achievements.js';
+import { isNickname } from '../data/nickname.js';
 import { HTTP_STATUS } from '../httpStatus.js';
 import { isBoolean, isString } from '../typeGuards.js';
 import { readRecordField } from './recordField.js';
@@ -21,7 +22,7 @@ function toAuthUser(record: RecordModel): AuthUser {
   return {
     id: readRecordField(record, 'users', 'id', isString),
     email: readRecordField(record, 'users', 'email', isString),
-    nickname: readRecordField(record, 'users', 'nickname', isString),
+    nickname: readRecordField(record, 'users', 'nickname', isNickname),
     isEditor: readRecordField(record, 'users', 'isEditor', isBoolean),
     featuredAchievement: parseFeaturedAchievement(
       readRecordField(record, 'users', 'featuredAchievement', isString),

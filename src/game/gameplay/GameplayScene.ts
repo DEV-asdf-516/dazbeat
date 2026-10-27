@@ -29,17 +29,14 @@ import type {
   QuitConfirmReason,
   RankedPlay,
 } from './GameplayController.js';
-import { isLoadingStatus } from './gameplayStatus.js';
-import type { GameplayStatus } from './gameplayStatus.js';
+import { getStatusView } from './gameplayStatus.js';
+import type { GameplayStatus, GameplayStatusMessage } from './gameplayStatus.js';
 import { addHudEffect, addHudText } from './hudObjects.js';
 import {
   JUDGMENT_SHIMMER_ID,
   LANE_EFFECT_IDS,
-  getHitBloomIntensity,
-  getJudgmentPopScale,
+  getJudgmentEffect,
   getJudgmentSoundEffect,
-  hasJudgmentGlow,
-  hasJudgmentShimmer,
 } from './judgmentEffects.js';
 import { Button } from '../ui/Button.js';
 import {
@@ -157,10 +154,7 @@ const STATUS_MESSAGES = {
   loading: 'gameplay.loading',
   awaitingStart: 'gameplay.pressEnterToStart',
   resuming: 'gameplay.resuming',
-} as const satisfies Record<
-  Exclude<GameplayStatus['kind'], 'paused' | 'countdown' | 'none'>,
-  string
->;
+} as const satisfies Record<GameplayStatusMessage, string>;
 
 type VerticalProfile = readonly (readonly [heightRatio: number, alpha: number])[];
 
@@ -568,14 +562,17 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private setStatus(view: GameplayView, status: GameplayStatus): void {
+    const { notice, countdownDigit } = getStatusView(status);
     view.status.show(
-      status.kind === 'paused' || status.kind === 'countdown' || status.kind === 'none'
-        ? ''
-        : this.i18n.t(STATUS_MESSAGES[status.kind]),
-      isLoadingStatus(status) || status.kind === 'resuming',
+      notice.kind === 'none'
+        ? notice
+        : {
+            kind: notice.kind,
+            text: this.i18n.t(STATUS_MESSAGES[notice.message]),
+          },
     );
     const { countdownText } = view;
-    const digitText = status.kind === 'countdown' ? `${status.digit}` : '';
+    const digitText = countdownDigit === null ? '' : `${countdownDigit}`;
     if (digitText !== countdownText.text) {
       this.tweens.killTweensOf(countdownText);
       countdownText.setText(digitText).setScale(1).setAlpha(1);
@@ -779,8 +776,7 @@ export class GameplayScene extends Phaser.Scene {
     const { judgmentText, judgmentFlash, judgmentGlow } = view;
     const { judgment } = lastEvent;
     const color = JUDGMENT_COLORS[judgment];
-    const intensity = getHitBloomIntensity(judgment);
-    const popScale = getJudgmentPopScale(judgment);
+    const { intensity, popScale, hasGlow, hasShimmer } = getJudgmentEffect(judgment);
     this.tweens.killTweensOf([judgmentText, judgmentFlash, judgmentGlow]);
     setTextColor(judgmentText, color);
     judgmentText.setText(judgment.toUpperCase()).setAlpha(1).setScale(popScale);
@@ -808,7 +804,7 @@ export class GameplayScene extends Phaser.Scene {
       ease: 'Quad.Out',
     });
     judgmentGlow.setAlpha(0);
-    if (hasJudgmentGlow(judgment)) {
+    if (hasGlow) {
       judgmentGlow
         .setTint(color)
         .setAlpha(JUDGMENT_GLOW_ALPHA * intensity)
@@ -825,7 +821,7 @@ export class GameplayScene extends Phaser.Scene {
         ease: 'Cubic.Out',
       });
     }
-    if (hasJudgmentShimmer(lastEvent.judgment)) {
+    if (hasShimmer) {
       playCelestialOnce(view.judgmentShimmer);
     }
   }

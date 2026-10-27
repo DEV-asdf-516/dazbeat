@@ -1,4 +1,5 @@
 import type { AchievementId } from './achievements.js';
+import type { Nickname } from './nickname.js';
 
 export interface AchievementStatus {
   readonly id: AchievementId;
@@ -16,7 +17,7 @@ export interface ProfileStats {
 }
 
 export interface Profile {
-  readonly nickname: string;
+  readonly nickname: Nickname;
   readonly featuredAchievement: AchievementId | null;
   readonly stats: ProfileStats;
   readonly achievements: readonly AchievementStatus[];

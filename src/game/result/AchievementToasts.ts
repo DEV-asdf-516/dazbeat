@@ -3,8 +3,8 @@ import type { AchievementId } from '../../data/achievements.js';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
 import { getAchievementEmblemTexture } from '../ui/achievementEmblem.js';
 import { getCloseIconTexture } from '../ui/closeIcon.js';
-import { HOVER_CURSOR } from '../ui/cursor.js';
 import { setFittedText } from '../ui/fitText.js';
+import { bindHoverTarget } from '../ui/hoverTarget.js';
 import { CARD_PANEL, COLORS, RADIUS, typeStyle } from '../ui/theme.js';
 
 export interface AchievementNotice {
@@ -116,8 +116,7 @@ export class AchievementToasts {
       .setTint(COLORS.textMuted);
     const closeHit = scene.add
       .zone(TOAST_WIDTH_PX - CLOSE_HIT_SIZE_PX, 0, CLOSE_HIT_SIZE_PX, CLOSE_HIT_SIZE_PX)
-      .setOrigin(0, 0)
-      .setInteractive({ cursor: HOVER_CURSOR });
+      .setOrigin(0, 0);
     const container = scene.add
       .container(LEFT_X_PX, BOTTOM_SLOT_Y_PX + ENTER_RISE_PX, [
         card,
@@ -133,17 +132,18 @@ export class AchievementToasts {
       slideTween: null,
       exitTimer: null,
     };
-    closeHit
-      .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => closeIcon.clearTint())
-      .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => closeIcon.setTint(COLORS.textMuted))
-      .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
+    bindHoverTarget(closeHit, {
+      onOver: () => closeIcon.clearTint(),
+      onOut: () => closeIcon.setTint(COLORS.textMuted),
+      onActivate: () => {
         // 타이머가 없으면 이미 사라지는 중이라 두 번 내보내지 않는다.
         if (toast.exitTimer === null) {
           return;
         }
         toast.exitTimer.remove();
         this.exit(toast);
-      });
+      },
+    });
     this.toasts.push(toast);
     this.layout();
     scene.tweens.add({

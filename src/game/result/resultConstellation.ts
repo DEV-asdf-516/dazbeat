@@ -118,7 +118,7 @@ const MIN_PACING = 0.9;
 const MAX_PACING = 1.1;
 // 배치 위치는 남는 여백의 가운데 절반 안에서만 움직여 영역 한쪽에 붙지 않게 한다.
 const SLACK_MIN_FRACTION = 0.25;
-const SLACK_SPAN_FRACTION = 0.5;
+const SLACK_MAX_FRACTION = 0.75;
 const CLEAR_EDGE_FRACTION = 0.6;
 const FAINT_EDGE_FRACTION = 0.3;
 const FNV_OFFSET_BASIS = 0x811c9dc5;
@@ -321,8 +321,9 @@ function placeInBox(
   const slackXPx = box.widthPx - (maxX - minX) * pxPerUnit;
   const slackYPx = box.heightPx - (maxY - minY) * pxPerUnit;
   const leftPx =
-    box.leftPx + slackXPx * (SLACK_MIN_FRACTION + SLACK_SPAN_FRACTION * slackFraction.x);
-  const topPx = box.topPx + slackYPx * (SLACK_MIN_FRACTION + SLACK_SPAN_FRACTION * slackFraction.y);
+    box.leftPx + slackXPx * lerp(SLACK_MIN_FRACTION, SLACK_MAX_FRACTION, slackFraction.x);
+  const topPx =
+    box.topPx + slackYPx * lerp(SLACK_MIN_FRACTION, SLACK_MAX_FRACTION, slackFraction.y);
   return points.map(({ x, y }) => ({
     xPx: leftPx + (x - minX) * pxPerUnit,
     yPx: topPx + (y - minY) * pxPerUnit,

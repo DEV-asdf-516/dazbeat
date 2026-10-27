@@ -1,23 +1,25 @@
 import { advanceTrail, emitTrail, getPuffLook } from './cursorTrail.js';
 import type { PointPx, TrailPuff } from './cursorTrail.js';
+import { lerp } from '../../range.js';
 import { CURSOR_TAIL_OFFSET_PX } from './cursor.js';
+import { rgba } from './lightTextures.js';
 
 /** 흰 심이 없어야 연기처럼 흐리다. */
 const NEBULA_STOPS = [
   {
     offset: 0,
-    rgb: '190, 245, 228',
+    color: 0xbef5e4,
   },
   {
     offset: 0.45,
-    rgb: '96, 212, 196',
+    color: 0x60d4c4,
   },
   {
     offset: 1,
-    rgb: '40, 118, 128',
+    color: 0x287680,
   },
 ] as const;
-const SPARK_RGB = '224, 255, 244';
+const SPARK_COLOR = 0xe0fff4;
 const SPARK_RADIUS_PX = 0.9;
 /** 덩이 alpha 가 아주 옅으므로 별빛 점은 그 몇 배로 밝혀 겨우 보이게 한다. */
 const SPARK_ALPHA_SCALE = 7;
@@ -99,14 +101,12 @@ export class NebulaTrail {
         radiusPx,
       );
       for (const stop of NEBULA_STOPS) {
-        // lerp(alpha, 0, offset) 와 같지만, 중심에서 멀수록 alpha 를 줄인다는 뜻이 보이도록 곱셈으로 둔다.
-        const stopAlpha = stop.offset === 1 ? 0 : alpha * (1 - stop.offset);
-        gradient.addColorStop(stop.offset, `rgba(${stop.rgb}, ${stopAlpha})`);
+        gradient.addColorStop(stop.offset, rgba(stop.color, lerp(alpha, 0, stop.offset)));
       }
       context.fillStyle = gradient;
       context.fillRect(puff.xPx - radiusPx, puff.yPx - radiusPx, radiusPx * 2, radiusPx * 2);
       if (puff.hasSpark) {
-        context.fillStyle = `rgba(${SPARK_RGB}, ${Math.min(1, alpha * SPARK_ALPHA_SCALE)})`;
+        context.fillStyle = rgba(SPARK_COLOR, Math.min(1, alpha * SPARK_ALPHA_SCALE));
         context.beginPath();
         context.arc(puff.xPx, puff.yPx, SPARK_RADIUS_PX, 0, Math.PI * 2);
         context.fill();

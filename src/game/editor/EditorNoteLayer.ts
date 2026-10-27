@@ -2,6 +2,7 @@ import type Phaser from 'phaser';
 import { requireDefined } from '../../invariant.js';
 import { getNoteY } from '../../rhythm/notePosition.js';
 import type { HoldNote, Lane, Note } from '../../rhythm/types.js';
+import { isShallowEqual } from '../../shallowEqual.js';
 import { ensureNoteTexture } from './editorTextures.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { CELESTIAL_COLORS, GAMEPLAY_DEPTH } from '../ui/theme.js';
@@ -62,9 +63,11 @@ export class EditorNoteLayer {
     const last = this.rendered;
     if (
       last !== null &&
-      last.notes === notes &&
-      last.selected === selected &&
-      last.currentTimeMs === currentTimeMs
+      isShallowEqual(last, {
+        notes,
+        selected,
+        currentTimeMs,
+      })
     ) {
       return;
     }

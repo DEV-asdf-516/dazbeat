@@ -1,6 +1,7 @@
 import { ALL_SONGS_QUERY, SONG_FILTERS } from '../../data/songs.js';
 import type { SongFilter, SongQuery } from '../../data/songs.js';
 import { cycleItem } from '../../range.js';
+import { isShallowEqual } from '../../shallowEqual.js';
 import type { ChartEditorSelectSceneData } from '../sceneRoutes.js';
 import type { SongFeed, SongFeeds } from '../SongFeed.js';
 import {
@@ -49,10 +50,6 @@ interface SelectState {
   readonly feed: SongFeed;
   readonly list: SongListState;
   readonly unsubscribe: () => void;
-}
-
-function isSameQuery(a: SongQuery, b: SongQuery): boolean {
-  return a.category === b.category && a.title === b.title;
 }
 
 export class ChartEditorSelectController {
@@ -141,12 +138,12 @@ export class ChartEditorSelectController {
   }
 
   private switchQuery(query: SongQuery): void {
-    if (isSameQuery(query, this.current.feed.query)) {
+    if (isShallowEqual(query, this.current.feed.query)) {
       return;
     }
     this.current.unsubscribe();
     this.current = this.attach(
-      isSameQuery(query, ALL_SONGS_QUERY) ? this.feeds.catalog : this.feeds.create(query),
+      isShallowEqual(query, ALL_SONGS_QUERY) ? this.feeds.catalog : this.feeds.create(query),
       null,
     );
     this.render();

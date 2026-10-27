@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { clamp } from '../../range.js';
+import { clamp, getProgress, lerp } from '../../range.js';
 import { createCanvasTexture } from '../ui/canvasTexture.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 
@@ -315,12 +315,13 @@ export function addConstellationFigure(
 
   const halfPathPx = diagonalPx / 2 + TRAIL_PATH_MARGIN_PX;
   const projectOnPath = (xPx: number, yPx: number): number =>
-    ((xPx - widthPx / 2) * PASS_DIRECTION.x +
-      (yPx - heightPx / 2) * PASS_DIRECTION.y +
-      halfPathPx) /
-    (halfPathPx * 2);
+    getProgress(
+      (xPx - widthPx / 2) * PASS_DIRECTION.x + (yPx - heightPx / 2) * PASS_DIRECTION.y,
+      -halfPathPx,
+      halfPathPx,
+    );
   const passPoint = (progress: number): Phaser.Math.Vector2 => {
-    const distancePx = progress * halfPathPx * 2 - halfPathPx;
+    const distancePx = lerp(-halfPathPx, halfPathPx, progress);
     return new Phaser.Math.Vector2(
       widthPx / 2 + PASS_DIRECTION.x * distancePx,
       heightPx / 2 + PASS_DIRECTION.y * distancePx,

@@ -22,7 +22,7 @@ import {
   SONG_SELECT_ACTIONS,
   getJacketRange,
   getPlayableSelection,
-  isActionEnabled,
+  getActionAppearance,
   getSongPage,
   getSongRows,
   getFilterAppearance,
@@ -801,7 +801,7 @@ export class SongSelectScene extends Phaser.Scene {
           hover.slot,
         );
         if (rowView.kind === 'song') {
-          this.renderRowNode(view, state, hover.slot, rowView);
+          this.renderRowNode(view, hover.slot, rowView);
         }
         return;
       }
@@ -862,9 +862,16 @@ export class SongSelectScene extends Phaser.Scene {
     const { state, notice, isLoadingMore, songCount } = shown;
     this.renderTabs(view, state);
     const rows = getSongRows(state, ROWS_PER_PAGE);
-    rows.forEach((rowView, slot) => this.renderRow(view, state, slot, rowView));
+    rows.forEach((rowView, slot) => this.renderRow(view, slot, rowView));
     this.renderSelectedHalo(view, state);
-    view.notice.show(notice === null ? '' : this.translateNotice(notice), notice === 'loading');
+    if (notice === null) {
+      view.notice.show({ kind: 'none' });
+    } else {
+      view.notice.show({
+        kind: notice === 'loading' ? 'loading' : 'text',
+        text: this.translateNotice(notice),
+      });
+    }
     const { pageNumber } = getSongPage(state, ROWS_PER_PAGE);
     const pageCount = Math.ceil(songCount / ROWS_PER_PAGE);
     view.pageText.setText(`${pageNumber} / ${pageCount}`).setVisible(pageCount >= 2);
@@ -875,7 +882,14 @@ export class SongSelectScene extends Phaser.Scene {
     } else {
       view.loadingMore.setPosition(ROW_X_PX + ROW_WIDTH_PX / 2, getRowCenterYPx(nextSlot), 0.5);
     }
-    view.loadingMore.show(isLoadingMore ? this.i18n.t('songSelect.loadingMore') : '', true);
+    view.loadingMore.show(
+      isLoadingMore
+        ? {
+            kind: 'loading',
+            text: this.i18n.t('songSelect.loadingMore'),
+          }
+        : { kind: 'none' },
+    );
 
     const { current } = state;
     if (current.kind === 'none') {
@@ -888,14 +902,9 @@ export class SongSelectScene extends Phaser.Scene {
   }
 
   private renderDifficultyTabs(view: SongSelectWidgets, state: SongSelectState): void {
-    const { current, hover } = state;
+    const { current } = state;
     view.difficultyTabs.render(
-      (difficulty) =>
-        getSongDifficultyAppearance(
-          state,
-          difficulty,
-          hover?.kind === 'difficulty' && hover.difficulty === difficulty,
-        ),
+      (difficulty) => getSongDifficultyAppearance(state, difficulty),
       current.kind === 'song' ? current.song.accentColor : COLORS.textPrimary,
     );
   }
@@ -917,16 +926,11 @@ export class SongSelectScene extends Phaser.Scene {
     view.navigationStar.setPosition(bounds.left - NAVIGATION_STAR_GAP_PX, bounds.centerY);
   }
 
-  private renderRow(
-    view: SongSelectWidgets,
-    state: SongSelectState,
-    slot: number,
-    rowView: SongRowView,
-  ): void {
+  private renderRow(view: SongSelectWidgets, slot: number, rowView: SongRowView): void {
     const row = getSongRow(view, slot);
     const { selectedFill, background, thumbnail, title, category, node } = row;
     const hasSong = rowView.kind === 'song';
-    const isSelected = hasSong && rowView.isSelected;
+    const isSelected = hasSong && rowView.appearance === 'selected';
     thumbnail.setVisible(hasSong);
     selectedFill.setVisible(isSelected);
     title.setVisible(hasSong);
@@ -948,14 +952,13 @@ export class SongSelectScene extends Phaser.Scene {
     const titleMaxWidthPx =
       category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX - SELECTED_ROW_OFFSET_PX - title.x;
     setFittedText(title, song.title, titleMaxWidthPx);
-    this.renderRowNode(view, state, slot, rowView);
+    this.renderRowNode(view, slot, rowView);
   }
 
   private renderRowNode(
     view: SongSelectWidgets,
-    state: SongSelectState,
     slot: number,
-    { isSelected, recordChart }: Extract<SongRowView, { kind: 'song' }>,
+    { appearance, recordChart }: Extract<SongRowView, { kind: 'song' }>,
   ): void {
     const record =
       recordChart === null
@@ -966,11 +969,9 @@ export class SongSelectScene extends Phaser.Scene {
             recordChart.laneCount,
             recordChart.difficulty,
           );
-    const { hover } = state;
-    const isHovered = hover?.kind === 'row' && hover.slot === slot;
     applyCelestialPresentation(
       getSongRow(view, slot).node,
-      this.celestial.atlasPresentations[getSongRowNodeId(record, isSelected, isHovered)],
+      this.celestial.atlasPresentations[getSongRowNodeId(appearance, record)],
     );
   }
 
@@ -1066,19 +1067,24 @@ export class SongSelectScene extends Phaser.Scene {
     action: SongSelectAction,
   ): void {
     const { text, underline, hitArea } = view.actions[action];
-    if (!isActionEnabled(state, action)) {
-      hitArea.disableInteractive(true);
-      setTextColor(text, COLORS.textDisabled);
-      underline.setVisible(false);
-      return;
-    }
-    hitArea.setInteractive();
     const { idleColor, hoverColor } = ACTION_STYLES[action];
-    const { hover } = state;
-    const isHovered = hover?.kind === 'action' && hover.action === action;
-    const color = isHovered ? hoverColor : idleColor;
-    setTextColor(text, color);
-    underline.setFillStyle(color).setVisible(isHovered);
+    switch (getActionAppearance(state, action)) {
+      case 'disabled':
+        hitArea.disableInteractive(true);
+        setTextColor(text, COLORS.textDisabled);
+        underline.setVisible(false);
+        return;
+      case 'hovered':
+        hitArea.setInteractive();
+        setTextColor(text, hoverColor);
+        underline.setFillStyle(hoverColor).setVisible(true);
+        return;
+      case 'idle':
+        hitArea.setInteractive();
+        setTextColor(text, idleColor);
+        underline.setFillStyle(idleColor).setVisible(false);
+        return;
+    }
   }
 
   private shiftRow(row: SongRow, shifted: boolean): void {
