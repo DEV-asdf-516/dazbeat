@@ -37,6 +37,8 @@ import type { SongSelectScreen, SongSelectView } from './SongSelectController.js
 import { DIFFICULTY_TAB_ITEMS } from '../difficultyAppearance.js';
 import type { Difficulty } from '../../rhythm/types.js';
 import { SongSelectJackets } from './SongSelectJackets.js';
+import { getZodiacSign } from './zodiacSign.js';
+import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/zodiacFigures.js';
 import type { JacketTextures } from './SongSelectJackets.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
@@ -222,6 +224,21 @@ const JACKET_GLINT_POSITION_PX = {
   y: JACKET_Y_PX - 14,
 } as const;
 const NAVIGATION_STAR_ID = 'R31';
+// 별자리는 기록 아래부터 RANDOM, PLAY 위까지 남는 하늘에 맞춰 줄인다. 제목이 길면 남는 하늘이 줄어든다.
+const ZODIAC_MAX_SPAN_PX = 290;
+// 난이도 탭 끝(EXPERT)이 정보 열 왼쪽 선을 조금 넘어오므로 그만큼 비켜 선다.
+const ZODIAC_AREA_LEFT_X_PX = INFO_X_PX + 40;
+const ZODIAC_AREA_GAP_PX = 40;
+// 심을 너무 밝히면 아래 깔린 하늘색 번짐이 묻혀 순백으로 떠 보이고, 노트 색처럼 따뜻한 흰색은 푸른 하늘 위에서 누렇게 보인다.
+const ZODIAC_LINE = {
+  coreWidthPx: 1.5,
+  coreAlpha: 0.7,
+  haloWidthPx: 5,
+  haloAlpha: 0.2,
+  // 넓고 옅은 바깥 번짐을 한 겹 더 둘러 선이 푸른빛으로 빛나 보이게 한다.
+  glowWidthPx: 12,
+  glowAlpha: 0.07,
+} as const;
 const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   ROW_NODE_INITIAL_ID,
   ...SONG_ROW_NODE_IDS,
@@ -267,6 +284,8 @@ interface SongSelectWidgets {
   recordLabel: Phaser.GameObjects.Text;
   recordValue: Phaser.GameObjects.Text;
   noRecordText: Phaser.GameObjects.Text;
+  zodiacStars: Phaser.GameObjects.Image;
+  zodiacLines: Phaser.GameObjects.Graphics;
   actions: Record<SongSelectAction, ActionButton>;
 }
 
@@ -415,6 +434,8 @@ export class SongSelectScene extends Phaser.Scene {
       navigationStar: this.addCelestial(NAVIGATION_STAR_ID, 0, 0),
       selectedHalo: this.addCelestial(SELECTED_HALO_ID, 0, 0),
       orbitArc: this.addCelestial(ORBIT_ARC_ID, ORBIT_ARC_POSITION_PX.x, ORBIT_ARC_POSITION_PX.y),
+      zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
+      zodiacLines: this.add.graphics(),
       jacketGlint: this.addCelestial(
         JACKET_GLINT_ID,
         JACKET_GLINT_POSITION_PX.x,
@@ -987,6 +1008,44 @@ export class SongSelectScene extends Phaser.Scene {
       )
       .setVisible(record !== null);
     view.noRecordText.setVisible(record === null);
+    const recordBottom = record === null ? view.noRecordText : view.recordValue;
+    this.renderZodiac(view, song, recordBottom.y + recordBottom.height + ZODIAC_AREA_GAP_PX);
+  }
+
+  private renderZodiac(view: SongSelectWidgets, song: Song, topYPx: number): void {
+    const bottomYPx = view.actions.random.text.y - ZODIAC_AREA_GAP_PX;
+    const sign = getZodiacSign(this, song.constellation, ZODIAC_MAX_SPAN_PX);
+    const scale = Math.min(
+      1,
+      (DETAIL_RIGHT_X_PX - ZODIAC_AREA_LEFT_X_PX) / sign.figureWidthPx,
+      (bottomYPx - topYPx) / sign.figureHeightPx,
+    );
+    const centerXPx = (ZODIAC_AREA_LEFT_X_PX + DETAIL_RIGHT_X_PX) / 2;
+    const centerYPx = (topYPx + bottomYPx) / 2;
+    view.zodiacStars
+      .setTexture(sign.textureKey)
+      .setScale(scale)
+      .setPosition(centerXPx, centerYPx)
+      .setVisible(true);
+    // 결과 화면 별자리와 같은 선(곧은 심 위에 옅은 번짐)을 화면 좌표에 바로 그린다.
+    const figure = ZODIAC_FIGURES[song.constellation];
+    const points = fitZodiacFigure(figure, centerXPx, centerYPx, ZODIAC_MAX_SPAN_PX * scale);
+    const lines = view.zodiacLines.clear().setVisible(true);
+    for (const [from, to] of figure.edges) {
+      const [fromXPx, fromYPx] = requireDefined(
+        points[from],
+        'Zodiac edge outside the figure',
+        from,
+      );
+      const [toXPx, toYPx] = requireDefined(points[to], 'Zodiac edge outside the figure', to);
+      lines
+        .lineStyle(ZODIAC_LINE.glowWidthPx, CELESTIAL_COLORS.selected, ZODIAC_LINE.glowAlpha)
+        .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
+        .lineStyle(ZODIAC_LINE.haloWidthPx, CELESTIAL_COLORS.selected, ZODIAC_LINE.haloAlpha)
+        .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
+        .lineStyle(ZODIAC_LINE.coreWidthPx, CELESTIAL_COLORS.highlight, ZODIAC_LINE.coreAlpha)
+        .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
+    }
   }
 
   private renderNoSong(view: SongSelectWidgets): void {
@@ -997,6 +1056,8 @@ export class SongSelectScene extends Phaser.Scene {
     view.recordLabel.setVisible(false);
     view.recordValue.setVisible(false);
     view.noRecordText.setVisible(false);
+    view.zodiacStars.setVisible(false);
+    view.zodiacLines.setVisible(false);
   }
 
   private renderAction(

@@ -8,7 +8,13 @@ export interface ZodiacFigure {
   nodes: readonly (readonly [x: number, y: number])[];
   edges: readonly (readonly [from: number, to: number])[];
   accentNodeIndices: readonly number[];
+  /** node 마다 실제 겉보기 등급. 작을수록 밝다. */
+  magnitudes: readonly number[];
+  /** node 마다 실제 분광형. 별빛 색을 정한다. */
+  spectralClasses: readonly SpectralClass[];
 }
+
+export type SpectralClass = 'B' | 'A' | 'F' | 'G' | 'K' | 'M';
 
 // 실제 주요 별의 적경·적위를 국소 투영한 값이다. 물병자리 물병 부분(γ·η·π)만 ζ 기준 1.6배 벌렸다.
 export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
@@ -26,6 +32,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [2, 3],
     ],
     accentNodeIndices: [1],
+    magnitudes: [3.6, 2.0, 2.65, 3.9],
+    spectralClasses: ['B', 'K', 'A', 'A'],
   },
   // Elnath, eps, delta, gamma, theta2, Aldebaran, zeta, lambda, omicron
   taurus: {
@@ -51,6 +59,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [7, 8],
     ],
     accentNodeIndices: [5, 0],
+    magnitudes: [1.65, 3.5, 3.8, 3.65, 3.4, 0.85, 3.0, 3.4, 3.6],
+    spectralClasses: ['B', 'K', 'K', 'K', 'A', 'K', 'B', 'B', 'G'],
   },
   // Castor, Pollux, tau, eps, mu, eta, iota, delta, zeta, Alhena
   gemini: {
@@ -78,6 +88,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [8, 9],
     ],
     accentNodeIndices: [1, 0],
+    magnitudes: [1.6, 1.15, 4.4, 3.0, 2.9, 3.3, 3.8, 3.5, 3.9, 1.9],
+    spectralClasses: ['A', 'K', 'K', 'G', 'M', 'M', 'K', 'F', 'G', 'A'],
   },
   // iota, gamma, delta, Acubens, Altarf
   cancer: {
@@ -95,6 +107,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [2, 4],
     ],
     accentNodeIndices: [4],
+    magnitudes: [4.0, 4.65, 3.9, 4.25, 3.5],
+    spectralClasses: ['G', 'A', 'K', 'A', 'K'],
   },
   // eps, mu, zeta, Algieba, eta, Regulus, Chertan, Denebola, Zosma
   leo: {
@@ -121,6 +135,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [8, 3],
     ],
     accentNodeIndices: [5, 7, 3],
+    magnitudes: [3.0, 3.9, 3.4, 2.0, 3.5, 1.35, 3.3, 2.1, 2.55],
+    spectralClasses: ['G', 'K', 'F', 'K', 'A', 'B', 'A', 'A', 'A'],
   },
   // Zavijava, Zaniah, Porrima, Minelauva, Vindemiatrix, Spica, Heze, iota, mu
   virgo: {
@@ -146,6 +162,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [7, 8],
     ],
     accentNodeIndices: [5],
+    magnitudes: [3.6, 3.9, 2.7, 3.4, 2.8, 0.97, 3.4, 4.1, 3.9],
+    spectralClasses: ['F', 'A', 'F', 'M', 'G', 'B', 'A', 'F', 'F'],
   },
   // Zubeneschamali, Zubenelgenubi, Zubenelakrab, sigma, upsilon
   libra: {
@@ -164,6 +182,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [2, 4],
     ],
     accentNodeIndices: [0, 1],
+    magnitudes: [2.6, 2.75, 3.9, 3.3, 3.6],
+    spectralClasses: ['B', 'A', 'K', 'M', 'K'],
   },
   // Acrab, Dschubba, pi, sigma, Antares, tau, eps, mu1, zeta2, eta, Sargas, kappa, Shaula
   scorpio: {
@@ -197,6 +217,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [11, 12],
     ],
     accentNodeIndices: [4, 12],
+    magnitudes: [2.6, 2.3, 2.9, 2.9, 1.0, 2.8, 2.3, 3.0, 3.6, 3.3, 1.85, 2.4, 1.6],
+    spectralClasses: ['B', 'B', 'B', 'B', 'M', 'B', 'K', 'B', 'K', 'F', 'F', 'B', 'B'],
   },
   // Alnasl, Kaus Media, Kaus Australis, Kaus Borealis, phi, Nunki, tau, Ascella
   sagittarius: {
@@ -224,6 +246,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [6, 7],
     ],
     accentNodeIndices: [2, 5],
+    magnitudes: [2.95, 2.7, 1.8, 2.8, 3.2, 2.05, 3.3, 2.6],
+    spectralClasses: ['K', 'K', 'B', 'K', 'B', 'B', 'K', 'A'],
   },
   // Algedi, Dabih, psi, omega, zeta, Deneb Algedi, Nashira, iota, theta
   capricorn: {
@@ -250,6 +274,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [8, 1],
     ],
     accentNodeIndices: [5, 0],
+    magnitudes: [3.6, 3.05, 4.1, 4.1, 3.75, 2.85, 3.7, 4.3, 4.1],
+    spectralClasses: ['G', 'K', 'F', 'M', 'G', 'A', 'A', 'G', 'A'],
   },
   // Albali, Sadalsuud, Sadalmelik, Sadachbia, zeta, eta, pi, theta, lambda, tau, Skat, phi, psi1
   aquarius: {
@@ -283,6 +309,8 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [11, 12],
     ],
     accentNodeIndices: [1, 2],
+    magnitudes: [3.8, 2.9, 2.95, 3.85, 3.65, 4.0, 4.8, 4.2, 3.7, 4.0, 3.3, 4.2, 4.2],
+    spectralClasses: ['A', 'G', 'G', 'A', 'F', 'B', 'B', 'G', 'M', 'M', 'A', 'M', 'K'],
   },
   // gamma, kappa, lambda, iota, theta, omega, delta, eps, nu, Alrescha, omicron, eta, phi, upsilon, tau
   pisces: {
@@ -322,5 +350,29 @@ export const ZODIAC_FIGURES: Readonly<Record<Zodiac, ZodiacFigure>> = {
       [14, 12],
     ],
     accentNodeIndices: [9, 11],
+    magnitudes: [3.7, 4.9, 4.5, 4.1, 4.3, 4.0, 4.4, 4.3, 4.4, 3.8, 4.25, 3.6, 4.65, 4.75, 4.5],
+    spectralClasses: ['G', 'A', 'A', 'F', 'K', 'F', 'K', 'K', 'K', 'A', 'G', 'G', 'K', 'A', 'K'],
   },
 };
+
+export type FigurePoint = readonly [x: number, y: number];
+
+/** 긴 변이 span 이 되도록 키워 (centerX, centerY) 가운데에 놓은 node 좌표. */
+export function fitZodiacFigure(
+  figure: ZodiacFigure,
+  centerX: number,
+  centerY: number,
+  span: number,
+): FigurePoint[] {
+  const xs = figure.nodes.map(([x]) => x);
+  const ys = figure.nodes.map(([, y]) => y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const scale = span / Math.max(maxX - minX, maxY - minY);
+  return figure.nodes.map(([x, y]) => [
+    centerX + (x - (minX + maxX) / 2) * scale,
+    centerY + (y - (minY + maxY) / 2) * scale,
+  ]);
+}
