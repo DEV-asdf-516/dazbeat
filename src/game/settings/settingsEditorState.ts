@@ -5,6 +5,7 @@ import type { Settings } from '../../storage/settings.js';
 import { adjustSetting, assignKey } from './settingsAdjust.js';
 import type { SettingsRow } from './settingsAdjust.js';
 import { requireDefined } from '../../invariant.js';
+import { cycleItem } from '../../range.js';
 
 export type SettingsMode =
   | { readonly kind: 'browsing' }
@@ -16,6 +17,7 @@ export interface SettingsEditorState {
   readonly settings: Settings;
   readonly rowIndex: number;
   readonly mode: SettingsMode;
+  readonly hoveredRowIndex: number | null;
 }
 
 const BROWSING: SettingsMode = { kind: 'browsing' };
@@ -29,6 +31,7 @@ export function createSettingsEditorState(
     settings,
     rowIndex: 0,
     mode: BROWSING,
+    hoveredRowIndex: null,
   };
 }
 
@@ -50,17 +53,29 @@ export function focusRow(state: SettingsEditorState, index: number): SettingsEdi
       };
 }
 
+export function hoverRow(state: SettingsEditorState, index: number): SettingsEditorState {
+  return index === state.hoveredRowIndex
+    ? state
+    : {
+        ...state,
+        hoveredRowIndex: index,
+      };
+}
+
+export function unhoverRow(state: SettingsEditorState, index: number): SettingsEditorState {
+  return index === state.hoveredRowIndex
+    ? {
+        ...state,
+        hoveredRowIndex: null,
+      }
+    : state;
+}
+
 export function moveFocus(state: SettingsEditorState, delta: 1 | -1): SettingsEditorState {
-  for (
-    let index = state.rowIndex + delta;
-    index >= 0 && index < state.rows.length;
-    index += delta
-  ) {
-    if (isRowShown(getRow(state, index), state.settings)) {
-      return focusRow(state, index);
-    }
-  }
-  return state;
+  const shownIndexes = state.rows.flatMap((row, index) =>
+    isRowShown(row, state.settings) ? [index] : [],
+  );
+  return focusRow(state, cycleItem(shownIndexes, state.rowIndex, delta));
 }
 
 export function adjustRow(
@@ -73,11 +88,11 @@ export function adjustRow(
   if (settings === state.settings && index === state.rowIndex) {
     return state;
   }
-  return {
+  return releaseHiddenHover({
     ...state,
     rowIndex: index,
     settings,
-  };
+  });
 }
 
 export function startWaiting(state: SettingsEditorState, index: number): SettingsEditorState {
@@ -122,7 +137,7 @@ export function bindWaitingKey(state: SettingsEditorState, code: string): Settin
       mode: BROWSING,
     };
   }
-  return {
+  return releaseHiddenHover({
     ...state,
     mode: BROWSING,
     settings: {
@@ -132,7 +147,7 @@ export function bindWaitingKey(state: SettingsEditorState, code: string): Settin
         [laneMode]: assignKey(keys, lane, code),
       },
     },
-  };
+  });
 }
 
 // 언어까지 기본값(브라우저 언어)으로 돌리면 읽지 못하는 언어로 바뀔 수 있어 언어는 남긴다.
@@ -140,14 +155,14 @@ export function confirmReset(state: SettingsEditorState): SettingsEditorState {
   if (state.mode.kind !== 'confirmingReset') {
     throw new Error('Reset is not being confirmed');
   }
-  return {
+  return releaseHiddenHover({
     ...state,
     mode: BROWSING,
     settings: {
       ...DEFAULT_SETTINGS,
       language: state.settings.language,
     },
-  };
+  });
 }
 
 export function cancelPrompt(state: SettingsEditorState): SettingsEditorState {
@@ -175,6 +190,18 @@ export function applyPointer(
   transition: (state: SettingsEditorState) => SettingsEditorState,
 ): SettingsEditorState {
   return state.mode.kind === 'browsing' ? transition(state) : cancelPrompt(state);
+}
+
+// 숨긴 행은 POINTER_OUT 을 받지 못하므로 설정을 바꾸는 전이에서 hover 를 직접 해제한다.
+function releaseHiddenHover(state: SettingsEditorState): SettingsEditorState {
+  const { hoveredRowIndex } = state;
+  if (hoveredRowIndex === null || isRowShown(getRow(state, hoveredRowIndex), state.settings)) {
+    return state;
+  }
+  return {
+    ...state,
+    hoveredRowIndex: null,
+  };
 }
 
 function getRow(state: SettingsEditorState, index: number): SettingsRow {

@@ -1,6 +1,5 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import { getControlsGuide } from '../controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
 import type { SceneRequest, SettingsReturn, SettingsSceneData } from '../sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
@@ -21,35 +20,34 @@ import {
   confirmReset,
   createSettingsEditorState,
   focusRow,
+  hoverRow,
   isRowShown,
   isWaitingKey,
   moveFocus,
   pressBack,
   requestReset,
   startWaiting,
+  unhoverRow,
 } from './settingsEditorState.js';
 import type { SettingsEditorState } from './settingsEditorState.js';
 import { Button } from '../ui/Button.js';
 import type { SecondaryButtonColors } from '../ui/Button.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { HOVER_CURSOR } from '../ui/cursor.js';
+import { bindHoverTarget } from '../ui/hoverTarget.js';
 import { MENU_KEY_HINT_STYLE } from '../ui/keyHintView.js';
 import { createCanvasTexture } from '../ui/canvasTexture.js';
 import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
-import {
-  addCelestialAtmosphere,
-  getCelestialAtmosphereUses,
-  getCelestialEntryTransitionUses,
-  playCelestialEntryTransition,
-} from '../celestial/celestialAtmosphere.js';
 import { addCelestialSprite, queueCelestialTextures } from '../celestial/celestialSprites.js';
-import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
-import { ControlsOverlay, addControlsEntry } from '../ui/ControlsOverlay.js';
-import { PointerHover } from '../ui/PointerHover.js';
+import { readMenuAction, requireKeyboard } from '../ui/menuInput.js';
+import type { MenuAction } from '../ui/menuInput.js';
+import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
+import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
 import { bindTextEntry } from '../ui/textEntry.js';
 import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/theme.js';
 import { readKeyCapture } from './keyCapture.js';
 import { requireDefined } from '../../invariant.js';
+import { isShallowEqual } from '../../shallowEqual.js';
 
 type SettingsGroup = 'audio' | 'input' | 'general';
 type SettingsColumn = 'left' | 'right';
@@ -209,7 +207,6 @@ interface SettingsView {
   rows: readonly RowView[];
   waitingText: Phaser.GameObjects.Text;
   controlsEntry: Phaser.GameObjects.Container;
-  rowHover: PointerHover<number>;
   focusStar: Phaser.GameObjects.Sprite;
   resetDialog: ConfirmDialog;
 }
@@ -235,38 +232,34 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   preload(): void {
+    queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
-      ...getCelestialAtmosphereUses(this.celestial, 'secondary'),
-      ...getCelestialEntryTransitionUses(this.celestial),
+      ...getMenuSceneTextureUses(this.celestial, 'secondary'),
       this.celestial.atlasPresentations[FOCUS_STAR_ID],
     ]);
   }
 
   create(data: SettingsSceneData): void {
     this.exit = STAYING;
-    addCelestialAtmosphere(this, this.celestial, 'secondary');
+    const chrome = new MenuSceneChrome(this, {
+      celestial: this.celestial,
+      screen: 'secondary',
+      readControlsMessages: () => this.i18n.t('controls', { returnObjects: true }),
+      readSettings: () => this.editor.settings,
+    });
     const keyboard = requireKeyboard(this);
     this.returnTo = data.returnTo;
     this.editor = createSettingsEditorState(ROWS, this.save.loadSettings());
 
-    const rowHover = new PointerHover<number>((index) => {
-      this.renderLabelColor(
-        requireDefined(view.rows[index], 'Invalid settings row index', index),
-        rowHover,
-      );
-    });
     const update = (transition: Transition): void => this.applyTransition(view, transition);
     const onPointer = (transition: Transition): void =>
       update((state) => applyPointer(state, transition));
 
-    const overlay = new ControlsOverlay(this, () =>
-      getControlsGuide(this.i18n.t('controls', { returnObjects: true }), this.editor.settings),
-    );
-    const view: SettingsView = {
+    const widgets: Omit<SettingsView, 'controlsEntry'> = {
       title: this.add.text(
         SCREEN_LAYOUT.leftXPx,
         SCREEN_LAYOUT.headerYPx,
-        '',
+        this.i18n.t('settings.title'),
         textStyle('heading', COLORS.textPrimary),
       ),
       groups: GROUPS.map(({ group, column, yPx }) => ({
@@ -278,17 +271,13 @@ export class SettingsScene extends Phaser.Scene {
           textStyle('secondary', COLORS.textSecondary, GROUP_TITLE_WEIGHT),
         ),
       })),
-      rows: ROWS.map((row, index) => this.createRow(row, index, rowHover, onPointer)),
+      rows: ROWS.map((row, index) => this.createRow(row, index, update, onPointer)),
       waitingText: this.add.text(
         SCREEN_LAYOUT.leftXPx,
         SCREEN_LAYOUT.hintYPx,
         '',
         textStyle('meta', COLORS.textSecondary),
       ),
-      controlsEntry: addControlsEntry(this, SCREEN_LAYOUT.leftXPx, SCREEN_LAYOUT.hintYPx, () =>
-        overlay.open(),
-      ),
-      rowHover,
       focusStar: addCelestialSprite(this, this.celestial.atlasPresentations[FOCUS_STAR_ID], 0, 0),
       resetDialog: new ConfirmDialog(this, {
         onAccept: () => update(confirmReset),
@@ -304,12 +293,15 @@ export class SettingsScene extends Phaser.Scene {
     ]);
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
+    const view: SettingsView = {
+      ...widgets,
+      controlsEntry: chrome.start(widgets.title.getBounds(), {
+        isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) => this.captureEditorKey(event, update),
+        handleMenuKey: (action) => this.handleMenuKey(action, update),
+      }),
+    };
     this.render(view);
-    playCelestialEntryTransition(this, this.celestial, view.title.getBounds());
-    keyboard.on(
-      'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(event, update, overlay)),
-    );
   }
 
   /** 되돌릴 수 없는 동작이라 설정 행과 떨어뜨려 화면 우하단에 CONTROLS 진입점과 같은 높이로 둔다. */
@@ -329,7 +321,7 @@ export class SettingsScene extends Phaser.Scene {
   private createRow(
     row: SettingsRow & RowLayout,
     index: number,
-    rowHover: PointerHover<number>,
+    update: (transition: Transition) => void,
     onPointer: (transition: Transition) => void,
   ): RowView {
     const leftXPx = COLUMN_LEFT_X_PX[row.column];
@@ -338,7 +330,11 @@ export class SettingsScene extends Phaser.Scene {
     const hitArea = this.add
       .rectangle(leftXPx, row.yPx, ROW_HIT_WIDTH_PX, ROW_HEIGHT_PX)
       .setOrigin(0, 0);
-    rowHover.bind(hitArea, index, () => onPointer((state) => focusRow(state, index)));
+    bindHoverTarget(hitArea, {
+      onOver: () => update((state) => hoverRow(state, index)),
+      onOut: () => update((state) => unhoverRow(state, index)),
+      onActivate: () => onPointer((state) => focusRow(state, index)),
+    });
     const label = this.add
       .text(leftXPx + LABEL_OFFSET_X_PX, centerYPx, '', textStyle('primary', COLORS.textSecondary))
       .setOrigin(0, 0.5);
@@ -403,43 +399,39 @@ export class SettingsScene extends Phaser.Scene {
     };
   }
 
-  private handleKey(
+  private captureEditorKey(
     event: KeyboardEvent,
     update: (transition: Transition) => void,
-    overlay: ControlsOverlay,
-  ): void {
-    if (this.exit.kind === 'leaving') {
-      return;
-    }
+  ): boolean {
     if (isWaitingKey(this.editor)) {
       const code = readKeyCapture(event);
       if (code !== null) {
         update((state) => bindWaitingKey(state, code));
       }
-      return;
+      return true;
     }
     if (this.editor.mode.kind === 'confirmingReset') {
       switch (readMenuAction(event)) {
         case 'confirm':
           update(confirmReset);
-          return;
+          return true;
         case 'back':
           update(cancelPrompt);
-          return;
+          return true;
         default:
-          return;
+          return true;
       }
     }
-    if (overlay.handleKey(event)) {
-      return;
-    }
-    switch (readMenuAction(event)) {
+    return false;
+  }
+
+  private handleMenuKey(action: MenuAction | null, update: (transition: Transition) => void): void {
+    switch (action) {
       case 'up':
-        update((state) => moveFocus(state, -1));
+      case 'down': {
+        update((state) => moveFocus(state, action === 'up' ? -1 : 1));
         return;
-      case 'down':
-        update((state) => moveFocus(state, 1));
-        return;
+      }
       case 'left':
         update((state) => adjustRow(state, state.rowIndex, -1, this.displayedLanguage));
         return;
@@ -464,8 +456,23 @@ export class SettingsScene extends Phaser.Scene {
       return;
     }
     this.editor = next;
+    if (isShallowEqual(next, previous, ['hoveredRowIndex'])) {
+      [previous.hoveredRowIndex, next.hoveredRowIndex].forEach((index) => {
+        if (index !== null) {
+          this.renderLabelColor(
+            requireDefined(view.rows[index], 'Invalid settings row index', index),
+          );
+        }
+      });
+      return;
+    }
     if (next.settings !== previous.settings) {
       this.applySettings(view, next.settings);
+    }
+    // 키 이동과 클릭 모두 줄 포커스가 바뀌면 같은 효과음을 낸다.
+    if (next.rowIndex !== previous.rowIndex) {
+      // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
+      new SoundEffects(this, next.settings).play('menuFocus');
     }
     this.render(view);
   }
@@ -513,7 +520,7 @@ export class SettingsScene extends Phaser.Scene {
     );
     view.groups.forEach(({ group, text }) => text.setText(this.i18n.t(`settings.groups.${group}`)));
     view.rows.forEach((rowView) => {
-      const { row, index, hitArea, label, control } = rowView;
+      const { row, hitArea, label, control } = rowView;
       const isShown = isRowShown(row, settings);
       hitArea.setVisible(isShown);
       label.setVisible(isShown);
@@ -527,12 +534,10 @@ export class SettingsScene extends Phaser.Scene {
           break;
       }
       if (!isShown) {
-        // 숨긴 대상은 POINTER_OUT 을 받지 못하므로 hover 를 직접 해제한다.
-        view.rowHover.release(index);
         return;
       }
       label.setText(this.formatLabel(row));
-      this.renderLabelColor(rowView, view.rowHover);
+      this.renderLabelColor(rowView);
       const value = formatRowValue(row, settings, language, waitingLane);
       switch (control.kind) {
         case 'key':
@@ -564,9 +569,9 @@ export class SettingsScene extends Phaser.Scene {
     }
   }
 
-  private renderLabelColor(rowView: RowView, rowHover: PointerHover<number>): void {
+  private renderLabelColor(rowView: RowView): void {
     const isEmphasized =
-      rowView.index === this.editor.rowIndex || rowHover.isHovered(rowView.index);
+      rowView.index === this.editor.rowIndex || rowView.index === this.editor.hoveredRowIndex;
     setTextColor(rowView.label, isEmphasized ? COLORS.textPrimary : COLORS.textSecondary);
   }
 

@@ -83,6 +83,10 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
     return this;
   }
 
+  refreshTexture(transition = false): this {
+    return this.setSong(this.song, transition);
+  }
+
   get shownSongs(): readonly Song[] {
     return [this.song, this.previousSong].filter((shown) => shown !== null);
   }

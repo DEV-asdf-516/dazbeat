@@ -4,28 +4,37 @@ import { SONG_FILTERS } from '../../data/songs.js';
 import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import { cycleItem } from '../../range.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
+import { isShallowEqual } from '../../shallowEqual.js';
 import type { SongFeed, SongFeeds } from '../SongFeed.js';
 import type { SongSelectRestore } from '../sceneRoutes.js';
 import {
+  canSelectRandomSong,
+  clearHover,
   getPlayableSelection,
   getSongPage,
   getSongSelectNotice,
   getSongSelectTarget,
+  isLoadingMoreSongs,
   isOnLastLoadedPage,
   moveDifficulty,
   moveSong,
   openSongSelect,
+  releaseHover,
   selectDifficulty,
   selectRandomSong,
   selectSong,
+  setHover,
   withFilter,
   withSongs,
 } from './songSelectState.js';
-import type { SongSelectNotice, SongSelectState } from './songSelectState.js';
+import type { SongSelectHover, SongSelectNotice, SongSelectState } from './songSelectState.js';
 
 export interface SongSelectView {
   readonly state: SongSelectState;
   readonly notice: SongSelectNotice | null;
+  readonly isLoadingMore: boolean;
+  /** 아직 받지 않은 곡까지 포함한 목록 전체 곡 수. 페이지 수 표시에 쓴다. */
+  readonly songCount: number;
 }
 
 export interface SongSelectScreen {
@@ -39,6 +48,7 @@ interface ControllerState {
   readonly feed: SongFeed;
   readonly state: SongSelectState;
   readonly notice: SongSelectNotice | null;
+  readonly isLoadingMore: boolean;
   readonly unsubscribe: () => void;
 }
 
@@ -77,12 +87,13 @@ type PreviewState =
 
 type Transition = (state: SongSelectState) => SongSelectState;
 
-// 빠르게 넘기는 동안 지나가는 곡마다 플레이어를 만들지 않도록 포커스가 이만큼 머문 뒤 재생한다.
+
 const PREVIEW_DELAY_MS = 200;
 
 export class SongSelectController {
   private current: ControllerState;
   private previewState: PreviewState = { kind: 'none' };
+  private randomRequest: object | null = null;
 
   constructor(
     private readonly deps: SongSelectDeps,
@@ -100,14 +111,11 @@ export class SongSelectController {
   }
 
   moveSong(delta: number): void {
-    if (this.apply((state) => moveSong(state, delta))) {
-      this.screen.playFocusSound();
-    }
-    this.requestMoreFromUser();
+    this.focusSongFromUser((state) => moveSong(state, delta));
   }
 
   selectRow(slot: number): void {
-    this.applyFromUser((state) =>
+    this.focusSongFromUser((state) =>
       selectSong(state, getSongPage(state, this.rowsPerPage).startIndex + slot),
     );
   }
@@ -120,11 +128,25 @@ export class SongSelectController {
     this.applyFromUser((state) => selectDifficulty(state, difficulty));
   }
 
-  // 비활성 RANDOM 이 실패한 feed 를 다시 부르지 않도록 다음 배치는 곡이 바뀐 경우에만 요청한다.
+  // 비활성 RANDOM 이 실패한 feed 를 다시 부르지 않도록 고를 곡이 없으면 아무것도 요청하지 않는다.
   selectRandomSong(): void {
-    if (this.apply((state) => selectRandomSong(state, this.deps.random))) {
-      this.requestMoreFromUser();
+    const { feed, state } = this.current;
+    if (!canSelectRandomSong(state)) {
+      return;
     }
+    if (feed.status !== 'hasMore' && feed.status !== 'loading') {
+      this.pickRandomSong();
+      return;
+    }
+    // 리듬게임 관례대로 받아 둔 곡이 아니라 필터의 곡 전체에서 고르도록 남은 곡을 다 받은 뒤 고른다.
+    const request = {};
+    this.randomRequest = request;
+    void feed.requestRemaining().then(() => {
+      if (this.randomRequest === request) {
+        this.randomRequest = null;
+        this.pickRandomSong();
+      }
+    });
   }
 
   selectFilter(filter: SongFilter): void {
@@ -132,6 +154,7 @@ export class SongSelectController {
       return;
     }
     const previous = this.current.state;
+    this.randomRequest = null;
     this.current.unsubscribe();
     const feed =
       filter === 'all'
@@ -140,9 +163,20 @@ export class SongSelectController {
             category: filter,
             title: '',
           });
-    this.current = this.attach(feed, withFilter(previous, filter, feed.songs));
+    this.current = this.attach(
+      feed,
+      releaseHover(withFilter(previous, filter, feed.songs), this.rowsPerPage),
+    );
     this.render(previous);
     this.requestMoreFromUser();
+  }
+
+  hover(target: SongSelectHover): void {
+    this.apply((state) => setHover(state, target));
+  }
+
+  unhover(target: SongSelectHover): void {
+    this.apply((state) => clearHover(state, target));
   }
 
   cycleFilter(delta: 1 | -1): void {
@@ -185,9 +219,17 @@ export class SongSelectController {
   }
 
   close(): void {
+    this.randomRequest = null;
     this.current.unsubscribe();
     this.destroyPreviewPlayer();
     this.previewState = { kind: 'closed' };
+  }
+
+  // 다 받기 전에 실패했으면 받아 둔 곡에서 고르고, 실패 알림이 다시 받기를 안내한다.
+  private pickRandomSong(): void {
+    if (this.apply((state) => selectRandomSong(state, this.deps.random))) {
+      this.requestMoreFromUser();
+    }
   }
 
   private attach(feed: SongFeed, state: SongSelectState): ControllerState {
@@ -195,8 +237,17 @@ export class SongSelectController {
       feed,
       state,
       notice: getSongSelectNotice(state.songs.length, feed.status),
+      isLoadingMore: isLoadingMoreSongs(state.songs.length, feed.status),
       unsubscribe: feed.subscribe(() => this.handleFeedChange()),
     };
+  }
+
+  /** 키 이동과 목록 클릭은 같은 곡 포커스 이동이라 곡이 바뀔 때 같은 효과음을 낸다. */
+  private focusSongFromUser(transition: Transition): void {
+    if (this.apply(transition)) {
+      this.screen.playFocusSound();
+    }
+    this.requestMoreFromUser();
   }
 
   private applyFromUser(transition: Transition): void {
@@ -206,7 +257,7 @@ export class SongSelectController {
 
   private apply(transition: Transition): boolean {
     const previous = this.current.state;
-    const next = transition(previous);
+    const next = releaseHover(transition(previous), this.rowsPerPage);
     if (next === previous) {
       return false;
     }
@@ -219,15 +270,16 @@ export class SongSelectController {
   }
 
   private handleFeedChange(): void {
-    const { feed, state, notice } = this.current;
-    const next = withSongs(state, feed.songs);
-    const nextNotice = getSongSelectNotice(next.songs.length, feed.status);
-    if (next !== state || nextNotice !== notice) {
-      this.current = {
-        ...this.current,
-        state: next,
-        notice: nextNotice,
-      };
+    const { feed, state } = this.current;
+    const next = releaseHover(withSongs(state, feed.songs), this.rowsPerPage);
+    const nextCurrent = {
+      ...this.current,
+      state: next,
+      notice: getSongSelectNotice(next.songs.length, feed.status),
+      isLoadingMore: isLoadingMoreSongs(next.songs.length, feed.status),
+    };
+    if (!isShallowEqual(nextCurrent, this.current)) {
+      this.current = nextCurrent;
       this.render(state);
     }
     if (isOnLastLoadedPage(next, this.rowsPerPage)) {
@@ -242,11 +294,13 @@ export class SongSelectController {
   }
 
   private render(previous: SongSelectState | null): void {
-    const { state, notice } = this.current;
+    const { feed, state, notice, isLoadingMore } = this.current;
     this.screen.render(
       {
         state,
         notice,
+        isLoadingMore,
+        songCount: feed.songCount,
       },
       previous,
     );
