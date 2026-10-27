@@ -888,6 +888,99 @@ describe('gestures', () => {
   });
 });
 
+describe('undo', () => {
+  it('undoes added notes one at a time back to the saved chart', async () => {
+    const harness = await openLoaded([TAP_AT_2000]);
+    const notes = getNotes(harness.editor.state);
+    addTap(harness, 3000);
+    addTap(harness, 4000);
+
+    harness.editor.undo();
+    expect(getNotes(harness.editor.state)).toEqual([
+      TAP_AT_2000,
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 3,
+      },
+    ]);
+
+    harness.editor.undo();
+    expect(getNotes(harness.editor.state)).toBe(notes);
+    expect(hasUnsavedChanges(harness.editor.state)).toBe(false);
+
+    harness.editor.undo();
+    expect(getNotes(harness.editor.state)).toBe(notes);
+  });
+
+  it('undoes a whole drag at once', async () => {
+    const harness = await openLoaded();
+    harness.editor.pointerDown({
+      lane: 1,
+      timeMs: 3000,
+    });
+    harness.editor.pointerMove({
+      lane: 2,
+      timeMs: 3500,
+    });
+    harness.editor.pointerMove({
+      lane: 2,
+      timeMs: 4000,
+    });
+    harness.editor.pointerUp(4000);
+
+    harness.editor.undo();
+
+    expect(getNotes(harness.editor.state)).toEqual([]);
+  });
+
+  it('undoes a delete and a clear', async () => {
+    const harness = await openLoaded([TAP_AT_2000]);
+    addTap(harness, 3000);
+    harness.editor.deleteSelected();
+    harness.editor.requestClearNotes();
+    harness.editor.confirmPending();
+
+    harness.editor.undo();
+    expect(getNotes(harness.editor.state)).toHaveLength(1);
+    harness.editor.undo();
+    expect(getNotes(harness.editor.state)).toHaveLength(2);
+  });
+
+  it('keeps only the last 20 edits', async () => {
+    const harness = await openLoaded();
+    for (let index = 0; index < 21; index += 1) {
+      addTap(harness, 3000 + index * 1000);
+    }
+
+    for (let index = 0; index < 21; index += 1) {
+      harness.editor.undo();
+    }
+
+    expect(getNotes(harness.editor.state)).toEqual([
+      {
+        type: 'tap',
+        timeMs: 3000,
+        lane: 3,
+      },
+    ]);
+  });
+
+  it('does not record selecting a note', async () => {
+    const harness = await openLoaded([TAP_AT_2000]);
+    addTap(harness, 3000);
+    harness.editor.pointerDown({
+      lane: 0,
+      timeMs: 2000,
+    });
+    harness.editor.pointerUp(2000);
+
+    harness.editor.undo();
+
+    expect(getNotes(harness.editor.state)).toEqual([TAP_AT_2000]);
+  });
+});
+
 describe('saving', () => {
   it('marks an invalid chart, selects the invalid note and seeks to it paused', async () => {
     const duplicate: Note = {

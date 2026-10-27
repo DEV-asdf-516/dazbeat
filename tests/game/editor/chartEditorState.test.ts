@@ -71,6 +71,7 @@ function makeSession(draft: ChartDraft, saveResult: SaveResult = { kind: 'idle' 
     draft,
     gesture: { kind: 'none' },
     saveResult,
+    undoStack: [],
   };
 }
 
@@ -365,7 +366,10 @@ describe('getChangedRegions', () => {
         clean,
         editing({
           ...cleanSession,
-          gesture: { kind: 'resizeHold' },
+          gesture: {
+            kind: 'resizeHold',
+            before: cleanSession.draft,
+          },
         }),
       ),
     ).toEqual([]);

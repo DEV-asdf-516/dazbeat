@@ -16,7 +16,14 @@ import {
   toChart,
 } from './chartDraft.js';
 import type { ChartDraft } from './chartDraft.js';
-import { getPending, getSelection, getSession, withDraft } from './chartEditorState.js';
+import {
+  getPending,
+  getSelection,
+  getSession,
+  recordEdit,
+  undoEdit,
+  withDraft,
+} from './chartEditorState.js';
 import type {
   ChartEditorState,
   EditPhase,
@@ -133,7 +140,7 @@ export class ChartEditorController {
     }
     const { session, pending } = phase;
     if (pending.kind === 'clearNotes') {
-      this.edit(withDraft(session, clearNotes(session.draft)));
+      this.edit(recordEdit(withDraft(session, clearNotes(session.draft)), session.draft));
       return;
     }
     this.edit(session);
@@ -247,7 +254,16 @@ export class ChartEditorController {
   deleteSelected(): void {
     const session = this.getEditableSession();
     if (session !== null) {
-      this.setSession(withDraft(session, deleteSelectedNote(session.draft)));
+      this.setSession(
+        recordEdit(withDraft(session, deleteSelectedNote(session.draft)), session.draft),
+      );
+    }
+  }
+
+  undo(): void {
+    const session = this.getEditableSession();
+    if (session !== null && session.gesture.kind === 'none') {
+      this.setSession(undoEdit(session));
     }
   }
 
@@ -282,10 +298,15 @@ export class ChartEditorController {
     if (session === null || session.gesture.kind === 'none') {
       return;
     }
-    this.setSession({
-      ...withDraft(session, endGesture(session.draft, session.gesture, pointerTimeMs)),
-      gesture: NO_GESTURE,
-    });
+    this.setSession(
+      recordEdit(
+        {
+          ...withDraft(session, endGesture(session.draft, session.gesture, pointerTimeMs)),
+          gesture: NO_GESTURE,
+        },
+        session.gesture.before,
+      ),
+    );
   }
 
   seek(targetMs: number): void {
@@ -536,6 +557,7 @@ function startEditing(draft: ChartDraft): EditPhase {
       draft,
       gesture: NO_GESTURE,
       saveResult: { kind: 'idle' },
+      undoStack: [],
     },
   };
 }
@@ -544,10 +566,13 @@ function settleGesture(session: EditorSession): EditorSession {
   if (session.gesture.kind === 'none') {
     return session;
   }
-  return {
-    ...withDraft(session, cancelGesture(session.draft, session.gesture)),
-    gesture: NO_GESTURE,
-  };
+  return recordEdit(
+    {
+      ...withDraft(session, cancelGesture(session.draft, session.gesture)),
+      gesture: NO_GESTURE,
+    },
+    session.gesture.before,
+  );
 }
 
 function isSelected(selection: Selection | null, navigation: Navigation): boolean {

@@ -13,8 +13,8 @@ export type EditTool = 'tap' | 'hold';
 
 export type PointerGesture =
   | { readonly kind: 'none' }
-  | { readonly kind: 'move'; readonly grabOffsetMs: number }
-  | { readonly kind: 'resizeHold' }
+  | { readonly kind: 'move'; readonly before: ChartDraft; readonly grabOffsetMs: number }
+  | { readonly kind: 'resizeHold'; readonly before: ChartDraft }
   | { readonly kind: 'createHold'; readonly before: ChartDraft; readonly startMs: number };
 
 export interface TimelinePointer {
@@ -43,9 +43,13 @@ export function startGesture(
       draft: selectNote(draft, hit.note),
       gesture:
         hit.part === 'end'
-          ? { kind: 'resizeHold' }
+          ? {
+              kind: 'resizeHold',
+              before: draft,
+            }
           : {
               kind: 'move',
+              before: draft,
               grabOffsetMs: pointerTimeMs - hit.note.timeMs,
             },
     };
@@ -65,6 +69,7 @@ export function startGesture(
       }),
       gesture: {
         kind: 'move',
+        before: draft,
         grabOffsetMs: 0,
       },
     };

@@ -1,6 +1,6 @@
 import type { Song } from '../../data/songs.js';
 import type { Difficulty, LaneCount, Note } from '../../rhythm/types.js';
-import { isDraftDirty } from './chartDraft.js';
+import { isDraftDirty, restoreNotes } from './chartDraft.js';
 import type { ChartDraft } from './chartDraft.js';
 import type { EditTool, PointerGesture } from './chartGesture.js';
 import type { Playhead, Transport } from './chartPlayback.js';
@@ -35,6 +35,8 @@ export interface EditorSession {
   readonly draft: ChartDraft;
   readonly gesture: PointerGesture;
   readonly saveResult: SaveResult;
+  /** 편집 직전 draft 들. 마지막이 가장 최근 편집 직전이다. */
+  readonly undoStack: readonly ChartDraft[];
 }
 
 export type EditPhase =
@@ -136,6 +138,30 @@ export function withDraft(session: EditorSession, draft: ChartDraft): EditorSess
     ...session,
     draft,
     saveResult,
+  };
+}
+
+const UNDO_LIMIT = 20;
+
+/** 드래그 도중의 중간 상태가 아니라 제스처 하나·삭제 하나를 한 번의 편집으로 기록한다. */
+export function recordEdit(session: EditorSession, before: ChartDraft): EditorSession {
+  if (session.draft.notes === before.notes) {
+    return session;
+  }
+  return {
+    ...session,
+    undoStack: [...session.undoStack, before].slice(-UNDO_LIMIT),
+  };
+}
+
+export function undoEdit(session: EditorSession): EditorSession {
+  const before = session.undoStack.at(-1);
+  if (before === undefined) {
+    return session;
+  }
+  return {
+    ...withDraft(session, restoreNotes(session.draft, before)),
+    undoStack: session.undoStack.slice(0, -1),
   };
 }
 
