@@ -195,6 +195,8 @@ export class Button extends Phaser.GameObjects.Container {
   private readonly focusGlow: Phaser.GameObjects.Image;
   private readonly labelText: Phaser.GameObjects.Text;
   private icon: Phaser.GameObjects.Image | null = null;
+  private fixedWidthPx: number | undefined;
+  private fixedHeightPx: number | undefined;
   private readonly hitArea = new Phaser.Geom.Rectangle();
   private hovered = false;
   /** 비활성일 때도 포인터 위치는 따라가, 활성이 바뀌는 순간 커서를 바로 바꾼다. */
@@ -206,6 +208,8 @@ export class Button extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, xPx: number, yPx: number, options: ButtonOptions) {
     super(scene, xPx, yPx);
     this.options = options;
+    this.fixedWidthPx = options.widthPx;
+    this.fixedHeightPx = options.heightPx;
     const { paint, labelStyle } = resolveStyle(options);
     this.paint = paint;
     ensureLightTextures(scene);
@@ -332,6 +336,15 @@ export class Button extends Phaser.GameObjects.Container {
     return this;
   }
 
+  /** 다른 글자 묶음을 덮는 버튼처럼 크기가 덮는 대상에 따라 바뀔 때 쓴다. */
+  setFixedSize(widthPx: number, heightPx: number): this {
+    this.fixedWidthPx = widthPx;
+    this.fixedHeightPx = heightPx;
+    this.layout();
+    this.refresh();
+    return this;
+  }
+
   setIcon(textureKey: string, sizePx: number): this {
     if (this.icon?.texture.key === textureKey) {
       return this;
@@ -353,8 +366,8 @@ export class Button extends Phaser.GameObjects.Container {
     const padding = PADDING_PX[this.paint.variant];
     const paddingXPx = this.options.paddingXPx ?? padding.xPx;
     const content = this.content();
-    const widthPx = this.options.widthPx ?? content.displayWidth + paddingXPx * 2;
-    const heightPx = this.options.heightPx ?? content.displayHeight + padding.yPx * 2;
+    const widthPx = this.fixedWidthPx ?? content.displayWidth + paddingXPx * 2;
+    const heightPx = this.fixedHeightPx ?? content.displayHeight + padding.yPx * 2;
     this.setSize(widthPx, heightPx);
     this.background.setSize(widthPx, heightPx);
     if (this.focus.kind === 'outline') {

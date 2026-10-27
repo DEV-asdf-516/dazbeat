@@ -31,6 +31,8 @@ export const CELESTIAL_COLORS = {
   textSecondary: 0xc5d4e6,
   selected: 0xacd9f0,
   highlight: 0xe9f2fa,
+  // textSecondary 는 푸른 은색이라 밝은 목록 유리 위에서 푸르게 떠 보이므로 무채색으로 둔다.
+  textNeutral: 0xc8c8cb,
 } as const;
 
 /** 글자색이 같으면 분류가 구분되지 않아 달빛 파랑과 금빛으로 나눈다. 판정·상태 색과 겹치지 않게 채도를 맞춘다. */
@@ -124,10 +126,47 @@ export const RADIUS = {
   mediumPx: 8,
 } as const;
 
+// 곡 선택·프로필 목록이 같이 쓴다. 선택 별의 고리(반지름 약 20px)가 행 내용에 닿지 않게 노드를 행 왼쪽 밖에 두고,
+// 선택 행은 노드부터 행 끝까지 어두운 판으로 덮어 밝은 목록 유리 위에서 눌린 듯 읽히게 한다.
+export const LIST_ROW = {
+  nodeOffsetXPx: 36,
+  selectedFill: {
+    insetYPx: 2,
+    color: 0x02040b,
+    alpha: 0.55,
+  },
+} as const;
+
+// 메인 계정 카드와 업적 알림이 같은 판 재료를 쓴다.
+export const CARD_PANEL = {
+  fillColor: COLORS.background,
+  fillAlpha: 0.6,
+  borderColor: COLORS.textMuted,
+  borderAlpha: 0.35,
+  borderPx: 1,
+} as const;
+
 export const INDICATOR = {
   underlineThicknessPx: 3,
   underlineOffsetPx: 8,
 } as const;
+
+export function addTextUnderline(
+  scene: Phaser.Scene,
+  text: Phaser.GameObjects.Text,
+  color: number,
+): Phaser.GameObjects.Rectangle {
+  const bottomLeft = text.getBottomLeft();
+  return scene.add
+    .rectangle(
+      bottomLeft.x,
+      bottomLeft.y + INDICATOR.underlineOffsetPx,
+      text.width,
+      INDICATOR.underlineThicknessPx,
+      color,
+    )
+    .setOrigin(0, 0);
+}
 
 export function cssColor(color: number): string {
   return `#${color.toString(16).padStart(6, '0')}`;

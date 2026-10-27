@@ -1,20 +1,22 @@
 import Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
 import { readControlsKey } from '../controlsGuide.js';
 import type { ControlsGroup } from '../controlsGuide.js';
 import { createAuxiliaryButton } from './auxiliaryButton.js';
+import { getCloseIconTexture } from './closeIcon.js';
 import { QUIET_PADDING_PX } from './Button.js';
 import type { Button } from './Button.js';
 import { HOVER_CURSOR } from './cursor.js';
 import { MENU_KEY_HINT_STYLE, createKeyCap, placeKeyCap } from './keyHintView.js';
 import type { KeyCap, KeyHintStyle } from './keyHintView.js';
-import { CELESTIAL_COLORS, COLORS, MODAL, MOTION, TYPE_SCALE, typeStyle } from './theme.js';
+import { ModalFrame } from './ModalFrame.js';
+import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from './theme.js';
 import { bindTextEntry } from './textEntry.js';
 
 // 확인 팝업(ConfirmDialog)과 같은 여백·글자 크기로 맞춘다.
 const PADDING_PX = 32;
 const MIN_CONTENT_WIDTH_PX = 416;
 const TITLE_LETTER_SPACING_PX = 3;
+const CLOSE_ICON_SIZE_PX = 24;
 const TITLE_GROUP_GAP_PX = 20;
 const DIVIDER_GROUP_TITLE_GAP_PX = 20;
 const GROUP_GAP_PX = 24;
@@ -64,73 +66,29 @@ interface RowView {
 export class ControlsOverlay {
   private readonly scene: Phaser.Scene;
   private readonly readGuide: () => readonly ControlsGroup[];
-  private readonly backdrop: Phaser.GameObjects.Rectangle;
-  private readonly container: Phaser.GameObjects.Container;
-  private readonly shadow: Phaser.GameObjects.Rectangle;
-  private readonly panel: Phaser.GameObjects.Rectangle;
-  private readonly panelHitArea = new Phaser.Geom.Rectangle();
+  private readonly frame: ModalFrame;
   private readonly title: Phaser.GameObjects.Text;
   private readonly closeButton: Button;
   private contentObjects: readonly Phaser.GameObjects.GameObject[] = [];
-  private isBackdropPressed = false;
 
   constructor(scene: Phaser.Scene, readGuide: () => readonly ControlsGroup[]) {
     this.scene = scene;
     this.readGuide = readGuide;
-    this.backdrop = scene.add
-      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, CELESTIAL_COLORS.background, MODAL.backdropAlpha)
-      .setOrigin(0, 0)
-      .setInteractive()
-      .setDepth(MODAL.depth);
-    // 진입 클릭의 pointer up 이 열자마자 막을 닫지 않도록 막에서 누른 경우만 닫는다.
-    this.backdrop.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      this.isBackdropPressed = true;
-    });
-    this.backdrop.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
-      this.isBackdropPressed = false;
-    });
-    this.backdrop.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
-      if (this.isBackdropPressed) {
-        this.close();
-      }
-    });
-    this.shadow = scene.add
-      .rectangle(
-        MODAL.shadowOffsetXPx,
-        MODAL.shadowOffsetYPx,
-        0,
-        0,
-        MODAL.shadowColor,
-        MODAL.shadowAlpha,
-      )
-      .setOrigin(0, 0)
-      .setRounded(MODAL.panelRadiusPx);
-    // 패널 안 클릭이 막으로 가 닫히지 않도록 패널도 입력을 받는다.
-    this.panel = scene.add
-      .rectangle(0, 0, 0, 0, MODAL.panelColor)
-      .setOrigin(0, 0)
-      .setRounded(MODAL.panelRadiusPx)
-      .setInteractive(this.panelHitArea, (hitArea: Phaser.Geom.Rectangle, x: number, y: number) =>
-        Phaser.Geom.Rectangle.Contains(hitArea, x, y),
-      );
+    this.frame = new ModalFrame(scene, () => this.close());
     this.title = scene.add.text(PADDING_PX, PADDING_PX, 'CONTROLS', {
       ...typeStyle(TITLE_TYPE, CELESTIAL_COLORS.textPrimary),
       letterSpacing: TITLE_LETTER_SPACING_PX,
     });
     this.closeButton = createAuxiliaryButton(scene, 0, this.title.y + this.title.height / 2, {
-      label: 'CLOSE',
+      label: '',
       onActivate: () => this.close(),
-    });
-    this.container = scene.add
-      .container(0, 0, [this.shadow, this.panel, this.title, this.closeButton])
-      .setDepth(MODAL.depth);
-    this.backdrop.setVisible(false);
-    this.container.setVisible(false);
+    }).setIcon(getCloseIconTexture(scene, CLOSE_ICON_SIZE_PX), CLOSE_ICON_SIZE_PX);
+    this.frame.container.add([this.title, this.closeButton]);
     this.closeButton.setEnabled(false);
   }
 
   get isOpen(): boolean {
-    return this.container.visible;
+    return this.frame.isOpen;
   }
 
   open(): void {
@@ -138,18 +96,8 @@ export class ControlsOverlay {
       return;
     }
     this.render(this.readGuide());
-    this.backdrop.setVisible(true);
-    this.container.setVisible(true);
+    this.frame.open();
     this.closeButton.setEnabled(true);
-    this.scene.tweens.add({
-      targets: [this.backdrop, this.container],
-      alpha: {
-        from: 0,
-        to: 1,
-      },
-      duration: MOTION.fastMs,
-      ease: 'Sine.Out',
-    });
   }
 
   handleKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
@@ -171,11 +119,8 @@ export class ControlsOverlay {
     if (!this.isOpen) {
       return;
     }
-    this.scene.tweens.killTweensOf([this.backdrop, this.container]);
-    this.backdrop.setVisible(false);
-    this.container.setVisible(false);
+    this.frame.close();
     this.closeButton.setEnabled(false);
-    this.isBackdropPressed = false;
   }
 
   /** 열 때마다 언어·레인 키가 바뀌었을 수 있으므로 행을 새로 만든다. */
@@ -244,14 +189,9 @@ export class ControlsOverlay {
         ...row.keyCaps.flatMap(({ cap, key }) => [cap, key]),
       ]),
     ]);
-    this.container.add([...this.contentObjects]);
+    this.frame.container.add([...this.contentObjects]);
     this.closeButton.alignX(contentRightPx + QUIET_PADDING_PX.xPx, 1);
-    const panelWidthPx = contentRightPx + PADDING_PX;
-    const panelHeightPx = yPx + PADDING_PX;
-    this.panel.setSize(panelWidthPx, panelHeightPx);
-    this.panelHitArea.setTo(0, 0, panelWidthPx, panelHeightPx);
-    this.shadow.setSize(panelWidthPx, panelHeightPx);
-    this.container.setPosition((GAME_WIDTH - panelWidthPx) / 2, (GAME_HEIGHT - panelHeightPx) / 2);
+    this.frame.setPanelSize(contentRightPx + PADDING_PX, yPx + PADDING_PX);
   }
 }
 
