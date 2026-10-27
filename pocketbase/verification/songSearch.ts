@@ -1,5 +1,8 @@
 import { SONG_CATEGORIES } from '../../src/data/songs.js';
 import type { SongCategory } from '../../src/data/songs.js';
+import { SONGS } from '../../src/pbCollections.js';
+import type { CompiledFilter, FilterValue } from '../../src/pbQuery.js';
+import { condition, likePattern } from '../../src/pbSql.js';
 import { isOneOf, isString } from '../../src/typeGuards.js';
 
 const MAX_TITLE_LENGTH = 100;
@@ -22,8 +25,13 @@ export interface SongSearchInput {
 }
 
 export interface SongSearchQuery {
-  readonly sql: string;
-  readonly params: Readonly<Record<string, string>>;
+  /** 곡 레코드 쿼리에 붙일 조각. 제목을 FTS 로 찾을 때만 join 이 있다. */
+  readonly join: { readonly table: string; readonly on: string } | null;
+  readonly condition: string;
+  readonly orderBy: readonly string[];
+  readonly limit: number;
+  readonly shouldCount: boolean;
+  readonly params: Readonly<Record<string, FilterValue>>;
 }
 
 interface TitleSearch {
@@ -34,11 +42,6 @@ interface TitleSearch {
 interface SongSearchCursor {
   readonly releasedOn: string;
   readonly id: string;
-}
-
-interface SqlClause {
-  readonly condition: string;
-  readonly params: Readonly<Record<string, string>>;
 }
 
 function parseTitle(value: unknown): TitleSearch {
@@ -95,27 +98,32 @@ export function buildSongSearchQuery(input: SongSearchInput): SongSearchQuery {
   const titleClause =
     title.kind === 'prefix'
       ? {
-          from: 'songs',
-          condition: `songs.title LIKE {:pattern} ESCAPE '\\'`,
-          params: { pattern: `${title.term.replace(/[\\%_]/g, (char) => `\\${char}`)}%` },
+          join: null,
+          ...condition(SONGS, {
+            title: likePattern(`${title.term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`),
+          }),
         }
       : {
-          from: 'songs_title_fts JOIN songs ON songs.id = songs_title_fts.songId',
-          condition: 'songs_title_fts MATCH {:match}',
+          join: {
+            table: 'songs_title_fts',
+            on: 'songs_title_fts.songId = songs.id',
+          },
+          expression: 'songs_title_fts MATCH {:match}',
           params: { match: `"${title.term.replace(/"/g, '""')}"` },
         };
-  const clauses: SqlClause[] = [
+  const clauses: CompiledFilter[] = [
     titleClause,
     category === null
       ? null
       : {
-          condition: 'songs.category = {:category}',
+          // 카테고리 인덱스는 그 카테고리 곡을 거의 다 읽게 되므로, 단항 + 로 막아 제목 인덱스를 쓰게 한다.
+          expression: '+songs.category = {:category}',
           params: { category },
         },
     cursor === null
       ? null
       : {
-          condition:
+          expression:
             '(songs.releasedOn < {:afterReleasedOn} OR ' +
             '(songs.releasedOn = {:afterReleasedOn} AND songs.id < {:afterId}))',
           params: {
@@ -124,12 +132,14 @@ export function buildSongSearchQuery(input: SongSearchInput): SongSearchQuery {
           },
         },
   ].filter((clause) => clause !== null);
+  const { join } = titleClause;
   return {
-    sql:
-      `SELECT songs.id AS id FROM ${titleClause.from} ` +
-      `WHERE ${clauses.map((clause) => clause.condition).join(' AND ')} ` +
-      `ORDER BY songs.releasedOn DESC, songs.id DESC LIMIT ${SONG_SEARCH_BATCH_SIZE}`,
-    params: clauses.reduce<Record<string, string>>(
+    join,
+    condition: clauses.map((clause) => clause.expression).join(' AND '),
+    orderBy: ['songs.releasedOn DESC', 'songs.id DESC'],
+    limit: SONG_SEARCH_BATCH_SIZE,
+    shouldCount: cursor === null,
+    params: clauses.reduce<Record<string, FilterValue>>(
       (all, clause) => ({
         ...all,
         ...clause.params,

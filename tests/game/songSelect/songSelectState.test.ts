@@ -376,7 +376,7 @@ describe('createSongSelectState with a restore target', () => {
     expect(getSongPage(state, 3)).toEqual({
       startIndex: 6,
       pageNumber: 3,
-      pageCount: 4,
+      loadedPageCount: 4,
       selectedSlot: 1,
     });
     expect(difficultyOf(state)).toBe('normal');
@@ -647,7 +647,7 @@ describe('getSongPage', () => {
     expect(getSongPage(createSongSelectState([], 'all', 4), 3)).toEqual({
       startIndex: 0,
       pageNumber: 1,
-      pageCount: 0,
+      loadedPageCount: 0,
       selectedSlot: null,
     });
   });
@@ -658,7 +658,7 @@ describe('getSongPage', () => {
     expect(getSongPage(state, 3)).toEqual({
       startIndex: 0,
       pageNumber: 1,
-      pageCount: 3,
+      loadedPageCount: 3,
       selectedSlot: 2,
     });
   });
@@ -669,7 +669,7 @@ describe('getSongPage', () => {
     expect(getSongPage(state, 3)).toEqual({
       startIndex: 3,
       pageNumber: 2,
-      pageCount: 3,
+      loadedPageCount: 3,
       selectedSlot: 0,
     });
   });
@@ -680,14 +680,14 @@ describe('getSongPage', () => {
     expect(getSongPage(state, 3)).toEqual({
       startIndex: 6,
       pageNumber: 3,
-      pageCount: 3,
+      loadedPageCount: 3,
       selectedSlot: 0,
     });
   });
 
   it('counts only full or partial pages', () => {
-    expect(getSongPage(createSongSelectState(songs(6), 'all', 4), 3).pageCount).toBe(2);
-    expect(getSongPage(createSongSelectState(songs(7), 'all', 4), 3).pageCount).toBe(3);
+    expect(getSongPage(createSongSelectState(songs(6), 'all', 4), 3).loadedPageCount).toBe(2);
+    expect(getSongPage(createSongSelectState(songs(7), 'all', 4), 3).loadedPageCount).toBe(3);
   });
 });
 

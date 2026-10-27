@@ -1,3 +1,4 @@
+import type { FilterValue } from '../../../src/pbQuery.js';
 import { copyFile, cp, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type PocketBase from 'pocketbase';
@@ -104,7 +105,7 @@ async function createMigrationsDirWithoutSearch(): Promise<string> {
 function querySql(
   superuser: PocketBase,
   sql: string,
-  params: Record<string, string>,
+  params: Record<string, FilterValue>,
   columns: readonly string[],
 ): Promise<Record<string, string>[]> {
   return superuser.send<Record<string, string>[]>(SQL_ROUTE, {
@@ -267,8 +268,13 @@ async function startSearchServer(): Promise<PocketBaseServer> {
   return server;
 }
 
-function search(client: PocketBase, params: SearchParams): Promise<{ items: SearchItem[] }> {
-  return client.send<{ items: SearchItem[] }>(SEARCH_ROUTE, { query: params });
+interface SearchResponse {
+  items: SearchItem[];
+  totalItems: number | null;
+}
+
+function search(client: PocketBase, params: SearchParams): Promise<SearchResponse> {
+  return client.send<SearchResponse>(SEARCH_ROUTE, { query: params });
 }
 
 async function searchTitles(client: PocketBase, title: string): Promise<string[]> {
@@ -280,22 +286,25 @@ async function searchTitles(client: PocketBase, title: string): Promise<string[]
 async function searchAll(
   client: PocketBase,
   params: SearchParams,
-): Promise<{ ids: string[]; batchSizes: number[] }> {
+): Promise<{ ids: string[]; batchSizes: number[]; totals: (number | null)[] }> {
   const ids: string[] = [];
   const batchSizes: number[] = [];
+  const totals: (number | null)[] = [];
   let cursor: SearchParams = {};
   for (;;) {
-    const { items } = await search(client, {
+    const { items, totalItems } = await search(client, {
       ...params,
       ...cursor,
     });
     ids.push(...items.map((item) => item.id));
     batchSizes.push(items.length);
+    totals.push(totalItems);
     const last = items.at(-1);
     if (items.length < SEARCH_BATCH_SIZE || last === undefined) {
       return {
         ids,
         batchSizes,
+        totals,
       };
     }
     cursor = {
@@ -326,13 +335,11 @@ async function expectInvalidRequest(request: Promise<unknown>): Promise<void> {
   });
 }
 
-async function explain(superuser: PocketBase, params: SearchParams): Promise<string[]> {
-  const { sql, params: bindings } = buildSongSearchQuery({
-    title: params['title'],
-    category: params['category'],
-    afterReleasedOn: params['afterReleasedOn'],
-    afterId: params['afterId'],
-  });
+async function explain(
+  superuser: PocketBase,
+  sql: string,
+  bindings: Readonly<Record<string, FilterValue>>,
+): Promise<string[]> {
   const rows = await querySql(superuser, `EXPLAIN QUERY PLAN ${sql}`, { ...bindings }, ['detail']);
   return rows.map((row) => row['detail'] ?? '');
 }
@@ -436,7 +443,10 @@ describe('song title search API', () => {
         afterId: 'a'.repeat(65),
       }),
     );
-    await expect(search(guest, { title: '𝄞'.repeat(100) })).resolves.toEqual({ items: [] });
+    await expect(search(guest, { title: '𝄞'.repeat(100) })).resolves.toEqual({
+      items: [],
+      totalItems: 0,
+    });
   });
 
   it('combines category with the title and lists each song once with chart summaries', async () => {
@@ -515,7 +525,7 @@ describe('song title search API', () => {
     expect(originals.items.map((item) => item.id)).toEqual([original.id]);
   });
 
-  it('pages 99, 100, 101 and 200 matches by cursor without gaps or duplicates', async () => {
+  it('pages 99, 100, 101 and 200 matches by cursor without gaps or duplicates, counting them first', async () => {
     const { url, superuser } = await startSearchServer();
     const releaseDates = ['2026-01-01', '2026-01-02', '2026-01-03'];
     const createGroup = (prefix: string, count: number, category: string) =>
@@ -541,10 +551,12 @@ describe('song title search API', () => {
     ).resolves.toEqual({
       ids: newestFirst(pageOriginals),
       batchSizes: [99],
+      totals: [99],
     });
     await expect(searchAll(guest, { title: 'Hundred' })).resolves.toEqual({
       ids: newestFirst(hundred),
       batchSizes: [100, 0],
+      totals: [100, null],
     });
     await expect(
       searchAll(guest, {
@@ -554,15 +566,18 @@ describe('song title search API', () => {
     ).resolves.toEqual({
       ids: newestFirst(pageCovers),
       batchSizes: [100, 1],
+      totals: [101, null],
     });
     const everyPage = newestFirst([...pageCovers, ...pageOriginals]);
     await expect(searchAll(guest, { title: 'Paging' })).resolves.toEqual({
       ids: everyPage,
       batchSizes: [100, 100, 0],
+      totals: [200, null, null],
     });
     await expect(searchAll(guest, { title: 'Pa' })).resolves.toEqual({
       ids: everyPage,
       batchSizes: [100, 100, 0],
+      totals: [200, null, null],
     });
   });
 
@@ -591,9 +606,13 @@ describe('song title search API', () => {
     expect(hiddenCharts.items[0]).not.toHaveProperty('expand');
 
     await superuser.collections.update('songs', { listRule: null });
-    await expect(search(guest, { title: 'Guarded' })).resolves.toEqual({ items: [] });
+    await expect(search(guest, { title: 'Guarded' })).resolves.toEqual({
+      items: [],
+      totalItems: null,
+    });
     const asSuperuser = await search(superuser, { title: 'Guarded' });
     expect(asSuperuser.items.map((item) => item.id)).toEqual([song.id]);
+    expect(asSuperuser.totalItems).toBe(1);
     expect(asSuperuser.items[0]?.expand).toEqual({
       charts_via_song: [
         {
@@ -605,7 +624,7 @@ describe('song title search API', () => {
     });
   });
 
-  it('plans prefixes on the NOCASE index and longer titles on the FTS index', async () => {
+  it('plans prefixes on the NOCASE index and longer titles on the FTS index, counts included', async () => {
     const { superuser } = await startSearchServer();
     const cursor = {
       afterReleasedOn: '2026-01-01',
@@ -615,7 +634,7 @@ describe('song title search API', () => {
     for (const title of ['St', 'Starlight']) {
       const expected =
         title.length <= 2 ? 'idx_songs_title_nocase' : 'songs_title_fts VIRTUAL TABLE INDEX';
-      for (const params of [
+      const searches: SearchParams[] = [
         { title },
         {
           title,
@@ -626,13 +645,62 @@ describe('song title search API', () => {
           category: 'cover',
           ...cursor,
         },
-      ]) {
-        const plan = await explain(superuser, params);
-        expect(
-          plan.some((detail) => detail.includes(expected)),
-          plan.join('\n'),
-        ).toBe(true);
+      ];
+      for (const params of searches) {
+        const search = buildSongSearchQuery({
+          title: params['title'],
+          category: params['category'],
+          afterReleasedOn: params['afterReleasedOn'],
+          afterId: params['afterId'],
+        });
+        // The hook hands these parts to a songs record query and a count query, which build these statements.
+        const matches =
+          'FROM songs' +
+          (search.join === null ? '' : ` INNER JOIN ${search.join.table} ON ${search.join.on}`) +
+          ` WHERE ${search.condition}`;
+        const statements = [
+          `SELECT songs.* ${matches} ORDER BY ${search.orderBy.join(', ')} LIMIT ${search.limit}`,
+          ...(search.shouldCount ? [`SELECT COUNT(*) AS total ${matches}`] : []),
+        ];
+        for (const sql of statements) {
+          const plan = await explain(superuser, sql, search.params);
+          expect(
+            plan.some((detail) => detail.includes(expected)),
+            plan.join('\n'),
+          ).toBe(true);
+        }
       }
+    }
+  });
+
+  it('counts, lists and continues a category on its list order index', async () => {
+    const { superuser } = await startSearchServer();
+    const category = { category: 'cover' };
+    const continuation = {
+      ...category,
+      afterReleasedOn: '2026-01-01',
+      afterId: 'abc',
+    };
+
+    for (const [sql, bindings] of [
+      ['SELECT COUNT(*) FROM songs WHERE category = {:category}', category],
+      [
+        'SELECT id FROM songs WHERE category = {:category} ORDER BY releasedOn DESC, id DESC LIMIT 100',
+        category,
+      ],
+      [
+        'SELECT id FROM songs WHERE category = {:category} AND ' +
+          '(releasedOn < {:afterReleasedOn} OR (releasedOn = {:afterReleasedOn} AND id < {:afterId})) ' +
+          'ORDER BY releasedOn DESC, id DESC LIMIT 100',
+        continuation,
+      ],
+    ] as const) {
+      const plan = await explain(superuser, sql, bindings);
+      expect(
+        plan.some((detail) => detail.includes('idx_songs_category_released_on_id')),
+        plan.join('\n'),
+      ).toBe(true);
+      expect(plan.join('\n')).not.toContain('TEMP B-TREE');
     }
   });
 });

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ALL_SONGS_QUERY } from '../../src/data/songs.js';
 import type { Song, SongBatch, SongBatchCursor, SongQuery } from '../../src/data/songs.js';
-import { SongFeed } from '../../src/game/SongFeed.js';
+import { SharedSongFeeds, SongFeed } from '../../src/game/SongFeed.js';
 
 const PAGE_SIZE = 100;
 
@@ -65,6 +65,7 @@ function createServer(entries: readonly ServerSong[]) {
               recordId: last.recordId,
             }
           : null,
+      totalCount: after === null ? entries.length : null,
     };
     return Promise.resolve(batch);
   };
@@ -186,6 +187,7 @@ describe('SongFeed', () => {
     pending.resolve({
       songs: [makeSong('a')],
       next: null,
+      totalCount: 1,
     });
     await Promise.all([firstRequest, secondRequest]);
 
@@ -238,6 +240,43 @@ describe('SongFeed', () => {
     expect(feed.songs).toHaveLength(PAGE_SIZE);
   });
 
+  it('counts the songs it has not received yet from the first batch', async () => {
+    const entries = makeServerSongs(250);
+    const feed = new SongFeed(ALL_SONGS_QUERY, createServer(entries).loadBatch);
+
+    expect(feed.songCount).toBe(0);
+
+    await feed.requestMore();
+
+    expect(feed.songs).toHaveLength(PAGE_SIZE);
+    expect(feed.songCount).toBe(250);
+
+    await feed.requestRemaining();
+
+    expect(feed.songCount).toBe(250);
+  });
+
+  it('follows the received songs when the count drifted while loading', async () => {
+    const entries = makeServerSongs(150);
+    const server = createServer(entries);
+    const first = await server.loadBatch(ALL_SONGS_QUERY, null);
+    const shrunk = new SongFeed(ALL_SONGS_QUERY, server.loadBatch, {
+      ...first,
+      totalCount: 160,
+    });
+    const grown = new SongFeed(ALL_SONGS_QUERY, server.loadBatch, {
+      ...first,
+      totalCount: 90,
+    });
+
+    expect(shrunk.songCount).toBe(160);
+    expect(grown.songCount).toBe(PAGE_SIZE);
+
+    await shrunk.requestRemaining();
+
+    expect(shrunk.songCount).toBe(150);
+  });
+
   it('applies a saved chart id to its lane count and difficulty of a listed song', () => {
     const song = makeSong('a', {
       chartIds: {
@@ -249,6 +288,7 @@ describe('SongFeed', () => {
     const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
       songs: [song, other],
       next: null,
+      totalCount: 2,
     });
     const listener = vi.fn();
     feed.subscribe(listener);
@@ -275,6 +315,7 @@ describe('SongFeed', () => {
     const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
       songs: [song],
       next: null,
+      totalCount: 1,
     });
     const songs = feed.songs;
     const listener = vi.fn();
@@ -289,6 +330,7 @@ describe('SongFeed', () => {
     const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
       songs: [makeSong('a')],
       next: null,
+      totalCount: 1,
     });
     const songs = feed.songs;
     const listener = vi.fn();
@@ -321,5 +363,51 @@ describe('SongFeed', () => {
 
     expect(statuses).toHaveLength(4);
     expect(feed.status).toBe('complete');
+  });
+});
+
+describe('SharedSongFeeds', () => {
+  const cover: SongQuery = {
+    category: 'cover',
+    title: '',
+  };
+
+  it('keeps one feed per category and the catalog for all, but a new one per title search', async () => {
+    const server = createServer(makeServerSongs(3));
+    const feeds = new SharedSongFeeds(
+      server.loadBatch,
+      await server.loadBatch(ALL_SONGS_QUERY, null),
+    );
+    server.calls.length = 0;
+
+    const coverFeed = feeds.create(cover);
+    await coverFeed.requestMore();
+
+    expect(feeds.create(cover)).toBe(coverFeed);
+    expect(feeds.create(ALL_SONGS_QUERY)).toBe(feeds.catalog);
+    const search = {
+      ...cover,
+      title: 'star',
+    };
+    expect(feeds.create(search)).not.toBe(feeds.create(search));
+    expect(server.calls).toHaveLength(1);
+  });
+
+  it('applies a saved chart to the catalog and every kept category', async () => {
+    const song = makeSong('a');
+    const loadBatch = (): Promise<SongBatch> =>
+      Promise.resolve({
+        songs: [song],
+        next: null,
+        totalCount: 1,
+      });
+    const feeds = new SharedSongFeeds(loadBatch, await loadBatch());
+    const coverFeed = feeds.create(cover);
+    await coverFeed.requestMore();
+
+    feeds.applySavedChart('a', 4, 'easy', 'c1');
+
+    expect(feeds.catalog.songs[0]?.chartIds).toEqual({ 4: { easy: 'c1' } });
+    expect(coverFeed.songs[0]?.chartIds).toEqual({ 4: { easy: 'c1' } });
   });
 });

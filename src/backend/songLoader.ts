@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { toParseIssue } from '../data/parseIssue.js';
 import { DIFFICULTIES, SONG_CATEGORIES, ZODIACS } from '../data/songs.js';
 import type { ChartIds, Song, SongBatch, SongBatchCursor, SongQuery } from '../data/songs.js';
-import { CHARTS, SONGS } from '../pbCollections.js';
+import { CHARTS, SONG_LIST_FIELDS, SONGS } from '../pbCollections.js';
 import { after, backRelation, desc, select, sort, where } from '../pbQuery.js';
 import { LANE_COUNTS } from '../rhythm/lanes.js';
 import { isFiniteNumber, isOneOf, isString } from '../typeGuards.js';
@@ -35,7 +35,13 @@ const songSearchResponse = z.object({
       collectionName: z.string(),
     }),
   ),
+  totalItems: z.number().nullable(),
 });
+
+interface SongRecordBatch {
+  readonly records: RecordModel[];
+  readonly totalCount: number | null;
+}
 
 function isCredit(value: unknown): value is string[] | null {
   return value === null || (Array.isArray(value) && value.every(isString));
@@ -80,7 +86,7 @@ async function listSongRecords(
   pb: PocketBase,
   query: SongQuery,
   cursor: SongBatchCursor | null,
-): Promise<RecordModel[]> {
+): Promise<SongRecordBatch> {
   const filter = where(SONGS, [
     query.category === 'all' ? null : { category: query.category },
     cursor === null
@@ -90,21 +96,24 @@ async function listSongRecords(
           id: cursor.recordId,
         }),
   ]);
-  const { items } = await pb.collection(SONGS.name).getList(1, SONG_BATCH_SIZE, {
+  const { items, totalItems } = await pb.collection(SONGS.name).getList(1, SONG_BATCH_SIZE, {
     sort: sort(SONGS, SONG_ORDER),
-    skipTotal: true,
+    skipTotal: cursor !== null,
     requestKey: null,
-    ...select(SONGS, '*', [SONG_CHARTS]),
+    ...select(SONGS, SONG_LIST_FIELDS, [SONG_CHARTS]),
     ...(filter === null ? {} : { filter: pb.filter(filter.expression, filter.params) }),
   });
-  return items;
+  return {
+    records: items,
+    totalCount: cursor === null ? totalItems : null,
+  };
 }
 
 async function searchSongRecords(
   pb: PocketBase,
   query: SongQuery,
   cursor: SongBatchCursor | null,
-): Promise<RecordModel[]> {
+): Promise<SongRecordBatch> {
   const response = await pb.send<unknown>(SONG_SEARCH_PATH, {
     method: 'GET',
     requestKey: null,
@@ -124,7 +133,10 @@ async function searchSongRecords(
     const { path, reason } = toParseIssue(result.error, 'response');
     throw new Error(`Invalid songs search response: ${path} ${reason}`);
   }
-  return result.data.items;
+  return {
+    records: result.data.items,
+    totalCount: result.data.totalItems,
+  };
 }
 
 export async function loadSongBatch(
@@ -133,25 +145,27 @@ export async function loadSongBatch(
   cursor: SongBatchCursor | null,
 ): Promise<SongBatch> {
   // SDK 자동 취소는 같은 경로의 다른 feed 요청까지 취소하므로 두 경로 모두 끈다.
-  const songRecords =
+  const { records, totalCount } =
     query.title === ''
       ? await listSongRecords(pb, query, cursor)
       : await searchSongRecords(pb, query, cursor);
-  const last = songRecords.at(-1);
+  const last = records.at(-1);
   if (last === undefined) {
     return {
       songs: [],
       next: null,
+      totalCount,
     };
   }
   return {
-    songs: songRecords.map((record) => toSong(pb, record)),
+    songs: records.map((record) => toSong(pb, record)),
     next:
-      songRecords.length === SONG_BATCH_SIZE
+      records.length === SONG_BATCH_SIZE
         ? {
             releasedOn: readRecordField(last, 'songs', 'releasedOn', isString),
             recordId: last.id,
           }
         : null,
+    totalCount,
   };
 }
