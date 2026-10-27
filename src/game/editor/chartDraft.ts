@@ -14,6 +14,8 @@ export interface ChartDraft {
   readonly savedNotes: readonly Note[];
 }
 
+export const MIN_HOLD_DURATION_MS = 1;
+
 export function createDraft(song: Song, chart: Chart): ChartDraft {
   const notes = [...chart.notes].sort(compareNotes);
   return {
@@ -116,7 +118,7 @@ export function resizeSelectedHold(draft: ChartDraft, endTimeMs: number): ChartD
   if (selected?.type !== 'hold') {
     return draft;
   }
-  const nextEndTimeMs = Math.max(endTimeMs, selected.timeMs + 1);
+  const nextEndTimeMs = Math.max(endTimeMs, selected.timeMs + MIN_HOLD_DURATION_MS);
   if (nextEndTimeMs === selected.endTimeMs) {
     return draft;
   }

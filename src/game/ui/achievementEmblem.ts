@@ -8,8 +8,9 @@ import type {
 } from '../../data/achievements.js';
 import { requireDefined } from '../../invariant.js';
 import { lerp } from '../../range.js';
-import { ZODIAC_FIGURES } from '../celestial/zodiacFigures.js';
+import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/zodiacFigures.js';
 import { createCanvasTexture } from './canvasTexture.js';
+import { fillFourPointStar, fillStar } from './starShapes.js';
 import { CELESTIAL_COLORS, cssColor } from './theme.js';
 
 // 시안(glyph-sheet)과 같은 100 단위 정사각 좌표계에서 그리고 표시 크기로 확대한다.
@@ -37,33 +38,33 @@ const EMBLEM_COLOR = cssColor(CELESTIAL_COLORS.highlight);
 // 플레이 횟수가 늘수록 궤적이 길어지고, 순서대로 가운데 별이 커진다.
 const PLAY_TRAILS = [
   {
- id: 'FIRST_FINISH',
-turns: 0 
-},
+    id: 'FIRST_FINISH',
+    turns: 0,
+  },
   {
- id: 'PLAY_3',
-turns: 0.25 
-},
+    id: 'PLAY_3',
+    turns: 0.25,
+  },
   {
- id: 'PLAY_10',
-turns: 0.5 
-},
+    id: 'PLAY_10',
+    turns: 0.5,
+  },
   {
- id: 'PLAY_50',
-turns: 0.75 
-},
+    id: 'PLAY_50',
+    turns: 0.75,
+  },
   {
- id: 'PLAY_100',
-turns: 1 
-},
+    id: 'PLAY_100',
+    turns: 1,
+  },
   {
- id: 'PLAY_200',
-turns: 1.5 
-},
+    id: 'PLAY_200',
+    turns: 1.5,
+  },
   {
- id: 'PLAY_500',
-turns: 2 
-},
+    id: 'PLAY_500',
+    turns: 2,
+  },
 ] as const satisfies readonly { readonly id: AchievementId; readonly turns: number }[];
 const PLAY_ORBIT_RADIUS_X = 27;
 const PLAY_ORBIT_RADIUS_Y = 11;
@@ -504,20 +505,7 @@ function paintZodiac(
   rule: Extract<AchievementRule, { kind: 'zodiacComplete' }>,
 ): void {
   const figure = ZODIAC_FIGURES[rule.zodiac];
-  const xs = figure.nodes.map(([x]) => x);
-  const ys = figure.nodes.map(([, y]) => y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const scale = ZODIAC_FIGURE_SPAN / Math.max(maxX - minX, maxY - minY);
-  const points = figure.nodes.map(
-    ([x, y]) =>
-      [
-        CENTER + (x - (minX + maxX) / 2) * scale,
-        ZODIAC_FIGURE_CENTER_Y + (y - (minY + maxY) / 2) * scale,
-      ] as const,
-  );
+  const points = fitZodiacFigure(figure, CENTER, ZODIAC_FIGURE_CENTER_Y, ZODIAC_FIGURE_SPAN);
   const pointAt = (index: number): readonly [number, number] =>
     requireDefined(points[index], 'Zodiac edge points outside the figure', index);
   withLineWidth(context, ZODIAC_FIGURE_LINE_WIDTH, () => {
@@ -574,34 +562,6 @@ function withLineWidth(
   context.lineWidth = lineWidth;
   paint();
   context.restore();
-}
-
-function fillStar(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  pointCount: number,
-  outerRadius: number,
-  innerRadius: number,
-): void {
-  context.beginPath();
-  for (let index = 0; index < pointCount * 2; index += 1) {
-    const angle = -Math.PI / 2 + (index * Math.PI) / pointCount;
-    const radius = index % 2 === 0 ? outerRadius : innerRadius;
-    context.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
-  }
-  context.closePath();
-  context.fill();
-}
-
-function fillFourPointStar(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  radius: number,
-  waist = 0.32,
-): void {
-  fillStar(context, x, y, 4, radius, radius * waist);
 }
 
 function fillFivePointStar(

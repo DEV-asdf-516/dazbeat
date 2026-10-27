@@ -11,16 +11,18 @@ import {
   createEmptyDraft,
   deleteSelectedNote,
   findInvalidNote,
-  isDraftDirty,
   selectNote,
   toChart,
 } from './chartDraft.js';
 import type { ChartDraft } from './chartDraft.js';
 import {
+  decideNavigation,
+  getActiveSelection,
   getPending,
   getSelection,
   getSession,
   recordEdit,
+  settleGesture,
   undoEdit,
   withDraft,
 } from './chartEditorState.js';
@@ -32,13 +34,7 @@ import type {
   PendingAction,
   Selection,
 } from './chartEditorState.js';
-import {
-  cancelGesture,
-  continueGesture,
-  endGesture,
-  NO_GESTURE,
-  startGesture,
-} from './chartGesture.js';
+import { continueGesture, endGesture, NO_GESTURE, startGesture } from './chartGesture.js';
 import type { EditTool, GestureLimits, TimelinePointer } from './chartGesture.js';
 import {
   advancePlayback,
@@ -242,6 +238,7 @@ export class ChartEditorController {
   }
 
   selectTool(tool: EditTool): void {
+    // 곡이 없는 빈 편집기에서도 도구는 고를 수 있어야 하므로 선택 유무는 보지 않고 확인 팝업만 본다.
     if (getPending(this.current) !== null || this.current.tool === tool) {
       return;
     }
@@ -310,8 +307,8 @@ export class ChartEditorController {
   }
 
   seek(targetMs: number): void {
-    const selection = getSelection(this.current);
-    if (selection === null || getPending(this.current) !== null) {
+    const selection = getActiveSelection(this.current);
+    if (selection === null) {
       return;
     }
     this.setPlayhead(seekPlayback(this.current.playhead, selection.song, targetMs));
@@ -349,8 +346,8 @@ export class ChartEditorController {
     delta: number,
     change: { readonly laneCount?: LaneCount; readonly difficulty?: Difficulty },
   ): void {
-    const selection = getSelection(this.current);
-    if (selection === null || getPending(this.current) !== null) {
+    const selection = getActiveSelection(this.current);
+    if (selection === null) {
       return;
     }
     const songs = this.list.songs;
@@ -376,25 +373,23 @@ export class ChartEditorController {
 
   /** 확인 팝업을 띄우기 전에 진행 중인 drag 를 거두므로, 취소 뒤에 만들다 만 Hold 가 남지 않는다. */
   private requestNavigation(navigation: Navigation): void {
-    const { phase } = this.current;
-    if (phase.kind === 'confirming') {
-      return;
-    }
-    const isCurrent = isSelected(getSelection(this.current), navigation);
-    if (phase.kind !== 'editing') {
-      if (!isCurrent || phase.kind === 'loadFailed') {
+    const decision = decideNavigation(this.current, navigation);
+    switch (decision.kind) {
+      case 'ignore':
+        return;
+      case 'proceed':
         this.proceed(navigation);
-      }
-      return;
-    }
-    const settled = settleGesture(phase.session);
-    if (!isCurrent && isDraftDirty(settled.draft)) {
-      this.confirm(settled, navigation);
-      return;
-    }
-    this.setSession(settled);
-    if (!isCurrent) {
-      this.proceed(navigation);
+        return;
+      case 'settle':
+        this.setSession(decision.session);
+        return;
+      case 'settleAndProceed':
+        this.setSession(decision.session);
+        this.proceed(navigation);
+        return;
+      case 'confirm':
+        this.confirm(decision.session, navigation);
+        return;
     }
   }
 
@@ -560,27 +555,4 @@ function startEditing(draft: ChartDraft): EditPhase {
       undoStack: [],
     },
   };
-}
-
-function settleGesture(session: EditorSession): EditorSession {
-  if (session.gesture.kind === 'none') {
-    return session;
-  }
-  return recordEdit(
-    {
-      ...withDraft(session, cancelGesture(session.draft, session.gesture)),
-      gesture: NO_GESTURE,
-    },
-    session.gesture.before,
-  );
-}
-
-function isSelected(selection: Selection | null, navigation: Navigation): boolean {
-  return (
-    navigation.kind === 'select' &&
-    selection !== null &&
-    selection.song.id === navigation.song.id &&
-    selection.laneCount === navigation.laneCount &&
-    selection.difficulty === navigation.difficulty
-  );
 }

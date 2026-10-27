@@ -3,36 +3,39 @@ import type { Button } from './Button.js';
 import { requireDefined } from '../../invariant.js';
 
 export class MenuFocus<T> {
-  private index: number;
+  private focused: T;
 
   constructor(
     private readonly entries: readonly { item: T; button: Button }[],
     private readonly onFocusChange: (item: T) => void,
-    focusedItem?: T,
+    focused: T,
   ) {
-    this.index = Math.max(
-      entries.findIndex(({ item }) => item === focusedItem),
-      0,
-    );
+    this.focused = requireDefined(
+      entries.find(({ item }) => item === focused),
+      'Focused menu item is not in the entries',
+    ).item;
     this.render();
   }
 
   move(delta: 1 | -1): void {
-    const current = requireDefined(this.entries[this.index], 'Invalid menu index', this.index);
-    const next = this.entries.indexOf(cycleItem(this.entries, current, delta));
-    if (next === this.index) {
+    const next = cycleItem(
+      this.entries.map(({ item }) => item),
+      this.focused,
+      delta,
+    );
+    if (next === this.focused) {
       return;
     }
-    this.index = next;
+    this.focused = next;
     this.render();
-    this.onFocusChange(this.getFocused());
+    this.onFocusChange(next);
   }
 
   getFocused(): T {
-    return requireDefined(this.entries[this.index], 'Invalid menu index', this.index).item;
+    return this.focused;
   }
 
   private render(): void {
-    this.entries.forEach(({ button }, index) => button.setFocused(index === this.index));
+    this.entries.forEach(({ item, button }) => button.setFocused(item === this.focused));
   }
 }

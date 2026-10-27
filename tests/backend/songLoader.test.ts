@@ -43,11 +43,13 @@ function listResponse(items: readonly unknown[], totalItems = items.length): Res
 function searchResponse(
   items: readonly unknown[],
   totalItems: number | null = items.length,
+  next: { releasedOn: string; recordId: string } | null = null,
 ): Response {
   return new Response(
     JSON.stringify({
       items,
       totalItems,
+      next,
     }),
   );
 }
@@ -520,8 +522,8 @@ describe('loadSongBatch with a title', () => {
     });
   });
 
-  it('marks a batch shorter than 100 songs as the last one', async () => {
-    stubFetch(searchResponse(makeSongRecords(99)), SEARCH_PATH);
+  it('marks a batch whose response next is null as the last one', async () => {
+    stubFetch(searchResponse(makeSongRecords(100), 100, null), SEARCH_PATH);
 
     const batch = await loadSongBatch(
       pb(),
@@ -532,13 +534,16 @@ describe('loadSongBatch with a title', () => {
       null,
     );
 
-    expect(batch.songs).toHaveLength(99);
+    expect(batch.songs).toHaveLength(100);
     expect(batch.next).toBeNull();
   });
 
-  it('continues a full batch from its last song with the next request', async () => {
-    const records = makeSongRecords(100);
-    stubFetch(searchResponse(records), SEARCH_PATH);
+  it('sends the response next as the cursor of the next request', async () => {
+    const next = {
+      releasedOn: '2026-01-03',
+      recordId: 'r7',
+    };
+    stubFetch(searchResponse(makeSongRecords(3), 250, next), SEARCH_PATH);
     const query = {
       ...ALL_SONGS_QUERY,
       title: 'Title',
@@ -546,25 +551,54 @@ describe('loadSongBatch with a title', () => {
 
     const batch = await loadSongBatch(pb(), query, null);
 
-    expect(batch.songs).toHaveLength(100);
-    expect(batch.totalCount).toBe(100);
-    expect(batch.next).toEqual({
-      releasedOn: records[99]?.releasedOn,
-      recordId: 's99',
-    });
+    expect(batch.songs).toHaveLength(3);
+    expect(batch.totalCount).toBe(250);
+    expect(batch.next).toEqual(next);
 
     const fetchMock = stubFetch(searchResponse([], null), SEARCH_PATH);
     const nextBatch = await loadSongBatch(pb(), query, batch.next);
     expect(nextBatch.totalCount).toBeNull();
     const params = requestUrl(fetchMock, SEARCH_PATH).searchParams;
-    expect(params.get('afterReleasedOn')).toBe(records[99]?.releasedOn);
-    expect(params.get('afterId')).toBe('s99');
+    expect(params.get('afterReleasedOn')).toBe('2026-01-03');
+    expect(params.get('afterId')).toBe('r7');
   });
 
   it.each([
     ['the body is not an object', [], 'Invalid songs search response: response'],
-    ['items is not an array', { items: 'songs' }, 'Invalid songs search response: response.items'],
-    ['totalItems is missing', { items: [] }, 'Invalid songs search response: response.totalItems'],
+    [
+      'items is not an array',
+      {
+        items: 'songs',
+        totalItems: 0,
+        next: null,
+      },
+      'Invalid songs search response: response.items',
+    ],
+    [
+      'totalItems is missing',
+      {
+        items: [],
+        next: null,
+      },
+      'Invalid songs search response: response.totalItems',
+    ],
+    [
+      'next is missing',
+      {
+        items: [],
+        totalItems: 0,
+      },
+      'Invalid songs search response: response.next',
+    ],
+    [
+      'next has no recordId',
+      {
+        items: [],
+        totalItems: 0,
+        next: { releasedOn: '2026-01-01' },
+      },
+      'Invalid songs search response: response.next.recordId',
+    ],
     [
       'an item has no collectionId',
       {
@@ -574,6 +608,8 @@ describe('loadSongBatch with a title', () => {
             collectionId: undefined,
           },
         ],
+        totalItems: 1,
+        next: null,
       },
       'Invalid songs search response: response.items[0].collectionId',
     ],

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { SongCategory } from '../../data/songs.js';
 import { HOVER_CURSOR } from '../ui/cursor.js';
 import { setFittedText } from '../ui/fitText.js';
+import { ScrollBar } from '../ui/ScrollBar.js';
 import { CATEGORY_COLORS, CELESTIAL_COLORS, RADIUS, setTextColor, typeStyle } from '../ui/theme.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 
@@ -49,15 +50,13 @@ const TAG_LETTER_SPACING_PX = 1;
 const TAG_BORDER_ALPHA = 0.6;
 const SCROLLBAR_WIDTH_PX = 3;
 const SCROLLBAR_INSET_PX = 6;
-const SCROLLBAR_TRACK_ALPHA = 0.3;
 
 export class SongListPanel {
   private readonly scene: Phaser.Scene;
   private readonly frame: SongListFrame;
   private readonly panel: Phaser.GameObjects.Rectangle;
   private readonly rows: RowView[];
-  private readonly scrollTrack: Phaser.GameObjects.Rectangle;
-  private readonly scrollThumb: Phaser.GameObjects.Rectangle;
+  private readonly scrollBar: ScrollBar;
 
   constructor(
     scene: Phaser.Scene,
@@ -88,19 +87,7 @@ export class SongListPanel {
       }),
     );
     const scrollXPx = frame.widthPx - SCROLLBAR_INSET_PX - SCROLLBAR_WIDTH_PX;
-    this.scrollTrack = scene.add
-      .rectangle(
-        scrollXPx,
-        0,
-        SCROLLBAR_WIDTH_PX,
-        0,
-        CELESTIAL_COLORS.border,
-        SCROLLBAR_TRACK_ALPHA,
-      )
-      .setOrigin(0, 0);
-    this.scrollThumb = scene.add
-      .rectangle(scrollXPx, 0, SCROLLBAR_WIDTH_PX, 0, CELESTIAL_COLORS.selected)
-      .setOrigin(0, 0);
+    this.scrollBar = new ScrollBar(scene, scrollXPx);
     scene.add.container(frame.leftPx, frame.topYPx, [
       this.panel,
       ...this.rows.flatMap(({ background, tag, tagText, title }) => [
@@ -109,8 +96,7 @@ export class SongListPanel {
         tagText,
         title,
       ]),
-      this.scrollTrack,
-      this.scrollThumb,
+      ...this.scrollBar.objects,
     ]);
   }
 
@@ -122,14 +108,14 @@ export class SongListPanel {
     // 곡이 없으면 빈 테두리만 남지 않게 패널째 숨긴다.
     this.panel.setSize(widthPx, listHeightPx + paddingPx).setVisible(content.rows.length > 0);
     const isScrollable = content.songCount > visibleRowCount;
-    this.scrollTrack
-      .setVisible(isScrollable)
-      .setSize(SCROLLBAR_WIDTH_PX, listHeightPx)
-      .setY(listTopYPx);
-    this.scrollThumb
-      .setVisible(isScrollable)
-      .setSize(SCROLLBAR_WIDTH_PX, (listHeightPx * visibleRowCount) / content.songCount)
-      .setY(listTopYPx + (listHeightPx * content.topIndex) / content.songCount);
+    this.scrollBar.setVisible(isScrollable);
+    this.scrollBar.render({
+      topYPx: listTopYPx,
+      heightPx: listHeightPx,
+      visibleCount: visibleRowCount,
+      totalCount: content.songCount,
+      firstIndex: content.topIndex,
+    });
   }
 
   private createRow(

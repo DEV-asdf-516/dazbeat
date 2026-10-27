@@ -29,17 +29,14 @@ import type {
   QuitConfirmReason,
   RankedPlay,
 } from './GameplayController.js';
-import { isLoadingStatus } from './gameplayStatus.js';
-import type { GameplayStatus } from './gameplayStatus.js';
+import { getStatusView } from './gameplayStatus.js';
+import type { GameplayStatus, GameplayStatusMessage } from './gameplayStatus.js';
 import { addHudEffect, addHudText } from './hudObjects.js';
 import {
   JUDGMENT_SHIMMER_ID,
   LANE_EFFECT_IDS,
-  getHitBloomIntensity,
-  getJudgmentPopScale,
+  getJudgmentEffect,
   getJudgmentSoundEffect,
-  hasJudgmentGlow,
-  hasJudgmentShimmer,
 } from './judgmentEffects.js';
 import { Button } from '../ui/Button.js';
 import {
@@ -51,6 +48,8 @@ import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { formatKeyCode, formatScore } from '../ui/format.js';
 import { queueImageLoads } from '../ui/imageLoad.js';
 import { LaneFx } from './LaneFx.js';
+import { MvModeIndicator } from './MvModeIndicator.js';
+import { LANE_ORNAMENT_IMAGES, addLaneOrnaments } from './laneOrnaments.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
 import { NoteLayer } from './NoteLayer.js';
 import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
@@ -63,6 +62,7 @@ import { PracticeStats } from './PracticeStats.js';
 import { StarlightGauge } from './StarlightGauge.js';
 import { fillTrapezoid } from './trapezoidFill.js';
 import {
+  CELESTIAL_COLORS,
   COLORS,
   GAMEPLAY_DEPTH,
   JUDGMENT_COLORS,
@@ -73,6 +73,10 @@ import {
 
 // 판정·콤보는 플레이필드 가운데에, 안내·종료 문구는 화면 가운데에 놓는다.
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
+const NIGHT_SKY_IMAGE = {
+  key: 'gameplay-night-sky',
+  url: '/assets/ui/gameplay/gameplay-night-sky.webp',
+} as const;
 const LANE_PANEL_ALPHA = 0.85;
 // 세로 프로필은 [화면 높이 비율, alpha] 정지점이고 정지점 사이는 선형이다.
 const LANE_PANEL_PROFILE: VerticalProfile = [
@@ -123,10 +127,8 @@ const PRACTICE_STATS_Y_PX = 184;
 const INTRO_TITLE_Y_PX = 440;
 const INTRO_DIFFICULTY_Y_PX = 520;
 const STATUS_Y_PX = 600;
-const MV_MODE_X_PX = 120;
-const MV_MODE_Y_PX = 144;
-const MV_MODE_HOLD_MS = 700;
-const MV_MODE_FADE_MS = 300;
+// MV 전환도 키 조작이라 레인 키 이름과 같은 줄, 레인 왼쪽 바깥에 둔다. 노트를 가리지 않고 YouTube 의 구석 버튼과도 떨어진다.
+const MV_MODE_LANE_GAP_PX = 48;
 // 곡이 끝나면 레인·판정 HUD 를 먼저 걷어 입력이 끝났음을 보여 준 뒤 종료 연출을 띄운다.
 const PLAYFIELD_CLEAR_MS = 450;
 const PLAYFIELD_SINK_PX = 24;
@@ -152,10 +154,7 @@ const STATUS_MESSAGES = {
   loading: 'gameplay.loading',
   awaitingStart: 'gameplay.pressEnterToStart',
   resuming: 'gameplay.resuming',
-} as const satisfies Record<
-  Exclude<GameplayStatus['kind'], 'paused' | 'countdown' | 'none'>,
-  string
->;
+} as const satisfies Record<GameplayStatusMessage, string>;
 
 type VerticalProfile = readonly (readonly [heightRatio: number, alpha: number])[];
 
@@ -164,6 +163,7 @@ interface LaneView {
 }
 
 interface GameplayView {
+  nightSky: Phaser.GameObjects.Image;
   playfield: PlayfieldLayout;
   playfieldChrome: readonly Phaser.GameObjects.GameObject[];
   soundEffects: SoundEffects;
@@ -182,7 +182,7 @@ interface GameplayView {
   introDifficulty: Phaser.GameObjects.Text;
   status: NoticeText;
   countdownText: Phaser.GameObjects.Text;
-  mvModeText: Phaser.GameObjects.Text;
+  mvMode: MvModeIndicator;
   quitDialog: ConfirmDialog;
 }
 
@@ -209,12 +209,19 @@ export class GameplayScene extends Phaser.Scene {
       ...CELESTIAL_IDS.map((id) => this.celestial.atlasPresentations[id]),
     ]);
     queueImageLoads(this, ENDING_IMAGES, 'ending effect');
+    queueImageLoads(this, [NIGHT_SKY_IMAGE, ...LANE_ORNAMENT_IMAGES], 'gameplay backdrop');
     queueSoundEffects(this);
   }
 
   create(data: GameplaySceneData): void {
-    addCelestialAtmosphere(this, this.celestial, 'gameplay');
     const settings = this.save.loadSettings();
+    // 캔버스가 투명해 MV 를 끄면 검은 바탕이 드러나므로 밤하늘을 깐다. 먼지보다 아래다.
+    // 다른 모드에서 로딩·카운트다운으로 영상만 잠깐 가릴 때 깔면 OFF 로 바뀐 것처럼 보여 OFF 에서만 깐다.
+    const nightSky = this.add
+      .image(0, 0, NIGHT_SKY_IMAGE.key)
+      .setOrigin(0, 0)
+      .setVisible(settings.mvMode === 'off');
+    addCelestialAtmosphere(this, this.celestial, 'gameplay');
     this.mvLayer.dataset.mvMode = settings.mvMode;
     delete this.mvLayer.dataset.mvHidden;
     ensureLightTextures(this);
@@ -222,6 +229,7 @@ export class GameplayScene extends Phaser.Scene {
 
     const playfield = getPlayfieldLayout(GAME_WIDTH, data.laneCount);
     const laneChrome = this.add.graphics().setDepth(GAMEPLAY_DEPTH.lanePanel);
+    // 남청 밤하늘 위에서 회흑색 판이 따로 떠 보이지 않게 천체 화면의 바탕색으로 깐다.
     fillVerticalProfile(
       laneChrome,
       LANE_PANEL_PROFILE,
@@ -233,7 +241,7 @@ export class GameplayScene extends Phaser.Scene {
           topYPx,
           bottomYPx,
         ),
-      COLORS.background,
+      CELESTIAL_COLORS.background,
       {
         left: LANE_PANEL_ALPHA,
         right: LANE_PANEL_ALPHA,
@@ -307,6 +315,7 @@ export class GameplayScene extends Phaser.Scene {
           },
         ),
       );
+    const laneOrnaments = addLaneOrnaments(this, playfield, data.laneCount);
     const comboLabel = addHudText(
       this,
       playfield.centerXPx,
@@ -354,8 +363,9 @@ export class GameplayScene extends Phaser.Scene {
       PROGRESS_Y_PX,
     );
     const view: GameplayView = {
+      nightSky,
       playfield,
-      playfieldChrome: [laneChrome, laneDividers, comboLabel],
+      playfieldChrome: [laneChrome, laneDividers, ...laneOrnaments, comboLabel],
       soundEffects: new SoundEffects(this, settings),
       lanes: playfield.laneCenterXPx.map((xPx, lane) => ({
         keyLabel: addHudText(
@@ -443,15 +453,11 @@ export class GameplayScene extends Phaser.Scene {
         '',
         textStyle('number', COLORS.textPrimary),
       ),
-      mvModeText: addHudText(
+      mvMode: new MvModeIndicator(
         this,
-        MV_MODE_X_PX,
-        MV_MODE_Y_PX,
-        '',
-        textStyle('secondary', COLORS.textPrimary),
-      )
-        .setOrigin(0)
-        .setAlpha(0),
+        getPlayfieldXAtY(playfield, playfield.leftPx, KEY_LABEL_Y_PX) - MV_MODE_LANE_GAP_PX,
+        KEY_LABEL_Y_PX,
+      ),
       quitDialog: new ConfirmDialog(this, {
         onCancel: () => controller.closeQuitConfirm(),
         onAccept: () => controller.leave(),
@@ -511,7 +517,6 @@ export class GameplayScene extends Phaser.Scene {
       const edgeOffsetPx = (gameWidthPx - GAME_WIDTH) / 2;
       this.cameras.main.setScroll(-edgeOffsetPx, 0);
       rightHud.setX(Math.max(edgeOffsetPx, minRightHudOffsetPx));
-      view.mvModeText.setX(MV_MODE_X_PX - edgeOffsetPx);
     };
     fitToWindow();
     this.scale.on(Phaser.Scale.Events.RESIZE, fitToWindow);
@@ -557,14 +562,17 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private setStatus(view: GameplayView, status: GameplayStatus): void {
+    const { notice, countdownDigit } = getStatusView(status);
     view.status.show(
-      status.kind === 'paused' || status.kind === 'countdown' || status.kind === 'none'
-        ? ''
-        : this.i18n.t(STATUS_MESSAGES[status.kind]),
-      isLoadingStatus(status) || status.kind === 'resuming',
+      notice.kind === 'none'
+        ? notice
+        : {
+            kind: notice.kind,
+            text: this.i18n.t(STATUS_MESSAGES[notice.message]),
+          },
     );
     const { countdownText } = view;
-    const digitText = status.kind === 'countdown' ? `${status.digit}` : '';
+    const digitText = countdownDigit === null ? '' : `${countdownDigit}`;
     if (digitText !== countdownText.text) {
       this.tweens.killTweensOf(countdownText);
       countdownText.setText(digitText).setScale(1).setAlpha(1);
@@ -706,15 +714,8 @@ export class GameplayScene extends Phaser.Scene {
 
   private showMvMode(view: GameplayView, mode: MvMode): void {
     this.mvLayer.dataset.mvMode = mode;
-    const mvModeText = view.mvModeText;
-    this.tweens.killTweensOf(mvModeText);
-    mvModeText.setText(`MV ${mode.toUpperCase()}`).setAlpha(1);
-    this.tweens.add({
-      targets: mvModeText,
-      alpha: 0,
-      delay: MV_MODE_HOLD_MS,
-      duration: MV_MODE_FADE_MS,
-    });
+    view.nightSky.setVisible(mode === 'off');
+    view.mvMode.show(mode);
   }
 
   private setMvVisible(isVisible: boolean): void {
@@ -775,8 +776,7 @@ export class GameplayScene extends Phaser.Scene {
     const { judgmentText, judgmentFlash, judgmentGlow } = view;
     const { judgment } = lastEvent;
     const color = JUDGMENT_COLORS[judgment];
-    const intensity = getHitBloomIntensity(judgment);
-    const popScale = getJudgmentPopScale(judgment);
+    const { intensity, popScale, hasGlow, hasShimmer } = getJudgmentEffect(judgment);
     this.tweens.killTweensOf([judgmentText, judgmentFlash, judgmentGlow]);
     setTextColor(judgmentText, color);
     judgmentText.setText(judgment.toUpperCase()).setAlpha(1).setScale(popScale);
@@ -804,7 +804,7 @@ export class GameplayScene extends Phaser.Scene {
       ease: 'Quad.Out',
     });
     judgmentGlow.setAlpha(0);
-    if (hasJudgmentGlow(judgment)) {
+    if (hasGlow) {
       judgmentGlow
         .setTint(color)
         .setAlpha(JUDGMENT_GLOW_ALPHA * intensity)
@@ -821,7 +821,7 @@ export class GameplayScene extends Phaser.Scene {
         ease: 'Cubic.Out',
       });
     }
-    if (hasJudgmentShimmer(lastEvent.judgment)) {
+    if (hasShimmer) {
       playCelestialOnce(view.judgmentShimmer);
     }
   }

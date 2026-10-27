@@ -22,7 +22,7 @@ import {
   SONG_SELECT_ACTIONS,
   getJacketRange,
   getPlayableSelection,
-  isActionEnabled,
+  getActionAppearance,
   getSongPage,
   getSongRows,
   getFilterAppearance,
@@ -37,6 +37,8 @@ import type { SongSelectScreen, SongSelectView } from './SongSelectController.js
 import { DIFFICULTY_TAB_ITEMS } from '../difficultyAppearance.js';
 import type { Difficulty } from '../../rhythm/types.js';
 import { SongSelectJackets } from './SongSelectJackets.js';
+import { getZodiacSign } from './zodiacSign.js';
+import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/zodiacFigures.js';
 import type { JacketTextures } from './SongSelectJackets.js';
 import { STAYING } from '../sceneExit.js';
 import type { SceneExit } from '../sceneExit.js';
@@ -222,6 +224,21 @@ const JACKET_GLINT_POSITION_PX = {
   y: JACKET_Y_PX - 14,
 } as const;
 const NAVIGATION_STAR_ID = 'R31';
+// 별자리는 기록 아래부터 RANDOM, PLAY 위까지 남는 하늘에 맞춰 줄인다. 제목이 길면 남는 하늘이 줄어든다.
+const ZODIAC_MAX_SPAN_PX = 290;
+// 난이도 탭 끝(EXPERT)이 정보 열 왼쪽 선을 조금 넘어오므로 그만큼 비켜 선다.
+const ZODIAC_AREA_LEFT_X_PX = INFO_X_PX + 40;
+const ZODIAC_AREA_GAP_PX = 40;
+// 심을 너무 밝히면 아래 깔린 하늘색 번짐이 묻혀 순백으로 떠 보이고, 노트 색처럼 따뜻한 흰색은 푸른 하늘 위에서 누렇게 보인다.
+const ZODIAC_LINE = {
+  coreWidthPx: 1.5,
+  coreAlpha: 0.7,
+  haloWidthPx: 5,
+  haloAlpha: 0.2,
+  // 넓고 옅은 바깥 번짐을 한 겹 더 둘러 선이 푸른빛으로 빛나 보이게 한다.
+  glowWidthPx: 12,
+  glowAlpha: 0.07,
+} as const;
 const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   ROW_NODE_INITIAL_ID,
   ...SONG_ROW_NODE_IDS,
@@ -267,6 +284,8 @@ interface SongSelectWidgets {
   recordLabel: Phaser.GameObjects.Text;
   recordValue: Phaser.GameObjects.Text;
   noRecordText: Phaser.GameObjects.Text;
+  zodiacStars: Phaser.GameObjects.Image;
+  zodiacLines: Phaser.GameObjects.Graphics;
   actions: Record<SongSelectAction, ActionButton>;
 }
 
@@ -415,6 +434,8 @@ export class SongSelectScene extends Phaser.Scene {
       navigationStar: this.addCelestial(NAVIGATION_STAR_ID, 0, 0),
       selectedHalo: this.addCelestial(SELECTED_HALO_ID, 0, 0),
       orbitArc: this.addCelestial(ORBIT_ARC_ID, ORBIT_ARC_POSITION_PX.x, ORBIT_ARC_POSITION_PX.y),
+      zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
+      zodiacLines: this.add.graphics(),
       jacketGlint: this.addCelestial(
         JACKET_GLINT_ID,
         JACKET_GLINT_POSITION_PX.x,
@@ -780,7 +801,7 @@ export class SongSelectScene extends Phaser.Scene {
           hover.slot,
         );
         if (rowView.kind === 'song') {
-          this.renderRowNode(view, state, hover.slot, rowView);
+          this.renderRowNode(view, hover.slot, rowView);
         }
         return;
       }
@@ -841,9 +862,16 @@ export class SongSelectScene extends Phaser.Scene {
     const { state, notice, isLoadingMore, songCount } = shown;
     this.renderTabs(view, state);
     const rows = getSongRows(state, ROWS_PER_PAGE);
-    rows.forEach((rowView, slot) => this.renderRow(view, state, slot, rowView));
+    rows.forEach((rowView, slot) => this.renderRow(view, slot, rowView));
     this.renderSelectedHalo(view, state);
-    view.notice.show(notice === null ? '' : this.translateNotice(notice), notice === 'loading');
+    if (notice === null) {
+      view.notice.show({ kind: 'none' });
+    } else {
+      view.notice.show({
+        kind: notice === 'loading' ? 'loading' : 'text',
+        text: this.translateNotice(notice),
+      });
+    }
     const { pageNumber } = getSongPage(state, ROWS_PER_PAGE);
     const pageCount = Math.ceil(songCount / ROWS_PER_PAGE);
     view.pageText.setText(`${pageNumber} / ${pageCount}`).setVisible(pageCount >= 2);
@@ -854,7 +882,14 @@ export class SongSelectScene extends Phaser.Scene {
     } else {
       view.loadingMore.setPosition(ROW_X_PX + ROW_WIDTH_PX / 2, getRowCenterYPx(nextSlot), 0.5);
     }
-    view.loadingMore.show(isLoadingMore ? this.i18n.t('songSelect.loadingMore') : '', true);
+    view.loadingMore.show(
+      isLoadingMore
+        ? {
+            kind: 'loading',
+            text: this.i18n.t('songSelect.loadingMore'),
+          }
+        : { kind: 'none' },
+    );
 
     const { current } = state;
     if (current.kind === 'none') {
@@ -867,14 +902,9 @@ export class SongSelectScene extends Phaser.Scene {
   }
 
   private renderDifficultyTabs(view: SongSelectWidgets, state: SongSelectState): void {
-    const { current, hover } = state;
+    const { current } = state;
     view.difficultyTabs.render(
-      (difficulty) =>
-        getSongDifficultyAppearance(
-          state,
-          difficulty,
-          hover?.kind === 'difficulty' && hover.difficulty === difficulty,
-        ),
+      (difficulty) => getSongDifficultyAppearance(state, difficulty),
       current.kind === 'song' ? current.song.accentColor : COLORS.textPrimary,
     );
   }
@@ -896,16 +926,11 @@ export class SongSelectScene extends Phaser.Scene {
     view.navigationStar.setPosition(bounds.left - NAVIGATION_STAR_GAP_PX, bounds.centerY);
   }
 
-  private renderRow(
-    view: SongSelectWidgets,
-    state: SongSelectState,
-    slot: number,
-    rowView: SongRowView,
-  ): void {
+  private renderRow(view: SongSelectWidgets, slot: number, rowView: SongRowView): void {
     const row = getSongRow(view, slot);
     const { selectedFill, background, thumbnail, title, category, node } = row;
     const hasSong = rowView.kind === 'song';
-    const isSelected = hasSong && rowView.isSelected;
+    const isSelected = hasSong && rowView.appearance === 'selected';
     thumbnail.setVisible(hasSong);
     selectedFill.setVisible(isSelected);
     title.setVisible(hasSong);
@@ -927,14 +952,13 @@ export class SongSelectScene extends Phaser.Scene {
     const titleMaxWidthPx =
       category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX - SELECTED_ROW_OFFSET_PX - title.x;
     setFittedText(title, song.title, titleMaxWidthPx);
-    this.renderRowNode(view, state, slot, rowView);
+    this.renderRowNode(view, slot, rowView);
   }
 
   private renderRowNode(
     view: SongSelectWidgets,
-    state: SongSelectState,
     slot: number,
-    { isSelected, recordChart }: Extract<SongRowView, { kind: 'song' }>,
+    { appearance, recordChart }: Extract<SongRowView, { kind: 'song' }>,
   ): void {
     const record =
       recordChart === null
@@ -945,11 +969,9 @@ export class SongSelectScene extends Phaser.Scene {
             recordChart.laneCount,
             recordChart.difficulty,
           );
-    const { hover } = state;
-    const isHovered = hover?.kind === 'row' && hover.slot === slot;
     applyCelestialPresentation(
       getSongRow(view, slot).node,
-      this.celestial.atlasPresentations[getSongRowNodeId(record, isSelected, isHovered)],
+      this.celestial.atlasPresentations[getSongRowNodeId(appearance, record)],
     );
   }
 
@@ -987,6 +1009,44 @@ export class SongSelectScene extends Phaser.Scene {
       )
       .setVisible(record !== null);
     view.noRecordText.setVisible(record === null);
+    const recordBottom = record === null ? view.noRecordText : view.recordValue;
+    this.renderZodiac(view, song, recordBottom.y + recordBottom.height + ZODIAC_AREA_GAP_PX);
+  }
+
+  private renderZodiac(view: SongSelectWidgets, song: Song, topYPx: number): void {
+    const bottomYPx = view.actions.random.text.y - ZODIAC_AREA_GAP_PX;
+    const sign = getZodiacSign(this, song.constellation, ZODIAC_MAX_SPAN_PX);
+    const scale = Math.min(
+      1,
+      (DETAIL_RIGHT_X_PX - ZODIAC_AREA_LEFT_X_PX) / sign.figureWidthPx,
+      (bottomYPx - topYPx) / sign.figureHeightPx,
+    );
+    const centerXPx = (ZODIAC_AREA_LEFT_X_PX + DETAIL_RIGHT_X_PX) / 2;
+    const centerYPx = (topYPx + bottomYPx) / 2;
+    view.zodiacStars
+      .setTexture(sign.textureKey)
+      .setScale(scale)
+      .setPosition(centerXPx, centerYPx)
+      .setVisible(true);
+    // 결과 화면 별자리와 같은 선(곧은 심 위에 옅은 번짐)을 화면 좌표에 바로 그린다.
+    const figure = ZODIAC_FIGURES[song.constellation];
+    const points = fitZodiacFigure(figure, centerXPx, centerYPx, ZODIAC_MAX_SPAN_PX * scale);
+    const lines = view.zodiacLines.clear().setVisible(true);
+    for (const [from, to] of figure.edges) {
+      const [fromXPx, fromYPx] = requireDefined(
+        points[from],
+        'Zodiac edge outside the figure',
+        from,
+      );
+      const [toXPx, toYPx] = requireDefined(points[to], 'Zodiac edge outside the figure', to);
+      lines
+        .lineStyle(ZODIAC_LINE.glowWidthPx, CELESTIAL_COLORS.selected, ZODIAC_LINE.glowAlpha)
+        .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
+        .lineStyle(ZODIAC_LINE.haloWidthPx, CELESTIAL_COLORS.selected, ZODIAC_LINE.haloAlpha)
+        .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
+        .lineStyle(ZODIAC_LINE.coreWidthPx, CELESTIAL_COLORS.highlight, ZODIAC_LINE.coreAlpha)
+        .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
+    }
   }
 
   private renderNoSong(view: SongSelectWidgets): void {
@@ -997,6 +1057,8 @@ export class SongSelectScene extends Phaser.Scene {
     view.recordLabel.setVisible(false);
     view.recordValue.setVisible(false);
     view.noRecordText.setVisible(false);
+    view.zodiacStars.setVisible(false);
+    view.zodiacLines.setVisible(false);
   }
 
   private renderAction(
@@ -1005,19 +1067,24 @@ export class SongSelectScene extends Phaser.Scene {
     action: SongSelectAction,
   ): void {
     const { text, underline, hitArea } = view.actions[action];
-    if (!isActionEnabled(state, action)) {
-      hitArea.disableInteractive(true);
-      setTextColor(text, COLORS.textDisabled);
-      underline.setVisible(false);
-      return;
-    }
-    hitArea.setInteractive();
     const { idleColor, hoverColor } = ACTION_STYLES[action];
-    const { hover } = state;
-    const isHovered = hover?.kind === 'action' && hover.action === action;
-    const color = isHovered ? hoverColor : idleColor;
-    setTextColor(text, color);
-    underline.setFillStyle(color).setVisible(isHovered);
+    switch (getActionAppearance(state, action)) {
+      case 'disabled':
+        hitArea.disableInteractive(true);
+        setTextColor(text, COLORS.textDisabled);
+        underline.setVisible(false);
+        return;
+      case 'hovered':
+        hitArea.setInteractive();
+        setTextColor(text, hoverColor);
+        underline.setFillStyle(hoverColor).setVisible(true);
+        return;
+      case 'idle':
+        hitArea.setInteractive();
+        setTextColor(text, idleColor);
+        underline.setFillStyle(idleColor).setVisible(false);
+        return;
+    }
   }
 
   private shiftRow(row: SongRow, shifted: boolean): void {

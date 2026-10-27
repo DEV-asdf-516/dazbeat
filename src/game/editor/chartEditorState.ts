@@ -2,6 +2,7 @@ import type { Song } from '../../data/songs.js';
 import type { Difficulty, LaneCount, Note } from '../../rhythm/types.js';
 import { isDraftDirty, restoreNotes } from './chartDraft.js';
 import type { ChartDraft } from './chartDraft.js';
+import { cancelGesture, NO_GESTURE } from './chartGesture.js';
 import type { EditTool, PointerGesture } from './chartGesture.js';
 import type { Playhead, Transport } from './chartPlayback.js';
 
@@ -66,6 +67,13 @@ export type EditorStatus =
   | { readonly kind: 'invalid'; readonly reason: string }
   | { readonly kind: 'unsaved' }
   | { readonly kind: 'none' };
+
+export type NavigationDecision =
+  | { readonly kind: 'ignore' }
+  | { readonly kind: 'proceed' }
+  | { readonly kind: 'settle'; readonly session: EditorSession }
+  | { readonly kind: 'settleAndProceed'; readonly session: EditorSession }
+  | { readonly kind: 'confirm'; readonly session: EditorSession };
 
 export interface EditorDecorations {
   readonly isDividerGlintVisible: boolean;
@@ -165,6 +173,59 @@ export function undoEdit(session: EditorSession): EditorSession {
   };
 }
 
+export function settleGesture(session: EditorSession): EditorSession {
+  if (session.gesture.kind === 'none') {
+    return session;
+  }
+  return recordEdit(
+    {
+      ...withDraft(session, cancelGesture(session.draft, session.gesture)),
+      gesture: NO_GESTURE,
+    },
+    session.gesture.before,
+  );
+}
+
+export function decideNavigation(
+  state: ChartEditorState,
+  navigation: Navigation,
+): NavigationDecision {
+  const { phase } = state;
+  if (phase.kind === 'confirming') {
+    return { kind: 'ignore' };
+  }
+  const isCurrent = isSelected(getSelection(state), navigation);
+  if (phase.kind !== 'editing') {
+    return isCurrent && phase.kind !== 'loadFailed' ? { kind: 'ignore' } : { kind: 'proceed' };
+  }
+  const session = settleGesture(phase.session);
+  if (isCurrent) {
+    return {
+      kind: 'settle',
+      session,
+    };
+  }
+  return isDraftDirty(session.draft)
+    ? {
+        kind: 'confirm',
+        session,
+      }
+    : {
+        kind: 'settleAndProceed',
+        session,
+      };
+}
+
+function isSelected(selection: Selection | null, navigation: Navigation): boolean {
+  return (
+    navigation.kind === 'select' &&
+    selection !== null &&
+    selection.song.id === navigation.song.id &&
+    selection.laneCount === navigation.laneCount &&
+    selection.difficulty === navigation.difficulty
+  );
+}
+
 export function getSession(state: ChartEditorState): EditorSession | null {
   const { phase } = state;
   return phase.kind === 'editing' || phase.kind === 'confirming' ? phase.session : null;
@@ -186,6 +247,10 @@ export function getSelection(state: ChartEditorState): Selection | null {
         difficulty: phase.session.draft.difficulty,
       };
   }
+}
+
+export function getActiveSelection(state: ChartEditorState): Selection | null {
+  return getPending(state) === null ? getSelection(state) : null;
 }
 
 export function getPending(state: ChartEditorState): PendingAction | null {

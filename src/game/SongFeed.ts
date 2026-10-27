@@ -2,18 +2,28 @@ import { ALL_SONGS_QUERY, withSavedChart } from '../data/songs.js';
 import type { Song, SongBatch, SongBatchCursor, SongCategory, SongQuery } from '../data/songs.js';
 import type { Difficulty, LaneCount } from '../rhythm/types.js';
 
-export type SongFeedStatus = 'hasMore' | 'loading' | 'failed' | 'complete';
 export type SongBatchLoader = (
   query: SongQuery,
   after: SongBatchCursor | null,
 ) => Promise<SongBatch>;
 
+// after 의 null 은 처음부터 받는다는 뜻이다.
+type FeedProgress =
+  | { readonly kind: 'hasMore'; readonly after: SongBatchCursor | null }
+  | {
+      readonly kind: 'loading';
+      readonly after: SongBatchCursor | null;
+      readonly request: Promise<void>;
+    }
+  | { readonly kind: 'failed'; readonly after: SongBatchCursor | null }
+  | { readonly kind: 'complete' };
+
+export type SongFeedStatus = FeedProgress['kind'];
+
 export class SongFeed {
   private loaded: readonly Song[];
-  private cursor: SongBatchCursor | null;
   private totalCount: number;
-  private current: SongFeedStatus;
-  private request: Promise<void> | null = null;
+  private progress: FeedProgress;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -22,9 +32,14 @@ export class SongFeed {
     first?: SongBatch,
   ) {
     this.loaded = first?.songs ?? [];
-    this.cursor = first?.next ?? null;
     this.totalCount = first?.totalCount ?? 0;
-    this.current = first !== undefined && first.next === null ? 'complete' : 'hasMore';
+    this.progress =
+      first === undefined
+        ? {
+            kind: 'hasMore',
+            after: null,
+          }
+        : toProgress(first.next);
   }
 
   get songs(): readonly Song[] {
@@ -32,17 +47,17 @@ export class SongFeed {
   }
 
   get songCount(): number {
-    return this.current === 'complete'
+    return this.progress.kind === 'complete'
       ? this.loaded.length
       : Math.max(this.totalCount, this.loaded.length);
   }
 
   get status(): SongFeedStatus {
-    return this.current;
+    return this.progress.kind;
   }
 
   async requestMore(): Promise<void> {
-    if (this.current === 'failed') {
+    if (this.progress.kind === 'failed') {
       return;
     }
     return this.requestNext();
@@ -56,7 +71,7 @@ export class SongFeed {
   async requestRemaining(): Promise<void> {
     do {
       await this.requestNext();
-    } while (this.current === 'hasMore' || this.current === 'loading');
+    } while (this.progress.kind === 'hasMore' || this.progress.kind === 'loading');
   }
 
   applySavedChart(
@@ -84,35 +99,44 @@ export class SongFeed {
   }
 
   private async requestNext(): Promise<void> {
-    if (this.current === 'complete') {
-      return;
+    switch (this.progress.kind) {
+      case 'complete':
+        return;
+      case 'loading':
+        return this.progress.request;
+      case 'hasMore':
+      case 'failed': {
+        const { after } = this.progress;
+        const request = this.loadNext(after);
+        this.progress = {
+          kind: 'loading',
+          after,
+          request,
+        };
+        this.notify();
+        return request;
+      }
     }
-    if (this.request === null) {
-      this.current = 'loading';
-      this.request = this.loadNext();
-      this.notify();
-    }
-    return this.request;
   }
 
-  private async loadNext(): Promise<void> {
+  private async loadNext(after: SongBatchCursor | null): Promise<void> {
     try {
-      const batch = await this.loadBatch(this.query, this.cursor);
+      const batch = await this.loadBatch(this.query, after);
       if (batch.songs.length > 0) {
         this.loaded = [...this.loaded, ...batch.songs];
       }
-      this.cursor = batch.next;
       if (batch.totalCount !== null) {
         this.totalCount = batch.totalCount;
       }
-      this.current = batch.next === null ? 'complete' : 'hasMore';
+      this.progress = toProgress(batch.next);
     } catch (error) {
       console.warn('Failed to load song batch', error);
-      this.current = 'failed';
-    } finally {
-      this.request = null;
-      this.notify();
+      this.progress = {
+        kind: 'failed',
+        after,
+      };
     }
+    this.notify();
   }
 
   private notify(): void {
@@ -120,6 +144,15 @@ export class SongFeed {
       listener();
     });
   }
+}
+
+function toProgress(next: SongBatchCursor | null): FeedProgress {
+  return next === null
+    ? { kind: 'complete' }
+    : {
+        kind: 'hasMore',
+        after: next,
+      };
 }
 
 export interface SongFeeds {

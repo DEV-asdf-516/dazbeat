@@ -1,6 +1,7 @@
 import type { Messages } from '../i18n/messages/ko.js';
 import type { Settings } from '../storage/settings.js';
 import { formatKeyCode } from './ui/format.js';
+import { readMenuAction } from './ui/menuInput.js';
 
 export type ControlsKeyAction = 'open' | 'close' | 'block' | 'pass';
 
@@ -15,7 +16,6 @@ export interface ControlsGroup {
 }
 
 const TOGGLE_CODE = 'KeyH';
-const CLOSE_CODES: readonly string[] = [TOGGLE_CODE, 'Escape'];
 const MOVE_KEYS = '↑↓';
 const SELECT_KEY = 'Enter';
 const BACK_KEY = 'Esc';
@@ -31,7 +31,9 @@ export function readControlsKey(
   if (!isOpen) {
     return event.code === TOGGLE_CODE && !event.repeat ? 'open' : 'pass';
   }
-  return CLOSE_CODES.includes(event.code) && !event.repeat ? 'close' : 'block';
+  return (event.code === TOGGLE_CODE && !event.repeat) || readMenuAction(event) === 'back'
+    ? 'close'
+    : 'block';
 }
 
 export function getControlsGuide(

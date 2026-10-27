@@ -13,8 +13,12 @@ export function getStarlightBand(hp: number): StarlightBand {
   return 'danger';
 }
 
-const BAND_ORDER: readonly StarlightBand[] = ['stable', 'caution', 'danger'];
+const BAND_SEVERITY: Record<StarlightBand, number> = {
+  stable: 0,
+  caution: 1,
+  danger: 2,
+};
 
 export function isStarlightDrop(previous: StarlightBand, next: StarlightBand): boolean {
-  return BAND_ORDER.indexOf(next) > BAND_ORDER.indexOf(previous);
+  return BAND_SEVERITY[next] > BAND_SEVERITY[previous];
 }

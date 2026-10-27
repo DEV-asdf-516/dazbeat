@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
+import { bindPress } from './hoverTarget.js';
+import type { PointerPress } from './hoverTarget.js';
 import { CELESTIAL_COLORS, MODAL, MOTION } from './theme.js';
 
 export class ModalFrame {
@@ -9,7 +11,7 @@ export class ModalFrame {
   private readonly shadow: Phaser.GameObjects.Rectangle;
   private readonly panel: Phaser.GameObjects.Rectangle;
   private readonly panelHitArea = new Phaser.Geom.Rectangle();
-  private isBackdropPressed = false;
+  private readonly backdropPress: PointerPress | null;
 
   constructor(scene: Phaser.Scene, onBackdropClick: (() => void) | null) {
     this.scene = scene;
@@ -18,20 +20,13 @@ export class ModalFrame {
       .setOrigin(0, 0)
       .setInteractive()
       .setDepth(MODAL.depth);
-    if (onBackdropClick !== null) {
-      // 진입 클릭의 pointer up 이 열자마자 막을 닫지 않도록 막에서 누른 경우만 닫는다.
-      this.backdrop.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-        this.isBackdropPressed = true;
-      });
-      this.backdrop.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
-        this.isBackdropPressed = false;
-      });
-      this.backdrop.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
-        if (this.isBackdropPressed) {
-          onBackdropClick();
-        }
-      });
-    }
+    // 진입 클릭의 pointer up 이 열자마자 막을 닫지 않도록 막에서 누른 경우만 닫는다.
+    this.backdropPress =
+      onBackdropClick === null
+        ? null
+        : bindPress(this.backdrop, {
+            onActivate: onBackdropClick,
+          });
     this.shadow = scene.add
       .rectangle(
         MODAL.shadowOffsetXPx,
@@ -91,6 +86,6 @@ export class ModalFrame {
     this.scene.tweens.killTweensOf([this.backdrop, this.container]);
     this.backdrop.setVisible(false);
     this.container.setVisible(false);
-    this.isBackdropPressed = false;
+    this.backdropPress?.cancel();
   }
 }

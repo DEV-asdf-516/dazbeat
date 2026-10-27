@@ -68,7 +68,7 @@ import { SegmentedControl } from './SegmentedControl.js';
 import { LANE_COUNT_SEGMENTS, TOOL_SEGMENTS } from './toolSegments.js';
 import { setFittedText } from '../ui/fitText.js';
 import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
-import { NoticeText } from '../ui/NoticeText.js';
+import { NoticeText, type Notice } from '../ui/NoticeText.js';
 import { addKeyHintColumn } from '../ui/keyHintView.js';
 import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
 import {
@@ -93,12 +93,13 @@ interface DifficultyItem {
 
 type PlayerStatus =
   | { readonly kind: 'loading' }
-  | { readonly kind: 'error'; readonly message: string }
+  | { readonly kind: 'starting'; readonly player: YouTubePlayer }
   | {
       readonly kind: 'ready';
       readonly player: YouTubePlayer;
       readonly timeSource: YouTubeTimeSource;
-    };
+    }
+  | { readonly kind: 'error'; readonly message: string };
 
 interface EditorView {
   songTitle: Phaser.GameObjects.Text;
@@ -213,7 +214,6 @@ export class ChartEditorScene extends Phaser.Scene {
   private settings: Settings = DEFAULT_SETTINGS;
   /** player 이벤트와 늦은 API 로드 결과는 시작 때 잡은 토큰이 아직 현재일 때만 반영한다. */
   private playerToken: object | null = null;
-  private player: YouTubePlayer | null = null;
   private playerStatus: PlayerStatus = { kind: 'loading' };
 
   constructor(
@@ -308,8 +308,7 @@ export class ChartEditorScene extends Phaser.Scene {
       editor.close();
       this.noteLayer = null;
       this.playerToken = null;
-      this.player?.destroy();
-      this.player = null;
+      this.releasePlayer();
     });
 
     // 곡 목록 화면이 같은 편집 목록에서 고른 곡이므로 없으면 진입 경로의 오류다.
@@ -656,6 +655,7 @@ export class ChartEditorScene extends Phaser.Scene {
     };
   }
 
+  // TextTabs 와 달리 고른 난이도의 글자색이 채보 유무를 따르고, 고른 탭도 다시 누를 수 있으며, CELESTIAL_COLORS 를 쓴다.
   private createDifficultyItems(
     centerYPx: number,
     onSelect: (difficulty: Difficulty) => void,
@@ -842,10 +842,17 @@ export class ChartEditorScene extends Phaser.Scene {
   private replacePlayer(view: EditorView, editor: ChartEditorController, song: Song): void {
     const token = {};
     this.playerToken = token;
-    this.player?.destroy();
-    this.player = null;
+    this.releasePlayer();
     this.playerStatus = { kind: 'loading' };
     void this.createPlayer(view, editor, song, token);
+  }
+
+  private releasePlayer(): void {
+    const status = this.playerStatus;
+    if (status.kind === 'starting' || status.kind === 'ready') {
+      status.player.destroy();
+      this.playerStatus = { kind: 'loading' };
+    }
   }
 
   private async createPlayer(
@@ -890,7 +897,6 @@ export class ChartEditorScene extends Phaser.Scene {
             return;
           }
           player.destroy();
-          this.player = null;
           this.playerStatus = {
             kind: 'error',
             message: this.i18n.t('youtubeError.withCode', {
@@ -903,7 +909,10 @@ export class ChartEditorScene extends Phaser.Scene {
         },
       });
       const timeSource = new YouTubeTimeSource(() => performance.now());
-      this.player = player;
+      this.playerStatus = {
+        kind: 'starting',
+        player,
+      };
     } catch (error) {
       this.failPlayer(view, this.i18n.t('gameplay.playerLoadFailed'), error);
     }
@@ -932,7 +941,7 @@ export class ChartEditorScene extends Phaser.Scene {
 
   private renderStatus(view: EditorView, state: ChartEditorState): void {
     const status = getEditorStatus(state);
-    view.status.show(this.getStatusMessage(status), status.kind === 'loading');
+    view.status.show(this.getStatusMessage(status));
     view.saveButton.setEnabled(canSave(state));
     view.unsavedDot.setVisible(hasUnsavedChanges(state));
   }
@@ -989,26 +998,47 @@ export class ChartEditorScene extends Phaser.Scene {
     underline.setVisible(selection?.difficulty === difficulty);
   }
 
-  private getStatusMessage(status: EditorStatus): string {
+  private getStatusMessage(status: EditorStatus): Notice {
     switch (status.kind) {
       case 'noSongs':
-        return this.i18n.t('chartEditor.noSongs');
+        return {
+          kind: 'text',
+          text: this.i18n.t('chartEditor.noSongs'),
+        };
       case 'loading':
-        return this.i18n.t('chartEditor.loading');
+        return {
+          kind: 'loading',
+          text: this.i18n.t('chartEditor.loading'),
+        };
       case 'loadFailed':
-        return this.i18n.t('chartEditor.chartLoadFailed');
+        return {
+          kind: 'text',
+          text: this.i18n.t('chartEditor.chartLoadFailed'),
+        };
       case 'saving':
-        return this.i18n.t('chartEditor.saving');
+        return {
+          kind: 'text',
+          text: this.i18n.t('chartEditor.saving'),
+        };
       case 'saved':
-        return this.i18n.t('chartEditor.saved');
+        return {
+          kind: 'text',
+          text: this.i18n.t('chartEditor.saved'),
+        };
       case 'saveFailed':
-        return this.i18n.t('chartEditor.saveFailed');
+        return {
+          kind: 'text',
+          text: this.i18n.t('chartEditor.saveFailed'),
+        };
       case 'invalid':
-        return this.i18n.t('chartEditor.invalidChart', { reason: status.reason });
+        return {
+          kind: 'text',
+          text: this.i18n.t('chartEditor.invalidChart', { reason: status.reason }),
+        };
       // 미저장은 문장 대신 SAVE 의 점으로 알린다.
       case 'unsaved':
       case 'none':
-        return '';
+        return { kind: 'none' };
     }
   }
 

@@ -5,6 +5,7 @@ import type { ChartRecord } from '../../../src/storage/chartRecords.js';
 import {
   canSelectRandomSong,
   createSongSelectState,
+  getActionAppearance,
   getJacketRange,
   getPlayableSelection,
   getSongPage,
@@ -21,6 +22,7 @@ import {
   selectDifficulty,
   selectRandomSong,
   selectSong,
+  setHover,
   withFilter,
   withSongs,
 } from '../../../src/game/songSelect/songSelectState.js';
@@ -234,7 +236,15 @@ describe('song without charts', () => {
     expect(getPlayableSelection(state)).toBeNull();
     expect(moveDifficulty(state, 1)).toBe(state);
     expect(selectDifficulty(state, 'easy')).toBe(state);
-    expect(getSongDifficultyAppearance(state, 'easy', true)).toBe('disabled');
+    expect(
+      getSongDifficultyAppearance(
+        setHover(state, {
+          kind: 'difficulty',
+          difficulty: 'easy',
+        }),
+        'easy',
+      ),
+    ).toBe('disabled');
   });
 
   it('picks the first chart of the next song after passing a song without charts', () => {
@@ -482,28 +492,28 @@ describe('getSongRowNodeId', () => {
     cleared: true,
   };
 
-  it('shows selected regardless of hover and record', () => {
-    expect(getSongRowNodeId(null, true, false)).toBe('R17');
-    expect(getSongRowNodeId(played, true, true)).toBe('R17');
-    expect(getSongRowNodeId(cleared, true, true)).toBe('R17');
+  it('shows selected regardless of record', () => {
+    expect(getSongRowNodeId('selected', null)).toBe('R17');
+    expect(getSongRowNodeId('selected', played)).toBe('R17');
+    expect(getSongRowNodeId('selected', cleared)).toBe('R17');
   });
 
   it('shows hover over the persistent state', () => {
-    expect(getSongRowNodeId(null, false, true)).toBe('R16');
-    expect(getSongRowNodeId(played, false, true)).toBe('R16');
-    expect(getSongRowNodeId(cleared, false, true)).toBe('R16');
+    expect(getSongRowNodeId('hovered', null)).toBe('R16');
+    expect(getSongRowNodeId('hovered', played)).toBe('R16');
+    expect(getSongRowNodeId('hovered', cleared)).toBe('R16');
   });
 
   it('shows idle without a record', () => {
-    expect(getSongRowNodeId(null, false, false)).toBe('R15');
+    expect(getSongRowNodeId('idle', null)).toBe('R15');
   });
 
   it('shows played for a record that is not cleared', () => {
-    expect(getSongRowNodeId(played, false, false)).toBe('C:node-played');
+    expect(getSongRowNodeId('idle', played)).toBe('C:node-played');
   });
 
   it('shows cleared for a cleared record', () => {
-    expect(getSongRowNodeId(cleared, false, false)).toBe('R18');
+    expect(getSongRowNodeId('idle', cleared)).toBe('R18');
   });
 });
 
@@ -513,7 +523,7 @@ describe('getSongRows', () => {
       makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
     );
   const songAndSelection = (rows: readonly SongRowView[]) =>
-    rows.map((row) => (row.kind === 'song' ? [row.song, row.isSelected] : null));
+    rows.map((row) => (row.kind === 'song' ? [row.song, row.appearance] : null));
 
   it('is all empty rows when there are no songs', () => {
     expect(getSongRows(createSongSelectState([], 'all', 4), 3)).toEqual([
@@ -528,7 +538,7 @@ describe('getSongRows', () => {
       {
         kind: 'song',
         song: FULL_SONG,
-        isSelected: true,
+        appearance: 'selected',
         recordChart: {
           song: FULL_SONG,
           laneCount: 4,
@@ -539,7 +549,7 @@ describe('getSongRows', () => {
       {
         kind: 'song',
         song: EASY_HARD_SONG,
-        isSelected: false,
+        appearance: 'idle',
         recordChart: {
           song: EASY_HARD_SONG,
           laneCount: 4,
@@ -557,9 +567,9 @@ describe('getSongRows', () => {
     expect(
       songAndSelection(getSongRows(selectSong(createSongSelectState(list, 'all', 4), 2), 3)),
     ).toEqual([
-      [list[0], false],
-      [list[1], false],
-      [list[2], true],
+      [list[0], 'idle'],
+      [list[1], 'idle'],
+      [list[2], 'selected'],
     ]);
   });
 
@@ -568,7 +578,34 @@ describe('getSongRows', () => {
 
     expect(
       songAndSelection(getSongRows(selectSong(createSongSelectState(list, 'all', 4), 3), 3)),
-    ).toEqual([[list[3], true], null, null]);
+    ).toEqual([[list[3], 'selected'], null, null]);
+  });
+
+  it('shows the hovered row as hovered and keeps the selected row selected under hover', () => {
+    const state = createSongSelectState(songs(3), 'all', 4);
+
+    expect(
+      songAndSelection(
+        getSongRows(
+          setHover(state, {
+            kind: 'row',
+            slot: 1,
+          }),
+          3,
+        ),
+      ).map((row) => row?.[1]),
+    ).toEqual(['selected', 'hovered', 'idle']);
+    expect(
+      songAndSelection(
+        getSongRows(
+          setHover(state, {
+            kind: 'row',
+            slot: 0,
+          }),
+          3,
+        ),
+      ).map((row) => row?.[1]),
+    ).toEqual(['selected', 'idle', 'idle']);
   });
 
   it('uses the selected difficulty chart of each row song, or null when the song lacks it', () => {
@@ -598,16 +635,43 @@ describe('getSongRows', () => {
       {
         kind: 'song',
         song: NO_CHART_SONG,
-        isSelected: true,
+        appearance: 'selected',
         recordChart: null,
       },
       {
         kind: 'song',
         song: FULL_SONG,
-        isSelected: false,
+        appearance: 'idle',
         recordChart: null,
       },
     ]);
+  });
+});
+
+describe('getActionAppearance', () => {
+  it('disables RANDOM when there is only one song to pick', () => {
+    expect(getActionAppearance(createSongSelectState([FULL_SONG], 'all', 4), 'random')).toBe(
+      'disabled',
+    );
+  });
+
+  it('disables PLAY on a song without charts even when hovered', () => {
+    const state = setHover(createSongSelectState([NO_CHART_SONG, FULL_SONG], 'all', 4), {
+      kind: 'action',
+      action: 'play',
+    });
+
+    expect(getActionAppearance(state, 'play')).toBe('disabled');
+  });
+
+  it('shows the hovered action as hovered and the other as idle', () => {
+    const state = setHover(createSongSelectState(SONGS, 'all', 4), {
+      kind: 'action',
+      action: 'random',
+    });
+
+    expect(getActionAppearance(state, 'random')).toBe('hovered');
+    expect(getActionAppearance(state, 'play')).toBe('idle');
   });
 });
 
@@ -693,17 +757,39 @@ describe('getSongPage', () => {
 
 describe('getSongDifficultyAppearance', () => {
   it('is disabled when there is no song', () => {
-    expect(getSongDifficultyAppearance(createSongSelectState([], 'all', 4), 'easy', true)).toBe(
-      'disabled',
-    );
+    expect(
+      getSongDifficultyAppearance(
+        setHover(createSongSelectState([], 'all', 4), {
+          kind: 'difficulty',
+          difficulty: 'easy',
+        }),
+        'easy',
+      ),
+    ).toBe('disabled');
   });
 
   it('reads selection and chart availability from the current song', () => {
     const state = createSongSelectState([EASY_HARD_SONG], 'all', 4);
 
-    expect(getSongDifficultyAppearance(state, 'normal', true)).toBe('disabled');
-    expect(getSongDifficultyAppearance(state, 'easy', false)).toBe('selected');
-    expect(getSongDifficultyAppearance(state, 'hard', true)).toBe('emphasized');
+    expect(
+      getSongDifficultyAppearance(
+        setHover(state, {
+          kind: 'difficulty',
+          difficulty: 'normal',
+        }),
+        'normal',
+      ),
+    ).toBe('disabled');
+    expect(getSongDifficultyAppearance(state, 'easy')).toBe('selected');
+    expect(
+      getSongDifficultyAppearance(
+        setHover(state, {
+          kind: 'difficulty',
+          difficulty: 'hard',
+        }),
+        'hard',
+      ),
+    ).toBe('emphasized');
   });
 });
 
@@ -864,8 +950,8 @@ describe('lane count', () => {
       chartId: 'expert-5k.json',
     });
     expect(selectDifficulty(state, 'easy')).toBe(state);
-    expect(getSongDifficultyAppearance(state, 'easy', false)).toBe('disabled');
-    expect(getSongDifficultyAppearance(state, 'expert', false)).toBe('normal');
+    expect(getSongDifficultyAppearance(state, 'easy')).toBe('disabled');
+    expect(getSongDifficultyAppearance(state, 'expert')).toBe('normal');
   });
 
   it('keeps a song without charts of the lane count in the list but not playable', () => {

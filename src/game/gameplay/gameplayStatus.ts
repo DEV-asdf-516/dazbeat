@@ -24,6 +24,46 @@ export function getPlayingStatus(status: PlaybackStatus): GameplayStatus {
   }
 }
 
-export function isLoadingStatus(status: GameplayStatus): boolean {
-  return status.kind === 'loading';
+export type GameplayStatusMessage = 'loading' | 'awaitingStart' | 'resuming';
+
+export interface GameplayStatusView {
+  readonly notice:
+    | { readonly kind: 'none' }
+    | { readonly kind: 'text' | 'loading'; readonly message: GameplayStatusMessage };
+  readonly countdownDigit: 1 | 2 | 3 | null;
+}
+
+const NO_STATUS_VIEW: GameplayStatusView = {
+  notice: { kind: 'none' },
+  countdownDigit: null,
+};
+
+export function getStatusView(status: GameplayStatus): GameplayStatusView {
+  switch (status.kind) {
+    case 'loading':
+    case 'resuming':
+      return {
+        notice: {
+          kind: 'loading',
+          message: status.kind,
+        },
+        countdownDigit: null,
+      };
+    case 'awaitingStart':
+      return {
+        notice: {
+          kind: 'text',
+          message: status.kind,
+        },
+        countdownDigit: null,
+      };
+    case 'countdown':
+      return {
+        notice: { kind: 'none' },
+        countdownDigit: status.digit,
+      };
+    case 'paused':
+    case 'none':
+      return NO_STATUS_VIEW;
+  }
 }

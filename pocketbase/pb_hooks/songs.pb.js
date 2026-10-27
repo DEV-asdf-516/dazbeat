@@ -14,7 +14,9 @@ onRecordUpdate((e) => {
 
 routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
   const { buildSongSearchQuery, InvalidSongSearchError } = require(`${__hooks}/lib/songSearch.cjs`);
-  const { SONG_LIST_FIELDS, HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
+  const { column, CHARTS, SONGS, SONG_LIST_FIELDS, HTTP_STATUS } = require(
+    `${__hooks}/lib/pbQuery.cjs`,
+  );
   const fail = (status, code, message) => e.json(status, { status, code, message });
 
   const requestInfo = e.requestInfo();
@@ -63,7 +65,7 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
       .select(
         ...SONG_LIST_FIELDS.filter(
           (field) => field !== 'collectionId' && field !== 'collectionName',
-        ).map((field) => `songs.${field}`),
+        ).map((field) => column(SONGS, field)),
       ),
   )
     .orderBy(...search.orderBy)
@@ -71,7 +73,7 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
     .all(matched);
   const songs = matched.filter((record) => canRead(record, songsCollection.listRule));
   if (songs.length === 0) {
-    return e.json(HTTP_STATUS.ok, { items: [], totalItems });
+    return e.json(HTTP_STATUS.ok, { items: [], totalItems, next: null });
   }
 
   const chartsCollection = e.app.findCachedCollectionByNameOrId('charts');
@@ -79,8 +81,13 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
   // Only the columns the list needs, so the chart data column is never read.
   e.app
     .recordQuery(chartsCollection)
-    .select('charts.id', 'charts.song', 'charts.difficulty', 'charts.laneCount')
-    .where($dbx.in('charts.song', ...songs.map((song) => song.id)))
+    .select(
+      column(CHARTS, 'id'),
+      column(CHARTS, 'song'),
+      column(CHARTS, 'difficulty'),
+      column(CHARTS, 'laneCount'),
+    )
+    .where($dbx.in(column(CHARTS, 'song'), ...songs.map((song) => song.id)))
     .all(charts);
   const chartsBySong = {};
   charts
@@ -97,19 +104,24 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
       });
     });
 
-  return e.json(HTTP_STATUS.ok, {
-    items: songs.map((song) => {
-      const exported = song.publicExport();
-      const item = {};
-      SONG_LIST_FIELDS.forEach((field) => {
-        item[field] = exported[field];
-      });
-      const songCharts = chartsBySong[song.id];
-      if (songCharts !== undefined) {
-        item['expand'] = { charts_via_song: songCharts };
-      }
-      return item;
-    }),
-    totalItems,
+  const items = songs.map((song) => {
+    const exported = song.publicExport();
+    const item = {};
+    SONG_LIST_FIELDS.forEach((field) => {
+      item[field] = exported[field];
+    });
+    const songCharts = chartsBySong[song.id];
+    if (songCharts !== undefined) {
+      item['expand'] = { charts_via_song: songCharts };
+    }
+    return item;
   });
+  // A page shorter than the SQL limit is the last one; the cursor comes from the last item sent,
+  // so a song hidden by the list rule never leaks through it.
+  const last = items[items.length - 1];
+  const next =
+    matched.length === search.limit
+      ? { releasedOn: last['releasedOn'], recordId: last['id'] }
+      : null;
+  return e.json(HTTP_STATUS.ok, { items, totalItems, next });
 });

@@ -1,4 +1,6 @@
-const NICKNAME_MIN_LENGTH = 2;
+import { isString } from '../typeGuards.js';
+
+export const NICKNAME_MIN_LENGTH = 2;
 export const NICKNAME_MAX_LENGTH = 16;
 const NICKNAME_CHARACTERS = /^[A-Za-z0-9_\-가-힣ㄱ-ㅎㅏ-ㅣ]*$/;
 
@@ -14,4 +16,8 @@ export function parseNickname(input: string): Nickname | undefined {
     NICKNAME_CHARACTERS.test(nickname)
     ? (nickname as Nickname)
     : undefined;
+}
+
+export function isNickname(value: unknown): value is Nickname {
+  return isString(value) && parseNickname(value) === value;
 }

@@ -43,13 +43,20 @@ import {
 type MenuItem = MainMenuItem | 'account' | 'profile' | 'youtube';
 
 const LOGO_Y_PX = 300;
-const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }> = {
+const INITIAL_MENU_FOCUS: MenuItem = 'play';
+const PLAY_SPACING_AFTER_PX = 120;
+const MENU_SPACING_PX = 64;
+const MENU_ITEMS: Record<
+  MainMenuItem,
+  { label: string; request: SceneRequest; spacingAfterPx: number }
+> = {
   play: {
     label: 'PLAY',
     request: {
       key: 'songSelect',
       data: { mode: 'standard' },
     },
+    spacingAfterPx: PLAY_SPACING_AFTER_PX,
   },
   practice: {
     label: 'PRACTICE',
@@ -57,6 +64,7 @@ const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }>
       key: 'songSelect',
       data: { mode: 'practice' },
     },
+    spacingAfterPx: MENU_SPACING_PX,
   },
   chartEditor: {
     label: 'CHART EDITOR',
@@ -64,6 +72,7 @@ const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }>
       key: 'chartEditorSelect',
       data: { kind: 'fresh' },
     },
+    spacingAfterPx: MENU_SPACING_PX,
   },
   settings: {
     label: 'SETTINGS',
@@ -76,6 +85,7 @@ const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }>
         },
       },
     },
+    spacingAfterPx: MENU_SPACING_PX,
   },
   credits: {
     label: 'CREDITS',
@@ -83,15 +93,14 @@ const MENU_ITEMS: Record<MainMenuItem, { label: string; request: SceneRequest }>
       key: 'credits',
       data: undefined,
     },
+    spacingAfterPx: MENU_SPACING_PX,
   },
 };
 const PROFILE_REQUEST: SceneRequest = {
   key: 'profile',
   data: undefined,
 };
-const MENU_FIRST_Y_PX = 560;
-const MENU_REST_TOP_Y_PX = 680;
-const MENU_REST_SPACING_PX = 64;
+const MENU_TOP_Y_PX = 560;
 const GOOGLE_ICON_TEXTURE_KEY = 'ui:google-g';
 const GOOGLE_ICON_PATH = '/assets/ui/google-g.svg';
 const GOOGLE_ICON_SIZE_PX = 64;
@@ -169,7 +178,7 @@ interface AccountView {
 
 export class MainScene extends Phaser.Scene {
   private menuEntries: readonly { item: MainMenuItem; button: Button }[] = [];
-  private menu = new MenuFocus<MenuItem>([], () => undefined);
+  private menu: MenuFocus<MenuItem> | null = null;
   private playFocusSound: () => void = () => undefined;
   private activateAccount: () => void = () => undefined;
   private exit: SceneExit<SceneRequest> = STAYING;
@@ -337,13 +346,16 @@ export class MainScene extends Phaser.Scene {
     };
     // 이전 create 의 Button 은 씬 종료와 함께 사라졌으므로 메뉴를 처음부터 구성한다.
     this.menuEntries = [];
-    // 지난 방문의 메뉴 포커스는 이어받지 않고 첫 그리기는 첫 항목에 둔다.
-    let isMenuDrawn = false;
+    // 지난 방문의 메뉴 포커스는 이어받지 않는다.
+    this.menu = null;
     const controller = new MainController(this.auth, {
       showAccount: (account) => {
         this.renderAccount(view, account);
-        this.renderMenu(view, account, isMenuDrawn ? this.menu.getFocused() : undefined);
-        isMenuDrawn = true;
+        this.renderMenu(
+          view,
+          account,
+          this.menu === null ? INITIAL_MENU_FOCUS : this.menu.getFocused(),
+        );
       },
     });
     this.activateAccount = () => controller.activateAccount();
@@ -354,57 +366,61 @@ export class MainScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
-  private renderMenu(view: AccountView, account: AccountState, focusedItem?: MenuItem): void {
+  private renderMenu(view: AccountView, account: AccountState, focused: MenuItem): void {
     const items = getMainMenuItems(account);
     if (
       items.length !== this.menuEntries.length ||
       items.some((item, index) => item !== this.menuEntries[index]?.item)
     ) {
       this.menuEntries.forEach(({ button }) => button.destroy());
-      this.menuEntries = items.map((item, index) => ({
-        item,
-        button: new Button(
-          this,
-          SCREEN_LAYOUT.leftXPx,
-          index === 0 ? MENU_FIRST_Y_PX : MENU_REST_TOP_Y_PX + (index - 1) * MENU_REST_SPACING_PX,
-          {
-            label: MENU_ITEMS[item].label,
-            variant: 'quiet',
-            focus: 'slide',
-            onActivate: () => this.activate(item),
-          },
-        ),
-      }));
+      let yPx = MENU_TOP_Y_PX;
+      this.menuEntries = items.map((item) => {
+        const button = new Button(this, SCREEN_LAYOUT.leftXPx, yPx, {
+          label: MENU_ITEMS[item].label,
+          variant: 'quiet',
+          focus: 'slide',
+          onActivate: () => this.activate(item),
+        });
+        yPx += MENU_ITEMS[item].spacingAfterPx;
+        return {
+          item,
+          button,
+        };
+      });
     }
     // 프로필 진입은 로그인 상태에 따라 생기고 없어지므로, 메뉴 항목이 그대로여도 포커스 순서는 다시 만든다.
     // 화면 모서리에 있어도 키보드로 닿을 수 있도록 포커스 순서의 마지막에 둔다.
+    const entries: { item: MenuItem; button: Button }[] = [
+      ...this.menuEntries,
+      ...(account.kind === 'signedIn'
+        ? [
+            {
+              item: 'profile' as const,
+              button: view.profileButton,
+            },
+          ]
+        : []),
+      {
+        item: 'youtube',
+        button: view.youtubeButton,
+      },
+    ];
     this.menu = new MenuFocus<MenuItem>(
-      [
-        ...this.menuEntries,
-        ...(account.kind === 'signedIn'
-          ? [
-              {
-                item: 'profile' as const,
-                button: view.profileButton,
-              },
-            ]
-          : []),
-        {
-          item: 'youtube',
-          button: view.youtubeButton,
-        },
-      ],
+      entries,
       (item) => {
         this.playFocusSound();
         if (item === 'youtube') {
           playYoutubeHearts(this, view.youtubeButton);
         }
       },
-      focusedItem,
+      entries.some(({ item }) => item === focused) ? focused : INITIAL_MENU_FOCUS,
     );
   }
 
   private handleMenuKey(action: MenuAction | null): void {
+    if (this.menu === null) {
+      return;
+    }
     switch (action) {
       case 'up':
         this.menu.move(-1);

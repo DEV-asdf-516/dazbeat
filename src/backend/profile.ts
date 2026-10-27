@@ -3,6 +3,7 @@ import type PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { ACHIEVEMENT_IDS, findAchievement } from '../data/achievements.js';
 import type { AchievementId } from '../data/achievements.js';
+import { isNickname } from '../data/nickname.js';
 import type { Nickname } from '../data/nickname.js';
 import { ProfileRequestError } from '../data/profile.js';
 import type { AchievementStatus, Profile, ProfileRequestErrorKind } from '../data/profile.js';
@@ -67,7 +68,7 @@ const achievementStatuses = z
 
 const profile = z
   .object({
-    nickname: z.string(),
+    nickname: z.custom<Nickname>(isNickname),
     featuredAchievement: achievementId.nullable(),
     stats: z.object({
       playCount: z.number(),
@@ -84,7 +85,7 @@ const profile = z
     newAchievements: new Set(newAchievements),
   }));
 
-const changedNickname = z.object({ nickname: z.string() });
+const changedNickname = z.object({ nickname: z.custom<Nickname>(isNickname) });
 const nicknameAvailability = z.object({ available: z.boolean() });
 const changedFeatured = z.object({ featuredAchievement: achievementId.nullable() });
 
@@ -106,7 +107,7 @@ export async function loadProfile(pb: PocketBase): Promise<Profile> {
   return sendApiRequest(pb, PROFILE_PATH, { method: 'GET' }, profile, toProfileRequestError);
 }
 
-export async function changeNickname(pb: PocketBase, nickname: Nickname): Promise<string> {
+export async function changeNickname(pb: PocketBase, nickname: Nickname): Promise<Nickname> {
   const changed = await sendApiRequest(
     pb,
     `${PROFILE_PATH}/nickname`,

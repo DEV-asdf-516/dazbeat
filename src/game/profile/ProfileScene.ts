@@ -56,7 +56,12 @@ import { TextTabs } from '../ui/TextTabs.js';
 import type { TextTabsStyle } from '../ui/TextTabs.js';
 import { ProfileController } from './ProfileController.js';
 import type { ProfileDeps } from './ProfileController.js';
-import { getChoiceAppearance, getCollectionRows, isEarned } from './profileState.js';
+import {
+  getChoiceAppearance,
+  getCollectionRows,
+  getFeaturedAction,
+  isEarned,
+} from './profileState.js';
 import type { LoadedProfileState, ProfileHover, ProfileState, SummaryTab } from './profileState.js';
 
 // 획득 날짜와 대표 컬렉션은 시안의 champagne 으로 칭호처럼 보인다.
@@ -893,8 +898,14 @@ export class ProfileScene extends Phaser.Scene {
     const previousView = previous?.kind === 'loaded' ? previous.view : null;
     if (previous?.kind !== state.kind || previousView !== shownView) {
       view.notice.setVisible(state.kind === 'guest' || state.kind === 'failed');
-      const isLoading = state.kind === 'loading';
-      view.loading.show(isLoading ? this.i18n.t('profile.loading') : '', isLoading);
+      view.loading.show(
+        state.kind === 'loading'
+          ? {
+              kind: 'loading',
+              text: this.i18n.t('profile.loading'),
+            }
+          : { kind: 'none' },
+      );
       view.summary.setVisible(shownView === 'summary');
       view.collection.setVisible(shownView === 'collection');
       view.grids.forEach((grid) => grid.container.setVisible(false));
@@ -1233,8 +1244,9 @@ export class ProfileScene extends Phaser.Scene {
       const isFeatured = profile.featuredAchievement === id;
       setCelestialLoopActive(view.featuredHalo, isFeatured);
       view.detailFeatured.setVisible(isFeatured);
-      view.equipButton.setVisible(isFocusedEarned && !isFeatured);
-      view.unequipButton.setVisible(isFocusedEarned && isFeatured);
+      const featuredAction = getFeaturedAction(state);
+      view.equipButton.setVisible(featuredAction === 'equip');
+      view.unequipButton.setVisible(featuredAction === 'unequip');
     }
     if (before === null || before.featuredSave !== state.featuredSave) {
       view.detailFailure

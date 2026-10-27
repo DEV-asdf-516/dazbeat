@@ -36,10 +36,17 @@ const songSearchResponse = z.object({
     }),
   ),
   totalItems: z.number().nullable(),
+  next: z
+    .object({
+      releasedOn: z.string(),
+      recordId: z.string(),
+    })
+    .nullable(),
 });
 
 interface SongRecordBatch {
   readonly records: RecordModel[];
+  readonly next: SongBatchCursor | null;
   readonly totalCount: number | null;
 }
 
@@ -103,8 +110,16 @@ async function listSongRecords(
     ...select(SONGS, SONG_LIST_FIELDS, [SONG_CHARTS]),
     ...(filter === null ? {} : { filter: pb.filter(filter.expression, filter.params) }),
   });
+  const last = items.at(-1);
   return {
     records: items,
+    next:
+      last !== undefined && items.length === SONG_BATCH_SIZE
+        ? {
+            releasedOn: readRecordField(last, 'songs', 'releasedOn', isString),
+            recordId: last.id,
+          }
+        : null,
     totalCount: cursor === null ? totalItems : null,
   };
 }
@@ -135,6 +150,7 @@ async function searchSongRecords(
   }
   return {
     records: result.data.items,
+    next: result.data.next,
     totalCount: result.data.totalItems,
   };
 }
@@ -145,27 +161,13 @@ export async function loadSongBatch(
   cursor: SongBatchCursor | null,
 ): Promise<SongBatch> {
   // SDK 자동 취소는 같은 경로의 다른 feed 요청까지 취소하므로 두 경로 모두 끈다.
-  const { records, totalCount } =
+  const { records, next, totalCount } =
     query.title === ''
       ? await listSongRecords(pb, query, cursor)
       : await searchSongRecords(pb, query, cursor);
-  const last = records.at(-1);
-  if (last === undefined) {
-    return {
-      songs: [],
-      next: null,
-      totalCount,
-    };
-  }
   return {
     songs: records.map((record) => toSong(pb, record)),
-    next:
-      records.length === SONG_BATCH_SIZE
-        ? {
-            releasedOn: readRecordField(last, 'songs', 'releasedOn', isString),
-            recordId: last.id,
-          }
-        : null,
+    next,
     totalCount,
   };
 }

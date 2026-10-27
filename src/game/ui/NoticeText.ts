@@ -2,10 +2,13 @@ import type Phaser from 'phaser';
 import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
 import { LoadingStar } from './LoadingStar.js';
 
+export type Notice =
+  { readonly kind: 'none' } | { readonly kind: 'text' | 'loading'; readonly text: string };
+
 /** 씬이 만든 안내 Text 와 로딩 중일 때 그 왼쪽에서 도는 별을 함께 다룬다. */
 export class NoticeText {
   private readonly star: LoadingStar;
-  private isLoading = false;
+  private notice: Notice = { kind: 'none' };
 
   constructor(
     scene: Phaser.Scene,
@@ -15,9 +18,9 @@ export class NoticeText {
     this.star = new LoadingStar(scene, celestial).setDepth(text.depth);
   }
 
-  show(message: string, isLoading: boolean): void {
-    this.text.setText(message);
-    this.isLoading = isLoading;
+  show(notice: Notice): void {
+    this.text.setText(notice.kind === 'none' ? '' : notice.text);
+    this.notice = notice;
     this.renderStar();
   }
 
@@ -32,7 +35,7 @@ export class NoticeText {
   }
 
   private renderStar(): void {
-    const isSpinning = this.text.visible && this.isLoading && this.text.text !== '';
+    const isSpinning = this.text.visible && this.notice.kind === 'loading';
     this.star.show(isSpinning ? this.text.getBounds() : null);
   }
 }

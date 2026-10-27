@@ -6,6 +6,7 @@ import type { PreparedChart, VerifiedPlay } from '../data/playSession.js';
 import type { PlaySubmission } from '../data/playSubmission.js';
 import type { ChartRef } from '../data/songs.js';
 import { HTTP_STATUS } from '../httpStatus.js';
+import { isString } from '../typeGuards.js';
 import { getCurrentUser } from './auth.js';
 import type { ChartCache } from './ChartCache.js';
 import type { LoadedChart } from './charts.js';
@@ -63,7 +64,7 @@ function toPlaySessionError(error: unknown): unknown {
   const code: unknown = error.response['code'];
   return new PlaySessionError(
     error.status,
-    typeof code === 'string' ? code : (STATUS_CODES[error.status] ?? `http_${error.status}`),
+    isString(code) ? code : (STATUS_CODES[error.status] ?? `http_${error.status}`),
   );
 }
 

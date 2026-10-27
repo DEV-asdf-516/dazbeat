@@ -1,4 +1,9 @@
-import { findChart, getAvailableCharts, stepChart } from '../../data/songs.js';
+import {
+  findChart,
+  getAvailableCharts,
+  getAvailableDifficulties,
+  stepChart,
+} from '../../data/songs.js';
 import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { ChartRecord } from '../../storage/chartRecords.js';
@@ -36,12 +41,14 @@ export interface SongSelectState {
   readonly hover: SongSelectHover | null;
 }
 
+export type SongRowAppearance = 'selected' | 'hovered' | 'idle';
+
 export type SongRowView =
   | { readonly kind: 'empty' }
   | {
       readonly kind: 'song';
       readonly song: Song;
-      readonly isSelected: boolean;
+      readonly appearance: SongRowAppearance;
       readonly recordChart: ChartRef | null;
     };
 
@@ -177,20 +184,20 @@ export const SONG_ROW_NODE_IDS = [
 ] as const satisfies readonly CelestialStaticId[];
 
 export function getSongRowNodeId(
+  appearance: SongRowAppearance,
   record: ChartRecord | null,
-  isSelected: boolean,
-  isHovered: boolean,
 ): (typeof SONG_ROW_NODE_IDS)[number] {
-  if (isSelected) {
-    return 'R17';
+  switch (appearance) {
+    case 'selected':
+      return 'R17';
+    case 'hovered':
+      return 'R16';
+    case 'idle':
+      if (record === null) {
+        return 'R15';
+      }
+      return record.cleared ? 'R18' : 'C:node-played';
   }
-  if (isHovered) {
-    return 'R16';
-  }
-  if (record === null) {
-    return 'R15';
-  }
-  return record.cleared ? 'R18' : 'C:node-played';
 }
 
 export interface SongPage {
@@ -241,24 +248,39 @@ export function getSongRows(state: SongSelectState, rowsPerPage: number): SongRo
     return {
       kind: 'song',
       song,
-      isSelected: slot === selectedSlot,
+      appearance: getSongRowAppearance(state, slot, selectedSlot),
       recordChart:
         difficulty === null ? null : (findChart(song, state.laneCount, difficulty) ?? null),
     };
   });
 }
 
+function getSongRowAppearance(
+  state: SongSelectState,
+  slot: number,
+  selectedSlot: number | null,
+): SongRowAppearance {
+  if (slot === selectedSlot) {
+    return 'selected';
+  }
+  return isSameHover(state.hover, {
+    kind: 'row',
+    slot,
+  })
+    ? 'hovered'
+    : 'idle';
+}
+
 export function getSongDifficultyAppearance(
   state: SongSelectState,
   difficulty: Difficulty,
-  isHovered: boolean,
 ): TabAppearance {
-  const { current } = state;
-  return getDifficultyAppearance({
-    isSelected: current.kind === 'song' && difficulty === current.chart?.difficulty,
-    isAvailable:
-      current.kind === 'song' && findChart(current.song, state.laneCount, difficulty) !== undefined,
-    isHovered,
+  const { current, hover } = state;
+  return getDifficultyAppearance(difficulty, {
+    selected: current.kind === 'song' ? (current.chart?.difficulty ?? null) : null,
+    hovered: hover?.kind === 'difficulty' ? hover.difficulty : null,
+    available:
+      current.kind === 'song' ? getAvailableDifficulties(current.song, state.laneCount) : [],
   });
 }
 
@@ -298,7 +320,24 @@ export function canSelectRandomSong(state: SongSelectState): boolean {
   return getRandomCandidates(state).length > 0;
 }
 
-export function isActionEnabled(state: SongSelectState, action: SongSelectAction): boolean {
+export type SongActionAppearance = 'disabled' | 'hovered' | 'idle';
+
+export function getActionAppearance(
+  state: SongSelectState,
+  action: SongSelectAction,
+): SongActionAppearance {
+  if (!isActionEnabled(state, action)) {
+    return 'disabled';
+  }
+  return isSameHover(state.hover, {
+    kind: 'action',
+    action,
+  })
+    ? 'hovered'
+    : 'idle';
+}
+
+function isActionEnabled(state: SongSelectState, action: SongSelectAction): boolean {
   return action === 'random' ? canSelectRandomSong(state) : getPlayableSelection(state) !== null;
 }
 

@@ -6,6 +6,8 @@ import { adjustSetting, assignKey } from './settingsAdjust.js';
 import type { SettingsRow } from './settingsAdjust.js';
 import { requireDefined } from '../../invariant.js';
 import { cycleItem } from '../../range.js';
+import { readMenuAction } from '../ui/menuInput.js';
+import { readKeyCapture } from './keyCapture.js';
 
 export type SettingsMode =
   | { readonly kind: 'browsing' }
@@ -39,8 +41,10 @@ export function isRowShown(row: SettingsRow, settings: Settings): boolean {
   return row.kind !== 'key' || row.lane < settings.laneMode;
 }
 
-export function isWaitingKey(state: SettingsEditorState): boolean {
-  return state.mode.kind === 'waitingKey';
+export type SettingsRowAppearance = 'emphasized' | 'normal';
+
+export function getRowAppearance(state: SettingsEditorState, index: number): SettingsRowAppearance {
+  return index === state.rowIndex || index === state.hoveredRowIndex ? 'emphasized' : 'normal';
 }
 
 export function focusRow(state: SettingsEditorState, index: number): SettingsEditorState {
@@ -172,6 +176,44 @@ export function cancelPrompt(state: SettingsEditorState): SettingsEditorState {
         ...state,
         mode: BROWSING,
       };
+}
+
+export type SettingsKeyResult =
+  { readonly kind: 'pass' } | { readonly kind: 'state'; readonly state: SettingsEditorState };
+
+export function readSettingsKey(
+  state: SettingsEditorState,
+  event: Pick<KeyboardEvent, 'code' | 'repeat'>,
+): SettingsKeyResult {
+  switch (state.mode.kind) {
+    case 'waitingKey': {
+      const code = readKeyCapture(event);
+      return {
+        kind: 'state',
+        state: code === null ? state : bindWaitingKey(state, code),
+      };
+    }
+    case 'confirmingReset':
+      switch (readMenuAction(event)) {
+        case 'confirm':
+          return {
+            kind: 'state',
+            state: confirmReset(state),
+          };
+        case 'back':
+          return {
+            kind: 'state',
+            state: cancelPrompt(state),
+          };
+        default:
+          return {
+            kind: 'state',
+            state,
+          };
+      }
+    case 'browsing':
+      return { kind: 'pass' };
+  }
 }
 
 export type BackOutcome = { kind: 'leave' } | { kind: 'stay'; state: SettingsEditorState };
