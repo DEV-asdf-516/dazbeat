@@ -2,6 +2,7 @@ import PocketBase from 'pocketbase';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ALL_SONGS_QUERY } from '../../src/data/songs.js';
 import { loadSongBatch } from '../../src/backend/songLoader.js';
+import { requireDefined } from '../../src/invariant.js';
 
 const SONGS_PATH = '/api/collections/songs/records';
 const SEARCH_PATH = '/api/dazbeat/songs/search';
@@ -20,7 +21,7 @@ function makeSongRecord(id: string, overrides: Record<string, unknown> = {}) {
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    visualTheme: '',
+    previewStartMs: 0,
     credit: null,
     releasedOn: '2026-01-01',
     expand: {},
@@ -67,13 +68,13 @@ function stubFetch(response: Response, path = SONGS_PATH) {
 }
 
 function requestUrl(fetchMock: ReturnType<typeof stubFetch>, pathname: string): URL {
-  const url = fetchMock.mock.calls
-    .map(([input]) => new URL(input))
-    .find((candidate) => candidate.pathname === pathname);
-  if (url === undefined) {
-    throw new Error(`No request to ${pathname}`);
-  }
-  return url;
+  return requireDefined(
+    fetchMock.mock.calls
+      .map(([input]) => new URL(input))
+      .find((candidate) => candidate.pathname === pathname),
+    'No request',
+    pathname,
+  );
 }
 
 function makeSongRecords(count: number) {
@@ -114,10 +115,10 @@ afterEach(() => {
 });
 
 describe('loadSongBatch', () => {
-  it('requests the first batch newest release first with its total and without filtering', async () => {
+  it('requests the first batch of published songs newest release first with its total', async () => {
     const fetchMock = stubFetch(listResponse([makeSongRecord('s1')], 235));
 
-    const batch = await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+    const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
 
     expect(batch.totalCount).toBe(235);
     const url = requestUrl(fetchMock, SONGS_PATH);
@@ -125,13 +126,38 @@ describe('loadSongBatch', () => {
     expect(url.searchParams.get('perPage')).toBe('100');
     expect(url.searchParams.get('sort')).toBe('-releasedOn,-id');
     expect(url.searchParams.get('skipTotal')).toBe('false');
-    expect(url.searchParams.has('filter')).toBe(false);
+    expect(url.searchParams.get('filter')).toBe('isPublished = true');
+  });
+
+  it('requests every song without the published condition for the all scope', async () => {
+    const fetchMock = stubFetch(listResponse([]));
+
+    await loadSongBatch(pb(), 'all', ALL_SONGS_QUERY, null);
+    await loadSongBatch(
+      pb(),
+      'all',
+      {
+        category: 'cover',
+        title: '',
+      },
+      {
+        releasedOn: '2026-01-05',
+        recordId: 'r42',
+      },
+    );
+
+    const [unfiltered, filtered] = fetchMock.mock.calls.map(([input]) => new URL(input));
+    expect(unfiltered?.searchParams.has('filter')).toBe(false);
+    expect(filtered?.searchParams.get('filter')).toBe(
+      'category = "cover" && ' +
+        '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
+    );
   });
 
   it('continues after the cursor with a keyset filter on release date and record id, uncounted', async () => {
     const fetchMock = stubFetch(listResponse([], -1));
 
-    const batch = await loadSongBatch(pb(), ALL_SONGS_QUERY, {
+    const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, {
       releasedOn: '2026-01-05',
       recordId: 'r42',
     });
@@ -141,15 +167,17 @@ describe('loadSongBatch', () => {
     expect(url.searchParams.get('page')).toBe('1');
     expect(url.searchParams.get('skipTotal')).toBe('true');
     expect(url.searchParams.get('filter')).toBe(
-      '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
+      'isPublished = true && ' +
+        '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
     );
   });
 
-  it('combines category and keyset conditions with && when there is no title', async () => {
+  it('combines published, category and keyset conditions with && when there is no title', async () => {
     const fetchMock = stubFetch(listResponse([]));
 
     await loadSongBatch(
       pb(),
+      'published',
       {
         category: 'cover',
         title: '',
@@ -161,7 +189,7 @@ describe('loadSongBatch', () => {
     );
 
     expect(requestUrl(fetchMock, SONGS_PATH).searchParams.get('filter')).toBe(
-      'category = "cover" && ' +
+      'isPublished = true && category = "cover" && ' +
         '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
     );
   });
@@ -169,14 +197,14 @@ describe('loadSongBatch', () => {
   it('requests songs with their chart metadata in a single request', async () => {
     const fetchMock = stubFetch(listResponse([makeSongRecord('s1'), makeSongRecord('s2')]));
 
-    await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+    await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = requestUrl(fetchMock, SONGS_PATH);
     expect(url.searchParams.get('expand')).toBe('charts_via_song');
     expect(url.searchParams.get('fields')).toBe(
       'id,collectionId,collectionName,key,title,category,releasedOn,youtubeVideoId,jacket,accentColor,' +
-        'constellation,gameStartMs,gameEndMs,visualTheme,credit,' +
+        'constellation,gameStartMs,gameEndMs,previewStartMs,credit,' +
         'expand.charts_via_song.id,expand.charts_via_song.difficulty,expand.charts_via_song.laneCount',
     );
   });
@@ -184,7 +212,7 @@ describe('loadSongBatch', () => {
   it('returns an empty last batch when no songs match', async () => {
     stubFetch(listResponse([]));
 
-    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).resolves.toEqual({
+    await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).resolves.toEqual({
       songs: [],
       next: null,
       totalCount: 0,
@@ -194,7 +222,7 @@ describe('loadSongBatch', () => {
   it('marks a batch shorter than 100 songs as the last one', async () => {
     stubFetch(listResponse(makeSongRecords(99)));
 
-    const batch = await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+    const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
 
     expect(batch.songs).toHaveLength(99);
     expect(batch.next).toBeNull();
@@ -204,7 +232,7 @@ describe('loadSongBatch', () => {
     const records = makeSongRecords(100);
     stubFetch(listResponse(records));
 
-    const batch = await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+    const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
 
     expect(batch.songs).toHaveLength(100);
     expect(batch.next).toEqual({
@@ -218,7 +246,7 @@ describe('loadSongBatch', () => {
       listResponse([
         makeSongRecord('s2', {
           category: 'cover',
-          visualTheme: 'neon',
+          previewStartMs: 45000,
           credit: ['Song by someone', 'YouTube: channel'],
           expand: {
             charts_via_song: [
@@ -260,7 +288,7 @@ describe('loadSongBatch', () => {
       ]),
     );
 
-    const { songs } = await loadSongBatch(pb(), ALL_SONGS_QUERY, null);
+    const { songs } = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
 
     expect(songs).toEqual([
       {
@@ -274,7 +302,7 @@ describe('loadSongBatch', () => {
         gameStartMs: 0,
         gameEndMs: 30000,
         chartIds: { 4: { easy: 'c2' } },
-        visualTheme: 'neon',
+        previewStartMs: 45000,
         credit: ['Song by someone', 'YouTube: channel'],
       },
       {
@@ -309,7 +337,7 @@ describe('loadSongBatch', () => {
         chartIds: {},
       },
     ]);
-    expect(songs[1]).not.toHaveProperty('visualTheme');
+    expect(songs[1]).not.toHaveProperty('previewStartMs');
     expect(songs[1]).not.toHaveProperty('credit');
   });
 
@@ -320,10 +348,12 @@ describe('loadSongBatch', () => {
     ['constellation is not a zodiac', { constellation: 'ophiuchus' }, 'constellation'],
     ['constellation is empty', { constellation: '' }, 'constellation'],
     ['constellation is missing', { constellation: undefined }, 'constellation'],
+    ['previewStartMs is missing', { previewStartMs: undefined }, 'previewStartMs'],
+    ['previewStartMs is a string', { previewStartMs: '45000' }, 'previewStartMs'],
   ])('rejects when a song record %s', async (_name, overrides, field) => {
     stubFetch(listResponse([makeSongRecord('s1', overrides)]));
 
-    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).rejects.toThrow(
+    await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).rejects.toThrow(
       `Invalid songs record s1: ${field}`,
     );
   });
@@ -398,7 +428,7 @@ describe('loadSongBatch', () => {
   ])('rejects when %s', async (_name, overrides, message) => {
     stubFetch(listResponse([makeSongRecord('s1', overrides)]));
 
-    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).rejects.toThrow(message);
+    await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).rejects.toThrow(message);
   });
 
   it('rejects when the server responds with an HTTP error', async () => {
@@ -415,7 +445,7 @@ describe('loadSongBatch', () => {
       ),
     );
 
-    await expect(loadSongBatch(pb(), ALL_SONGS_QUERY, null)).rejects.toThrow();
+    await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).rejects.toThrow();
   });
 });
 
@@ -440,6 +470,7 @@ describe('loadSongBatch with a title', () => {
 
     await loadSongBatch(
       pb(),
+      'published',
       {
         category,
         title: 'it\'s" OR 1',
@@ -454,10 +485,33 @@ describe('loadSongBatch with a title', () => {
     });
   });
 
+  it.each([
+    ['published', {}],
+    ['all', { scope: 'all' }],
+  ] as const)('sends the %s scope to the search API', async (scope, expected) => {
+    const fetchMock = stubFetch(searchResponse([]), SEARCH_PATH);
+
+    await loadSongBatch(
+      pb(),
+      scope,
+      {
+        ...ALL_SONGS_QUERY,
+        title: 'Title',
+      },
+      null,
+    );
+
+    expect(Object.fromEntries(requestUrl(fetchMock, SEARCH_PATH).searchParams)).toEqual({
+      title: 'Title',
+      ...expected,
+    });
+  });
+
   it('converts search items into songs with their chart ids', async () => {
     stubFetch(
       searchResponse([
         makeSongRecord('s1', {
+          previewStartMs: 45000,
           expand: {
             charts_via_song: [
               {
@@ -480,6 +534,7 @@ describe('loadSongBatch with a title', () => {
 
     const { songs } = await loadSongBatch(
       pb(),
+      'published',
       {
         ...ALL_SONGS_QUERY,
         title: 'Title',
@@ -495,12 +550,14 @@ describe('loadSongBatch with a title', () => {
           4: { hard: 'c1' },
           6: { hard: 'c2' },
         },
+        previewStartMs: 45000,
       }),
       expect.objectContaining({
         id: 'key-s2',
         chartIds: {},
       }),
     ]);
+    expect(songs[1]).not.toHaveProperty('previewStartMs');
   });
 
   it('returns an empty last batch when nothing matches', async () => {
@@ -509,6 +566,7 @@ describe('loadSongBatch with a title', () => {
     await expect(
       loadSongBatch(
         pb(),
+        'published',
         {
           ...ALL_SONGS_QUERY,
           title: 'none',
@@ -527,6 +585,7 @@ describe('loadSongBatch with a title', () => {
 
     const batch = await loadSongBatch(
       pb(),
+      'published',
       {
         ...ALL_SONGS_QUERY,
         title: 'Title',
@@ -549,14 +608,14 @@ describe('loadSongBatch with a title', () => {
       title: 'Title',
     };
 
-    const batch = await loadSongBatch(pb(), query, null);
+    const batch = await loadSongBatch(pb(), 'published', query, null);
 
     expect(batch.songs).toHaveLength(3);
     expect(batch.totalCount).toBe(250);
     expect(batch.next).toEqual(next);
 
     const fetchMock = stubFetch(searchResponse([], null), SEARCH_PATH);
-    const nextBatch = await loadSongBatch(pb(), query, batch.next);
+    const nextBatch = await loadSongBatch(pb(), 'published', query, batch.next);
     expect(nextBatch.totalCount).toBeNull();
     const params = requestUrl(fetchMock, SEARCH_PATH).searchParams;
     expect(params.get('afterReleasedOn')).toBe('2026-01-03');
@@ -619,6 +678,7 @@ describe('loadSongBatch with a title', () => {
     await expect(
       loadSongBatch(
         pb(),
+        'published',
         {
           ...ALL_SONGS_QUERY,
           title: 'Title',
@@ -646,6 +706,7 @@ describe('loadSongBatch with a title', () => {
     await expect(
       loadSongBatch(
         pb(),
+        'published',
         {
           ...ALL_SONGS_QUERY,
           title: 'Title',
@@ -677,8 +738,8 @@ describe('concurrent loadSongBatch requests', () => {
     const client = pb();
 
     const batches = Promise.all([
-      loadSongBatch(client, ALL_SONGS_QUERY, null),
-      loadSongBatch(client, secondQuery, null),
+      loadSongBatch(client, 'published', ALL_SONGS_QUERY, null),
+      loadSongBatch(client, 'published', secondQuery, null),
     ]);
     await vi.waitFor(() => expect(held).toHaveLength(2));
     releaseAll();

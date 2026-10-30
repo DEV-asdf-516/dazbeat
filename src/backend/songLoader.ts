@@ -3,7 +3,14 @@ import type { RecordModel } from 'pocketbase';
 import { z } from 'zod';
 import { toParseIssue } from '../data/parseIssue.js';
 import { DIFFICULTIES, SONG_CATEGORIES, ZODIACS } from '../data/songs.js';
-import type { ChartIds, Song, SongBatch, SongBatchCursor, SongQuery } from '../data/songs.js';
+import type {
+  ChartIds,
+  Song,
+  SongBatch,
+  SongBatchCursor,
+  SongQuery,
+  SongScope,
+} from '../data/songs.js';
 import { CHARTS, SONG_LIST_FIELDS, SONGS } from '../pbCollections.js';
 import { after, backRelation, desc, select, sort, where } from '../pbQuery.js';
 import { LANE_COUNTS } from '../rhythm/lanes.js';
@@ -71,8 +78,8 @@ function readChartIds(record: RecordModel): ChartIds {
 }
 
 function toSong(pb: PocketBase, record: RecordModel): Song {
-  const visualTheme = readRecordField(record, 'songs', 'visualTheme', isString);
   const credit = readRecordField(record, 'songs', 'credit', isCredit);
+  const previewStartMs = readRecordField(record, 'songs', 'previewStartMs', isFiniteNumber);
   return {
     id: readRecordField(record, 'songs', 'key', isString),
     title: readRecordField(record, 'songs', 'title', isString),
@@ -84,17 +91,19 @@ function toSong(pb: PocketBase, record: RecordModel): Song {
     gameStartMs: readRecordField(record, 'songs', 'gameStartMs', isFiniteNumber),
     gameEndMs: readRecordField(record, 'songs', 'gameEndMs', isFiniteNumber),
     chartIds: readChartIds(record),
-    ...(visualTheme === '' ? {} : { visualTheme }),
+    ...(previewStartMs === 0 ? {} : { previewStartMs }),
     ...(credit === null ? {} : { credit }),
   };
 }
 
 async function listSongRecords(
   pb: PocketBase,
+  scope: SongScope,
   query: SongQuery,
   cursor: SongBatchCursor | null,
 ): Promise<SongRecordBatch> {
   const filter = where(SONGS, [
+    scope === 'published' ? { isPublished: true } : null,
     query.category === 'all' ? null : { category: query.category },
     cursor === null
       ? null
@@ -126,6 +135,7 @@ async function listSongRecords(
 
 async function searchSongRecords(
   pb: PocketBase,
+  scope: SongScope,
   query: SongQuery,
   cursor: SongBatchCursor | null,
 ): Promise<SongRecordBatch> {
@@ -135,6 +145,7 @@ async function searchSongRecords(
     query: {
       title: query.title,
       ...(query.category === 'all' ? {} : { category: query.category }),
+      ...(scope === 'all' ? { scope: 'all' } : {}),
       ...(cursor === null
         ? {}
         : {
@@ -157,14 +168,15 @@ async function searchSongRecords(
 
 export async function loadSongBatch(
   pb: PocketBase,
+  scope: SongScope,
   query: SongQuery,
   cursor: SongBatchCursor | null,
 ): Promise<SongBatch> {
   // SDK 자동 취소는 같은 경로의 다른 feed 요청까지 취소하므로 두 경로 모두 끈다.
   const { records, next, totalCount } =
     query.title === ''
-      ? await listSongRecords(pb, query, cursor)
-      : await searchSongRecords(pb, query, cursor);
+      ? await listSongRecords(pb, scope, query, cursor)
+      : await searchSongRecords(pb, scope, query, cursor);
   return {
     songs: records.map((record) => toSong(pb, record)),
     next,

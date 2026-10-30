@@ -1,7 +1,7 @@
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SESSION_GRACE_MS } from '../../../pocketbase/verification/verifyPlay.js';
+import { SESSION_GRACE_MS } from '../../../pocketbase/lib/session/service/issue.js';
 import { PLAY_SESSIONS, SCORES } from '../../../src/pbCollections.js';
 import { where } from '../../../src/pbQuery.js';
 import { JUDGMENT_WINDOWS } from '../../../src/rhythm/judgment.js';
@@ -12,9 +12,12 @@ import { createClient, createTempDir, removeTempDir, startPocketBase } from './p
 import type { PocketBaseServer } from './pocketBaseServer.js';
 import { createChart, createSong, createUser, excludeLoopbackFromRateLimits } from './testData.js';
 import type { TestUser } from './testData.js';
+import { requireDefined } from '../../../src/invariant.js';
 
 const SONG_KEY = 'ranked';
 const MUTABLE_SONG_KEY = 'mutable';
+const UNPUBLISHED_SONG_KEY = 'unpublished';
+const WITHDRAWN_SONG_KEY = 'withdrawn';
 const GAME_END_MS = 5_000;
 // Longer than the minimum elapsed time (0.9 × play duration) of a 5 s song.
 const ELAPSED_PLAY_MS = 10_000;
@@ -141,6 +144,9 @@ const lateFailingNotes: Chart['notes'] = Array.from({ length: 10 }, (_, index) =
 const snapshotPassingChart = chartOf(MUTABLE_SONG_KEY, 'easy', tapChart.notes);
 const snapshotFailingChart = chartOf(MUTABLE_SONG_KEY, 'normal', lateFailingNotes);
 const staleIssueChart = chartOf(MUTABLE_SONG_KEY, 'hard', tapChart.notes);
+const unpublishedChart = chartOf(UNPUBLISHED_SONG_KEY, 'easy', tapChart.notes);
+// 플레이 중 비공개로 바꾸는 곡이라 다른 테스트와 나눠 둔다.
+const withdrawnChart = chartOf(WITHDRAWN_SONG_KEY, 'easy', tapChart.notes);
 
 // One tap per lane, the last lane included, on the same song and difficulty as tapChart.
 const wideLaneCharts = ([5, 6] as const).map((laneCount) =>
@@ -185,11 +191,11 @@ async function newPlayer(): Promise<TestUser> {
 }
 
 function recordOf(chart: Chart): RecordModel {
-  const record = chartRecords.get(chart);
-  if (record === undefined) {
-    throw new Error(`Chart ${chart.songId}/${chart.difficulty} was not created`);
-  }
-  return record;
+  return requireDefined(
+    chartRecords.get(chart),
+    'Chart was not created',
+    `${chart.songId}/${chart.difficulty}`,
+  );
 }
 
 function issueSession(client: PocketBase, body: unknown): Promise<SessionResponse> {
@@ -320,6 +326,23 @@ beforeAll(async () => {
       await createChart(editor.client, mutableSong.id, chart.difficulty, chart),
     );
   }
+  const unpublishedSong = await createSong(server.superuser, UNPUBLISHED_SONG_KEY, GAME_END_MS, {
+    isPublished: false,
+  });
+  chartRecords.set(
+    unpublishedChart,
+    await createChart(
+      editor.client,
+      unpublishedSong.id,
+      unpublishedChart.difficulty,
+      unpublishedChart,
+    ),
+  );
+  const withdrawnSong = await createSong(server.superuser, WITHDRAWN_SONG_KEY, GAME_END_MS);
+  chartRecords.set(
+    withdrawnChart,
+    await createChart(editor.client, withdrawnSong.id, withdrawnChart.difficulty, withdrawnChart),
+  );
 });
 
 afterAll(async () => {
@@ -396,6 +419,13 @@ describe('POST /api/dazbeat/play-sessions', () => {
       409,
       'chart_changed',
     );
+  });
+
+  it('rejects a chart of an unpublished song as missing for players and editors', async () => {
+    const body = sessionBodyOf(recordOf(unpublishedChart));
+    for (const client of [(await newPlayer()).client, editor.client]) {
+      await expectRejection(issueSession(client, body), 404, 'chart_not_found');
+    }
   });
 
   it('requires a signed-in user', async () => {
@@ -785,6 +815,34 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
       filter: viewer.client.filter(filter.expression, filter.params),
     });
     expect(ranking.map((score) => score.id)).toEqual([stored?.id]);
+  });
+
+  it('stores a play whose song was unpublished after the session was issued', async () => {
+    const player = await newPlayer();
+    const play = simulateClientPlay(withdrawnChart, tapPerfectInputs, FRAME_TIMES_MS);
+    const { outcome, ...expected } = play.result;
+    expect(outcome).toBe('finished');
+
+    const sessionId = await startRankedPlay(player, withdrawnChart);
+    await server.superuser
+      .collection('songs')
+      .update(String(recordOf(withdrawnChart)['song']), { isPublished: false });
+    const response = await submitResult(player.client, sessionId, {
+      inputOffsetMs: 0,
+      events: play.inputs,
+    });
+
+    expect(response).toEqual({
+      ...expected,
+      bestScore: expected.score,
+      newAchievements: ANY_ACHIEVEMENTS,
+    });
+    const [stored, ...others] = await findScores(player.id, withdrawnChart);
+    expect(others).toEqual([]);
+    expect(stored).toMatchObject({
+      ...expected,
+      chartRevision: revisionOf(recordOf(withdrawnChart)),
+    });
   });
 
   it('rejects a play that only finishes on the changed chart', async () => {

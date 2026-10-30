@@ -1,5 +1,5 @@
 /// <reference path="../pb_data/types.d.ts" />
-// Song list sort, per-chart score ranking, and cascade deletes of a chart look these columns up.
+// 곡 목록 정렬, 채보별 점수 순위, 채보 cascade 삭제가 이 열들을 조회한다.
 const INDEXES = [
   { collection: 'songs', name: 'idx_songs_released_on_id', columns: 'releasedOn DESC, id DESC' },
   {

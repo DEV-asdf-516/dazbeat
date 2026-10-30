@@ -1,5 +1,5 @@
 /// <reference path="../pb_data/types.d.ts" />
-// JSVM cannot import src/data, so these mirror DIFFICULTIES, ZODIACS and AchievementMark.
+// JSVM 은 src/data 를 import 할 수 없어 DIFFICULTIES, ZODIACS, AchievementMark 를 그대로 옮겨 둔다.
 const DIFFICULTIES = ['easy', 'normal', 'hard', 'expert'];
 const ZODIACS = [
   'aries',
@@ -26,8 +26,8 @@ const COLLECTION_NAMES = [
 migrate(
   (app) => {
     const users = app.findCollectionByNameOrId('users');
-    // Only superusers and server hooks touch these. Songs and charts are stored as plain ids so
-    // deleting or editing them never cascades into past achievements.
+    // superuser 와 서버 훅만 다룬다. 곡과 채보는 일반 id 로 저장해, 지우거나 고쳐도 과거 업적으로
+    // cascade 되지 않는다.
     const serverOnly = (name, fields, indexes) =>
       new Collection({
         type: 'base',
@@ -66,7 +66,7 @@ migrate(
             values: DIFFICULTIES,
           },
           { name: 'laneCount', type: 'number' },
-          // The revision the session was issued with, i.e. the chart the play was verified on.
+          // 세션이 발급될 때의 revision, 즉 플레이를 검증한 채보다.
           { name: 'chartRevision', type: 'text', required: true },
           { name: 'constellation', type: 'select', required: true, maxSelect: 1, values: ZODIACS },
           { name: 'score', type: 'number' },
@@ -97,7 +97,7 @@ migrate(
           },
           { name: 'chart', type: 'text', required: true },
           { name: 'chartRevision', type: 'text', required: true },
-          // Empty for backfilled marks, whose constellation at the time is unknown.
+          // 소급한 mark 는 당시 별자리를 몰라 비어 있다.
           { name: 'constellation', type: 'select', maxSelect: 1, values: ZODIACS },
           {
             name: 'source',
@@ -129,7 +129,7 @@ migrate(
         'earned_achievements',
         [
           { name: 'achievement', type: 'text', required: true },
-          // No path updates an earned row, so the time it was earned never changes.
+          // 획득한 행을 고치는 경로가 없어 획득 시각은 바뀌지 않는다.
           { name: 'earnedAt', type: 'autodate', onCreate: true, onUpdate: false },
         ],
         [

@@ -8,6 +8,7 @@ import {
   signInWithGoogle,
   signOut,
 } from '../../src/backend/auth.js';
+import { msToSec } from '../../src/time.js';
 
 const USER_RECORD_WITHOUT_IS_EDITOR: RecordModel = {
   id: 'user1',
@@ -38,7 +39,7 @@ function makeToken(expSeconds: number): string {
 }
 
 function nowSeconds(): number {
-  return Math.floor(Date.now() / 1000);
+  return Math.floor(msToSec(Date.now()));
 }
 
 function pendingUntilAbortFetch(_input: unknown, init?: RequestInit): Promise<Response> {
@@ -85,16 +86,14 @@ describe('getCurrentUser', () => {
     });
   });
 
-  it('reads an unknown featured achievement as none and warns', () => {
-    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  it('reads the stored featured achievement as it is', () => {
     const pb = new PocketBase('http://pb.test');
     pb.authStore.save(makeToken(nowSeconds() + 3600), {
       ...USER_RECORD,
-      featuredAchievement: 'RETIRED_ACHIEVEMENT',
+      featuredAchievement: 'DELETED_ACHIEVEMENT',
     });
 
-    expect(getCurrentUser(pb)?.featuredAchievement).toBeNull();
-    expect(consoleWarn).toHaveBeenCalledOnce();
+    expect(getCurrentUser(pb)?.featuredAchievement).toBe('DELETED_ACHIEVEMENT');
   });
 
   it('returns null when the token is expired', () => {

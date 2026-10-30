@@ -204,6 +204,18 @@ export function backRelation<F extends string, N extends string, const R extends
   };
 }
 
+export function relation<F extends string, const R extends F, T extends string>(
+  _spec: CollectionSpec<F>,
+  field: R,
+  _target: CollectionSpec<T>,
+  fields: readonly NoInfer<T>[],
+): Expansion<R> {
+  return {
+    name: field,
+    fields,
+  };
+}
+
 export interface Selection {
   readonly fields: string;
   readonly expand?: string;

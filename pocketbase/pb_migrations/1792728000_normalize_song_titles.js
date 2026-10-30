@@ -1,5 +1,5 @@
 /// <reference path="../pb_data/types.d.ts" />
-// Titles saved before the NFC hook may hold decomposed characters that title search cannot match.
+// NFC 훅 전에 저장된 제목에는 제목 검색이 찾지 못하는 분해형 문자가 있을 수 있다.
 migrate(
   (app) => {
     app.findAllRecords('songs').forEach((record) => {

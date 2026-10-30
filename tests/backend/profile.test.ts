@@ -1,6 +1,7 @@
 import PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getCurrentUser } from '../../src/backend/auth.js';
 import {
   changeNickname,
   isNicknameAvailable,
@@ -11,7 +12,8 @@ import { ProfileRequestError } from '../../src/data/profile.js';
 import { parseNickname } from '../../src/data/nickname.js';
 import type { Nickname } from '../../src/data/nickname.js';
 import { requireDefined } from '../../src/invariant.js';
-import { ACHIEVEMENT_IDS } from '../../src/data/achievements.js';
+import type { NamedAchievementDefinition } from '../../src/data/achievements.js';
+import { msToSec } from '../../src/time.js';
 
 function nickname(input: string): Nickname {
   return requireDefined(parseNickname(input), 'Invalid test nickname', input);
@@ -25,7 +27,7 @@ const TOKEN = `${base64Url({
   alg: 'HS256',
   typ: 'JWT',
 })}.${base64Url({
-  exp: Math.floor(Date.now() / 1000) + 3600,
+  exp: Math.floor(msToSec(Date.now())) + 3600,
 })}.signature`;
 
 const USER_RECORD: RecordModel = {
@@ -36,6 +38,8 @@ const USER_RECORD: RecordModel = {
   name: 'Player',
   verified: true,
   isEditor: false,
+  nickname: '과즙이4829',
+  featuredAchievement: '',
 };
 
 const EARNED_AT = '2026-10-21T09:12:33.000Z';
@@ -48,9 +52,59 @@ const stats = {
   allPerfectChartCount: 3,
 };
 
-function achievementEntries() {
-  return ACHIEVEMENT_IDS.map((id) => ({
+function servedOf(id: string, set: string, retired = false) {
+  return {
+    key: id,
+    achievementSet: set,
+    category: 'play',
+    kind: 'plays',
+    target: 1,
+    mark: '',
+    difficulty: '',
+    zodiac: '',
+    album: '',
+    retired,
+    names: {
+      ko: id,
+      ja: id,
+      en: id,
+    },
+  };
+}
+
+function definitionOf(
+  id: string,
+  set: NamedAchievementDefinition['set'],
+  isRetired = false,
+): NamedAchievementDefinition {
+  return {
     id,
+    set,
+    category: 'play',
+    rule: {
+      kind: 'plays',
+      target: 1,
+    },
+    isRetired,
+    names: {
+      ko: id,
+      ja: id,
+      en: id,
+    },
+  };
+}
+
+const ACTIVE: readonly [string, NamedAchievementDefinition['set']][] = [
+  ['FIRST_CLEAR', 'rhythm'],
+  ['PLAY_3', 'rhythm'],
+  ['ZODIAC_ARIES', 'zodiac'],
+  ['ALBUM_ORBIT_CLEAR', 'discography'],
+];
+const ACTIVE_IDS = ACTIVE.map(([id]) => id);
+
+function achievementEntries() {
+  return ACTIVE.map(([id, set]) => ({
+    definition: servedOf(id, set),
     earnedAt: id === 'FIRST_CLEAR' ? EARNED_AT : null,
     current: id === 'FIRST_CLEAR' ? 1 : 0,
     target: 1,
@@ -60,9 +114,11 @@ function achievementEntries() {
 function profileResponse(overrides: Record<string, unknown> = {}) {
   return {
     nickname: '과즙이4829',
-    featuredAchievement: 'FIRST_CLEAR',
+    featuredAchievement: servedOf('FIRST_CLEAR', 'rhythm'),
     stats,
     achievements: achievementEntries(),
+    retiredAchievements: [servedOf('S_20_CHARTS', 'rhythm', true)],
+    albumNames: { album1: 'Orbit' },
     newAchievements: ['FIRST_CLEAR'],
     ...overrides,
   };
@@ -79,11 +135,7 @@ function respondWith(status: number, body: unknown) {
 }
 
 function getRequest(fetchMock: ReturnType<typeof respondWith>) {
-  const call = fetchMock.mock.calls[0];
-  if (call === undefined) {
-    throw new Error('missing request');
-  }
-  const [input, init] = call;
+  const [input, init] = requireDefined(fetchMock.mock.calls[0], 'missing request');
   const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
   return {
     url: new URL(input),
@@ -116,12 +168,33 @@ function errorBody(status: number, code: string) {
   };
 }
 
+function fieldErrorBody(field: string, code: string) {
+  return {
+    status: 400,
+    message: 'Failed to update record.',
+    data: {
+      [field]: {
+        code,
+        message: 'failed',
+      },
+    },
+  };
+}
+
+function updatedUser(overrides: Record<string, unknown>) {
+  return {
+    ...USER_RECORD,
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('loadProfile', () => {
-  it('gets the profile path and parses earned times into ms', async () => {
+  it('gets the profile path and builds the screen catalog from the served definitions', async () => {
     const fetchMock = respondWith(200, profileResponse());
 
     const profile = await loadProfile(signedInClient());
@@ -131,17 +204,19 @@ describe('loadProfile', () => {
     expect(request.url.pathname).toBe('/api/dazbeat/profile');
     expect(request.authorization).toBe(TOKEN);
     expect(profile.nickname).toBe('과즙이4829');
-    expect(profile.featuredAchievement).toBe('FIRST_CLEAR');
+    expect(profile.featuredAchievement).toEqual(definitionOf('FIRST_CLEAR', 'rhythm'));
     expect(profile.stats).toEqual(stats);
-    expect(profile.achievements.map(({ id }) => id)).toEqual(ACHIEVEMENT_IDS);
+    expect(profile.achievements.map(({ definition }) => definition.id)).toEqual(ACTIVE_IDS);
     expect(profile.achievements[0]).toEqual({
-      id: 'FIRST_CLEAR',
+      definition: definitionOf('FIRST_CLEAR', 'rhythm'),
       earnedAtMs: Date.parse(EARNED_AT),
       current: 1,
       target: 1,
     });
     expect(profile.achievements[1]?.earnedAtMs).toBeNull();
-    expect([...profile.newAchievements]).toEqual(['FIRST_CLEAR']);
+    expect([...profile.newAchievements].map(({ id }) => id)).toEqual(['FIRST_CLEAR']);
+    expect(profile.catalog.definitions.map(({ id }) => id)).toEqual([...ACTIVE_IDS, 'S_20_CHARTS']);
+    expect(profile.catalog.albumNames).toEqual(new Map([['album1', 'Orbit']]));
   });
 
   it('accepts no featured achievement', async () => {
@@ -152,34 +227,24 @@ describe('loadProfile', () => {
     expect(profile.featuredAchievement).toBeNull();
   });
 
-  it('rejects a profile missing one of the catalog achievements', async () => {
-    respondWith(200, profileResponse({ achievements: achievementEntries().slice(1) }));
+  it('accepts a retired featured achievement', async () => {
+    respondWith(
+      200,
+      profileResponse({ featuredAchievement: servedOf('S_20_CHARTS', 'rhythm', true) }),
+    );
 
-    await expect(loadProfile(signedInClient())).rejects.toThrow();
+    const profile = await loadProfile(signedInClient());
+
+    expect(profile.featuredAchievement).toEqual(definitionOf('S_20_CHARTS', 'rhythm', true));
   });
 
-  it('rejects a profile listing an achievement twice', async () => {
-    const entries = achievementEntries();
-    const duplicated = [...entries.slice(0, -1), entries[0]];
-    respondWith(200, profileResponse({ achievements: duplicated }));
-
-    await expect(loadProfile(signedInClient())).rejects.toThrow();
-  });
-
-  it('rejects a profile with an unknown achievement ID', async () => {
-    const entries = achievementEntries();
+  it('rejects a profile leaving a set without a visible achievement', async () => {
     respondWith(
       200,
       profileResponse({
-        achievements: [
-          ...entries,
-          {
-            id: 'COMBO_100',
-            earnedAt: null,
-            current: 0,
-            target: 1,
-          },
-        ],
+        achievements: achievementEntries().filter(
+          ({ definition }) => definition.key !== 'ZODIAC_ARIES',
+        ),
       }),
     );
 
@@ -205,24 +270,63 @@ describe('loadProfile', () => {
 });
 
 describe('changeNickname', () => {
-  it('posts the nickname and resolves the stored value', async () => {
-    const fetchMock = respondWith(200, { nickname: 'Star_01' });
+  it('patches the own users record and resolves the stored value', async () => {
+    const fetchMock = respondWith(200, updatedUser({ nickname: 'Star_01' }));
+    const pb = signedInClient();
 
-    await expect(changeNickname(signedInClient(), nickname(' Star_01 '))).resolves.toBe('Star_01');
+    await expect(changeNickname(pb, nickname('star_01'))).resolves.toBe('Star_01');
 
     const request = getRequest(fetchMock);
-    expect(request.method).toBe('POST');
-    expect(request.url.pathname).toBe('/api/dazbeat/profile/nickname');
-    expect(request.body).toEqual({ nickname: 'Star_01' });
+    expect(request.method).toBe('PATCH');
+    expect(request.url.pathname).toBe('/api/collections/users/records/user1');
+    expect(request.body).toEqual({ nickname: 'star_01' });
+    expect(getCurrentUser(pb)?.nickname).toBe('Star_01');
+  });
+
+  it('rejects without a request when nobody is signed in', async () => {
+    const fetchMock = respondWith(200, updatedUser({ nickname: 'Star' }));
+
+    const error = await captureError(
+      changeNickname(new PocketBase('http://pb.test'), nickname('Star')),
+    );
+
+    expect(error).toBeInstanceOf(ProfileRequestError);
+    expect(error).toMatchObject({ kind: 'unauthorized' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([
-    [400, 'invalid_nickname', 'invalidNickname'],
-    [409, 'nickname_taken', 'nicknameTaken'],
-    [400, 'invalid_request', 'failed'],
-    [401, 'unauthorized', 'unauthorized'],
-  ])('turns %i %s into %s', async (status, code, kind) => {
-    respondWith(status, errorBody(status, code));
+    [
+      '400 nickname invalid_nickname',
+      400,
+      fieldErrorBody('nickname', 'invalid_nickname'),
+      'invalidNickname',
+    ],
+    [
+      '400 nickname validation_not_unique',
+      400,
+      fieldErrorBody('nickname', 'validation_not_unique'),
+      'nicknameTaken',
+    ],
+    ['401', 401, errorBody(401, 'unauthorized'), 'unauthorized'],
+    [
+      '404',
+      404,
+      {
+        status: 404,
+        message: 'Not found.',
+        data: {},
+      },
+      'failed',
+    ],
+    [
+      '400 code on another field',
+      400,
+      fieldErrorBody('isEditor', 'validation_not_unique'),
+      'failed',
+    ],
+  ])('turns %s into %s', async (_case, status, body, kind) => {
+    respondWith(status, body);
 
     const error = await captureError(changeNickname(signedInClient(), nickname('Star')));
 
@@ -256,31 +360,34 @@ describe('isNicknameAvailable', () => {
 });
 
 describe('setFeaturedAchievement', () => {
-  it('posts the achievement and resolves the stored value', async () => {
-    const fetchMock = respondWith(200, { featuredAchievement: 'FIRST_CLEAR' });
+  it('patches the own users record and resolves the stored value', async () => {
+    const fetchMock = respondWith(200, updatedUser({ featuredAchievement: 'FIRST_CLEAR' }));
+    const pb = signedInClient();
 
-    await expect(setFeaturedAchievement(signedInClient(), 'FIRST_CLEAR')).resolves.toBe(
-      'FIRST_CLEAR',
-    );
+    await expect(setFeaturedAchievement(pb, 'FIRST_CLEAR')).resolves.toBe('FIRST_CLEAR');
 
     const request = getRequest(fetchMock);
-    expect(request.method).toBe('POST');
-    expect(request.url.pathname).toBe('/api/dazbeat/profile/featured');
-    expect(request.body).toEqual({ achievement: 'FIRST_CLEAR' });
+    expect(request.method).toBe('PATCH');
+    expect(request.url.pathname).toBe('/api/collections/users/records/user1');
+    expect(request.body).toEqual({ featuredAchievement: 'FIRST_CLEAR' });
+    expect(getCurrentUser(pb)?.featuredAchievement).toBe('FIRST_CLEAR');
   });
 
-  it('posts null to clear the featured achievement', async () => {
-    const fetchMock = respondWith(200, { featuredAchievement: null });
+  it('saves an empty value to clear the featured achievement', async () => {
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(TOKEN, updatedUser({ featuredAchievement: 'FIRST_CLEAR' }));
+    const fetchMock = respondWith(200, updatedUser({ featuredAchievement: '' }));
 
-    await expect(setFeaturedAchievement(signedInClient(), null)).resolves.toBeNull();
+    await expect(setFeaturedAchievement(pb, null)).resolves.toBeNull();
 
-    expect(getRequest(fetchMock).body).toEqual({ achievement: null });
+    expect(getRequest(fetchMock).body).toEqual({ featuredAchievement: '' });
+    expect(getCurrentUser(pb)?.featuredAchievement).toBeNull();
   });
 
-  it('turns 409 achievement_not_earned into a notEarned error', async () => {
-    respondWith(409, errorBody(409, 'achievement_not_earned'));
+  it('turns 400 featuredAchievement achievement_not_earned into a notEarned error', async () => {
+    respondWith(400, fieldErrorBody('featuredAchievement', 'achievement_not_earned'));
 
-    const error = await captureError(setFeaturedAchievement(signedInClient(), 'FIRST_AP'));
+    const error = await captureError(setFeaturedAchievement(signedInClient(), 'PLAY_3'));
 
     expect(error).toMatchObject({ kind: 'notEarned' });
   });

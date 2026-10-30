@@ -8,6 +8,7 @@ import { createClient, createTempDir, removeTempDir, startPocketBase } from './p
 import type { PocketBaseServer } from './pocketBaseServer.js';
 import { createChart, createSong, createUser, excludeLoopbackFromRateLimits } from './testData.js';
 import type { TestUser } from './testData.js';
+import { requireDefined } from '../../../src/invariant.js';
 
 const SONG_KEY = 'quota';
 const GAME_END_MS = 5_000;
@@ -116,11 +117,7 @@ async function findQuota(userId: string): Promise<RecordModel | undefined> {
 }
 
 async function requireQuota(userId: string): Promise<RecordModel> {
-  const quota = await findQuota(userId);
-  if (quota === undefined) {
-    throw new Error(`User ${userId} has no quota row`);
-  }
-  return quota;
+  return requireDefined(await findQuota(userId), 'User has no quota row', userId);
 }
 
 async function countQuotas(): Promise<number> {

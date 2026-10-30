@@ -3,8 +3,11 @@ import type { RecordModel } from 'pocketbase';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChartCache } from '../../src/backend/ChartCache.js';
 import { preparePlay, submitPlay } from '../../src/backend/playSessions.js';
+import type { AchievementCatalog } from '../../src/data/achievements.js';
 import type { PlaySubmission } from '../../src/data/playSubmission.js';
 import type { ChartRef, Song } from '../../src/data/songs.js';
+import { requireDefined } from '../../src/invariant.js';
+import { msToSec } from '../../src/time.js';
 
 const song: Song = {
   id: 'test-song',
@@ -28,6 +31,25 @@ const normalChart: ChartRef = {
 
 const REVISION = 'a'.repeat(64);
 
+const CATALOG: AchievementCatalog = {
+  definitions: ['FIRST_FINISH', 'FIRST_CLEAR', 'PLAY_3'].map((id) => ({
+    id,
+    set: 'rhythm',
+    category: 'play',
+    rule: {
+      kind: 'plays',
+      target: 1,
+    },
+    isRetired: false,
+    names: {
+      ko: id,
+      ja: id,
+      en: id,
+    },
+  })),
+  albumNames: new Map(),
+};
+
 function base64Url(value: object): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
@@ -37,7 +59,7 @@ const TOKEN = `${base64Url({
   alg: 'HS256',
   typ: 'JWT',
 })}.${base64Url({
-  exp: Math.floor(Date.now() / 1000) + 3600,
+  exp: Math.floor(msToSec(Date.now())) + 3600,
 })}.signature`;
 
 const USER_RECORD: RecordModel = {
@@ -97,11 +119,7 @@ function respondWith(status: number, body: unknown) {
 }
 
 function getRequest(fetchMock: ReturnType<typeof stubFetch>, index = 0) {
-  const call = fetchMock.mock.calls[index];
-  if (call === undefined) {
-    throw new Error('missing request');
-  }
-  const [input, init] = call;
+  const [input, init] = requireDefined(fetchMock.mock.calls[index], 'missing request', index);
   const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
   return {
     url: new URL(input),
@@ -140,7 +158,7 @@ describe('submitPlay', () => {
       score: 999,
       userId: 'other',
     };
-    await submitPlay(signedInClient(), 'session1', withExtraFields);
+    await submitPlay(signedInClient(), CATALOG, 'session1', withExtraFields);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = getRequest(fetchMock);
@@ -159,14 +177,21 @@ describe('submitPlay', () => {
       newAchievements: ['FIRST_FINISH', 'FIRST_CLEAR'],
     });
 
-    await expect(submitPlay(signedInClient(), 'session1', submission)).resolves.toEqual({
+    const { newAchievements, ...play } = await submitPlay(
+      signedInClient(),
+      CATALOG,
+      'session1',
+      submission,
+    );
+
+    expect(play).toEqual({
       score: 1000000,
       accuracy: 100,
       maxCombo: 1,
       cleared: true,
       bestScore: 1000000,
-      newAchievements: ['FIRST_FINISH', 'FIRST_CLEAR'],
     });
+    expect(newAchievements.map(({ id }) => id)).toEqual(['FIRST_FINISH', 'FIRST_CLEAR']);
   });
 
   it('drops unknown achievement IDs with a warning and keeps the result', async () => {
@@ -176,9 +201,9 @@ describe('submitPlay', () => {
       newAchievements: ['FIRST_FINISH', 'COMBO_100', 'PLAY_3'],
     });
 
-    const play = await submitPlay(signedInClient(), 'session1', submission);
+    const play = await submitPlay(signedInClient(), CATALOG, 'session1', submission);
 
-    expect(play.newAchievements).toEqual(['FIRST_FINISH', 'PLAY_3']);
+    expect(play.newAchievements.map(({ id }) => id)).toEqual(['FIRST_FINISH', 'PLAY_3']);
     expect(play.score).toBe(1000000);
     expect(warn).toHaveBeenCalledWith(expect.any(String), 'COMBO_100');
   });
@@ -186,7 +211,7 @@ describe('submitPlay', () => {
   it('resolves no new achievements when the response has no newAchievements field', async () => {
     respondWith(200, verifiedResponse);
 
-    const play = await submitPlay(signedInClient(), 'session1', submission);
+    const play = await submitPlay(signedInClient(), CATALOG, 'session1', submission);
 
     expect(play.newAchievements).toEqual([]);
   });
@@ -197,7 +222,7 @@ describe('submitPlay', () => {
       newAchievements: [1],
     });
 
-    await expect(submitPlay(signedInClient(), 'session1', submission)).rejects.toThrow();
+    await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).rejects.toThrow();
   });
 
   it('rejects when the response is not a verified result', async () => {
@@ -206,7 +231,7 @@ describe('submitPlay', () => {
       cleared: 'yes',
     });
 
-    await expect(submitPlay(signedInClient(), 'session1', submission)).rejects.toThrow();
+    await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).rejects.toThrow();
   });
 
   it.each([
@@ -221,7 +246,7 @@ describe('submitPlay', () => {
       message: 'Rejected.',
     });
 
-    const error = await captureError(submitPlay(signedInClient(), 'session1', submission));
+    const error = await captureError(submitPlay(signedInClient(), CATALOG, 'session1', submission));
 
     expect(error).toMatchObject({
       name: 'PlaySessionError',
@@ -242,7 +267,7 @@ describe('submitPlay', () => {
       data: {},
     });
 
-    const error = await captureError(submitPlay(signedInClient(), 'session1', submission));
+    const error = await captureError(submitPlay(signedInClient(), CATALOG, 'session1', submission));
 
     expect(error).toMatchObject({
       name: 'PlaySessionError',
@@ -254,7 +279,7 @@ describe('submitPlay', () => {
   it('rejects a network failure as status 0 network', async () => {
     stubFetch(() => Promise.reject(new TypeError('Failed to fetch')));
 
-    const error = await captureError(submitPlay(signedInClient(), 'session1', submission));
+    const error = await captureError(submitPlay(signedInClient(), CATALOG, 'session1', submission));
 
     expect(error).toMatchObject({
       name: 'PlaySessionError',
@@ -298,10 +323,11 @@ describe('preparePlay', () => {
 
   function stubRoutes(routes: Record<string, (Response | Error)[]>) {
     return stubFetch((input) => {
-      const reply = routes[new URL(input).pathname]?.shift();
-      if (reply === undefined) {
-        throw new Error(`unexpected request ${input}`);
-      }
+      const reply = requireDefined(
+        routes[new URL(input).pathname]?.shift(),
+        'unexpected request',
+        input,
+      );
       return reply instanceof Error ? Promise.reject(reply) : Promise.resolve(reply);
     });
   }

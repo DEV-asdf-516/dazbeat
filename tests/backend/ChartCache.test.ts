@@ -4,6 +4,7 @@ import { ChartCache } from '../../src/backend/ChartCache.js';
 import type { LoadedChart } from '../../src/backend/charts.js';
 import type { ChartRef, Song } from '../../src/data/songs.js';
 import type { Chart } from '../../src/rhythm/types.js';
+import { requireDefined } from '../../src/invariant.js';
 
 const song: Song = {
   id: 'test-song',
@@ -74,11 +75,7 @@ function pendingResponse(): { response: Promise<Response>; respond: (response: R
 
 function stubFetch(...responses: (Response | Promise<Response>)[]) {
   const fetchMock = vi.fn<(input: string) => Promise<Response>>(() => {
-    const response = responses.shift();
-    if (response === undefined) {
-      throw new Error('unexpected request');
-    }
-    return Promise.resolve(response);
+    return Promise.resolve(requireDefined(responses.shift(), 'unexpected request'));
   });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;

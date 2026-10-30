@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { requireDefined } from '../../../src/invariant.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -26,10 +27,7 @@ const ARCH_NAMES: Partial<Record<NodeJS.Architecture, string>> = {
 async function readPocketBaseVersion(): Promise<string> {
   const dockerfile = await readFile(DOCKERFILE_PATH, 'utf8');
   const match = /^ARG PB_VERSION=(\S+)$/m.exec(dockerfile);
-  if (match?.[1] === undefined) {
-    throw new Error(`ARG PB_VERSION not found in ${DOCKERFILE_PATH}`);
-  }
-  return match[1];
+  return requireDefined(match?.[1], 'ARG PB_VERSION not found', DOCKERFILE_PATH);
 }
 
 function getReleaseAssetName(version: string): string {
@@ -55,11 +53,7 @@ async function download(url: string): Promise<Buffer> {
 
 function findChecksum(checksums: string, assetName: string): string {
   const line = checksums.split('\n').find((entry) => entry.trim().endsWith(` ${assetName}`));
-  const checksum = line?.trim().split(/\s+/)[0];
-  if (checksum === undefined) {
-    throw new Error(`checksums.txt has no entry for ${assetName}`);
-  }
-  return checksum;
+  return requireDefined(line?.trim().split(/\s+/)[0], 'checksums.txt has no entry', assetName);
 }
 
 export async function ensurePocketBaseBinary(): Promise<string> {

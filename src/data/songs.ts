@@ -4,6 +4,7 @@ import { clamp } from '../range.js';
 
 export type SongCategory = 'original' | 'cover';
 export type SongFilter = 'all' | SongCategory;
+export type SongScope = 'published' | 'all';
 export type Zodiac =
   | 'aries'
   | 'taurus'
@@ -31,7 +32,7 @@ export interface Song {
   gameStartMs: number;
   gameEndMs: number;
   chartIds: ChartIds;
-  visualTheme?: string;
+  previewStartMs?: number;
   credit?: readonly string[];
 }
 
@@ -120,9 +121,6 @@ export function findChart(
 
 export function stepChart(current: ChartRef, delta: number): ChartRef {
   const charts = getAvailableCharts(current.song, current.laneCount);
-  if (charts.length === 0) {
-    return current;
-  }
   const index = charts.findIndex((chart) => chart.difficulty === current.difficulty);
   const next = charts[clamp(index + delta, 0, charts.length - 1)];
   return next === undefined || next.difficulty === current.difficulty ? current : next;

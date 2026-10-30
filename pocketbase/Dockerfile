@@ -1,6 +1,6 @@
 FROM alpine:3.24
 
-ARG PB_VERSION=0.40.4
+ARG PB_VERSION=0.40.6
 ARG TARGETARCH
 
 RUN apk add --no-cache ca-certificates

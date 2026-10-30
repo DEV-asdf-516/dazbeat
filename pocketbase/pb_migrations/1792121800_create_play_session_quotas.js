@@ -3,7 +3,7 @@ migrate(
   (app) => {
     const users = app.findCollectionByNameOrId('users');
 
-    // Only superusers and server hooks touch it.
+    // superuser 와 서버 훅만 다룬다.
     const playSessionQuotas = new Collection({
       type: 'base',
       name: 'play_session_quotas',

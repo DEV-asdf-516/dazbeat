@@ -3,6 +3,7 @@ import { basename, extname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { parseChart } from '../../src/data/chartSchema.js';
+import { parseJson } from '../../src/json.js';
 import { formatPath } from '../../src/data/parseIssue.js';
 import {
   DIFFICULTIES,
@@ -14,7 +15,7 @@ import {
 import { LANE_COUNTS } from '../../src/rhythm/lanes.js';
 import type { Chart, Difficulty, LaneCount } from '../../src/rhythm/types.js';
 
-export const DEFAULT_SEED_DATA_DIR = new URL('./data/', import.meta.url);
+export const DEFAULT_SEED_DATA_DIR = new URL('./data', import.meta.url);
 
 const MANIFEST_FILE_NAME = 'manifest.json';
 const PREPARE_GUIDE =
@@ -27,6 +28,12 @@ const JACKET_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
   '.webp': 'image/webp',
 };
 
+export interface SeedAlbum {
+  key: string;
+  name: string;
+  sortOrder: number;
+}
+
 export interface SeedSong {
   key: string;
   title: string;
@@ -34,12 +41,20 @@ export interface SeedSong {
   youtubeVideoId: string;
   accentColor: number;
   constellation: Zodiac;
+  /** albums 의 key. */
+  album?: string;
   releasedOn: string;
   gameStartMs: number;
   gameEndMs: number;
+  previewStartMs?: number;
   credit?: readonly string[];
   jacket: { fileName: string; type: string; bytes: Uint8Array<ArrayBuffer> };
   charts: readonly { laneCount: LaneCount; difficulty: Difficulty; data: Chart }[];
+}
+
+export interface SeedManifest {
+  albums: readonly SeedAlbum[];
+  songs: SeedSong[];
 }
 
 export class InvalidSeedDataError extends Error {
@@ -50,43 +65,79 @@ export class InvalidSeedDataError extends Error {
   }
 }
 
-const manifestSchema = z.strictObject({
-  version: z.literal(2),
-  songs: z
-    .array(
-      z.strictObject({
-        key: z.string().min(1),
-        title: z.string().min(1),
-        category: z.enum(SONG_CATEGORIES),
-        youtubeVideoId: z.string().min(1),
-        accentColor: z.int(),
-        constellation: z.enum(ZODIACS),
-        releasedOn: z.iso.date(),
-        gameStartMs: z.number(),
-        gameEndMs: z.number(),
-        credit: z.array(z.string()).optional(),
-        jacket: z.string(),
-        charts: z.partialRecord(
-          z.templateLiteral([z.literal(LANE_COUNTS)]),
-          z.partialRecord(z.enum(DIFFICULTIES), z.string()),
-        ),
-      }),
-    )
-    .min(1, 'must not be empty')
-    .superRefine((songs, ctx) => {
-      const seenKeys = new Set<string>();
-      for (const [index, song] of songs.entries()) {
-        if (seenKeys.has(song.key)) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [index, 'key'],
-            message: `duplicates "${song.key}"`,
-          });
+const manifestSchema = z
+  .strictObject({
+    version: z.literal(2),
+    albums: z
+      .array(
+        z.strictObject({
+          key: z.string().regex(/^[a-z][A-Za-z0-9]*$/),
+          name: z.string().min(1),
+          sortOrder: z.int(),
+        }),
+      )
+      .superRefine((albums, ctx) => {
+        const seenKeys = new Set<string>();
+        for (const [index, album] of albums.entries()) {
+          if (seenKeys.has(album.key)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [index, 'key'],
+              message: `duplicates "${album.key}"`,
+            });
+          }
+          seenKeys.add(album.key);
         }
-        seenKeys.add(song.key);
+      }),
+    songs: z
+      .array(
+        z.strictObject({
+          key: z.string().min(1),
+          title: z.string().min(1),
+          category: z.enum(SONG_CATEGORIES),
+          youtubeVideoId: z.string().min(1),
+          accentColor: z.int(),
+          constellation: z.enum(ZODIACS),
+          album: z.string().optional(),
+          releasedOn: z.iso.date(),
+          gameStartMs: z.number(),
+          gameEndMs: z.number(),
+          previewStartMs: z.int().min(0).optional(),
+          credit: z.array(z.string()).optional(),
+          jacket: z.string(),
+          charts: z.partialRecord(
+            z.templateLiteral([z.literal(LANE_COUNTS)]),
+            z.partialRecord(z.enum(DIFFICULTIES), z.string()),
+          ),
+        }),
+      )
+      .min(1, 'must not be empty')
+      .superRefine((songs, ctx) => {
+        const seenKeys = new Set<string>();
+        for (const [index, song] of songs.entries()) {
+          if (seenKeys.has(song.key)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [index, 'key'],
+              message: `duplicates "${song.key}"`,
+            });
+          }
+          seenKeys.add(song.key);
+        }
+      }),
+  })
+  .superRefine(({ albums, songs }, ctx) => {
+    const albumKeys = new Set(albums.map(({ key }) => key));
+    for (const [index, song] of songs.entries()) {
+      if (song.album !== undefined && !albumKeys.has(song.album)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['songs', index, 'album'],
+          message: `is not a key in albums: "${song.album}"`,
+        });
       }
-    }),
-});
+    }
+  });
 
 type ManifestSong = z.infer<typeof manifestSchema>['songs'][number];
 
@@ -141,13 +192,12 @@ async function readDataFile(url: URL, location: string): Promise<Buffer<ArrayBuf
   }
 }
 
-function parseJson(text: string, url: URL, location: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new InvalidSeedDataError(fileURLToPath(url), `${location} is not JSON: ${reason}`);
+function readJson(text: string, url: URL, location: string): unknown {
+  const value = parseJson(text);
+  if (value === undefined) {
+    throw new InvalidSeedDataError(fileURLToPath(url), `${location} is not JSON`);
   }
+  return value;
 }
 
 async function loadJacket(dataDir: URL, song: ManifestSong): Promise<SeedSong['jacket']> {
@@ -181,7 +231,7 @@ async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['c
       }
       const location = `song "${song.key}" charts.${laneCount}.${difficulty}`;
       const url = resolveDataPath(dataDir, relativePath, location);
-      const json = parseJson((await readDataFile(url, location)).toString('utf8'), url, location);
+      const json = readJson((await readDataFile(url, location)).toString('utf8'), url, location);
       try {
         const data = parseChart(
           json,
@@ -207,11 +257,11 @@ async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['c
   return charts;
 }
 
-export async function loadSeedManifest(dataDir: URL): Promise<SeedSong[]> {
+export async function loadSeedManifest(dataDir: URL): Promise<SeedManifest> {
   const manifestUrl = new URL(MANIFEST_FILE_NAME, dataDir);
   const manifestPath = fileURLToPath(manifestUrl);
   const text = (await readDataFile(manifestUrl, 'manifest')).toString('utf8');
-  const input = parseJson(text, manifestUrl, 'manifest');
+  const input = readJson(text, manifestUrl, 'manifest');
   const result = manifestSchema.safeParse(input);
   if (!result.success) {
     const [issue] = result.error.issues;
@@ -230,13 +280,18 @@ export async function loadSeedManifest(dataDir: URL): Promise<SeedSong[]> {
       youtubeVideoId: song.youtubeVideoId,
       accentColor: song.accentColor,
       constellation: song.constellation,
+      ...(song.album === undefined ? {} : { album: song.album }),
       releasedOn: song.releasedOn,
       gameStartMs: song.gameStartMs,
       gameEndMs: song.gameEndMs,
+      ...(song.previewStartMs === undefined ? {} : { previewStartMs: song.previewStartMs }),
       ...(song.credit === undefined ? {} : { credit: song.credit }),
       jacket: await loadJacket(dataDir, song),
       charts: await loadCharts(dataDir, song),
     });
   }
-  return songs;
+  return {
+    albums: result.data.albums,
+    songs,
+  };
 }

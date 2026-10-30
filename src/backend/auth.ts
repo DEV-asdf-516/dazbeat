@@ -2,8 +2,6 @@ import { ClientResponseError } from 'pocketbase';
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import type { AuthUser } from '../data/account.js';
-import { findAchievement } from '../data/achievements.js';
-import type { AchievementId } from '../data/achievements.js';
 import { isNickname } from '../data/nickname.js';
 import { HTTP_STATUS } from '../httpStatus.js';
 import { isBoolean, isString } from '../typeGuards.js';
@@ -19,28 +17,14 @@ const POPUP_CLOSE_GRACE_MS = 2000;
 export type FocusTarget = Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 
 function toAuthUser(record: RecordModel): AuthUser {
+  const featuredAchievement = readRecordField(record, 'users', 'featuredAchievement', isString);
   return {
     id: readRecordField(record, 'users', 'id', isString),
     email: readRecordField(record, 'users', 'email', isString),
     nickname: readRecordField(record, 'users', 'nickname', isNickname),
     isEditor: readRecordField(record, 'users', 'isEditor', isBoolean),
-    featuredAchievement: parseFeaturedAchievement(
-      readRecordField(record, 'users', 'featuredAchievement', isString),
-    ),
+    featuredAchievement: featuredAchievement === '' ? null : featuredAchievement,
   };
-}
-
-// 장착 업적은 계정 카드 장식이라, 카탈로그에서 빠진 ID 때문에 로그인 상태를 잃지 않게 장착 없음으로 본다.
-function parseFeaturedAchievement(id: string): AchievementId | null {
-  if (id === '') {
-    return null;
-  }
-  const achievement = findAchievement(id);
-  if (achievement === undefined) {
-    console.warn('Unknown featured achievement on the auth record', id);
-    return null;
-  }
-  return achievement.id;
 }
 
 // 사용자 입력 이벤트 처리 안에서 호출해야 한다(브라우저 팝업 정책).
