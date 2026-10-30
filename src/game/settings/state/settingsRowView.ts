@@ -1,9 +1,9 @@
-import { LANGUAGE_NAMES } from '../../i18n/language.js';
-import type { Language } from '../../i18n/language.js';
-import type { Lane } from '../../rhythm/types.js';
-import type { Settings } from '../../storage/settings.js';
-import { formatKeyCode } from '../ui/format.js';
-import { requireDefined } from '../../invariant.js';
+import { LANGUAGE_NAMES } from '../../../i18n/language.js';
+import type { Language } from '../../../i18n/language.js';
+import type { Lane } from '../../../rhythm/types.js';
+import type { Settings } from '../../../storage/settings.js';
+import { formatKeyCode } from '../../ui/state/format.js';
+import { requireDefined } from '../../../invariant.js';
 import type { SettingsRow } from './settingsAdjust.js';
 
 export function isChoiceRow(row: SettingsRow): boolean {

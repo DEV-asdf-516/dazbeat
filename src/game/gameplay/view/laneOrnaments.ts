@@ -1,9 +1,9 @@
 import type Phaser from 'phaser';
-import { getLanes } from '../../rhythm/lanes.js';
-import type { LaneCount } from '../../rhythm/types.js';
-import { GAMEPLAY_DEPTH } from '../ui/theme.js';
-import { getPlayfieldXAtY } from './playfieldLayout.js';
-import type { PlayfieldLayout } from './playfieldLayout.js';
+import { getLanes } from '../../../rhythm/lanes.js';
+import type { LaneCount } from '../../../rhythm/types.js';
+import { GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
+import { getPlayfieldXAtY } from '../state/playfieldLayout.js';
+import type { PlayfieldLayout } from '../state/playfieldLayout.js';
 
 // 레일 텍스처는 위끝이 옅고 판정선 쪽으로 또렷해지도록 alpha 가 구워져 있어 아래끝을 판정선에 맞춘다.
 const LANE_RAIL = {

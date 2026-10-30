@@ -1,5 +1,5 @@
-import type { KeyHintStyle } from '../ui/keyHintView.js';
-import { CELESTIAL_COLORS } from '../ui/theme.js';
+import type { KeyHintStyle } from '../../ui/view/widgets/keyHintView.js';
+import { CELESTIAL_COLORS } from '../../ui/view/theme.js';
 
 export type EditorTypeRole = 'title' | 'control' | 'body' | 'meta';
 

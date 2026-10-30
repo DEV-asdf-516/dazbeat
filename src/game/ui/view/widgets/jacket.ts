@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
-import type { Song } from '../../data/songs.js';
-import { requireDefined } from '../../invariant.js';
-import { getCenteredSquare } from './jacketCrop.js';
-import { queueImageLoads } from './imageLoad.js';
-import { LIGHT_TEXTURES, addLight, ensureLightTextures } from './lightTextures.js';
-import { COLORS, MOTION, RADIUS } from './theme.js';
+import type { Song } from '../../../../data/songs.js';
+import { requireDefined } from '../../../../invariant.js';
+import { getCenteredSquare } from '../../state/jacketCrop.js';
+import { queueImageLoads } from '../textures/imageLoad.js';
+import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
+import { COLORS, MOTION, RADIUS } from '../theme.js';
 
 const SQUARE_FRAME = 'square';
 const PLACEHOLDER_GLOW_ALPHA = 0.3;
@@ -53,9 +53,6 @@ export function removeJacketTextures(scene: Phaser.Scene, songIds: readonly stri
 abstract class SongCrossfade extends Phaser.GameObjects.Container {
   private front: Phaser.GameObjects.Container;
   private back: Phaser.GameObjects.Container;
-  private song: Song | null = null;
-  private previousSong: Song | null = null;
-  private hasDrawnTexture = false;
 
   constructor(scene: Phaser.Scene, xPx: number, yPx: number) {
     super(scene, xPx, yPx);
@@ -66,13 +63,6 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
   }
 
   setSong(song: Song | null, transition = false): this {
-    const hasTexture = song !== null && this.hasTexture(song);
-    if (song === this.song && hasTexture === this.hasDrawnTexture) {
-      return this;
-    }
-    this.previousSong = this.song;
-    this.song = song;
-    this.hasDrawnTexture = hasTexture;
     [this.front, this.back] = [this.back, this.front];
     this.front.removeAll(true);
     if (song !== null) {
@@ -83,12 +73,16 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
     return this;
   }
 
-  refreshTexture(transition = false): this {
-    return this.setSong(this.song, transition);
+  refreshTexture(song: Song, transition = false): this {
+    if (getJacketSongIds(this.front).length > 0 || !this.hasTexture(song)) {
+      return this;
+    }
+    return this.setSong(song, transition);
   }
 
-  get shownSongs(): readonly Song[] {
-    return [this.song, this.previousSong].filter((shown) => shown !== null);
+  /** 지금 곡과 사라지는 중인 직전 곡의 재킷 텍스처는 지우지 않게 둘 다 돌려준다. */
+  get shownSongIds(): readonly string[] {
+    return [...getJacketSongIds(this.front), ...getJacketSongIds(this.back)];
   }
 
   protected abstract hasTexture(song: Song): boolean;
@@ -133,6 +127,14 @@ export class JacketView extends SongCrossfade {
         .setAlpha(PLACEHOLDER_GLOW_ALPHA),
     ];
   }
+}
+
+function getJacketSongIds(container: Phaser.GameObjects.Container): string[] {
+  return container.list.flatMap((child) =>
+    child instanceof Phaser.GameObjects.Image && child.texture.key.startsWith(JACKET_KEY_PREFIX)
+      ? [child.texture.key.slice(JACKET_KEY_PREFIX.length)]
+      : [],
+  );
 }
 
 function ensureSquareFrame(scene: Phaser.Scene, key: string): void {

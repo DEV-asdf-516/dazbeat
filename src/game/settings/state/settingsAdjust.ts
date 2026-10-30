@@ -1,11 +1,11 @@
-import { LANGUAGES } from '../../i18n/language.js';
-import type { Language } from '../../i18n/language.js';
-import { LANE_COUNTS } from '../../rhythm/lanes.js';
-import type { Lane } from '../../rhythm/types.js';
-import { MV_MODES, SETTINGS_LIMITS } from '../../storage/settings.js';
-import type { Settings } from '../../storage/settings.js';
-import { clamp, stepItem } from '../../range.js';
-import { requireDefined } from '../../invariant.js';
+import { LANGUAGES } from '../../../i18n/language.js';
+import type { Language } from '../../../i18n/language.js';
+import { LANE_COUNTS } from '../../../rhythm/lanes.js';
+import type { Lane } from '../../../rhythm/types.js';
+import { MV_MODES, SETTINGS_LIMITS } from '../../../storage/settings.js';
+import type { Settings } from '../../../storage/settings.js';
+import { clamp, stepItem } from '../../../range.js';
+import { requireDefined } from '../../../invariant.js';
 
 export type VolumeField = 'masterVolume' | 'musicVolume' | 'effectVolume';
 

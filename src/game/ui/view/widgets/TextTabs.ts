@@ -1,8 +1,8 @@
 import type Phaser from 'phaser';
-import { requireDefined } from '../../invariant.js';
-import { DEFAULT_CURSOR, DISABLED_CURSOR, HOVER_CURSOR } from './cursor.js';
-import { bindHoverTarget } from './hoverTarget.js';
-import { COLORS, addTextUnderline, setTextColor, setTextWeight, typeStyle } from './theme.js';
+import { requireDefined } from '../../../../invariant.js';
+import { DEFAULT_CURSOR, DISABLED_CURSOR, HOVER_CURSOR } from '../input/cursor.js';
+import { bindHoverTarget } from '../input/hoverTarget.js';
+import { COLORS, addTextUnderline, setTextColor, setTextWeight, typeStyle } from '../theme.js';
 
 export type TabAppearance = 'disabled' | 'selected' | 'emphasized' | 'normal';
 
@@ -35,8 +35,6 @@ interface Tab<T extends string> {
   readonly key: T;
   readonly text: Phaser.GameObjects.Text;
   readonly underline: Phaser.GameObjects.Rectangle;
-  /** 굵기를 바꾸면 텍스트를 다시 그리므로 모양이 바뀔 때만 적용한다. */
-  appearance: TabAppearance | null;
 }
 
 export class TextTabs<T extends string> {
@@ -65,23 +63,18 @@ export class TextTabs<T extends string> {
         ),
       );
       const underline = addTextUnderline(scene, text, COLORS.textPrimary);
-      const tab: Tab<T> = {
-        key,
-        text,
-        underline,
-        appearance: null,
-      };
+      // 비활성 탭을 눌러도 화면 상태 전이가 같은 참조를 돌려 아무 일도 일어나지 않는다.
       bindHoverTarget(text, {
         onOver: () => actions.onHover(key),
         onOut: () => actions.onUnhover(key),
-        onActivate: () => {
-          if (tab.appearance !== 'disabled') {
-            actions.onSelect(key);
-          }
-        },
+        onActivate: () => actions.onSelect(key),
       });
       xPx += text.width + style.gapPx;
-      return tab;
+      return {
+        key,
+        text,
+        underline,
+      };
     });
     if (layout.align === 'right') {
       // 굵은 폭으로 잰 전체 폭이 나와야 오른쪽 끝을 맞출 수 있어, 다 놓은 뒤 한꺼번에 옮긴다.
@@ -114,10 +107,6 @@ export class TextTabs<T extends string> {
   private renderTab(tab: Tab<T>, appearance: TabAppearance, underlineColor: number): void {
     const { text, underline } = tab;
     underline.setFillStyle(underlineColor).setVisible(appearance === 'selected');
-    if (appearance === tab.appearance) {
-      return;
-    }
-    tab.appearance = appearance;
     const { type, selectedWeight, normalColor } = this.style;
     switch (appearance) {
       case 'disabled':

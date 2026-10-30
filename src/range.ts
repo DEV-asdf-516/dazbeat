@@ -4,8 +4,12 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+export function getFraction(value: number, from: number, to: number): number {
+  return (value - from) / (to - from);
+}
+
 export function getProgress(value: number, from: number, to: number): number {
-  return clamp((value - from) / (to - from), 0, 1);
+  return clamp(getFraction(value, from, to), 0, 1);
 }
 
 export function getDistance(a: number, b: number): number {

@@ -1,7 +1,7 @@
-import type { Song } from '../../data/songs.js';
-import type { HoldNote, Lane, Note } from '../../rhythm/types.js';
-import { clamp, getDistance } from '../../range.js';
-import { msToSec } from '../../time.js';
+import type { Song } from '../../../data/songs.js';
+import type { HoldNote, Lane, Note } from '../../../rhythm/types.js';
+import { clamp, getDistance } from '../../../range.js';
+import { msToSec } from '../../../time.js';
 
 export function toEditTimeMs(timeMs: number, song: Song): number {
   return clamp(Math.round(timeMs), song.gameStartMs, song.gameEndMs);

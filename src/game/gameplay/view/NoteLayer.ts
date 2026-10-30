@@ -1,10 +1,10 @@
 import type Phaser from 'phaser';
-import { requireDefined } from '../../invariant.js';
-import type { GameplaySession } from '../../rhythm/GameplaySession.js';
-import { getNoteY } from '../../rhythm/notePosition.js';
-import type { HoldNote, Lane, Note, TapNote } from '../../rhythm/types.js';
-import { GAME_HEIGHT } from '../config.js';
-import { getHoldRibbonSpans, getNoteEmphasis } from './noteAppearance.js';
+import { requireDefined } from '../../../invariant.js';
+import type { GameplaySession } from '../../../rhythm/GameplaySession.js';
+import { getNoteY } from '../../../rhythm/notePosition.js';
+import type { HoldNote, Lane, Note, TapNote } from '../../../rhythm/types.js';
+import { GAME_HEIGHT } from '../../app/config.js';
+import { getHoldRibbonSpans, getNoteEmphasis } from '../state/noteAppearance.js';
 import { drainColor, ensureStarButtonTextures } from './gameplayTextures.js';
 import type { StarButtonTextures } from './gameplayTextures.js';
 import {
@@ -12,18 +12,18 @@ import {
   getNotePlate,
   getPerspectiveYPx,
   getPlayfieldXAtY,
-} from './playfieldLayout.js';
-import type { PlayfieldLayout, Trapezoid } from './playfieldLayout.js';
+} from '../state/playfieldLayout.js';
+import type { PlayfieldLayout, Trapezoid } from '../state/playfieldLayout.js';
 import { fillTrapezoid } from './trapezoidFill.js';
-import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
-import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../ui/theme.js';
+import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
+import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../../ui/view/theme.js';
 
-const HOLD_RIBBON_PENDING_ALPHA = 0.75;
+const HOLD_RIBBON_PENDING_ALPHA = 0.9;
 // 면은 어둡고 옅게 물려 캡과 판정선보다 뒤로 물러나 보이게 하고, 가장자리만 차가운 은빛 선으로 남긴다.
 const HOLD_RIBBON_FILL_COLOR = 0x82a4c0;
-const HOLD_RIBBON_FILL_ALPHA = 0.24;
+const HOLD_RIBBON_FILL_ALPHA = 0.42;
 const HOLD_RIBBON_EDGE_COLOR = 0xcfe4f0;
-const HOLD_RIBBON_EDGE_ALPHA = 0.4;
+const HOLD_RIBBON_EDGE_ALPHA = 0.6;
 const HOLD_RIBBON_EDGE_PX = 1;
 const HOLD_CONTACT_WIDTH_RATIO = 132 / 120;
 const HOLD_CONTACT_HEIGHT_PX = 30;
@@ -75,7 +75,6 @@ export interface NoteLayerOptions {
 export class NoteLayer {
   private readonly views = new Map<number, NoteView>();
   private readonly capTextures: StarButtonTextures;
-  private nextSpawnIndex = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -84,19 +83,21 @@ export class NoteLayer {
     this.capTextures = ensureStarButtonTextures(scene);
   }
 
-  render(session: GameplaySession, songTimeMs: number): void {
-    const { notes, playfield } = this.options;
-    const { judgeLineYPx } = playfield;
-    let nextNote = notes[this.nextSpawnIndex];
-    while (
-      nextNote !== undefined &&
-      judgeLineYPx - this.getY(nextNote.timeMs, songTimeMs) <= GAME_HEIGHT
-    ) {
-      this.views.set(this.nextSpawnIndex, this.createView(nextNote));
-      this.nextSpawnIndex += 1;
-      nextNote = notes[this.nextSpawnIndex];
-    }
+  hasEntered(noteTimeMs: number, songTimeMs: number): boolean {
+    return this.options.playfield.judgeLineYPx - this.getY(noteTimeMs, songTimeMs) <= GAME_HEIGHT;
+  }
 
+  spawn({ fromIndex, toIndex }: { readonly fromIndex: number; readonly toIndex: number }): void {
+    for (let noteIndex = fromIndex; noteIndex < toIndex; noteIndex += 1) {
+      this.views.set(
+        noteIndex,
+        this.createView(requireDefined(this.options.notes[noteIndex], 'Unknown note', noteIndex)),
+      );
+    }
+  }
+
+  render(session: GameplaySession, songTimeMs: number): void {
+    const { judgeLineYPx } = this.options.playfield;
     this.views.forEach((view, noteIndex) => {
       const status = session.getNoteStatus(noteIndex);
       if (status === 'hit') {

@@ -1,12 +1,11 @@
 import type Phaser from 'phaser';
-import { MAX_HP } from '../../rhythm/starlight.js';
-import { getStarlightBand, isStarlightDrop } from './starlightBand.js';
-import type { StarlightBand } from './starlightBand.js';
+import { MAX_HP } from '../../../rhythm/starlight.js';
+import { getStarlightBand } from '../state/starlightBand.js';
+import type { StarlightBand } from '../state/starlightBand.js';
 import { ensureCrescentTexture, ensureStarlightFillTexture } from './gameplayTextures.js';
-import { addHudText, setTextShadow } from './hudObjects.js';
-import type { TextShadow } from './hudObjects.js';
-import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
-import { COLORS, GAMEPLAY_DEPTH, MOTION, STATUS_COLORS, typeStyle } from '../ui/theme.js';
+import { HUD_LABEL, HUD_SHADOW_COLOR, addHudText, withHudOutline } from './hudObjects.js';
+import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
+import { COLORS, GAMEPLAY_DEPTH, MOTION, STATUS_COLORS, typeStyle } from '../../ui/view/theme.js';
 
 const WIDTH_PX = 256;
 const FILL_HEIGHT_PX = 6;
@@ -31,24 +30,15 @@ const DROP_FLASH_SCALE = 2.4;
 // 위험 단계 동안 채움이 숨 쉬듯 옅어졌다 돌아온다. 박자와 엇갈리도록 곡과 무관한 느린 주기다.
 const DANGER_BREATH_ALPHA = 0.5;
 const DANGER_BREATH_MS = 700;
-// 영상의 밝은 빛띠가 지나가도 묻히지 않도록 라벨·레일 뒤에 가장자리가 사라지는 어두운 받침을 깐다.
-const BACKING_PADDING_X_PX = 48;
-const BACKING_HEIGHT_PX = 64;
-const BACKING_ALPHA = 0.75;
 const EMBLEM_SIZE_PX = 16;
 const EMBLEM_GAP_PX = 8;
 const LABEL_GAP_PX = 12;
 const LABEL_TYPE = {
-  sizePx: 12,
-  weight: 500,
+  sizePx: 14,
+  weight: HUD_LABEL.weight,
 } as const;
-// 밝은 영상 위에서도 라벨이 읽히도록 글자 바로 뒤에만 좁은 어두운 그림자를 둔다.
-const LABEL_SHADOW: TextShadow = {
-  offsetXPx: 0,
-  offsetYPx: 1,
-  color: 'rgba(8, 15, 32, 0.7)',
-  blurPx: 2,
-} as const;
+const RAIL_SHADOW_OFFSET_Y_PX = 2;
+const RAIL_SHADOW_ALPHA = 0.4;
 
 export class StarlightGauge {
   private readonly parts: readonly Phaser.GameObjects.Components.AlphaSingle[];
@@ -56,8 +46,6 @@ export class StarlightGauge {
   private readonly glint: Phaser.GameObjects.Star;
   private readonly glintGlow: Phaser.GameObjects.Image;
   private readonly leftXPx: number;
-  private hp = MAX_HP;
-  private band: StarlightBand = getStarlightBand(MAX_HP);
   private resize: Phaser.Tweens.Tween | null = null;
   private breath: Phaser.Tweens.Tween | null = null;
 
@@ -70,21 +58,28 @@ export class StarlightGauge {
     const leftXPx = rightXPx - inset - WIDTH_PX;
     const widthPx = WIDTH_PX;
     this.leftXPx = leftXPx;
-    const label = setTextShadow(
-      addHudText(
-        scene,
-        leftXPx - inset - LABEL_GAP_PX,
-        yPx,
-        'STARLIGHT',
-        typeStyle(LABEL_TYPE, COLORS.noteShade),
-      ),
-      LABEL_SHADOW,
+    const label = addHudText(
+      scene,
+      leftXPx - inset - LABEL_GAP_PX,
+      yPx,
+      'STARLIGHT',
+      withHudOutline({
+        ...typeStyle(LABEL_TYPE, HUD_LABEL.color),
+        letterSpacing: HUD_LABEL.letterSpacingPx,
+      }),
     ).setOrigin(1, 0.5);
-    const emblem = addEmblem(scene, label.x - label.width - EMBLEM_GAP_PX, yPx);
-    addBacking(scene, emblem.x - emblem.width, rightXPx, yPx);
+    addEmblem(scene, label.x - label.width - EMBLEM_GAP_PX, yPx);
     const depth = GAMEPLAY_DEPTH.text;
     const rail = scene.add.graphics().setDepth(depth);
     rail
+      .fillStyle(HUD_SHADOW_COLOR, RAIL_SHADOW_ALPHA)
+      .fillRoundedRect(
+        leftXPx - inset,
+        yPx - RAIL_HEIGHT_PX / 2 + RAIL_SHADOW_OFFSET_Y_PX,
+        widthPx + inset * 2,
+        RAIL_HEIGHT_PX,
+        RAIL_HEIGHT_PX / 2,
+      )
       .fillStyle(COLORS.background, TRACK_ALPHA)
       .fillRoundedRect(
         leftXPx - inset,
@@ -110,12 +105,12 @@ export class StarlightGauge {
     this.fill = scene.add
       .image(leftXPx, yPx, ensureStarlightFillTexture(scene, widthPx, FILL_HEIGHT_PX))
       .setOrigin(0, 0.5)
-      .setTint(STATUS_COLORS[this.band])
+      .setTint(STATUS_COLORS[getStarlightBand(MAX_HP)])
       .setDepth(depth);
     const tipXPx = leftXPx + widthPx;
     this.glintGlow = addLight(scene, LIGHT_TEXTURES.star, tipXPx, yPx)
       .setDisplaySize(GLINT_GLOW_SIZE_PX, GLINT_GLOW_SIZE_PX)
-      .setTint(STATUS_COLORS[this.band])
+      .setTint(STATUS_COLORS[getStarlightBand(MAX_HP)])
       .setAlpha(GLINT_GLOW_ALPHA)
       .setDepth(depth);
     this.glint = scene.add
@@ -124,30 +119,20 @@ export class StarlightGauge {
     this.parts = [rail, this.fill, this.glintGlow, this.glint];
   }
 
-  setHp(hp: number): void {
-    if (hp === this.hp) {
-      return;
-    }
-    this.hp = hp;
+  renderFill(hp: number): void {
     this.resize?.stop();
-    const ratio = hp / MAX_HP;
     this.resize = this.scene.tweens.add({
       targets: this.fill,
-      scaleX: ratio,
+      scaleX: hp / MAX_HP,
       duration: MOTION.fastMs,
       onUpdate: () => this.followTip(),
     });
-    const band = getStarlightBand(hp);
-    if (band !== this.band) {
-      const isDrop = isStarlightDrop(this.band, band);
-      this.band = band;
-      this.fill.setTint(STATUS_COLORS[band]);
-      this.glintGlow.setTint(STATUS_COLORS[band]);
-      if (isDrop) {
-        this.flashGlint();
-      }
-      this.setBreathing(band === 'danger');
-    }
+  }
+
+  renderBand(band: StarlightBand, isBreathing: boolean): void {
+    this.fill.setTint(STATUS_COLORS[band]);
+    this.glintGlow.setTint(STATUS_COLORS[band]);
+    this.setBreathing(isBreathing);
   }
 
   extinguish(): void {
@@ -159,7 +144,7 @@ export class StarlightGauge {
     });
   }
 
-  private flashGlint(): void {
+  flashGlint(): void {
     const scale = this.glintGlow.scale;
     this.scene.tweens.killTweensOf(this.glintGlow);
     this.scene.tweens.add({
@@ -174,23 +159,24 @@ export class StarlightGauge {
   }
 
   private setBreathing(isBreathing: boolean): void {
-    if (isBreathing === (this.breath !== null)) {
+    if (this.breath === null) {
+      if (isBreathing) {
+        this.breath = this.scene.tweens.add({
+          targets: this.fill,
+          alpha: DANGER_BREATH_ALPHA,
+          duration: DANGER_BREATH_MS,
+          ease: 'Sine.InOut',
+          yoyo: true,
+          repeat: -1,
+        });
+      }
       return;
     }
     if (!isBreathing) {
-      this.breath?.stop();
+      this.breath.stop();
       this.breath = null;
       this.fill.setAlpha(1);
-      return;
     }
-    this.breath = this.scene.tweens.add({
-      targets: this.fill,
-      alpha: DANGER_BREATH_ALPHA,
-      duration: DANGER_BREATH_MS,
-      ease: 'Sine.InOut',
-      yoyo: true,
-      repeat: -1,
-    });
   }
 
   private followTip(): void {
@@ -200,23 +186,9 @@ export class StarlightGauge {
   }
 }
 
-function addEmblem(scene: Phaser.Scene, rightXPx: number, yPx: number): Phaser.GameObjects.Image {
-  return scene.add
+function addEmblem(scene: Phaser.Scene, rightXPx: number, yPx: number): void {
+  scene.add
     .image(rightXPx, yPx, ensureCrescentTexture(scene, EMBLEM_SIZE_PX))
     .setOrigin(1, 0.5)
     .setDepth(GAMEPLAY_DEPTH.text);
-}
-
-function addBacking(
-  scene: Phaser.Scene,
-  leftXPx: number,
-  rightXPx: number,
-  yPx: number,
-): Phaser.GameObjects.Image {
-  return scene.add
-    .image((leftXPx + rightXPx) / 2, yPx, LIGHT_TEXTURES.glow)
-    .setDisplaySize(rightXPx - leftXPx + BACKING_PADDING_X_PX * 2, BACKING_HEIGHT_PX)
-    .setTint(COLORS.background)
-    .setAlpha(BACKING_ALPHA)
-    .setDepth(GAMEPLAY_DEPTH.laneDivider);
 }

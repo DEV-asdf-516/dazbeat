@@ -1,54 +1,63 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { PlayMode, ResultSceneData, SceneRequest, SongSelectRestore } from '../sceneRoutes.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import { getControlsGuide } from '../app/controlsGuide.js';
+import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
+import type { ResultSceneData, SceneRequest } from '../app/sceneRoutes.js';
+import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import {
   CONSTELLATION_LOOKS,
   getConstellationLines,
   getResultPresentation,
   planSongConstellation,
-} from './resultConstellation.js';
+} from './state/resultConstellation.js';
 import type {
   ConstellationBox,
   ConstellationPlan,
   ConstellationPoint,
-} from './resultConstellation.js';
-import { AchievementToasts } from './AchievementToasts.js';
+} from './state/resultConstellation.js';
+import type { AchievementCatalog } from '../../data/achievements.js';
+import { getAchievementName } from '../ui/state/achievementName.js';
+import { AchievementToasts } from './view/AchievementToasts.js';
 import { ResultController } from './ResultController.js';
-import { RESULT_NODE_ID, planResultFinish } from './resultFinish.js';
-import type { FinishAnchor, FinishCue } from './resultFinish.js';
-import { STAYING } from '../sceneExit.js';
-import type { SceneExit } from '../sceneExit.js';
+import { RESULT_NODE_ID, planResultFinish } from './state/resultFinish.js';
+import type { FinishAnchor, FinishCue } from './state/resultFinish.js';
+import { STAYING } from '../app/sceneExit.js';
+import type { SceneExit } from '../app/sceneExit.js';
 import {
-  createResultState,
+  getChangedRegions,
+  getHoveredToastId,
+  getMenuButtonView,
+  getResultControlsCloseView,
   getRetryTabAppearance,
-  hoverDifficulty,
-  selectRetryDifficulty,
-  stepRetryChart,
-  unhoverDifficulty,
-} from './resultState.js';
-import type { ResultState } from './resultState.js';
-import { DIFFICULTY_TAB_ITEMS } from '../difficultyAppearance.js';
-import type { ChartRef, Song } from '../../data/songs.js';
-import { getRank } from '../../rhythm/rank.js';
+  getToastChanges,
+  isResultControlsEntryHovered,
+  isResultFocused,
+} from './state/resultState.js';
+import type { ResultButton, ResultRegion, ResultState } from './state/resultState.js';
+import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
+import type { Song } from '../../data/songs.js';
+import type { Difficulty } from '../../rhythm/types.js';
 import { JUDGMENTS } from '../../rhythm/judgment.js';
-import { Button } from '../ui/Button.js';
-import { TextTabs } from '../ui/TextTabs.js';
-import type { TextTabsLayout, TextTabsStyle } from '../ui/TextTabs.js';
+import { Button } from '../ui/view/widgets/Button.js';
+import { pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import { TextTabs } from '../ui/view/widgets/TextTabs.js';
+import type { TextTabsLayout, TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import {
   addCelestialSprite,
   playCelestialOnce,
   queueCelestialTextures,
-} from '../celestial/celestialSprites.js';
-import { formatAccuracy, formatScore } from '../ui/format.js';
-import { JacketView, queueJacketLoads } from '../ui/jacket.js';
-import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
-import { MenuFocus } from '../ui/MenuFocus.js';
-import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
-import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
-import type { MenuAction } from '../ui/menuInput.js';
+} from '../celestial/view/celestialSprites.js';
+import { formatAccuracy, formatScore } from '../ui/state/format.js';
+import { JacketView, queueJacketLoads } from '../ui/view/widgets/jacket.js';
+import {
+  LIGHT_TEXTURES,
+  addLight,
+  ensureLightTextures,
+} from '../ui/view/textures/lightTextures.js';
+import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import {
   COLORS,
   JUDGMENT_COLORS,
@@ -56,9 +65,15 @@ import {
   SCREEN_LAYOUT,
   TYPE_SCALE,
   textStyle,
-} from '../ui/theme.js';
+} from '../ui/view/theme.js';
 
-type MenuItem = 'retry' | 'songSelect';
+interface ResultView {
+  readonly chrome: MenuSceneChrome;
+  readonly tabs: TextTabs<Difficulty>;
+  readonly retryButton: Button;
+  readonly songSelectButton: Button;
+  readonly toasts: AchievementToasts;
+}
 
 const LEFT_X_PX = SCREEN_LAYOUT.leftXPx;
 const RIGHT_X_PX = SCREEN_LAYOUT.rightXPx;
@@ -143,6 +158,7 @@ export class ResultScene extends Phaser.Scene {
     private readonly save: LocalSave,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
+    private readonly catalog: AchievementCatalog,
   ) {
     super(SCENE_KEYS.result);
   }
@@ -163,21 +179,50 @@ export class ResultScene extends Phaser.Scene {
 
   create(data: ResultSceneData): void {
     this.exit = STAYING;
-    const chrome = new MenuSceneChrome(this, {
-      celestial: this.celestial,
-      screen: 'result',
-      readControlsMessages: () => this.i18n.t('controls', { returnObjects: true }),
-      readSettings: () => this.save.loadSettings(),
-    });
+    const pointer: ButtonPointer<ResultButton> = {
+      pointerOver: (button) => controller.pointerOver(button),
+      pointerOut: (button) => controller.pointerOut(button),
+      pointerDown: (button) => controller.pointerDown(button),
+      pointerUp: (button) => controller.pointerUp(button),
+    };
+    const chrome = new MenuSceneChrome(
+      this,
+      {
+        celestial: this.celestial,
+        screen: 'result',
+      },
+      {
+        isLeaving: () => this.exit.kind === 'leaving',
+        handleControlsKey: (event) => controller.handleControlsKey(event),
+        handleMenuKey: (action) => {
+          // 곡 선택 화면처럼 ←→ 는 난이도, 메뉴 이동은 ↑↓ 다.
+          switch (action) {
+            case 'left':
+            case 'right':
+              controller.stepDifficulty(action === 'left' ? -1 : 1);
+              return;
+            case 'up':
+              controller.moveFocus(-1);
+              return;
+            case 'down':
+              controller.moveFocus(1);
+              return;
+            case 'confirm':
+              controller.confirm();
+              return;
+            case 'back':
+              controller.back();
+              return;
+            default:
+              return;
+          }
+        },
+      },
+      pointer,
+    );
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
     const { song, laneCount, difficulty, chartId, mode, result, newAchievements, restore } = data;
-    let state = createResultState({
-      song,
-      laneCount,
-      difficulty,
-      chartId,
-    });
-    const activate = (item: MenuItem): void => this.activate(item, state.retryChart, mode, restore);
+    const presentation = getResultPresentation(mode, result);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const titleText = this.add.text(
@@ -193,7 +238,7 @@ export class ResultScene extends Phaser.Scene {
       textStyle('meta', COLORS.textMuted),
     );
     const headerTexts: Phaser.GameObjects.Text[] = [titleText, difficultyText];
-    if (mode === 'practice') {
+    if (presentation.hasPracticeBadge) {
       headerTexts.push(
         this.add.text(
           difficultyText.x + difficultyText.width + PRACTICE_BADGE_GAP_PX,
@@ -205,13 +250,13 @@ export class ResultScene extends Phaser.Scene {
     }
     // 랭크용 display 서체는 별자리 영역과 겹치므로 FAILED 는 더 작은 title 서체로 같은 자리에 둔다.
     const rank =
-      result.outcome === 'failed'
+      presentation.rank.kind === 'failed'
         ? {
             label: 'FAILED',
             style: textStyle('title', JUDGMENT_COLORS.miss),
           }
         : {
-            label: getRank(result.accuracy),
+            label: presentation.rank.grade,
             style: textStyle('display', COLORS.textPrimary),
           };
     const rankText = this.add.text(LEFT_X_PX, RANK_Y_PX, rank.label, rank.style);
@@ -272,16 +317,9 @@ export class ResultScene extends Phaser.Scene {
       label: 'RETRY',
       // 화면의 기본 동작(Enter)이므로 TRACKS 보다 한 단계 크게 둔다.
       labelType: TYPE_SCALE.heading,
-      onActivate: () => activate('retry'),
+      pointer: pointButton(pointer, 'retry'),
     });
     retryButton.setX(RIGHT_X_PX + QUIET_BUTTON_PADDING_X_PX - retryButton.width);
-    const applyState = (next: ResultState): void => {
-      if (next === state) {
-        return;
-      }
-      state = next;
-      renderTabs();
-    };
     const tabs = new TextTabs(
       this,
       DIFFICULTY_TAB_ITEMS,
@@ -290,48 +328,22 @@ export class ResultScene extends Phaser.Scene {
       {
         onSelect: (tabDifficulty) => {
           if (this.exit.kind !== 'leaving') {
-            applyState(selectRetryDifficulty(state, tabDifficulty));
+            controller.selectDifficulty(tabDifficulty);
           }
         },
-        onHover: (tabDifficulty) => applyState(hoverDifficulty(state, tabDifficulty)),
-        onUnhover: (tabDifficulty) => applyState(unhoverDifficulty(state, tabDifficulty)),
+        onHover: (tabDifficulty) => controller.hoverDifficulty(tabDifficulty),
+        onUnhover: (tabDifficulty) => controller.unhoverDifficulty(tabDifficulty),
       },
     );
-    const renderTabs = (): void =>
-      tabs.render((tabDifficulty) => getRetryTabAppearance(state, tabDifficulty), song.accentColor);
-    renderTabs();
     const songSelectButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, 0, {
       variant: 'quiet',
       focus: 'slide',
       label: 'TRACKS',
-      onActivate: () => activate('songSelect'),
+      pointer: pointButton(pointer, 'songSelect'),
     });
     // 글자 크기가 달라 아랫변을 맞춰야 RETRY 와 한 줄로 읽힌다.
     songSelectButton.setY(retryButton.y + retryButton.height - songSelectButton.height);
-    const menu = new MenuFocus<MenuItem>(
-      [
-        {
-          item: 'retry',
-          button: retryButton,
-        },
-        {
-          item: 'songSelect',
-          button: songSelectButton,
-        },
-      ],
-      () => soundEffects.play('menuFocus'),
-      'retry',
-    );
-    chrome.start(rankBounds, {
-      isLeaving: () => this.exit.kind === 'leaving',
-      handleMenuKey: (action) =>
-        this.handleMenuKey(action, menu, activate, (delta) => {
-          if (this.exit.kind !== 'leaving') {
-            applyState(stepRetryChart(state, delta));
-          }
-        }),
-    });
-    const presentation = getResultPresentation(mode, result);
+    chrome.start(rankBounds);
     this.playFinish(
       planResultFinish(
         presentation.hasFinish,
@@ -373,88 +385,95 @@ export class ResultScene extends Phaser.Scene {
     if (presentation.hasFullComboLabel) {
       this.revealFullCombo(rankBounds, song.accentColor);
     }
-    const toasts = new AchievementToasts(this, this.i18n.t('achievements.unlocked'));
+    const view: ResultView = {
+      chrome,
+      tabs,
+      retryButton,
+      songSelectButton,
+      toasts: new AchievementToasts({
+        scene: this,
+        catalog: this.catalog,
+        label: this.i18n.t('achievements.unlocked'),
+        onClose: (id) => controller.dismissToast(id),
+        onHover: (id) => controller.hoverToastClose(id),
+        onUnhover: (id) => controller.unhoverToastClose(id),
+        onExpire: (id) => controller.dismissToast(id),
+        onRemoved: (id) => controller.removeToast(id),
+      }),
+    };
     const controller = new ResultController(
       {
-        showAchievements: (ids) =>
-          toasts.show(
-            ids.map((id) => ({
-              id,
-              name: this.i18n.t(`achievements.names.${id}`),
-            })),
-          ),
+        render: (previous, next) => {
+          for (const region of getChangedRegions(previous, next)) {
+            this.renderRegion(view, previous, next, region);
+          }
+        },
+        playFocusSound: () => soundEffects.play('menuFocus'),
+        leave: (request) => {
+          this.exit = exitScene(this, this.exit, request);
+        },
+      },
+      {
+        song,
+        laneCount,
+        difficulty,
+        chartId,
+      },
+      {
+        mode,
+        restore,
       },
       newAchievements,
     );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
-  private handleMenuKey(
-    action: MenuAction | null,
-    menu: MenuFocus<MenuItem>,
-    activate: (item: MenuItem) => void,
-    stepRetryChart: (delta: 1 | -1) => void,
+  private renderRegion(
+    view: ResultView,
+    previous: ResultState | null,
+    state: ResultState,
+    region: ResultRegion,
   ): void {
-    // 곡 선택 화면처럼 ←→ 는 난이도, 메뉴 이동은 ↑↓ 다.
-    switch (action) {
-      case 'left':
-      case 'right':
-        stepRetryChart(action === 'left' ? -1 : 1);
-        break;
-      case 'up':
-        menu.move(-1);
-        break;
-      case 'down':
-        menu.move(1);
-        break;
-      case 'confirm':
-        activate(menu.getFocused());
-        break;
-      case 'back':
-        activate('songSelect');
-        break;
-      default:
-        break;
-    }
-  }
-
-  private activate(
-    item: MenuItem,
-    retryChart: ChartRef,
-    mode: PlayMode,
-    restore: SongSelectRestore | undefined,
-  ): void {
-    if (this.exit.kind === 'leaving') {
-      return;
-    }
-    const restoreData =
-      restore === undefined
-        ? {}
-        : {
-            restore: {
-              ...restore,
-              difficulty: retryChart.difficulty,
-            },
-          };
-    switch (item) {
-      case 'retry':
-        this.exit = exitScene(this, this.exit, {
-          key: 'gameplay',
-          data: {
-            ...retryChart,
-            mode,
-            ...restoreData,
-          },
-        });
+    switch (region) {
+      case 'tabs':
+        view.tabs.render(
+          (tabDifficulty) => getRetryTabAppearance(state, tabDifficulty),
+          state.retryChart.song.accentColor,
+        );
         return;
-      case 'songSelect':
-        this.exit = exitScene(this, this.exit, {
-          key: 'songSelect',
-          data: {
-            mode,
-            ...restoreData,
-          },
-        });
+      case 'retryButton':
+        view.retryButton.render(getMenuButtonView(state, 'retry'));
+        return;
+      case 'songSelectButton':
+        view.songSelectButton.render(getMenuButtonView(state, 'songSelect'));
+        return;
+      case 'menuFocusMotion':
+        view.retryButton.playFocus(isResultFocused(state, 'retry'));
+        view.songSelectButton.playFocus(isResultFocused(state, 'songSelect'));
+        return;
+      case 'controlsEntry':
+        view.chrome.renderControlsEntry(isResultControlsEntryHovered(state));
+        return;
+      case 'controlsClose':
+        view.chrome.renderControlsClose(getResultControlsCloseView(state));
+        return;
+      case 'toasts':
+        view.toasts.apply(getToastChanges(previous, state), (achievement) =>
+          getAchievementName(this.i18n, achievement),
+        );
+        return;
+      case 'toastClose':
+        view.toasts.renderCloseHover(getHoveredToastId(state));
+        return;
+      case 'controls':
+        view.chrome.renderControls(
+          state.isControlsOpen
+            ? getControlsGuide(
+                this.i18n.t('controls', { returnObjects: true }),
+                this.save.loadSettings(),
+              )
+            : null,
+        );
         return;
     }
   }

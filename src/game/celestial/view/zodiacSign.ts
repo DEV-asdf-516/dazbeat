@@ -1,12 +1,13 @@
 import type Phaser from 'phaser';
-import type { Zodiac } from '../../data/songs.js';
-import { requireDefined } from '../../invariant.js';
-import { getProgress, lerp } from '../../range.js';
-import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/zodiacFigures.js';
-import type { SpectralClass } from '../celestial/zodiacFigures.js';
-import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { fillFourPointStar } from '../ui/starShapes.js';
-import { rgba } from '../ui/lightTextures.js';
+import type { Zodiac } from '../../../data/songs.js';
+import { requireDefined } from '../../../invariant.js';
+import { getProgress, lerp } from '../../../range.js';
+import { ZODIAC_FIGURES, fitZodiacFigure } from '../state/zodiacFigures.js';
+import type { SpectralClass } from '../state/zodiacFigures.js';
+import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
+import { fillFourPointStar } from '../../ui/view/textures/starShapes.js';
+import { rgba } from '../../ui/view/textures/lightTextures.js';
+import { CELESTIAL_COLORS } from '../../ui/view/theme.js';
 
 // 알데바란(0.85등급)이 가장 밝고 물고기자리 κ(4.9등급)가 가장 어둡다.
 // 실제 등급만 따르면 어두운 별자리가 배경에 묻혀서 가장 어두운 별도 보이게 크기와 불투명도의 아래를 올려 둔다.
@@ -42,6 +43,16 @@ const SPARKLE_RADIUS_SCALE = 0.7;
 // 빛살이 별 본체보다 앞서 보이지 않게 별보다 흐리게 둔다.
 const SPARKLE_ALPHA_SCALE = 0.55;
 const SPARKLE_WAIST = 0.1;
+// 심을 너무 밝히면 아래 깔린 하늘색 번짐이 묻혀 순백으로 떠 보이고, 노트 색처럼 따뜻한 흰색은 푸른 하늘 위에서 누렇게 보인다.
+const LINE = {
+  coreWidthPx: 1.5,
+  coreAlpha: 0.7,
+  haloWidthPx: 5,
+  haloAlpha: 0.2,
+  // 넓고 옅은 바깥 번짐을 한 겹 더 둘러 선이 푸른빛으로 빛나 보이게 한다.
+  glowWidthPx: 12,
+  glowAlpha: 0.07,
+} as const;
 
 export interface ZodiacSign {
   textureKey: string;
@@ -59,7 +70,7 @@ export function getZodiacSign(scene: Phaser.Scene, zodiac: Zodiac, spanPx: numbe
   const heightPx = figureHeightPx + GLOW_RADIUS_PX.bright * 2;
   const points = fitZodiacFigure(figure, widthPx / 2, heightPx / 2, spanPx);
   const accentIndex = requireDefined(figure.accentNodeIndices[0], 'Zodiac without accent', zodiac);
-  const textureKey = `song-select:zodiac:${zodiac}:${spanPx}`;
+  const textureKey = `zodiac-sign:${zodiac}:${spanPx}`;
   createCanvasTexture(scene, textureKey, widthPx, heightPx, (context) => {
     points.forEach(([x, y], index) => {
       const magnitude = requireDefined(
@@ -100,6 +111,23 @@ export function getZodiacSign(scene: Phaser.Scene, zodiac: Zodiac, spanPx: numbe
     figureWidthPx,
     figureHeightPx,
   };
+}
+
+// 선은 텍스처에 넣으면 줄일 때 번지므로 화면 좌표에 바로 그린다.
+export function strokeZodiacLine(
+  graphics: Phaser.GameObjects.Graphics,
+  fromXPx: number,
+  fromYPx: number,
+  toXPx: number,
+  toYPx: number,
+): void {
+  graphics
+    .lineStyle(LINE.glowWidthPx, CELESTIAL_COLORS.selected, LINE.glowAlpha)
+    .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
+    .lineStyle(LINE.haloWidthPx, CELESTIAL_COLORS.selected, LINE.haloAlpha)
+    .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
+    .lineStyle(LINE.coreWidthPx, CELESTIAL_COLORS.highlight, LINE.coreAlpha)
+    .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
 }
 
 function fillLight(

@@ -1,9 +1,9 @@
 import type Phaser from 'phaser';
-import { calculateAccuracy } from '../../rhythm/accuracy.js';
-import { JUDGMENTS } from '../../rhythm/judgment.js';
-import type { Judgment, JudgmentCounts } from '../../rhythm/types.js';
-import { formatAccuracy } from '../ui/format.js';
-import { COLORS, JUDGMENT_COLORS, textStyle } from '../ui/theme.js';
+import { requireDefined } from '../../../invariant.js';
+import { JUDGMENTS } from '../../../rhythm/judgment.js';
+import type { Judgment } from '../../../rhythm/types.js';
+import { formatAccuracy } from '../../ui/state/format.js';
+import { COLORS, JUDGMENT_COLORS, textStyle } from '../../ui/view/theme.js';
 import { addHudText } from './hudObjects.js';
 
 const ACCURACY_LINE_HEIGHT_PX = 36;
@@ -17,13 +17,6 @@ export class PracticeStats {
     readonly judgment: Judgment;
     readonly text: Phaser.GameObjects.Text;
   }[];
-  private counts: JudgmentCounts = {
-    perfect: 0,
-    great: 0,
-    good: 0,
-    bad: 0,
-    miss: 0,
-  };
 
   constructor(scene: Phaser.Scene, rightXPx: number, topYPx: number) {
     this.accuracyText = addHudText(
@@ -56,16 +49,15 @@ export class PracticeStats {
     });
   }
 
-  setCounts(counts: JudgmentCounts): void {
-    if (JUDGMENTS.every((judgment) => counts[judgment] === this.counts[judgment])) {
-      return;
-    }
-    this.countRows.forEach(({ judgment, text }) => {
-      if (counts[judgment] !== this.counts[judgment]) {
-        text.setText(`${counts[judgment]}`);
-      }
-    });
-    this.counts = { ...counts };
-    this.accuracyText.setText(formatAccuracy(calculateAccuracy(counts)));
+  renderCount(judgment: Judgment, count: number): void {
+    requireDefined(
+      this.countRows.find((row) => row.judgment === judgment),
+      'Missing practice count row',
+      judgment,
+    ).text.setText(`${count}`);
+  }
+
+  renderAccuracy(accuracy: number): void {
+    this.accuracyText.setText(formatAccuracy(accuracy));
   }
 }

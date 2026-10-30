@@ -5,8 +5,11 @@ import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import { cycleItem } from '../../range.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import { isShallowEqual } from '../../shallowEqual.js';
-import type { SongFeed, SongFeeds } from '../SongFeed.js';
-import type { SongSelectRestore } from '../sceneRoutes.js';
+import type { ChartRecords } from '../../storage/chartRecords.js';
+import type { SongFeed, SongFeeds } from '../app/SongFeed.js';
+import type { SongSelectRestore } from '../app/sceneRoutes.js';
+import { IDLE_WHEEL, readWheelRows } from '../ui/state/wheelRows.js';
+import { readControlsKey } from '../app/controlsGuide.js';
 import {
   canSelectRandomSong,
   clearHover,
@@ -14,31 +17,34 @@ import {
   getSongPage,
   getSongSelectNotice,
   getSongSelectTarget,
+  hoverSongSelectButton,
   isLoadingMoreSongs,
   isOnLastLoadedPage,
   moveDifficulty,
   moveSong,
   openSongSelect,
+  pressSongSelectButton,
+  releaseControlsButtons,
   releaseHover,
+  releaseSongSelectButton,
   selectDifficulty,
   selectRandomSong,
   selectSong,
   setHover,
+  unhoverSongSelectButton,
   withFilter,
   withSongs,
-} from './songSelectState.js';
-import type { SongSelectHover, SongSelectNotice, SongSelectState } from './songSelectState.js';
-
-export interface SongSelectView {
-  readonly state: SongSelectState;
-  readonly notice: SongSelectNotice | null;
-  readonly isLoadingMore: boolean;
-  /** 아직 받지 않은 곡까지 포함한 목록 전체 곡 수. 페이지 수 표시에 쓴다. */
-  readonly songCount: number;
-}
+} from './state/songSelectState.js';
+import type {
+  SongSelectButton,
+  SongSelectHover,
+  SongSelectNotice,
+  SongSelectState,
+  SongSelectView,
+} from './state/songSelectState.js';
 
 export interface SongSelectScreen {
-  render(view: SongSelectView, previous: SongSelectState | null): void;
+  render(previous: SongSelectView | null, next: SongSelectView): void;
   play(chart: ChartRef, restore: SongSelectRestore): void;
   openSettings(restore: SongSelectRestore): void;
   playFocusSound(): void;
@@ -49,8 +55,12 @@ interface ControllerState {
   readonly state: SongSelectState;
   readonly notice: SongSelectNotice | null;
   readonly isLoadingMore: boolean;
+  readonly isControlsOpen: boolean;
   readonly unsubscribe: () => void;
 }
+
+// 닫힌 뒤에는 입력과 늦은 결과를 받지 않는다.
+type ControllerOrClosed = ControllerState | { readonly kind: 'closed' };
 
 export type PreviewPlayer = Pick<YouTubePlayer, 'requestPlay' | 'setVolume' | 'destroy'>;
 
@@ -82,17 +92,18 @@ type PreviewState =
       readonly player: PreviewPlayer;
       readonly loop: PreviewLoop;
     }
-  | { readonly kind: 'failed'; readonly song: Song }
-  | { readonly kind: 'closed' };
+  | { readonly kind: 'failed'; readonly song: Song };
 
 type Transition = (state: SongSelectState) => SongSelectState;
 
 const PREVIEW_DELAY_MS = 200;
 
 export class SongSelectController {
-  private current: ControllerState;
+  private current: ControllerOrClosed;
   private previewState: PreviewState = { kind: 'none' };
   private randomRequest: object | null = null;
+  private wheel = IDLE_WHEEL;
+  private shownView: SongSelectView | null = null;
 
   constructor(
     private readonly deps: SongSelectDeps,
@@ -100,17 +111,39 @@ export class SongSelectController {
     private readonly rowsPerPage: number,
     laneCount: LaneCount,
     restore: SongSelectRestore | undefined,
+    private readonly records: ChartRecords,
+    private readonly wheelStepPx: number,
   ) {
     const { feed, state } = openSongSelect(deps.feeds.catalog, laneCount, restore);
-    this.current = this.attach(feed, state);
-    this.render(null);
+    const first = this.attach(feed, state, false);
+    this.current = first;
+    this.render(first);
     if (restore === undefined) {
       this.requestMoreFromUser();
     }
   }
 
+  get view(): SongSelectView {
+    if (this.shownView === null) {
+      throw new Error('Song select is not rendered');
+    }
+    return this.shownView;
+  }
+
   moveSong(delta: number): void {
     this.focusSongFromUser((state) => moveSong(state, delta));
+  }
+
+  scrollByWheel(deltaYPx: number, atMs: number): void {
+    const current = this.open;
+    if (current === null || current.isControlsOpen) {
+      return;
+    }
+    const read = readWheelRows(this.wheel, deltaYPx, atMs, this.wheelStepPx);
+    this.wheel = read.gesture;
+    if (read.rows !== 0) {
+      this.moveSong(read.rows);
+    }
   }
 
   selectRow(slot: number): void {
@@ -129,7 +162,11 @@ export class SongSelectController {
 
   // 비활성 RANDOM 이 실패한 feed 를 다시 부르지 않도록 고를 곡이 없으면 아무것도 요청하지 않는다.
   selectRandomSong(): void {
-    const { feed, state } = this.current;
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const { feed, state } = current;
     if (!canSelectRandomSong(state)) {
       return;
     }
@@ -149,12 +186,13 @@ export class SongSelectController {
   }
 
   selectFilter(filter: SongFilter): void {
-    if (filter === this.current.state.filter) {
+    const current = this.open;
+    if (current === null || filter === current.state.filter) {
       return;
     }
-    const previous = this.current.state;
+    const previous = current.state;
     this.randomRequest = null;
-    this.current.unsubscribe();
+    current.unsubscribe();
     const feed =
       filter === 'all'
         ? this.deps.feeds.catalog
@@ -162,12 +200,41 @@ export class SongSelectController {
             category: filter,
             title: '',
           });
-    this.current = this.attach(
-      feed,
-      releaseHover(withFilter(previous, filter, feed.songs), this.rowsPerPage),
+    this.commit(
+      this.attach(
+        feed,
+        releaseHover(withFilter(previous, filter, feed.songs), this.rowsPerPage),
+        current.isControlsOpen,
+      ),
     );
-    this.render(previous);
     this.requestMoreFromUser();
+  }
+
+  openControls(): void {
+    this.setControlsOpen(true);
+  }
+
+  closeControls(): void {
+    this.setControlsOpen(false);
+  }
+
+  handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    const current = this.open;
+    if (current === null) {
+      return false;
+    }
+    switch (readControlsKey(current.isControlsOpen, event)) {
+      case 'open':
+        this.openControls();
+        return true;
+      case 'close':
+        this.closeControls();
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
+    }
   }
 
   hover(target: SongSelectHover): void {
@@ -178,12 +245,53 @@ export class SongSelectController {
     this.apply((state) => clearHover(state, target));
   }
 
+  pointerOver(button: SongSelectButton): void {
+    this.apply((state) => hoverSongSelectButton(state, button));
+  }
+
+  pointerOut(button: SongSelectButton): void {
+    this.apply((state) => unhoverSongSelectButton(state, button));
+  }
+
+  pointerDown(button: SongSelectButton): void {
+    const current = this.open;
+    if (current !== null) {
+      this.apply((state) => pressSongSelectButton(state, button, current.isControlsOpen));
+    }
+  }
+
+  pointerUp(button: SongSelectButton): void {
+    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
+    if (!this.apply((state) => releaseSongSelectButton(state, button))) {
+      return;
+    }
+    switch (button) {
+      case 'settings':
+        this.openSettings();
+        return;
+      case 'controlsEntry':
+        this.openControls();
+        return;
+      case 'controlsClose':
+      case 'controlsBackdrop':
+        this.closeControls();
+        return;
+    }
+  }
+
   cycleFilter(delta: 1 | -1): void {
-    this.selectFilter(cycleItem(SONG_FILTERS, this.current.state.filter, delta));
+    const current = this.open;
+    if (current !== null) {
+      this.selectFilter(cycleItem(SONG_FILTERS, current.state.filter, delta));
+    }
   }
 
   play(): void {
-    const { feed, state } = this.current;
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const { feed, state } = current;
     const chart = getPlayableSelection(state);
     if (chart !== null) {
       this.screen.play(chart, {
@@ -194,7 +302,11 @@ export class SongSelectController {
   }
 
   openSettings(): void {
-    const { feed, state } = this.current;
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const { feed, state } = current;
     this.screen.openSettings({
       feed,
       ...getSongSelectTarget(state),
@@ -218,10 +330,15 @@ export class SongSelectController {
   }
 
   close(): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
     this.randomRequest = null;
-    this.current.unsubscribe();
+    current.unsubscribe();
     this.destroyPreviewPlayer();
-    this.previewState = { kind: 'closed' };
+    this.previewState = { kind: 'none' };
+    this.current = { kind: 'closed' };
   }
 
   // 다 받기 전에 실패했으면 받아 둔 곡에서 고르고, 실패 알림이 다시 받기를 안내한다.
@@ -231,12 +348,13 @@ export class SongSelectController {
     }
   }
 
-  private attach(feed: SongFeed, state: SongSelectState): ControllerState {
+  private attach(feed: SongFeed, state: SongSelectState, isControlsOpen: boolean): ControllerState {
     return {
       feed,
       state,
       notice: getSongSelectNotice(state.songs.length, feed.status),
       isLoadingMore: isLoadingMoreSongs(state.songs.length, feed.status),
+      isControlsOpen,
       unsubscribe: feed.subscribe(() => this.handleFeedChange()),
     };
   }
@@ -255,63 +373,86 @@ export class SongSelectController {
   }
 
   private apply(transition: Transition): boolean {
-    const previous = this.current.state;
-    const next = releaseHover(transition(previous), this.rowsPerPage);
-    if (next === previous) {
+    const current = this.open;
+    if (current === null) {
       return false;
     }
-    this.current = {
-      ...this.current,
-      state: next,
-    };
-    this.render(previous);
+    return this.commit({
+      ...current,
+      state: releaseHover(transition(current.state), this.rowsPerPage),
+    });
+  }
+
+  // 닫힌 뒤이거나 바뀐 게 없으면 아무것도 하지 않는다.
+  private commit(next: ControllerState): boolean {
+    const current = this.open;
+    if (current === null || isShallowEqual(next, current)) {
+      return false;
+    }
+    this.current = next;
+    this.render(next);
     return true;
   }
 
   private handleFeedChange(): void {
-    const { feed, state } = this.current;
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const { feed, state } = current;
     const next = releaseHover(withSongs(state, feed.songs), this.rowsPerPage);
-    const nextCurrent = {
-      ...this.current,
+    this.commit({
+      ...current,
       state: next,
       notice: getSongSelectNotice(next.songs.length, feed.status),
       isLoadingMore: isLoadingMoreSongs(next.songs.length, feed.status),
-    };
-    if (!isShallowEqual(nextCurrent, this.current)) {
-      this.current = nextCurrent;
-      this.render(state);
-    }
+    });
     if (isOnLastLoadedPage(next, this.rowsPerPage)) {
       void feed.requestMore();
     }
   }
 
-  private requestMoreFromUser(): void {
-    if (isOnLastLoadedPage(this.current.state, this.rowsPerPage)) {
-      void this.current.feed.requestMoreFromUser();
-    }
-  }
-
-  private render(previous: SongSelectState | null): void {
-    const { feed, state, notice, isLoadingMore } = this.current;
-    this.screen.render(
-      {
-        state,
-        notice,
-        isLoadingMore,
-        songCount: feed.songCount,
-      },
-      previous,
-    );
-    this.focusPreview();
-  }
-
-  private focusPreview(): void {
-    const { previewState } = this;
-    if (previewState.kind === 'closed') {
+  private setControlsOpen(isControlsOpen: boolean): void {
+    const current = this.open;
+    if (current === null || isControlsOpen === current.isControlsOpen) {
       return;
     }
-    const { current } = this.current.state;
+    this.commit({
+      ...current,
+      isControlsOpen,
+      state: isControlsOpen ? current.state : releaseControlsButtons(current.state),
+    });
+  }
+
+  private get open(): ControllerState | null {
+    return 'kind' in this.current ? null : this.current;
+  }
+
+  private requestMoreFromUser(): void {
+    const current = this.open;
+    if (current !== null && isOnLastLoadedPage(current.state, this.rowsPerPage)) {
+      void current.feed.requestMoreFromUser();
+    }
+  }
+
+  private render(current: ControllerState): void {
+    const { feed, state, notice, isLoadingMore, isControlsOpen } = current;
+    const next: SongSelectView = {
+      state,
+      notice,
+      isLoadingMore,
+      songCount: feed.songCount,
+      records: this.records,
+      isControlsOpen,
+    };
+    this.screen.render(this.shownView, next);
+    this.shownView = next;
+    this.focusPreview(state);
+  }
+
+  private focusPreview(state: SongSelectState): void {
+    const { previewState } = this;
+    const { current } = state;
     const song = current.kind === 'song' ? current.song : null;
     const previewSongId = previewState.kind === 'none' ? null : previewState.song.id;
     if ((song?.id ?? null) === previewSongId) {
@@ -358,8 +499,7 @@ export class SongSelectController {
             song,
             player,
             loop: new PreviewLoop(player, now, {
-              startMs: song.gameStartMs,
-              songEndMs: song.gameEndMs,
+              startMs: song.previewStartMs ?? song.gameStartMs,
               volume,
             }),
           };

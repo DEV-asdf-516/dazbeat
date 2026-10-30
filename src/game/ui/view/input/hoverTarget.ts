@@ -15,50 +15,34 @@ export function bindHoverTarget(
   target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, actions.onOut);
 }
 
-export interface PressActions {
-  readonly onActivate: () => void;
-  readonly canPress?: () => boolean;
-  readonly onPressChange?: () => void;
+export interface PointerActions {
+  readonly over: () => void;
+  readonly out: () => void;
+  readonly down: () => void;
+  readonly up: () => void;
 }
 
-export interface PointerPress {
-  isPressed(): boolean;
-  cancel(): void;
+export interface ButtonPointer<B> {
+  readonly pointerOver: (button: B) => void;
+  readonly pointerOut: (button: B) => void;
+  readonly pointerDown: (button: B) => void;
+  readonly pointerUp: (button: B) => void;
 }
 
-export function bindPress(
-  target: Phaser.GameObjects.GameObject,
-  actions: PressActions,
-): PointerPress {
-  let isPressed = false;
-  target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-    if (actions.canPress !== undefined && !actions.canPress()) {
-      return;
-    }
-    isPressed = true;
-    actions.onPressChange?.();
-  });
-  target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
-    if (!isPressed) {
-      return;
-    }
-    isPressed = false;
-    actions.onPressChange?.();
-  });
-  target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
-    if (!isPressed) {
-      return;
-    }
-    isPressed = false;
-    actions.onPressChange?.();
-    actions.onActivate();
-  });
+export function pointButton<B>(pointer: ButtonPointer<B>, button: B): PointerActions {
   return {
-    isPressed: () => isPressed,
-    cancel: () => {
-      isPressed = false;
-    },
+    over: () => pointer.pointerOver(button),
+    out: () => pointer.pointerOut(button),
+    down: () => pointer.pointerDown(button),
+    up: () => pointer.pointerUp(button),
   };
+}
+
+export function bindPointer(target: Phaser.GameObjects.GameObject, actions: PointerActions): void {
+  target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, actions.over);
+  target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, actions.out);
+  target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, actions.down);
+  target.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, actions.up);
 }
 
 export function setContainerHitArea(

@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
-import { bindPress } from './hoverTarget.js';
-import type { PointerPress } from './hoverTarget.js';
-import { CELESTIAL_COLORS, MODAL, MOTION } from './theme.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../../../app/config.js';
+import { bindPointer } from '../input/hoverTarget.js';
+import type { PointerActions } from '../input/hoverTarget.js';
+import { CELESTIAL_COLORS, MODAL, MOTION } from '../theme.js';
 
 export class ModalFrame {
   readonly container: Phaser.GameObjects.Container;
@@ -11,22 +11,23 @@ export class ModalFrame {
   private readonly shadow: Phaser.GameObjects.Rectangle;
   private readonly panel: Phaser.GameObjects.Rectangle;
   private readonly panelHitArea = new Phaser.Geom.Rectangle();
-  private readonly backdropPress: PointerPress | null;
+  private readonly backdropHitArea = new Phaser.Geom.Rectangle();
 
-  constructor(scene: Phaser.Scene, onBackdropClick: (() => void) | null) {
+  constructor(scene: Phaser.Scene, backdropPointer: PointerActions | null) {
     this.scene = scene;
     this.backdrop = scene.add
       .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, CELESTIAL_COLORS.background, MODAL.backdropAlpha)
       .setOrigin(0, 0)
-      .setInteractive()
+      .setScrollFactor(0)
+      .setInteractive(
+        this.backdropHitArea,
+        (hitArea: Phaser.Geom.Rectangle, x: number, y: number) =>
+          Phaser.Geom.Rectangle.Contains(hitArea, x, y),
+      )
       .setDepth(MODAL.depth);
-    // 진입 클릭의 pointer up 이 열자마자 막을 닫지 않도록 막에서 누른 경우만 닫는다.
-    this.backdropPress =
-      onBackdropClick === null
-        ? null
-        : bindPress(this.backdrop, {
-            onActivate: onBackdropClick,
-          });
+    if (backdropPointer !== null) {
+      bindPointer(this.backdrop, backdropPointer);
+    }
     this.shadow = scene.add
       .rectangle(
         MODAL.shadowOffsetXPx,
@@ -51,10 +52,6 @@ export class ModalFrame {
     this.container.setVisible(false);
   }
 
-  get isOpen(): boolean {
-    return this.container.visible;
-  }
-
   setPanelSize(widthPx: number, heightPx: number): void {
     this.panel.setSize(widthPx, heightPx);
     this.panelHitArea.setTo(0, 0, widthPx, heightPx);
@@ -62,11 +59,18 @@ export class ModalFrame {
     this.container.setPosition((GAME_WIDTH - widthPx) / 2, (GAME_HEIGHT - heightPx) / 2);
   }
 
-  open(): void {
-    if (this.isOpen) {
+  /** 부르는 쪽이 열림이 바뀔 때만 부른다. 열 때마다 페이드를 다시 건다. */
+  render(isOpen: boolean): void {
+    if (!isOpen) {
+      this.scene.tweens.killTweensOf([this.backdrop, this.container]);
+      this.backdrop.setVisible(false);
+      this.container.setVisible(false);
       return;
     }
-    this.backdrop.setVisible(true);
+    // 플레이 화면은 창 비율에 따라 게임 폭이 기준 폭보다 넓어지므로 열 때의 화면 전체를 덮는다.
+    const { width, height } = this.scene.scale;
+    this.backdrop.setSize(width, height).setVisible(true);
+    this.backdropHitArea.setTo(0, 0, width, height);
     this.container.setVisible(true);
     this.scene.tweens.add({
       targets: [this.backdrop, this.container],
@@ -77,15 +81,5 @@ export class ModalFrame {
       duration: MOTION.fastMs,
       ease: 'Sine.Out',
     });
-  }
-
-  close(): void {
-    if (!this.isOpen) {
-      return;
-    }
-    this.scene.tweens.killTweensOf([this.backdrop, this.container]);
-    this.backdrop.setVisible(false);
-    this.container.setVisible(false);
-    this.backdropPress?.cancel();
   }
 }

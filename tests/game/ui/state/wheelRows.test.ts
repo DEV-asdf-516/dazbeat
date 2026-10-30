@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { IDLE_WHEEL, readWheelRows } from '../../src/game/wheelRows.js';
-import type { WheelGesture } from '../../src/game/wheelRows.js';
+import { IDLE_WHEEL, readWheelRows } from '../../../../src/game/ui/state/wheelRows.js';
+import type { WheelGesture } from '../../../../src/game/ui/state/wheelRows.js';
 
 function readAll(events: ReadonlyArray<[deltaYPx: number, atMs: number]>, rowPx: number): number[] {
   let gesture: WheelGesture = IDLE_WHEEL;

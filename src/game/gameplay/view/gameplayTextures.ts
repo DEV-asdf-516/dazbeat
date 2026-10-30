@@ -1,8 +1,13 @@
 import type Phaser from 'phaser';
-import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { fillGradient, maskHorizontally, rgba, white } from '../ui/lightTextures.js';
-import { COLORS, cssColor } from '../ui/theme.js';
-import { REFERENCE_NOTE_PLATE } from './playfieldLayout.js';
+import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
+import {
+  fillGradient,
+  maskHorizontally,
+  rgba,
+  white,
+} from '../../ui/view/textures/lightTextures.js';
+import { COLORS, cssColor } from '../../ui/view/theme.js';
+import { REFERENCE_NOTE_PLATE } from '../state/playfieldLayout.js';
 
 // 사방 여백은 halo blur 가 잘리지 않을 만큼 둔다.
 const STAR_BUTTON_BODY_WIDTH_PX = REFERENCE_NOTE_PLATE.widthPx;

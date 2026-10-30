@@ -5,9 +5,9 @@ import type {
   CelestialFrame,
   CelestialImagePresentation,
   CelestialStaticPresentation,
-} from './celestialCatalog.js';
-import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { queueImageLoads } from '../ui/imageLoad.js';
+} from '../state/celestialCatalog.js';
+import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
+import { queueImageLoads } from '../../ui/view/textures/imageLoad.js';
 
 export type CelestialTextureUse = Pick<
   CelestialAtlasPresentation | CelestialImagePresentation,

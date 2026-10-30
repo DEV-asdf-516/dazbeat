@@ -1,7 +1,6 @@
-import type { Song } from '../../data/songs.js';
-import { getGameFraction } from '../../rhythm/playTiming.js';
-import type { Lane, LaneCount } from '../../rhythm/types.js';
-import { clamp, getProgress, lerp } from '../../range.js';
+import type { Song } from '../../../data/songs.js';
+import type { Lane, LaneCount } from '../../../rhythm/types.js';
+import { clamp, getFraction, getProgress, lerp } from '../../../range.js';
 
 const WORK_AREA_WIDTH_PX = 1440;
 const COLUMN_GAP_PX = 24;
@@ -164,7 +163,7 @@ export function getSeekXPx(
   song: Pick<Song, 'gameStartMs' | 'gameEndMs'>,
 ): number {
   const { leftPx, widthPx } = layout.seek;
-  return lerp(leftPx, leftPx + widthPx, getGameFraction(song.gameStartMs, song.gameEndMs, timeMs));
+  return lerp(leftPx, leftPx + widthPx, getFraction(timeMs, song.gameStartMs, song.gameEndMs));
 }
 
 /** 반올림은 기존 `seek()` 가 한다. */

@@ -1,11 +1,14 @@
 import type Phaser from 'phaser';
-import { requireDefined } from '../../invariant.js';
-import { getNoteY } from '../../rhythm/notePosition.js';
-import type { HoldNote, Lane, Note } from '../../rhythm/types.js';
-import { isShallowEqual } from '../../shallowEqual.js';
+import { requireDefined } from '../../../invariant.js';
+import { getNoteY } from '../../../rhythm/notePosition.js';
+import type { HoldNote, Lane, Note } from '../../../rhythm/types.js';
 import { ensureNoteTexture } from './editorTextures.js';
-import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
-import { CELESTIAL_COLORS, GAMEPLAY_DEPTH } from '../ui/theme.js';
+import {
+  LIGHT_TEXTURES,
+  addLight,
+  ensureLightTextures,
+} from '../../ui/view/textures/lightTextures.js';
+import { CELESTIAL_COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
 
 const NOTE_WIDTH_PX = 108;
 const NOTE_HEIGHT_PX = 24;
@@ -25,32 +28,29 @@ type NoteView =
       endCap: Phaser.GameObjects.Image;
     };
 
-interface RenderedInput {
-  notes: readonly Note[];
-  selected: Note | null;
-  currentTimeMs: number;
+export interface EditorNotesView {
+  readonly notes: readonly Note[];
+  readonly selected: Note | null;
+  readonly currentTimeMs: number;
+  readonly laneCenterXPx: readonly number[];
+  readonly accentColor: number;
 }
 
 /** 편집·되감기가 자유로우므로 판정 상태를 모른다. */
 export class EditorNoteLayer {
   private readonly views = new Map<Note, NoteView>();
-  private readonly textureKey: string;
   private readonly selectionOutline: Phaser.GameObjects.Rectangle;
-  private rendered: RenderedInput | null = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly options: {
-      laneCenterXPx: readonly number[];
-      playheadYPx: number;
-      pxPerSecond: number;
-      topYPx: number;
-      bottomYPx: number;
-      accentColor: number;
+      readonly playheadYPx: number;
+      readonly pxPerSecond: number;
+      readonly topYPx: number;
+      readonly bottomYPx: number;
     },
   ) {
     ensureLightTextures(scene);
-    this.textureKey = ensureNoteTexture(scene, options.accentColor);
     this.selectionOutline = scene.add
       .rectangle(0, 0, 0, 0, CELESTIAL_COLORS.selected, SELECTION_FILL_ALPHA)
       .setOrigin(0.5, 1)
@@ -59,65 +59,25 @@ export class EditorNoteLayer {
       .setVisible(false);
   }
 
-  render(notes: readonly Note[], selected: Note | null, currentTimeMs: number): void {
-    const last = this.rendered;
-    if (
-      last !== null &&
-      isShallowEqual(last, {
-        notes,
-        selected,
-        currentTimeMs,
-      })
-    ) {
-      return;
-    }
-    const hasNewNotes = last === null || last.notes !== notes;
-    const hasTimeChanged = last === null || last.currentTimeMs !== currentTimeMs;
-    // 사라진 뷰는 배치 전에 지우고, 새 뷰는 만들면서 배치해서 불필요한 연산을 줄인다.
-    if (hasNewNotes) {
-      this.destroyRemovedViews(notes);
-    }
-    if (hasTimeChanged) {
-      this.views.forEach((view, note) => this.place(note, view, currentTimeMs));
-    }
-    if (hasNewNotes) {
-      this.createAddedViews(notes, currentTimeMs);
-    }
-    if (hasNewNotes || hasTimeChanged || last.selected !== selected) {
-      this.highlight(selected, currentTimeMs);
-    }
-    this.rendered = {
-      notes,
-      selected,
-      currentTimeMs,
-    };
-  }
-
-  destroy(): void {
-    this.views.forEach((view) => this.destroyView(view));
-    this.views.clear();
-    this.selectionOutline.destroy();
-  }
-
-  /** 노트는 불변 값이라 같은 객체면 같은 모양이다. */
-  private destroyRemovedViews(notes: readonly Note[]): void {
+  /** 노트는 불변 값이라 같은 객체면 같은 모양이다. 레인 수·accent 가 바뀌면 노트도 모두 새것이라 뷰가 다시 만들어진다. */
+  render(view: EditorNotesView): void {
+    const { notes, currentTimeMs } = view;
     const present = new Set(notes);
-    this.views.forEach((view, note) => {
+    this.views.forEach((noteView, note) => {
       if (!present.has(note)) {
-        this.destroyView(view);
+        this.destroyView(noteView);
         this.views.delete(note);
       }
     });
-  }
-
-  private createAddedViews(notes: readonly Note[], currentTimeMs: number): void {
+    this.views.forEach((noteView, note) => this.place(note, noteView, currentTimeMs));
     notes.forEach((note) => {
       if (!this.views.has(note)) {
-        const view = this.createView(note);
-        this.place(note, view, currentTimeMs);
-        this.views.set(note, view);
+        const noteView = this.createView(note, view);
+        this.place(note, noteView, currentTimeMs);
+        this.views.set(note, noteView);
       }
     });
+    this.highlight(view);
   }
 
   private getY(noteTimeMs: number, currentTimeMs: number): number {
@@ -125,18 +85,15 @@ export class EditorNoteLayer {
     return getNoteY(noteTimeMs, currentTimeMs, playheadYPx, pxPerSecond);
   }
 
-  private getLaneCenterXPx(lane: Lane): number {
-    return requireDefined(this.options.laneCenterXPx[lane], 'Unknown note lane', lane);
-  }
-
   private isInArea(yPx: number): boolean {
     return yPx >= this.options.topYPx && yPx <= this.options.bottomYPx;
   }
 
-  private createView(note: Note): NoteView {
-    const xPx = this.getLaneCenterXPx(note.lane);
+  private createView(note: Note, { laneCenterXPx, accentColor }: EditorNotesView): NoteView {
+    const xPx = getLaneCenterXPx(laneCenterXPx, note.lane);
+    const textureKey = ensureNoteTexture(this.scene, accentColor);
     const head = this.scene.add
-      .image(xPx, 0, this.textureKey)
+      .image(xPx, 0, textureKey)
       .setDisplaySize(NOTE_WIDTH_PX, NOTE_HEIGHT_PX)
       .setDepth(GAMEPLAY_DEPTH.note);
     if (note.type === 'tap') {
@@ -152,11 +109,11 @@ export class EditorNoteLayer {
       ribbon: addLight(this.scene, LIGHT_TEXTURES.ribbon, xPx, 0)
         .setOrigin(0.5, 1)
         .setDisplaySize(NOTE_WIDTH_PX, 0)
-        .setTint(this.options.accentColor)
+        .setTint(accentColor)
         .setAlpha(HOLD_RIBBON_ALPHA)
         .setDepth(GAMEPLAY_DEPTH.holdBody),
       endCap: this.scene.add
-        .image(xPx, 0, this.textureKey)
+        .image(xPx, 0, textureKey)
         .setDisplaySize(NOTE_WIDTH_PX, HOLD_END_CAP_HEIGHT_PX)
         .setDepth(GAMEPLAY_DEPTH.holdBody),
     };
@@ -177,7 +134,7 @@ export class EditorNoteLayer {
     }
   }
 
-  private highlight(selected: Note | null, currentTimeMs: number): void {
+  private highlight({ selected, currentTimeMs, laneCenterXPx }: EditorNotesView): void {
     if (selected === null || !this.views.has(selected)) {
       this.selectionOutline.setVisible(false);
       return;
@@ -191,7 +148,7 @@ export class EditorNoteLayer {
     );
     const topPx = Math.max(endYPx - NOTE_HEIGHT_PX / 2 - SELECTION_PADDING_PX, this.options.topYPx);
     this.selectionOutline
-      .setPosition(this.getLaneCenterXPx(note.lane), bottomPx)
+      .setPosition(getLaneCenterXPx(laneCenterXPx, note.lane), bottomPx)
       .setSize(NOTE_WIDTH_PX + SELECTION_PADDING_PX * 2, Math.max(0, bottomPx - topPx))
       .setVisible(bottomPx > topPx);
   }
@@ -203,4 +160,8 @@ export class EditorNoteLayer {
       view.endCap.destroy();
     }
   }
+}
+
+function getLaneCenterXPx(laneCenterXPx: readonly number[], lane: Lane): number {
+  return requireDefined(laneCenterXPx[lane], 'Unknown note lane', lane);
 }

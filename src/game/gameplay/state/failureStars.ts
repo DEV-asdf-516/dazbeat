@@ -1,4 +1,4 @@
-import type { AmbientPlacement } from '../celestial/celestialPlacements.js';
+import type { AmbientPlacement } from '../../celestial/state/celestialPlacements.js';
 
 // 평소 플레이 화면은 별 0개라 CELESTIAL_SCREENS 에 넣지 않는다. 배열 순서가 하나씩 사라지는 순서다.
 export const GAMEPLAY_FAILURE_STARS: readonly AmbientPlacement[] = [

@@ -7,8 +7,6 @@ export const LIGHT_TEXTURES = {
   ribbon: 'light:ribbon',
 } as const;
 
-export type LightTexture = (typeof LIGHT_TEXTURES)[keyof typeof LIGHT_TEXTURES];
-
 const GLOW_SIZE_PX = 128;
 const STAR_SIZE_PX = 32;
 const RIBBON_WIDTH_PX = 32;
@@ -59,9 +57,11 @@ export function ensureLightTextures(scene: Phaser.Scene): void {
   );
 }
 
+// 캔버스가 투명하고 MV 는 그 아래 DOM 이라, ADD 는 영상에 더해지지 않고 이미지 영역을 희뿌연 사각형으로 남긴다.
+// SCREEN 은 투명한 픽셀이 아래를 바꾸지 않아 빛 이미지는 모두 이 함수로 그린다.
 export function addLight(
   scene: Phaser.Scene,
-  texture: LightTexture,
+  texture: string,
   xPx: number,
   yPx: number,
 ): Phaser.GameObjects.Image {

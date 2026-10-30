@@ -1,5 +1,5 @@
-import { isFullCombo } from '../../rhythm/score.js';
-import type { GameplayProgress, GameplayResult } from '../../rhythm/types.js';
+import { isFullCombo } from '../../../rhythm/score.js';
+import type { GameplayProgress, GameplayResult } from '../../../rhythm/types.js';
 
 export type RunEnding =
   | { readonly kind: 'continue' }

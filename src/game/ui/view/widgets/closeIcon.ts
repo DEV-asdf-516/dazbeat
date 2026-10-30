@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { createCanvasTexture } from './canvasTexture.js';
-import { COLORS, cssColor } from './theme.js';
+import { createCanvasTexture } from '../textures/canvasTexture.js';
+import { COLORS, cssColor } from '../theme.js';
 
 const GRID_UNITS = 24;
 const CROSS_START = 6;

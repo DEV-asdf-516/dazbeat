@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { COLORS, cssColor } from '../ui/theme.js';
+import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
+import { COLORS, cssColor } from '../../ui/view/theme.js';
 
 const NOTE_TEXTURE_WIDTH_PX = 108;
 const NOTE_TEXTURE_HEIGHT_PX = 24;

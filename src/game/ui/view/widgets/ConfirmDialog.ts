@@ -1,8 +1,10 @@
 import type Phaser from 'phaser';
+import type { ButtonView } from '../../state/buttonPointer.js';
 import { Button } from './Button.js';
 import type { QuietButtonColors, SecondaryButtonColors } from './Button.js';
+import type { PointerActions } from '../input/hoverTarget.js';
 import { ModalFrame } from './ModalFrame.js';
-import { CELESTIAL_COLORS, STATUS_COLORS, typeStyle } from './theme.js';
+import { CELESTIAL_COLORS, STATUS_COLORS, typeStyle } from '../theme.js';
 
 export type ConfirmTone = 'default' | 'danger';
 
@@ -63,9 +65,10 @@ export class ConfirmDialog {
   private readonly title: Phaser.GameObjects.Text;
   private readonly body: Phaser.GameObjects.Text;
   private readonly cancel: Button;
-  private readonly accept: Button;
+  // 색 묶음을 바꾸는 가변 필드를 두지 않도록 톤마다 수락 버튼을 하나씩 두고 내용의 톤인 것만 보인다.
+  private readonly accepts: Readonly<Record<ConfirmTone, Button>>;
 
-  constructor(scene: Phaser.Scene, actions: { onCancel: () => void; onAccept: () => void }) {
+  constructor(scene: Phaser.Scene, pointer: { cancel: PointerActions; accept: PointerActions }) {
     this.frame = new ModalFrame(scene, null);
     this.title = scene.add.text(PADDING_PX, 0, '', {
       ...typeStyle(TITLE_TYPE, CELESTIAL_COLORS.textPrimary),
@@ -86,61 +89,70 @@ export class ConfirmDialog {
     this.cancel = new Button(scene, 0, 0, {
       variant: 'quiet',
       label: '',
-      onActivate: actions.onCancel,
+      pointer: pointer.cancel,
       heightPx: BUTTON_HEIGHT_PX,
       paddingXPx: BUTTON_PADDING_X_PX,
       focus: 'slide',
       colors: CANCEL_BUTTON_COLORS,
       labelType: BUTTON_LABEL_TYPE,
     });
-    this.accept = new Button(scene, 0, 0, {
-      variant: 'secondary',
-      label: '',
-      onActivate: actions.onAccept,
-      heightPx: BUTTON_HEIGHT_PX,
-      paddingXPx: BUTTON_PADDING_X_PX,
-      labelType: BUTTON_LABEL_TYPE,
-      borderWidthPx: BUTTON_BORDER_PX,
-      focus: 'glow',
-    });
-    this.frame.container.add([this.title, this.body, this.cancel, this.accept]);
-    this.cancel.setEnabled(false);
-    this.accept.setEnabled(false);
+    const createAccept = (tone: ConfirmTone): Button => {
+      const toneColor = ACCEPT_TONE_COLORS[tone];
+      return new Button(scene, 0, 0, {
+        variant: 'secondary',
+        label: '',
+        pointer: pointer.accept,
+        heightPx: BUTTON_HEIGHT_PX,
+        paddingXPx: BUTTON_PADDING_X_PX,
+        labelType: BUTTON_LABEL_TYPE,
+        borderWidthPx: BUTTON_BORDER_PX,
+        focus: 'glow',
+        colors: {
+          ...ACCEPT_BUTTON_COLORS,
+          border: toneColor,
+          hoverBorder: toneColor,
+          label: toneColor,
+        },
+      });
+    };
+    this.accepts = {
+      default: createAccept('default'),
+      danger: createAccept('danger'),
+    };
+    this.frame.container.add([
+      this.title,
+      this.body,
+      this.cancel,
+      this.accepts.default,
+      this.accepts.danger,
+    ]);
   }
 
-  show(content: ConfirmDialogContent): void {
-    const isAlreadyVisible = this.frame.isOpen;
+  /** 부르는 쪽이 열림이 바뀔 때만 부른다. null 이면 닫는다. */
+  render(content: ConfirmDialogContent | null): void {
+    if (content === null) {
+      this.frame.render(false);
+      return;
+    }
     this.title.setText(content.title).setY(PADDING_PX);
     this.body.setText(content.body).setY(this.title.y + this.title.height + BODY_GAP_PX);
-    const toneColor = ACCEPT_TONE_COLORS[content.acceptTone];
-    this.accept.setSecondaryColors({
-      ...ACCEPT_BUTTON_COLORS,
-      border: toneColor,
-      hoverBorder: toneColor,
-      label: toneColor,
-    });
+    const accept = this.accepts[content.acceptTone];
+    this.accepts.default.setVisible(content.acceptTone === 'default');
+    this.accepts.danger.setVisible(content.acceptTone === 'danger');
     // 버튼 폭은 라벨에 맞춰지므로 라벨을 먼저 정한다.
-    this.accept.setLabel(content.acceptLabel);
+    accept.setLabel(content.acceptLabel);
     this.cancel.setLabel(content.cancelLabel);
     const actionsTopYPx = this.body.y + this.body.height + ACTIONS_GAP_PX;
-    const acceptXPx = PANEL_WIDTH_PX - PADDING_PX - this.accept.width;
-    this.accept.setPosition(acceptXPx, actionsTopYPx);
+    const acceptXPx = PANEL_WIDTH_PX - PADDING_PX - accept.width;
+    accept.setPosition(acceptXPx, actionsTopYPx);
     this.cancel.setPosition(acceptXPx - BUTTON_GAP_PX - this.cancel.width, actionsTopYPx);
     this.frame.setPanelSize(PANEL_WIDTH_PX, actionsTopYPx + BUTTON_HEIGHT_PX + PADDING_PX);
-    if (isAlreadyVisible) {
-      return;
-    }
-    this.frame.open();
-    this.cancel.setEnabled(true);
-    this.accept.setEnabled(true);
+    this.frame.render(true);
   }
 
-  hide(): void {
-    if (!this.frame.isOpen) {
-      return;
-    }
-    this.frame.close();
-    this.cancel.setEnabled(false);
-    this.accept.setEnabled(false);
+  renderButtons(cancel: ButtonView, accept: ButtonView): void {
+    this.cancel.render(cancel);
+    this.accepts.default.render(accept);
+    this.accepts.danger.render(accept);
   }
 }

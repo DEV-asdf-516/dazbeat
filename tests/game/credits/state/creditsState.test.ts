@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { Song } from '../../../src/data/songs.js';
+import type { Song } from '../../../../src/data/songs.js';
 import {
   INITIAL_CREDITS_STATE,
-  getCreditRowCount,
+  getChangedRegions,
+  getCreditCells,
+  getCreditScroll,
+  hoverCreditsButton,
+  pressCreditsButton,
   scrollCredits,
   withCreditSongs,
-} from '../../../src/game/credits/creditsState.js';
-import type { CreditsGrid } from '../../../src/game/credits/creditsState.js';
+} from '../../../../src/game/credits/state/creditsState.js';
+import type { CreditsGrid } from '../../../../src/game/credits/state/creditsState.js';
 
 function makeSong(index: number, credit?: readonly string[]): Song {
   return {
@@ -27,6 +31,7 @@ function makeSong(index: number, credit?: readonly string[]): Song {
 const GRID: CreditsGrid = {
   columnCount: 2,
   visibleRowCount: 2,
+  lineCount: 2,
 };
 
 function creditedSongs(count: number): Song[] {
@@ -80,7 +85,10 @@ describe('scrollCredits', () => {
   const state = withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(5));
 
   it('counts rows by the column count', () => {
-    expect(getCreditRowCount(state, GRID)).toBe(3);
+    expect(getCreditScroll(state, GRID)).toMatchObject({
+      kind: 'thumb',
+      totalCount: 3,
+    });
   });
 
   it('moves the top row by the given rows', () => {
@@ -101,5 +109,128 @@ describe('scrollCredits', () => {
     const fitting = withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(4));
 
     expect(scrollCredits(fitting, GRID, 1)).toBe(fitting);
+  });
+});
+
+describe('getCreditCells', () => {
+  it('fills cells without an entry with blank lines', () => {
+    const state = withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(1));
+
+    expect(getCreditCells(state, GRID)).toEqual([
+      {
+        title: 'Title 0',
+        lines: ['Artist 0', ''],
+      },
+      {
+        title: '',
+        lines: ['', ''],
+      },
+      {
+        title: '',
+        lines: ['', ''],
+      },
+      {
+        title: '',
+        lines: ['', ''],
+      },
+    ]);
+  });
+
+  it('starts from the entry of the top row', () => {
+    const state = scrollCredits(withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(5)), GRID, 1);
+
+    expect(getCreditCells(state, GRID).map(({ title }) => title)).toEqual([
+      'Title 2',
+      'Title 3',
+      'Title 4',
+      '',
+    ]);
+  });
+
+  it('marks the last visible line when more lines are hidden', () => {
+    const state = withCreditSongs(INITIAL_CREDITS_STATE, [
+      makeSong(0, ['A', 'B', 'C']),
+      makeSong(1, ['D', 'E']),
+    ]);
+    const cells = getCreditCells(state, GRID);
+
+    expect(cells[0]?.lines).toEqual(['A', 'B…']);
+    expect(cells[1]?.lines).toEqual(['D', 'E']);
+  });
+});
+
+describe('getCreditScroll', () => {
+  it('shows only the track when the rows fit', () => {
+    expect(getCreditScroll(INITIAL_CREDITS_STATE, GRID)).toEqual({ kind: 'track' });
+    expect(getCreditScroll(withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(4)), GRID)).toEqual(
+      { kind: 'track' },
+    );
+  });
+
+  it('shows the thumb from the top row when the rows overflow', () => {
+    const state = scrollCredits(withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(5)), GRID, 1);
+
+    expect(getCreditScroll(state, GRID)).toEqual({
+      kind: 'thumb',
+      firstIndex: 1,
+      visibleCount: 2,
+      totalCount: 3,
+    });
+  });
+});
+
+describe('getChangedRegions', () => {
+  const state = withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(5));
+
+  it('redraws every region for the first render', () => {
+    expect(getChangedRegions(null, state)).toEqual([
+      'cells',
+      'scrollBar',
+      'controls',
+      'backButton',
+      'controlsEntry',
+      'controlsClose',
+    ]);
+  });
+
+  it('redraws the cells and the scroll bar when the top row changes', () => {
+    expect(getChangedRegions(state, scrollCredits(state, GRID, 1))).toEqual(['cells', 'scrollBar']);
+  });
+
+  it('redraws nothing for the same state', () => {
+    expect(getChangedRegions(state, state)).toEqual([]);
+  });
+});
+
+describe('getChangedRegions for the controls', () => {
+  it('redraws only the controls when only the controls open', () => {
+    const state = withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(5));
+
+    expect(
+      getChangedRegions(state, {
+        ...state,
+        isControlsOpen: true,
+      }),
+    ).toEqual(['controls', 'controlsClose']);
+  });
+});
+
+describe('getChangedRegions for the buttons', () => {
+  const state = withCreditSongs(INITIAL_CREDITS_STATE, creditedSongs(5));
+
+  it('redraws only the hovered button when the hover changes', () => {
+    const hovered = hoverCreditsButton(state, 'back');
+
+    expect(getChangedRegions(state, hovered)).toEqual(['backButton']);
+    expect(getChangedRegions(hovered, hoverCreditsButton(hovered, 'controlsEntry'))).toEqual([
+      'backButton',
+      'controlsEntry',
+    ]);
+  });
+
+  it('redraws only the pressed button when it is pressed', () => {
+    const hovered = hoverCreditsButton(state, 'back');
+
+    expect(getChangedRegions(hovered, pressCreditsButton(hovered, 'back'))).toEqual(['backButton']);
   });
 });

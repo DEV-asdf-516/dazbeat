@@ -1,12 +1,12 @@
-import type { Zodiac } from '../../data/songs.js';
-import { getRank } from '../../rhythm/rank.js';
-import { isFullCombo } from '../../rhythm/score.js';
-import type { GameplayResult } from '../../rhythm/types.js';
-import type { PlayMode } from '../sceneRoutes.js';
-import { ZODIAC_FIGURES } from '../celestial/zodiacFigures.js';
-import type { ZodiacFigure } from '../celestial/zodiacFigures.js';
-import { getProgress, lerp } from '../../range.js';
-import { requireDefined } from '../../invariant.js';
+import type { Zodiac } from '../../../data/songs.js';
+import { getRank } from '../../../rhythm/rank.js';
+import { isFullCombo } from '../../../rhythm/score.js';
+import type { GameplayResult, Rank } from '../../../rhythm/types.js';
+import type { PlayMode } from '../../app/sceneRoutes.js';
+import { ZODIAC_FIGURES } from '../../celestial/state/zodiacFigures.js';
+import type { ZodiacFigure } from '../../celestial/state/zodiacFigures.js';
+import { getProgress, lerp } from '../../../range.js';
+import { requireDefined } from '../../../invariant.js';
 
 export type ConstellationTier = 'faint' | 'clear' | 'bright' | 'complete';
 
@@ -14,6 +14,8 @@ export interface ResultPresentation {
   readonly tier: ConstellationTier;
   readonly hasFinish: boolean;
   readonly hasFullComboLabel: boolean;
+  readonly rank: { readonly kind: 'failed' } | { readonly kind: 'grade'; readonly grade: Rank };
+  readonly hasPracticeBadge: boolean;
 }
 
 export interface ConstellationBox {
@@ -141,11 +143,20 @@ export function getConstellationTier(
 }
 
 export function getResultPresentation(mode: PlayMode, result: GameplayResult): ResultPresentation {
+  const rank: ResultPresentation['rank'] =
+    result.outcome === 'failed'
+      ? { kind: 'failed' }
+      : {
+          kind: 'grade',
+          grade: getRank(result.accuracy),
+        };
   if (mode === 'practice') {
     return {
       tier: 'faint',
       hasFinish: false,
       hasFullComboLabel: isFullCombo(result.counts),
+      rank,
+      hasPracticeBadge: true,
     };
   }
   const tier = getConstellationTier(result);
@@ -154,6 +165,8 @@ export function getResultPresentation(mode: PlayMode, result: GameplayResult): R
     hasFinish: result.cleared,
     // 실패는 HP 가 BAD·MISS 로만 깎여 0 이 될 때뿐이라 FULL COMBO 와 겹치지 않는다. complete 가 곧 FULL COMBO 다.
     hasFullComboLabel: tier === 'complete',
+    rank,
+    hasPracticeBadge: false,
   };
 }
 

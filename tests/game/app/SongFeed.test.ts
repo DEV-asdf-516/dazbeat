@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ALL_SONGS_QUERY } from '../../src/data/songs.js';
-import type { Song, SongBatch, SongBatchCursor, SongQuery } from '../../src/data/songs.js';
-import { SharedSongFeeds, SongFeed } from '../../src/game/SongFeed.js';
+import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
+import type { Song, SongBatch, SongBatchCursor, SongQuery } from '../../../src/data/songs.js';
+import { SharedSongFeeds, SongFeed } from '../../../src/game/app/SongFeed.js';
 
 const PAGE_SIZE = 100;
 
@@ -391,6 +391,26 @@ describe('SharedSongFeeds', () => {
     };
     expect(feeds.create(search)).not.toBe(feeds.create(search));
     expect(server.calls).toHaveLength(1);
+  });
+
+  it('starts an empty catalog from the beginning when made without a first batch', async () => {
+    const server = createServer(makeServerSongs(3));
+    const feeds = new SharedSongFeeds(server.loadBatch);
+
+    expect(feeds.catalog.songs).toEqual([]);
+    expect(feeds.catalog.status).toBe('hasMore');
+
+    await feeds.catalog.requestMore();
+
+    expect(server.calls).toEqual([
+      {
+        query: ALL_SONGS_QUERY,
+        after: null,
+      },
+    ]);
+    expect(feeds.catalog.songs.map((song) => song.id)).toEqual(
+      makeServerSongs(3).map((entry) => entry.song.id),
+    );
   });
 
   it('applies a saved chart to the catalog and every kept category', async () => {

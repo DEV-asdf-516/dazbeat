@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { SettingsRow } from '../../../src/game/settings/settingsAdjust.js';
-import type { SettingsEditorState } from '../../../src/game/settings/settingsEditorState.js';
+import type { SettingsRow } from '../../../../src/game/settings/state/settingsAdjust.js';
+import type { SettingsEditorState } from '../../../../src/game/settings/state/settingsEditorState.js';
 import {
   adjustRow,
   applyPointer,
@@ -9,18 +9,24 @@ import {
   confirmReset,
   createSettingsEditorState,
   focusRow,
+  getChangedRegions,
+  getKeyBoxButton,
   getRowAppearance,
+  getSettingsEffects,
   hoverRow,
+  hoverSettingsButton,
   isRowShown,
   moveFocus,
   pressBack,
+  pressSettingsButton,
   readSettingsKey,
   requestReset,
   startWaiting,
   unhoverRow,
-} from '../../../src/game/settings/settingsEditorState.js';
-import { getLanes } from '../../../src/rhythm/lanes.js';
-import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
+  withDisplayedLanguage,
+} from '../../../../src/game/settings/state/settingsEditorState.js';
+import { getLanes } from '../../../../src/rhythm/lanes.js';
+import { DEFAULT_SETTINGS } from '../../../../src/storage/settings.js';
 
 const ROWS: readonly SettingsRow[] = [
   {
@@ -50,11 +56,11 @@ const LANE_MODE_INDEX = 0;
 const SCROLL_SPEED_INDEX = 7;
 
 function initial() {
-  return createSettingsEditorState(ROWS, DEFAULT_SETTINGS);
+  return createSettingsEditorState(ROWS, DEFAULT_SETTINGS, 'ko');
 }
 
 function laneModeInitial() {
-  return createSettingsEditorState(LANE_MODE_ROWS, DEFAULT_SETTINGS);
+  return createSettingsEditorState(LANE_MODE_ROWS, DEFAULT_SETTINGS, 'ko');
 }
 
 function keyRowIndex(lane: number): number {
@@ -62,11 +68,11 @@ function keyRowIndex(lane: number): number {
 }
 
 function toSixLanes(state: SettingsEditorState): SettingsEditorState {
-  return adjustRow(adjustRow(state, LANE_MODE_INDEX, 1, 'ko'), LANE_MODE_INDEX, 1, 'ko');
+  return adjustRow(adjustRow(state, LANE_MODE_INDEX, 1), LANE_MODE_INDEX, 1);
 }
 
 function toFourLanes(state: SettingsEditorState): SettingsEditorState {
-  return adjustRow(adjustRow(state, LANE_MODE_INDEX, -1, 'ko'), LANE_MODE_INDEX, -1, 'ko');
+  return adjustRow(adjustRow(state, LANE_MODE_INDEX, -1), LANE_MODE_INDEX, -1);
 }
 
 describe('moveFocus', () => {
@@ -95,18 +101,18 @@ describe('focusRow', () => {
 
 describe('adjustRow', () => {
   it('focuses the adjusted row and changes its setting', () => {
-    const state = adjustRow(focusRow(initial(), 1), 0, -1, 'ko');
+    const state = adjustRow(focusRow(initial(), 1), 0, -1);
     expect(state.rowIndex).toBe(0);
     expect(state.settings.masterVolume).toBe(0.9);
   });
 
   it('returns the same state when nothing can change', () => {
     const state = initial();
-    expect(adjustRow(state, 0, 1, 'ko')).toBe(state);
+    expect(adjustRow(state, 0, 1)).toBe(state);
   });
 
   it('only moves focus on a key row', () => {
-    const state = adjustRow(initial(), 1, 1, 'ko');
+    const state = adjustRow(initial(), 1, 1);
     expect(state.rowIndex).toBe(1);
     expect(state.settings).toBe(DEFAULT_SETTINGS);
   });
@@ -198,7 +204,7 @@ describe('readSettingsKey', () => {
   });
 
   it('resets to the defaults but keeps the language on Enter while confirming', () => {
-    const changed = bindWaitingKey(startWaiting(adjustRow(initial(), 0, -1, 'ko'), 1), 'KeyA');
+    const changed = bindWaitingKey(startWaiting(adjustRow(initial(), 0, -1), 1), 'KeyA');
     const confirming = requestReset({
       ...changed,
       settings: {
@@ -215,7 +221,7 @@ describe('readSettingsKey', () => {
   });
 
   it('keeps the settings on Escape while confirming', () => {
-    const confirming = requestReset(adjustRow(initial(), 0, -1, 'ko'));
+    const confirming = requestReset(adjustRow(initial(), 0, -1));
     const state = readState(confirming, 'Escape');
     expect(state.settings).toBe(confirming.settings);
     expect(state.mode).toEqual({ kind: 'browsing' });
@@ -275,7 +281,7 @@ describe('pressBack', () => {
 });
 
 describe('reset', () => {
-  const changed = () => bindWaitingKey(startWaiting(adjustRow(initial(), 0, -1, 'ko'), 1), 'KeyA');
+  const changed = () => bindWaitingKey(startWaiting(adjustRow(initial(), 0, -1), 1), 'KeyA');
 
   it('asks for confirmation without changing settings', () => {
     const state = changed();
@@ -327,11 +333,11 @@ describe('reset', () => {
 
 describe('lane mode', () => {
   it('steps the lane mode from 4 to 6 and stops at 6', () => {
-    const five = adjustRow(laneModeInitial(), LANE_MODE_INDEX, 1, 'ko');
+    const five = adjustRow(laneModeInitial(), LANE_MODE_INDEX, 1);
     expect(five.settings.laneMode).toBe(5);
-    const six = adjustRow(five, LANE_MODE_INDEX, 1, 'ko');
+    const six = adjustRow(five, LANE_MODE_INDEX, 1);
     expect(six.settings.laneMode).toBe(6);
-    expect(adjustRow(six, LANE_MODE_INDEX, 1, 'ko')).toBe(six);
+    expect(adjustRow(six, LANE_MODE_INDEX, 1)).toBe(six);
   });
 
   it.each([
@@ -341,7 +347,7 @@ describe('lane mode', () => {
   ])('shows %s key rows', (laneCount, steps) => {
     let state = laneModeInitial();
     for (let step = 0; step < steps; step += 1) {
-      state = adjustRow(state, LANE_MODE_INDEX, 1, 'ko');
+      state = adjustRow(state, LANE_MODE_INDEX, 1);
     }
     const keyRows = state.rows.filter(
       (row) => row.kind === 'key' && isRowShown(row, state.settings),
@@ -362,14 +368,17 @@ describe('lane mode', () => {
 
   it('wraps past hidden rows to the first row when only hidden rows follow', () => {
     const rows: readonly SettingsRow[] = LANE_MODE_ROWS.slice(0, SCROLL_SPEED_INDEX);
-    const lastKey = focusRow(createSettingsEditorState(rows, DEFAULT_SETTINGS), keyRowIndex(3));
+    const lastKey = focusRow(
+      createSettingsEditorState(rows, DEFAULT_SETTINGS, 'ko'),
+      keyRowIndex(3),
+    );
     expect(moveFocus(lastKey, 1).rowIndex).toBe(0);
   });
 
   it('throws for a hidden row index', () => {
     const state = laneModeInitial();
     expect(() => focusRow(state, keyRowIndex(4))).toThrow('Invalid settings row index');
-    expect(() => adjustRow(state, keyRowIndex(4), 1, 'ko')).toThrow('Invalid settings row index');
+    expect(() => adjustRow(state, keyRowIndex(4), 1)).toThrow('Invalid settings row index');
     expect(() => startWaiting(state, keyRowIndex(5))).toThrow('Invalid settings row index');
   });
 
@@ -422,7 +431,10 @@ describe('hover', () => {
   it('hovers a row without changing focus or mode', () => {
     const waiting = startWaiting(initial(), 1);
     const state = hoverRow(waiting, 2);
-    expect(state.hoveredRowIndex).toBe(2);
+    expect(state.hover).toEqual({
+      kind: 'row',
+      index: 2,
+    });
     expect(state.rowIndex).toBe(1);
     expect(state.mode).toBe(waiting.mode);
   });
@@ -431,18 +443,176 @@ describe('hover', () => {
     const state = hoverRow(initial(), 2);
     expect(hoverRow(state, 2)).toBe(state);
     expect(unhoverRow(state, 1)).toBe(state);
-    expect(unhoverRow(state, 2).hoveredRowIndex).toBeNull();
+    expect(unhoverRow(state, 2).hover).toBeNull();
   });
 
   it('releases the hover of a key row hidden by fewer lanes', () => {
     const six = hoverRow(toSixLanes(laneModeInitial()), keyRowIndex(5));
-    const five = adjustRow(six, LANE_MODE_INDEX, -1, 'ko');
+    const five = adjustRow(six, LANE_MODE_INDEX, -1);
     expect(five.settings.laneMode).toBe(5);
-    expect(five.hoveredRowIndex).toBeNull();
+    expect(five.hover).toBeNull();
+  });
+
+  it('releases the hover of the key box of a row hidden by fewer lanes', () => {
+    const six = hoverSettingsButton(toSixLanes(laneModeInitial()), getKeyBoxButton(keyRowIndex(5)));
+    expect(adjustRow(six, LANE_MODE_INDEX, -1).hover).toBeNull();
   });
 
   it('keeps the hover of a row that stays shown', () => {
     const six = hoverRow(toSixLanes(laneModeInitial()), keyRowIndex(4));
-    expect(adjustRow(six, LANE_MODE_INDEX, -1, 'ko').hoveredRowIndex).toBe(keyRowIndex(4));
+    expect(adjustRow(six, LANE_MODE_INDEX, -1).hover).toBe(six.hover);
+  });
+});
+
+// 0: 마스터 볼륨, 1: 언어
+const LANGUAGE_ROWS: readonly SettingsRow[] = [
+  {
+    kind: 'volume',
+    field: 'masterVolume',
+  },
+  { kind: 'language' },
+];
+const LANGUAGE_INDEX = 1;
+
+function languageInitial() {
+  return createSettingsEditorState(LANGUAGE_ROWS, DEFAULT_SETTINGS, 'ko');
+}
+
+describe('getSettingsEffects', () => {
+  it('has no effects when only the hover changes', () => {
+    const state = initial();
+    expect(getSettingsEffects(state, hoverRow(state, 1))).toEqual([]);
+  });
+
+  it('saves and then plays the focus sound when another row is adjusted', () => {
+    const state = focusRow(initial(), 1);
+    const next = adjustRow(state, 0, -1);
+    expect(getSettingsEffects(state, next)).toEqual([
+      {
+        kind: 'save',
+        settings: next.settings,
+      },
+      {
+        kind: 'focusSound',
+        settings: next.settings,
+      },
+    ]);
+  });
+
+  it('saves and changes the language when the language changes', () => {
+    const state = focusRow(languageInitial(), LANGUAGE_INDEX);
+    const next = adjustRow(state, LANGUAGE_INDEX, 1);
+    expect(getSettingsEffects(state, next)).toEqual([
+      {
+        kind: 'save',
+        settings: next.settings,
+      },
+      {
+        kind: 'changeLanguage',
+        language: 'ja',
+      },
+    ]);
+  });
+
+  it('does not change the language that is already displayed', () => {
+    const state = focusRow(languageInitial(), LANGUAGE_INDEX);
+    const next = withDisplayedLanguage(adjustRow(state, LANGUAGE_INDEX, 1), 'ja');
+    expect(getSettingsEffects(state, next).map(({ kind }) => kind)).toEqual(['save']);
+  });
+});
+
+describe('getChangedRegions', () => {
+  it('redraws every region for the first render', () => {
+    expect(getChangedRegions(null, initial())).toEqual([
+      'title',
+      'groups',
+      'rowLabels',
+      'rowControls',
+      'focusStar',
+      'waitingText',
+      'controlsEntry',
+      'resetDialog',
+      'controls',
+      'rowButtons',
+      'backButton',
+      'resetEntry',
+      'resetButtons',
+      'controlsClose',
+    ]);
+  });
+
+  it('redraws only the controls when only the controls open', () => {
+    const state = initial();
+    expect(
+      getChangedRegions(state, {
+        ...state,
+        isControlsOpen: true,
+      }),
+    ).toEqual(['controls', 'controlsClose']);
+  });
+
+  it('redraws only the row labels when the hover changes', () => {
+    const state = initial();
+    expect(getChangedRegions(state, hoverRow(state, 1))).toEqual(['rowLabels']);
+  });
+
+  it('redraws the rows, and the focus star only when the adjusted row was not focused', () => {
+    expect(getChangedRegions(initial(), adjustRow(initial(), 0, -1))).toEqual([
+      'rowLabels',
+      'rowControls',
+      'rowButtons',
+    ]);
+    const state = focusRow(initial(), 1);
+    expect(getChangedRegions(state, adjustRow(state, 0, -1))).toEqual([
+      'rowLabels',
+      'rowControls',
+      'focusStar',
+      'rowButtons',
+    ]);
+  });
+
+  it('redraws the controls and the waiting text while waiting for a key', () => {
+    const state = focusRow(initial(), 1);
+    expect(getChangedRegions(state, startWaiting(state, 1))).toEqual([
+      'rowControls',
+      'waitingText',
+      'controlsEntry',
+    ]);
+  });
+
+  it('redraws every text region but the reset dialog when the displayed language changes', () => {
+    const state = initial();
+    expect(getChangedRegions(state, withDisplayedLanguage(state, 'ja'))).toEqual([
+      'title',
+      'groups',
+      'rowLabels',
+      'rowControls',
+      'waitingText',
+      'rowButtons',
+    ]);
+  });
+
+  it('redraws only the hovered button when the hover changes between buttons', () => {
+    const state = hoverSettingsButton(initial(), 'back');
+    expect(getChangedRegions(initial(), state)).toEqual(['backButton']);
+    expect(getChangedRegions(state, hoverSettingsButton(state, getKeyBoxButton(1)))).toEqual([
+      'rowButtons',
+      'backButton',
+    ]);
+    expect(getChangedRegions(state, pressSettingsButton(state, 'back'))).toEqual(['backButton']);
+  });
+
+  it('redraws the reset dialog when it opens and closes', () => {
+    const state = initial();
+    const confirming = requestReset(state);
+    expect(getChangedRegions(state, confirming)).toContain('resetDialog');
+    expect(getChangedRegions(confirming, cancelPrompt(confirming))).toContain('resetDialog');
+  });
+
+  it('does not redraw the reset dialog when only the displayed language changes while confirming', () => {
+    const confirming = requestReset(initial());
+    expect(getChangedRegions(confirming, withDisplayedLanguage(confirming, 'ja'))).not.toContain(
+      'resetDialog',
+    );
   });
 });

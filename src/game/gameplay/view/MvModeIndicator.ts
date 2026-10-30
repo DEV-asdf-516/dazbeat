@@ -1,8 +1,19 @@
 import type Phaser from 'phaser';
-import { MV_MODES } from '../../storage/settings.js';
-import type { MvMode } from '../../storage/settings.js';
-import { MENU_KEY_HINT_STYLE, createKeyCap, placeKeyCap } from '../ui/keyHintView.js';
-import { CELESTIAL_COLORS, COLORS, GAMEPLAY_DEPTH, MOTION, textStyle } from '../ui/theme.js';
+import { MV_MODES } from '../../../storage/settings.js';
+import type { MvMode } from '../../../storage/settings.js';
+import { requireDefined } from '../../../invariant.js';
+import {
+  MENU_KEY_HINT_STYLE,
+  createKeyCap,
+  placeKeyCap,
+} from '../../ui/view/widgets/keyHintView.js';
+import {
+  CELESTIAL_COLORS,
+  COLORS,
+  GAMEPLAY_DEPTH,
+  MOTION,
+  textStyle,
+} from '../../ui/view/theme.js';
 
 // 조작 안내(ControlsOverlay)가 MV 전환 키를 부르는 이름과 같다.
 const KEY_LABEL = 'Tab';
@@ -10,13 +21,21 @@ const LABEL_GAP_PX = 10;
 const PIP_RADIUS_PX = 3.5;
 const PIP_GAP_PX = 10;
 const PIP_VALUE_GAP_PX = 14;
-const PIP_IDLE_ALPHA = 0.45;
+const PIP_LOOKS = {
+  selected: {
+    color: CELESTIAL_COLORS.selected,
+    alpha: 1,
+  },
+  idle: {
+    color: COLORS.textMuted,
+    alpha: 0.45,
+  },
+} as const;
 const VALUE_WEIGHT = 600;
 // 연타로 원하는 모드를 찾는 동안 사라지지 않을 만큼 두고, 갑자기 꺼지지 않게 천천히 뺀다.
 const HOLD_MS = 1200;
 const FADE_OUT_MS = 500;
 
-// 네 모드 이름을 늘어놓지 않고 점으로 순환 위치만 보여 지금 모드 한 단어만 읽게 한다.
 export class MvModeIndicator {
   private readonly container: Phaser.GameObjects.Container;
   private readonly value: Phaser.GameObjects.Text;
@@ -67,13 +86,20 @@ export class MvModeIndicator {
       .setAlpha(0);
   }
 
-  show(selected: MvMode): void {
+  show(
+    selected: MvMode,
+    marks: readonly { readonly mode: MvMode; readonly isSelected: boolean }[],
+  ): void {
     this.value.setText(selected.toUpperCase());
-    this.pips.forEach(({ mode, dot }) => {
-      const isSelected = mode === selected;
-      dot
-        .setFillStyle(isSelected ? CELESTIAL_COLORS.selected : COLORS.textMuted)
-        .setAlpha(isSelected ? 1 : PIP_IDLE_ALPHA);
+    marks.forEach(({ mode, isSelected }) => {
+      const { color, alpha } = PIP_LOOKS[isSelected ? 'selected' : 'idle'];
+      requireDefined(
+        this.pips.find((pip) => pip.mode === mode),
+        'Missing MV mode pip',
+        mode,
+      )
+        .dot.setFillStyle(color)
+        .setAlpha(alpha);
     });
     this.scene.tweens.killTweensOf(this.container);
     this.scene.tweens.add({

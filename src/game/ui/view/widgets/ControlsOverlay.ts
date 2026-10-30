@@ -1,16 +1,16 @@
 import Phaser from 'phaser';
-import { readControlsKey } from '../controlsGuide.js';
-import type { ControlsGroup } from '../controlsGuide.js';
+import type { ButtonView } from '../../state/buttonPointer.js';
+import type { ControlsButton, ControlsGroup } from '../../../app/controlsGuide.js';
 import { createAuxiliaryButton } from './auxiliaryButton.js';
 import { getCloseIconTexture } from './closeIcon.js';
 import { QUIET_PADDING_PX } from './Button.js';
 import type { Button } from './Button.js';
-import { setContainerHitArea } from './hoverTarget.js';
+import { bindPointer, pointButton, setContainerHitArea } from '../input/hoverTarget.js';
+import type { ButtonPointer } from '../input/hoverTarget.js';
 import { MENU_KEY_HINT_STYLE, createKeyCap, getKeyCapObjects, placeKeyCap } from './keyHintView.js';
 import type { KeyCap, KeyHintStyle } from './keyHintView.js';
 import { ModalFrame } from './ModalFrame.js';
-import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from './theme.js';
-import { bindTextEntry } from './textEntry.js';
+import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from '../theme.js';
 
 // 확인 팝업(ConfirmDialog)과 같은 여백·글자 크기로 맞춘다.
 const PADDING_PX = 32;
@@ -65,66 +65,41 @@ interface RowView {
 
 export class ControlsOverlay {
   private readonly scene: Phaser.Scene;
-  private readonly readGuide: () => readonly ControlsGroup[];
   private readonly frame: ModalFrame;
   private readonly title: Phaser.GameObjects.Text;
   private readonly closeButton: Button;
   private contentObjects: readonly Phaser.GameObjects.GameObject[] = [];
 
-  constructor(scene: Phaser.Scene, readGuide: () => readonly ControlsGroup[]) {
+  constructor(scene: Phaser.Scene, pointer: ButtonPointer<ControlsButton>) {
     this.scene = scene;
-    this.readGuide = readGuide;
-    this.frame = new ModalFrame(scene, () => this.close());
+    this.frame = new ModalFrame(scene, pointButton(pointer, 'controlsBackdrop'));
     this.title = scene.add.text(PADDING_PX, PADDING_PX, 'CONTROLS', {
       ...typeStyle(TITLE_TYPE, CELESTIAL_COLORS.textPrimary),
       letterSpacing: TITLE_LETTER_SPACING_PX,
     });
     this.closeButton = createAuxiliaryButton(scene, 0, this.title.y + this.title.height / 2, {
       label: '',
-      onActivate: () => this.close(),
+      pointer: pointButton(pointer, 'controlsClose'),
     }).setIcon(getCloseIconTexture(scene, CLOSE_ICON_SIZE_PX), CLOSE_ICON_SIZE_PX);
     this.frame.container.add([this.title, this.closeButton]);
-    this.closeButton.setEnabled(false);
   }
 
-  get isOpen(): boolean {
-    return this.frame.isOpen;
-  }
-
-  open(): void {
-    if (this.isOpen) {
+  /** 부르는 쪽이 열림이 바뀔 때만 부른다. null 이면 닫는다. */
+  render(guide: readonly ControlsGroup[] | null): void {
+    if (guide === null) {
+      this.frame.render(false);
       return;
     }
-    this.render(this.readGuide());
-    this.frame.open();
-    this.closeButton.setEnabled(true);
+    this.renderGuide(guide);
+    this.frame.render(true);
   }
 
-  handleKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
-    switch (readControlsKey(this.isOpen, event)) {
-      case 'open':
-        this.open();
-        return true;
-      case 'close':
-        this.close();
-        return true;
-      case 'block':
-        return true;
-      case 'pass':
-        return false;
-    }
-  }
-
-  private close(): void {
-    if (!this.isOpen) {
-      return;
-    }
-    this.frame.close();
-    this.closeButton.setEnabled(false);
+  renderCloseButton(view: ButtonView): void {
+    this.closeButton.render(view);
   }
 
   /** 열 때마다 언어·레인 키가 바뀌었을 수 있으므로 행을 새로 만든다. */
-  private render(guide: readonly ControlsGroup[]): void {
+  private renderGuide(guide: readonly ControlsGroup[]): void {
     this.contentObjects.forEach((object) => object.destroy());
     const scene = this.scene;
     const groups = guide.map((group) => ({
@@ -195,8 +170,8 @@ export function addControlsEntry(
   scene: Phaser.Scene,
   leftPx: number,
   topYPx: number,
-  onActivate: () => void,
-): Phaser.GameObjects.Container {
+  pointer: ButtonPointer<ControlsButton>,
+): { readonly container: Phaser.GameObjects.Container; readonly label: Phaser.GameObjects.Text } {
   const keyCap = createKeyCap(scene, ENTRY_KEY, MENU_KEY_HINT_STYLE);
   const centerYPx = ENTRY_ROW_HEIGHT_PX / 2;
   placeKeyCap(keyCap, 0, centerYPx);
@@ -209,6 +184,9 @@ export function addControlsEntry(
     .container(leftPx, topYPx, [...getKeyCapObjects(keyCap), label])
     .setSize(widthPx, ENTRY_ROW_HEIGHT_PX);
   setContainerHitArea(entry, new Phaser.Geom.Rectangle(), widthPx, ENTRY_ROW_HEIGHT_PX);
-  bindTextEntry(entry, label, onActivate);
-  return entry;
+  bindPointer(entry, pointButton(pointer, 'controlsEntry'));
+  return {
+    container: entry,
+    label,
+  };
 }

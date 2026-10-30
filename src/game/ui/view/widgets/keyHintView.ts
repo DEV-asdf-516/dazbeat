@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { parseKeyHints } from './keyHints.js';
-import { COLORS, RADIUS, TYPE_SCALE, typeStyle } from './theme.js';
+import { parseKeyHints } from '../../state/keyHints.js';
+import { COLORS, RADIUS, TYPE_SCALE, typeStyle } from '../theme.js';
 
 export interface KeyHintStyle {
   keyType: { sizePx: number; weight: number };

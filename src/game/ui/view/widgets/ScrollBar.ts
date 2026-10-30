@@ -1,23 +1,23 @@
 import type Phaser from 'phaser';
-import { CELESTIAL_COLORS } from './theme.js';
+import { CELESTIAL_COLORS } from '../theme.js';
 
 const SCROLLBAR_WIDTH_PX = 3;
 const SCROLLBAR_TRACK_ALPHA = 0.3;
 
-export interface ScrollBarView {
-  readonly topYPx: number;
-  readonly heightPx: number;
-  readonly visibleCount: number;
-  readonly totalCount: number;
-  readonly firstIndex: number;
-}
+export type ScrollBarScroll =
+  | { readonly kind: 'hidden' }
+  | { readonly kind: 'track' }
+  | {
+      readonly kind: 'thumb';
+      readonly firstIndex: number;
+      readonly visibleCount: number;
+      readonly totalCount: number;
+    };
 
 export class ScrollBar {
   readonly objects: readonly [Phaser.GameObjects.Rectangle, Phaser.GameObjects.Rectangle];
   private readonly track: Phaser.GameObjects.Rectangle;
   private readonly thumb: Phaser.GameObjects.Rectangle;
-  private isVisible = true;
-  private isOverflowing = false;
 
   constructor(scene: Phaser.Scene, xPx: number) {
     this.track = scene.add
@@ -29,22 +29,29 @@ export class ScrollBar {
     this.objects = [this.track, this.thumb];
   }
 
-  render(view: ScrollBarView): void {
-    const { topYPx, heightPx, visibleCount, totalCount, firstIndex } = view;
-    this.track.setY(topYPx).setSize(SCROLLBAR_WIDTH_PX, heightPx);
-    this.isOverflowing = totalCount > visibleCount;
-    this.thumb.setVisible(this.isVisible && this.isOverflowing);
-    if (!this.isOverflowing) {
-      return;
+  render(
+    scroll: ScrollBarScroll,
+    frame: { readonly topYPx: number; readonly heightPx: number },
+  ): void {
+    const { topYPx, heightPx } = frame;
+    switch (scroll.kind) {
+      case 'hidden':
+        this.track.setVisible(false);
+        this.thumb.setVisible(false);
+        return;
+      case 'track':
+        this.track.setY(topYPx).setSize(SCROLLBAR_WIDTH_PX, heightPx).setVisible(true);
+        this.thumb.setVisible(false);
+        return;
+      case 'thumb': {
+        const { firstIndex, visibleCount, totalCount } = scroll;
+        this.track.setY(topYPx).setSize(SCROLLBAR_WIDTH_PX, heightPx).setVisible(true);
+        this.thumb
+          .setY(topYPx + (heightPx * firstIndex) / totalCount)
+          .setSize(SCROLLBAR_WIDTH_PX, (heightPx * visibleCount) / totalCount)
+          .setVisible(true);
+        return;
+      }
     }
-    this.thumb
-      .setY(topYPx + (heightPx * firstIndex) / totalCount)
-      .setSize(SCROLLBAR_WIDTH_PX, (heightPx * visibleCount) / totalCount);
-  }
-
-  setVisible(isVisible: boolean): void {
-    this.isVisible = isVisible;
-    this.track.setVisible(isVisible);
-    this.thumb.setVisible(isVisible && this.isOverflowing);
   }
 }

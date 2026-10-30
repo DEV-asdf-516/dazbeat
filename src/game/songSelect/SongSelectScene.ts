@@ -1,81 +1,92 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.js';
-import type { CelestialAtlasId } from '../celestial/celestialCatalog.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
+import type { CelestialAtlasId } from '../celestial/state/celestialCatalog.js';
+import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
+import { getControlsGuide } from '../app/controlsGuide.js';
+import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type {
   PlayMode,
   SceneRequest,
   SongSelectRestore,
   SongSelectSceneData,
-} from '../sceneRoutes.js';
+} from '../app/sceneRoutes.js';
 import { SONG_FILTERS } from '../../data/songs.js';
 import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
-import type { SongFeeds } from '../SongFeed.js';
-import { getChartRecord } from '../../storage/chartRecords.js';
-import type { ChartRecord, ChartRecords } from '../../storage/chartRecords.js';
+import type { SongFeeds } from '../app/SongFeed.js';
+import type { ChartRecord } from '../../storage/chartRecords.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { DEFAULT_SETTINGS } from '../../storage/settings.js';
 import {
   SONG_ROW_NODE_IDS,
   SONG_SELECT_ACTIONS,
-  getJacketRange,
-  getPlayableSelection,
   getActionAppearance,
+  getChangedRegions,
+  getChangedRowSlots,
+  getDifficultyAccent,
+  getFilterAppearance,
+  getJacketRange,
+  getLoadingMoreAnchor,
+  getNoticeKind,
+  getPageIndicator,
+  getSelectedRecord,
+  getSettingsButtonView,
+  getShiftedRowSlots,
+  getSongDifficultyAppearance,
   getSongPage,
   getSongRows,
-  getFilterAppearance,
-  getSongDifficultyAppearance,
-  getSongRowNodeId,
-  hasNewCurrentSong,
-  isSameSelection,
+  getSongSelectControlsCloseView,
+  isSongSelectControlsEntryHovered,
   openSongSelect,
-} from './songSelectState.js';
+} from './state/songSelectState.js';
 import { SongSelectController } from './SongSelectController.js';
-import type { SongSelectScreen, SongSelectView } from './SongSelectController.js';
-import { DIFFICULTY_TAB_ITEMS } from '../difficultyAppearance.js';
+import type { SongSelectScreen } from './SongSelectController.js';
+import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
 import type { Difficulty } from '../../rhythm/types.js';
-import { SongSelectJackets } from './SongSelectJackets.js';
-import { getZodiacSign } from './zodiacSign.js';
-import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/zodiacFigures.js';
-import type { JacketTextures } from './SongSelectJackets.js';
-import { STAYING } from '../sceneExit.js';
-import type { SceneExit } from '../sceneExit.js';
+import { SongSelectJackets } from './state/SongSelectJackets.js';
+import { getZodiacSign, strokeZodiacLine } from '../celestial/view/zodiacSign.js';
+import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/state/zodiacFigures.js';
+import type { JacketTextures } from './state/SongSelectJackets.js';
+import { STAYING } from '../app/sceneExit.js';
+import type { SceneExit } from '../app/sceneExit.js';
 import type {
   SongRowView,
   SongSelectAction,
-  SongSelectHover,
+  SongSelectButton,
   SongSelectNotice,
+  SongSelectRegion,
   SongSelectState,
-} from './songSelectState.js';
-import { GAME_WIDTH } from '../config.js';
-import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
-import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
+  SongSelectView,
+} from './state/songSelectState.js';
+import { GAME_WIDTH } from '../app/config.js';
+import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
+import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import type { Button } from '../ui/view/widgets/Button.js';
 import {
   addCelestialSprite,
   applyCelestialPresentation,
   playCelestialOnce,
   queueCelestialTextures,
   setCelestialLoopActive,
-} from '../celestial/celestialSprites.js';
-import { formatAccuracy, formatScore } from '../ui/format.js';
+} from '../celestial/view/celestialSprites.js';
+import { formatAccuracy, formatScore } from '../ui/state/format.js';
 import {
   JacketView,
   getLoadedJacketSongIds,
   queueJacketLoads,
   removeJacketTextures,
-} from '../ui/jacket.js';
-import { setFittedText } from '../ui/fitText.js';
-import { ensureLightTextures } from '../ui/lightTextures.js';
-import { requireKeyboard } from '../ui/menuInput.js';
-import type { MenuAction } from '../ui/menuInput.js';
-import { bindHoverTarget } from '../ui/hoverTarget.js';
-import { TextTabs } from '../ui/TextTabs.js';
-import type { TextTabsLayout, TextTabsStyle } from '../ui/TextTabs.js';
-import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
-import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
-import { NoticeText } from '../ui/NoticeText.js';
+} from '../ui/view/widgets/jacket.js';
+import { setFittedText } from '../ui/view/widgets/fitText.js';
+import { ensureLightTextures } from '../ui/view/textures/lightTextures.js';
+import { requireKeyboard } from '../ui/view/input/menuInput.js';
+import type { MenuAction } from '../ui/view/input/menuInput.js';
+import { bindHoverTarget, pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import { TextTabs } from '../ui/view/widgets/TextTabs.js';
+import type { TextTabsLayout, TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
+import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
+import { NoticeText } from '../ui/view/widgets/NoticeText.js';
 import {
   CATEGORY_COLORS,
   CELESTIAL_COLORS,
@@ -90,10 +101,8 @@ import {
   setTextWeight,
   textStyle,
   typeStyle,
-} from '../ui/theme.js';
+} from '../ui/view/theme.js';
 import { requireDefined } from '../../invariant.js';
-import { isShallowEqual } from '../../shallowEqual.js';
-import { IDLE_WHEEL, readWheelRows } from '../wheelRows.js';
 
 const FILTER_GAP_PX = 48;
 const LIST_PANEL = {
@@ -229,16 +238,6 @@ const ZODIAC_MAX_SPAN_PX = 290;
 // 난이도 탭 끝(EXPERT)이 정보 열 왼쪽 선을 조금 넘어오므로 그만큼 비켜 선다.
 const ZODIAC_AREA_LEFT_X_PX = INFO_X_PX + 40;
 const ZODIAC_AREA_GAP_PX = 40;
-// 심을 너무 밝히면 아래 깔린 하늘색 번짐이 묻혀 순백으로 떠 보이고, 노트 색처럼 따뜻한 흰색은 푸른 하늘 위에서 누렇게 보인다.
-const ZODIAC_LINE = {
-  coreWidthPx: 1.5,
-  coreAlpha: 0.7,
-  haloWidthPx: 5,
-  haloAlpha: 0.2,
-  // 넓고 옅은 바깥 번짐을 한 겹 더 둘러 선이 푸른빛으로 빛나 보이게 한다.
-  glowWidthPx: 12,
-  glowAlpha: 0.07,
-} as const;
 const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   ROW_NODE_INITIAL_ID,
   ...SONG_ROW_NODE_IDS,
@@ -258,7 +257,6 @@ interface SongRow {
   title: Phaser.GameObjects.Text;
   category: Phaser.GameObjects.Text;
   node: Phaser.GameObjects.Sprite;
-  shifted: boolean;
 }
 
 interface ActionButton {
@@ -268,6 +266,7 @@ interface ActionButton {
 }
 
 interface SongSelectWidgets {
+  chrome: MenuSceneChrome;
   tabs: TextTabs<SongFilter>;
   rows: SongRow[];
   notice: NoticeText;
@@ -287,14 +286,12 @@ interface SongSelectWidgets {
   zodiacStars: Phaser.GameObjects.Image;
   zodiacLines: Phaser.GameObjects.Graphics;
   actions: Record<SongSelectAction, ActionButton>;
+  settingsButton: Button;
 }
 
 type HoverInput = Pick<SongSelectController, 'hover' | 'unhover'>;
 
 export class SongSelectScene extends Phaser.Scene {
-  /** 기록은 플레이 뒤에만 바뀌고 그때 이 씬은 다시 create 되므로 렌더마다 저장소를 다시 읽지 않는다. */
-  private records: ChartRecords = new Map();
-  private record: ChartRecord | null = null;
   private exit: SceneExit<SceneRequest> = STAYING;
   private mode: PlayMode = 'standard';
   private restore: SongSelectRestore | undefined;
@@ -318,10 +315,10 @@ export class SongSelectScene extends Phaser.Scene {
 
   init(data: SongSelectSceneData): void {
     this.restore = data.restore;
+    this.jackets = new SongSelectJackets(this.jacketTextures);
   }
 
   preload(): void {
-    this.jackets = new SongSelectJackets(this.jacketTextures);
     // 재킷 범위는 곡 목록과 선택 위치로만 정해져 레인 수와 무관하므로 설정을 읽지 않는다.
     this.jackets.preload(
       getJacketRange(
@@ -341,12 +338,25 @@ export class SongSelectScene extends Phaser.Scene {
     this.mode = data.mode;
     // 미리듣기는 소리만 낸다.
     this.mvLayer.dataset.mvHidden = '';
-    const chrome = new MenuSceneChrome(this, {
-      celestial: this.celestial,
-      screen: 'songSelect',
-      readControlsMessages: () => this.i18n.t('controls', { returnObjects: true }),
-      readSettings: () => this.save.loadSettings(),
-    });
+    const pointer: ButtonPointer<SongSelectButton> = {
+      pointerOver: (button) => controller.pointerOver(button),
+      pointerOut: (button) => controller.pointerOut(button),
+      pointerDown: (button) => controller.pointerDown(button),
+      pointerUp: (button) => controller.pointerUp(button),
+    };
+    const chrome = new MenuSceneChrome(
+      this,
+      {
+        celestial: this.celestial,
+        screen: 'songSelect',
+      },
+      {
+        isLeaving: () => this.exit.kind === 'leaving',
+        handleControlsKey: (event) => controller.handleControlsKey(event),
+        handleMenuKey: (action, event) => this.handleMenuKey(action, event, controller),
+      },
+      pointer,
+    );
     this.add
       .rectangle(
         LIST_PANEL.xPx,
@@ -359,7 +369,6 @@ export class SongSelectScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setRounded(RADIUS.smallPx);
     const keyboard = requireKeyboard(this);
-    this.records = this.save.loadRecords();
     ensureLightTextures(this);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
@@ -368,7 +377,11 @@ export class SongSelectScene extends Phaser.Scene {
       unhover: (target) => controller.unhover(target),
     };
     const screen: SongSelectScreen = {
-      render: (shown, previous) => this.show(view, shown, previous),
+      render: (previous, next) => {
+        for (const region of getChangedRegions(previous, next, ROWS_PER_PAGE)) {
+          this.renderRegion(view, previous, next, region);
+        }
+      },
       play: (chart, restore) => this.play(chart, restore),
       openSettings: (restore) => this.openSettings(restore),
       playFocusSound: () => soundEffects.play('menuFocus'),
@@ -405,7 +418,8 @@ export class SongSelectScene extends Phaser.Scene {
           }),
       },
     );
-    const view: SongSelectWidgets = {
+    const widgets: Omit<SongSelectWidgets, 'settingsButton'> = {
+      chrome,
       tabs,
       rows: this.createSongRows(hoverInput, (slot) => controller.selectRow(slot)),
       notice: new NoticeText(
@@ -476,18 +490,33 @@ export class SongSelectScene extends Phaser.Scene {
         play: () => controller.play(),
       }),
     };
-    createHeaderAuxiliaryButtons(this, [
+    const [settingsButton] = createHeaderAuxiliaryButtons(this, [
       {
         label: 'SETTINGS',
-        onActivate: () => controller.openSettings(),
+        pointer: pointButton(pointer, 'settings'),
       },
     ]);
+    const view: SongSelectWidgets = {
+      ...widgets,
+      settingsButton: requireDefined(
+        settingsButton,
+        'Missing song select header button',
+        'SETTINGS',
+      ),
+    };
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     const renderLoadedJackets = (): void => {
-      this.jackets.complete(getShownSongs(view));
-      view.rows.forEach((row) => row.thumbnail.refreshTexture());
-      view.jacket.refreshTexture(true);
+      this.jackets.complete(getShownSongIds(view));
+      const { state, records } = controller.view;
+      getSongRows(state, ROWS_PER_PAGE, records).forEach((rowView, slot) => {
+        if (rowView.kind === 'song') {
+          getSongRow(view, slot).thumbnail.refreshTexture(rowView.song);
+        }
+      });
+      if (state.current.kind === 'song') {
+        view.jacket.refreshTexture(state.current.song, true);
+      }
     };
     this.load.on(Phaser.Loader.Events.COMPLETE, renderLoadedJackets);
     const onUpdate = (): void => controller.tick();
@@ -502,6 +531,9 @@ export class SongSelectScene extends Phaser.Scene {
     });
     const settings = this.save.loadSettings();
     const soundEffects = new SoundEffects(this, settings);
+    chrome.start(
+      new Phaser.Geom.Rectangle(DETAIL_X_PX, JACKET_Y_PX, JACKET_SIZE_PX, JACKET_SIZE_PX),
+    );
     const controller = new SongSelectController(
       {
         feeds: this.feeds,
@@ -519,13 +551,9 @@ export class SongSelectScene extends Phaser.Scene {
       ROWS_PER_PAGE,
       settings.laneMode,
       this.restore,
-    );
-    chrome.start(
-      new Phaser.Geom.Rectangle(DETAIL_X_PX, JACKET_Y_PX, JACKET_SIZE_PX, JACKET_SIZE_PX),
-      {
-        isLeaving: () => this.exit.kind === 'leaving',
-        handleMenuKey: (action, event) => this.handleMenuKey(action, event, controller),
-      },
+      // 기록은 플레이 뒤에만 바뀌고 그때 이 씬은 다시 create 되므로 그릴 때마다 저장소를 다시 읽지 않는다.
+      this.save.loadRecords(),
+      WHEEL_STEP_PX,
     );
     // 상세 패널(PLAY 버튼) 위에서 휠이 살짝 움직여 선택 곡이 바뀌지 않도록 목록 위에서만 받는다.
     const listArea = new Phaser.Geom.Rectangle(
@@ -534,22 +562,13 @@ export class SongSelectScene extends Phaser.Scene {
       ROW_WIDTH_PX,
       ROW_HEIGHT_PX * ROWS_PER_PAGE,
     );
-    let wheel = IDLE_WHEEL;
     this.input.on(
       Phaser.Input.Events.POINTER_WHEEL,
       (pointer: Phaser.Input.Pointer, _over: unknown, _deltaX: number, deltaY: number) => {
-        if (
-          this.exit.kind === 'leaving' ||
-          chrome.isControlsOpen ||
-          !listArea.contains(pointer.x, pointer.y)
-        ) {
+        if (this.exit.kind === 'leaving' || !listArea.contains(pointer.x, pointer.y)) {
           return;
         }
-        const read = readWheelRows(wheel, deltaY, this.time.now, WHEEL_STEP_PX);
-        wheel = read.gesture;
-        if (read.rows !== 0) {
-          controller.moveSong(read.rows);
-        }
+        controller.scrollByWheel(deltaY, this.time.now);
       },
     );
   }
@@ -614,7 +633,6 @@ export class SongSelectScene extends Phaser.Scene {
         title,
         category,
         node: this.addCelestial(ROW_NODE_INITIAL_ID, ROW_NODE_X_PX, centerYPx),
-        shifted: false,
       };
     });
   }
@@ -760,69 +778,137 @@ export class SongSelectScene extends Phaser.Scene {
     }
   }
 
-  private show(
+  private renderRegion(
     view: SongSelectWidgets,
-    shown: SongSelectView,
-    previous: SongSelectState | null,
+    previous: SongSelectView | null,
+    next: SongSelectView,
+    region: SongSelectRegion,
   ): void {
-    const { state } = shown;
-    if (previous !== null && previous !== state && isShallowEqual(previous, state, ['hover'])) {
-      this.renderHover(view, state, previous.hover);
-      this.renderHover(view, state, state.hover);
-      return;
-    }
-    if (previous === null || !isSameSelection(previous, state)) {
-      this.record = this.findSelectedRecord(state);
-    }
-    this.render(view, shown);
-    this.syncJackets(view, state);
-    if (previous !== null && hasNewCurrentSong(previous, state)) {
-      playCelestialOnce(view.jacketGlint);
-    }
-  }
-
-  /** hover 만 바뀌면 그 대상의 표시만 현재 state 로 다시 칠한다. */
-  private renderHover(
-    view: SongSelectWidgets,
-    state: SongSelectState,
-    hover: SongSelectHover | null,
-  ): void {
-    if (hover === null) {
-      return;
-    }
-    switch (hover.kind) {
-      case 'filter':
+    const { state, notice, isLoadingMore, songCount, records } = next;
+    switch (region) {
+      case 'filterTabs':
         this.renderTabs(view, state);
         return;
-      case 'row': {
-        const rowView = requireDefined(
-          getSongRows(state, ROWS_PER_PAGE)[hover.slot],
-          'Invalid song row slot',
-          hover.slot,
-        );
-        if (rowView.kind === 'song') {
-          this.renderRowNode(view, hover.slot, rowView);
+      case 'rows': {
+        const rows = getSongRows(state, ROWS_PER_PAGE, records);
+        for (const slot of getChangedRowSlots(previous, next, ROWS_PER_PAGE)) {
+          this.renderRow(view, slot, requireDefined(rows[slot], 'Invalid song row slot', slot));
         }
         return;
       }
-      case 'action':
-        this.renderAction(view, state, hover.action);
+      case 'rowShift': {
+        const rows = getSongRows(state, ROWS_PER_PAGE, records);
+        for (const slot of getShiftedRowSlots(previous, next, ROWS_PER_PAGE)) {
+          this.shiftRow(
+            getSongRow(view, slot),
+            requireDefined(rows[slot], 'Invalid song row slot', slot),
+          );
+        }
         return;
-      case 'difficulty':
-        this.renderDifficultyTabs(view, state);
+      }
+      case 'selectedHalo':
+        this.renderSelectedHalo(view, state);
+        return;
+      case 'notice':
+        view.notice.show(
+          notice === null
+            ? { kind: 'none' }
+            : {
+                kind: getNoticeKind(notice),
+                text: this.translateNotice(notice),
+              },
+        );
+        return;
+      case 'pageIndicator': {
+        const indicator = getPageIndicator(state, ROWS_PER_PAGE, songCount);
+        if (indicator === null) {
+          view.pageText.setVisible(false);
+        } else {
+          view.pageText.setText(indicator.text).setVisible(true);
+        }
+        return;
+      }
+      case 'loadingMore': {
+        const anchor = getLoadingMoreAnchor(state, ROWS_PER_PAGE);
+        switch (anchor.kind) {
+          case 'pageEnd':
+            view.loadingMore.setPosition(PAGE_X_PX + ROW_WIDTH_PX, PAGE_LINE_CENTER_Y_PX, 1);
+            break;
+          case 'row':
+            view.loadingMore.setPosition(
+              ROW_X_PX + ROW_WIDTH_PX / 2,
+              getRowCenterYPx(anchor.slot),
+              0.5,
+            );
+            break;
+        }
+        view.loadingMore.show(
+          isLoadingMore
+            ? {
+                kind: 'loading',
+                text: this.i18n.t('songSelect.loadingMore'),
+              }
+            : { kind: 'none' },
+        );
+        return;
+      }
+      case 'jacket':
+        switch (state.current.kind) {
+          case 'song':
+            view.jacket.setSong(state.current.song, true);
+            view.orbitArc.setVisible(true);
+            return;
+          case 'none':
+            view.jacket.setSong(null, true);
+            view.orbitArc.setVisible(false);
+            return;
+        }
+        return;
+      case 'songInfo':
+        switch (state.current.kind) {
+          case 'song':
+            this.renderSongInfo(view, state.current.song, getSelectedRecord(state, records));
+            return;
+          case 'none':
+            this.renderNoSongInfo(view);
+            return;
+        }
+        return;
+      case 'difficultyTabs':
+        view.difficultyTabs.render(
+          (difficulty) => getSongDifficultyAppearance(state, difficulty),
+          getDifficultyAccent(state) ?? COLORS.textPrimary,
+        );
+        return;
+      case 'actions':
+        SONG_SELECT_ACTIONS.forEach((action) => this.renderAction(view, state, action));
+        return;
+      case 'jacketLoads':
+        this.jackets.show(getJacketRange(state, ROWS_PER_PAGE), getShownSongIds(view));
+        return;
+      case 'jacketGlint':
+        playCelestialOnce(view.jacketGlint);
+        return;
+      case 'controls':
+        view.chrome.renderControls(
+          next.isControlsOpen
+            ? getControlsGuide(
+                this.i18n.t('controls', { returnObjects: true }),
+                this.save.loadSettings(),
+              )
+            : null,
+        );
+        return;
+      case 'settingsButton':
+        view.settingsButton.render(getSettingsButtonView(next));
+        return;
+      case 'controlsEntry':
+        view.chrome.renderControlsEntry(isSongSelectControlsEntryHovered(next));
+        return;
+      case 'controlsClose':
+        view.chrome.renderControlsClose(getSongSelectControlsCloseView(next));
         return;
     }
-  }
-
-  private syncJackets(view: SongSelectWidgets, state: SongSelectState): void {
-    this.jackets.show(getJacketRange(state, ROWS_PER_PAGE), getShownSongs(view));
-  }
-
-  private findSelectedRecord(state: SongSelectState): ChartRecord | null {
-    const selection = getPlayableSelection(state);
-    return selection === null
-      ? null
-      : getChartRecord(this.records, selection.song.id, selection.laneCount, selection.difficulty);
   }
 
   private play(chart: ChartRef, restore: SongSelectRestore): void {
@@ -858,57 +944,6 @@ export class SongSelectScene extends Phaser.Scene {
     });
   }
 
-  private render(view: SongSelectWidgets, shown: SongSelectView): void {
-    const { state, notice, isLoadingMore, songCount } = shown;
-    this.renderTabs(view, state);
-    const rows = getSongRows(state, ROWS_PER_PAGE);
-    rows.forEach((rowView, slot) => this.renderRow(view, slot, rowView));
-    this.renderSelectedHalo(view, state);
-    if (notice === null) {
-      view.notice.show({ kind: 'none' });
-    } else {
-      view.notice.show({
-        kind: notice === 'loading' ? 'loading' : 'text',
-        text: this.translateNotice(notice),
-      });
-    }
-    const { pageNumber } = getSongPage(state, ROWS_PER_PAGE);
-    const pageCount = Math.ceil(songCount / ROWS_PER_PAGE);
-    view.pageText.setText(`${pageNumber} / ${pageCount}`).setVisible(pageCount >= 2);
-    // 받아 둔 마지막 곡 바로 아래 칸 가운데에 붙이고, 그 곡이 이 쪽 마지막 칸이면 쪽 번호 줄 오른쪽 끝에 둔다.
-    const nextSlot = rows.findIndex((row) => row.kind === 'empty');
-    if (nextSlot === -1) {
-      view.loadingMore.setPosition(PAGE_X_PX + ROW_WIDTH_PX, PAGE_LINE_CENTER_Y_PX, 1);
-    } else {
-      view.loadingMore.setPosition(ROW_X_PX + ROW_WIDTH_PX / 2, getRowCenterYPx(nextSlot), 0.5);
-    }
-    view.loadingMore.show(
-      isLoadingMore
-        ? {
-            kind: 'loading',
-            text: this.i18n.t('songSelect.loadingMore'),
-          }
-        : { kind: 'none' },
-    );
-
-    const { current } = state;
-    if (current.kind === 'none') {
-      this.renderNoSong(view);
-    } else {
-      this.renderSong(view, current.song);
-    }
-    this.renderDifficultyTabs(view, state);
-    SONG_SELECT_ACTIONS.forEach((action) => this.renderAction(view, state, action));
-  }
-
-  private renderDifficultyTabs(view: SongSelectWidgets, state: SongSelectState): void {
-    const { current } = state;
-    view.difficultyTabs.render(
-      (difficulty) => getSongDifficultyAppearance(state, difficulty),
-      current.kind === 'song' ? current.song.accentColor : COLORS.textPrimary,
-    );
-  }
-
   private translateNotice(notice: SongSelectNotice): string {
     switch (notice) {
       case 'loading':
@@ -936,8 +971,7 @@ export class SongSelectScene extends Phaser.Scene {
     title.setVisible(hasSong);
     category.setVisible(hasSong);
     node.setVisible(hasSong);
-    this.shiftRow(row, isSelected);
-    if (rowView.kind === 'empty') {
+    if (!hasSong) {
       background.disableInteractive(true);
       return;
     }
@@ -952,27 +986,7 @@ export class SongSelectScene extends Phaser.Scene {
     const titleMaxWidthPx =
       category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX - SELECTED_ROW_OFFSET_PX - title.x;
     setFittedText(title, song.title, titleMaxWidthPx);
-    this.renderRowNode(view, slot, rowView);
-  }
-
-  private renderRowNode(
-    view: SongSelectWidgets,
-    slot: number,
-    { appearance, recordChart }: Extract<SongRowView, { kind: 'song' }>,
-  ): void {
-    const record =
-      recordChart === null
-        ? null
-        : getChartRecord(
-            this.records,
-            recordChart.song.id,
-            recordChart.laneCount,
-            recordChart.difficulty,
-          );
-    applyCelestialPresentation(
-      getSongRow(view, slot).node,
-      this.celestial.atlasPresentations[getSongRowNodeId(appearance, record)],
-    );
+    applyCelestialPresentation(node, this.celestial.atlasPresentations[rowView.nodeId]);
   }
 
   private renderSelectedHalo(view: SongSelectWidgets, state: SongSelectState): void {
@@ -984,9 +998,7 @@ export class SongSelectScene extends Phaser.Scene {
     setCelestialLoopActive(view.selectedHalo, isSelected);
   }
 
-  private renderSong(view: SongSelectWidgets, song: Song): void {
-    view.jacket.setSong(song, true);
-    view.orbitArc.setVisible(true);
+  private renderSongInfo(view: SongSelectWidgets, song: Song, record: ChartRecord | null): void {
     let titleSizePx = TYPE_SCALE.title.sizePx;
     view.titleText.setWordWrapWidth(null).setFontSize(titleSizePx).setText(song.title);
     while (view.titleText.width > TITLE_MAX_WIDTH_PX && titleSizePx > TITLE_MIN_SIZE_PX) {
@@ -999,17 +1011,14 @@ export class SongSelectScene extends Phaser.Scene {
       .setText(song.category.toUpperCase())
       .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
     const recordYPx = view.categoryText.y + view.categoryText.height + RECORD_GROUP_GAP_PX;
-    const record = this.record;
-    view.recordLabel.setY(recordYPx).setVisible(record !== null);
-    view.noRecordText.setY(recordYPx);
+    const hasRecord = record !== null;
+    view.recordLabel.setY(recordYPx).setVisible(hasRecord);
+    view.noRecordText.setY(recordYPx).setVisible(!hasRecord);
     view.recordValue
       .setY(recordYPx + view.recordLabel.height + RECORD_LABEL_GAP_PX)
-      .setText(
-        record === null ? '' : `${formatScore(record.score)}   ${formatAccuracy(record.accuracy)}`,
-      )
-      .setVisible(record !== null);
-    view.noRecordText.setVisible(record === null);
-    const recordBottom = record === null ? view.noRecordText : view.recordValue;
+      .setText(hasRecord ? `${formatScore(record.score)}   ${formatAccuracy(record.accuracy)}` : '')
+      .setVisible(hasRecord);
+    const recordBottom = hasRecord ? view.recordValue : view.noRecordText;
     this.renderZodiac(view, song, recordBottom.y + recordBottom.height + ZODIAC_AREA_GAP_PX);
   }
 
@@ -1028,7 +1037,6 @@ export class SongSelectScene extends Phaser.Scene {
       .setScale(scale)
       .setPosition(centerXPx, centerYPx)
       .setVisible(true);
-    // 결과 화면 별자리와 같은 선(곧은 심 위에 옅은 번짐)을 화면 좌표에 바로 그린다.
     const figure = ZODIAC_FIGURES[song.constellation];
     const points = fitZodiacFigure(figure, centerXPx, centerYPx, ZODIAC_MAX_SPAN_PX * scale);
     const lines = view.zodiacLines.clear().setVisible(true);
@@ -1039,19 +1047,11 @@ export class SongSelectScene extends Phaser.Scene {
         from,
       );
       const [toXPx, toYPx] = requireDefined(points[to], 'Zodiac edge outside the figure', to);
-      lines
-        .lineStyle(ZODIAC_LINE.glowWidthPx, CELESTIAL_COLORS.selected, ZODIAC_LINE.glowAlpha)
-        .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
-        .lineStyle(ZODIAC_LINE.haloWidthPx, CELESTIAL_COLORS.selected, ZODIAC_LINE.haloAlpha)
-        .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
-        .lineStyle(ZODIAC_LINE.coreWidthPx, CELESTIAL_COLORS.highlight, ZODIAC_LINE.coreAlpha)
-        .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
+      strokeZodiacLine(lines, fromXPx, fromYPx, toXPx, toYPx);
     }
   }
 
-  private renderNoSong(view: SongSelectWidgets): void {
-    view.jacket.setSong(null, true);
-    view.orbitArc.setVisible(false);
+  private renderNoSongInfo(view: SongSelectWidgets): void {
     view.titleText.setText('');
     view.categoryText.setText('');
     view.recordLabel.setVisible(false);
@@ -1087,15 +1087,11 @@ export class SongSelectScene extends Phaser.Scene {
     }
   }
 
-  private shiftRow(row: SongRow, shifted: boolean): void {
-    if (row.shifted === shifted) {
-      return;
-    }
-    row.shifted = shifted;
+  private shiftRow(row: SongRow, rowView: SongRowView): void {
     this.tweens.killTweensOf(row.content);
     this.tweens.add({
       targets: row.content,
-      x: shifted ? SELECTED_ROW_OFFSET_PX : 0,
+      x: getRowShiftPx(rowView),
       duration: MOTION.fastMs,
       ease: 'Cubic.Out',
     });
@@ -1110,6 +1106,19 @@ function getSongRow(view: SongSelectWidgets, slot: number): SongRow {
   return requireDefined(view.rows[slot], 'Invalid song row slot', slot);
 }
 
-function getShownSongs(view: SongSelectWidgets): Song[] {
-  return [...view.rows.flatMap((row) => row.thumbnail.shownSongs), ...view.jacket.shownSongs];
+function getShownSongIds(view: SongSelectWidgets): string[] {
+  return [...view.rows.flatMap((row) => row.thumbnail.shownSongIds), ...view.jacket.shownSongIds];
+}
+
+function getRowShiftPx(rowView: SongRowView): number {
+  if (rowView.kind === 'empty') {
+    return 0;
+  }
+  switch (rowView.appearance) {
+    case 'selected':
+      return SELECTED_ROW_OFFSET_PX;
+    case 'hovered':
+    case 'idle':
+      return 0;
+  }
 }

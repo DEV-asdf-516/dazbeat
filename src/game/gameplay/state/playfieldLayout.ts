@@ -1,7 +1,7 @@
-import { getLanes } from '../../rhythm/lanes.js';
-import type { Lane, LaneCount } from '../../rhythm/types.js';
-import { requireDefined } from '../../invariant.js';
-import { lerp } from '../../range.js';
+import { getLanes } from '../../../rhythm/lanes.js';
+import type { Lane, LaneCount } from '../../../rhythm/types.js';
+import { requireDefined } from '../../../invariant.js';
+import { getFraction, lerp } from '../../../range.js';
 
 const JUDGE_LINE_Y_PX = 920;
 // 레인은 화면 위끝에서 판정선 폭의 이 비율까지 좁아지는 사다리꼴이다.
@@ -86,10 +86,11 @@ export function getPlayfieldTrapezoid(
 }
 
 // 플레이어는 판정선에 먼저 닿는 아랫면을 보고 누르므로 판의 아랫면을 노트 시각 위치에 둔다.
+// 프레임당 이동량이 폭 비율에 비례하므로 두께도 같은 비율로 줄여야 위쪽에서 노트가 두 개로 끊겨 보이지 않는다.
 export function getNotePlate(layout: PlayfieldLayout, lane: Lane, bottomYPx: number): Trapezoid {
   const thicknessPx = Math.max(
     NOTE_PLATE_MIN_THICKNESS_PX,
-    NOTE_PLATE_JUDGE_THICKNESS_PX * getWidthRatio(bottomYPx) ** 2,
+    NOTE_PLATE_JUDGE_THICKNESS_PX * getWidthRatio(bottomYPx),
   );
   return getLaneBand(layout, lane, NOTE_PLATE_WIDTH_RATIO, bottomYPx - thicknessPx, bottomYPx);
 }
@@ -103,9 +104,9 @@ export function getHoldRibbonTrapezoid(
   return getLaneBand(layout, lane, HOLD_RIBBON_WIDTH_RATIO, topYPx, bottomYPx);
 }
 
-// 판정선 아래에서는 1 을 넘는 배율이라 range.ts 의 getProgress(0~1 로 자름)를 쓰지 않는다.
+// 판정선 아래에서는 1 을 넘는 배율이라 0~1 로 자르지 않는다.
 function getWidthRatio(yPx: number): number {
-  return (yPx - VANISHING_Y_PX) / (JUDGE_LINE_Y_PX - VANISHING_Y_PX);
+  return getFraction(yPx, VANISHING_Y_PX, JUDGE_LINE_Y_PX);
 }
 
 function getLaneBand(

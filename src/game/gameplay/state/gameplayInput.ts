@@ -1,5 +1,5 @@
-import type { PlaybackStatus } from '../../audio/LeadInPlayback.js';
-import type { Lane } from '../../rhythm/types.js';
+import type { PlaybackStatus } from '../../../audio/LeadInPlayback.js';
+import type { Lane } from '../../../rhythm/types.js';
 import type { GameplayCommand } from './gameplayCommand.js';
 import { getQuitConfirmAction } from './quitConfirm.js';
 

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getControlsGuide, readControlsKey } from '../../src/game/controlsGuide.js';
-import type { ControlsKeyAction } from '../../src/game/controlsGuide.js';
-import { ko } from '../../src/i18n/messages/ko.js';
-import { DEFAULT_SETTINGS } from '../../src/storage/settings.js';
-import type { LaneCount } from '../../src/rhythm/types.js';
+import { getControlsGuide, readControlsKey } from '../../../src/game/app/controlsGuide.js';
+import type { ControlsKeyAction } from '../../../src/game/app/controlsGuide.js';
+import { ko } from '../../../src/i18n/messages/ko.js';
+import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
+import type { LaneCount } from '../../../src/rhythm/types.js';
 
 describe('readControlsKey', () => {
   it.each<[boolean, string, boolean, ControlsKeyAction]>([

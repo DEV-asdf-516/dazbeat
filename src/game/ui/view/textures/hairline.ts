@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { CELESTIAL_COLORS } from './theme.js';
+import { CELESTIAL_COLORS } from '../theme.js';
 
 export const HAIRLINE_PX = 1;
 const HAIRLINE_ALPHA = 0.45;

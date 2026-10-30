@@ -22,3 +22,8 @@ const BAND_SEVERITY: Record<StarlightBand, number> = {
 export function isStarlightDrop(previous: StarlightBand, next: StarlightBand): boolean {
   return BAND_SEVERITY[next] > BAND_SEVERITY[previous];
 }
+
+// 위험 단계 동안만 채움이 숨 쉬듯 옅어졌다 돌아온다.
+export function isBreathingBand(band: StarlightBand): boolean {
+  return band === 'danger';
+}

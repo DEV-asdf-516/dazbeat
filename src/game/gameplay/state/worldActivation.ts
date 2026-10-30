@@ -1,4 +1,4 @@
-import { clamp, getProgress } from '../../range.js';
+import { clamp, getProgress } from '../../../range.js';
 
 export const ACTIVATION_RISE_PER_MS = 0.0005;
 export const ACTIVATION_FALL_PER_MS = 0.0002;

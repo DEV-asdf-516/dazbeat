@@ -1,4 +1,4 @@
-import type { Zodiac } from '../../data/songs.js';
+import type { Zodiac } from '../../../data/songs.js';
 
 /**
  * node 는 긴 변을 1 로 정규화한 좌표(동쪽이 왼쪽, 북쪽이 위), edge 는 node index 쌍이다.

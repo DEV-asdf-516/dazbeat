@@ -1,6 +1,6 @@
-import type { InvalidChartError } from '../../data/chartSchema.js';
-import type { Song } from '../../data/songs.js';
-import type { Chart, Difficulty, Lane, LaneCount, Note } from '../../rhythm/types.js';
+import type { InvalidChartError } from '../../../data/chartSchema.js';
+import type { Song } from '../../../data/songs.js';
+import type { Chart, Difficulty, Lane, LaneCount, Note } from '../../../rhythm/types.js';
 
 /** `selected` 는 `notes` 안 노트 객체 자체다. */
 export interface ChartDraft {
@@ -147,9 +147,6 @@ export function deleteSelectedNote(draft: ChartDraft): ChartDraft {
 }
 
 export function clearNotes(draft: ChartDraft): ChartDraft {
-  if (draft.notes.length === 0) {
-    return draft;
-  }
   return {
     ...draft,
     notes: [],

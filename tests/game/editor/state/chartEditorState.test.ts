@@ -1,34 +1,43 @@
 import { describe, expect, it } from 'vitest';
-import { RhythmClock } from '../../../src/audio/RhythmClock.js';
-import type { Song } from '../../../src/data/songs.js';
+import { RhythmClock } from '../../../../src/audio/RhythmClock.js';
+import type { Song } from '../../../../src/data/songs.js';
 import {
   addNote,
   completeSave,
   createDraft,
   selectNote,
-} from '../../../src/game/editor/chartDraft.js';
-import type { ChartDraft } from '../../../src/game/editor/chartDraft.js';
+} from '../../../../src/game/editor/state/chartDraft.js';
+import type { ChartDraft } from '../../../../src/game/editor/state/chartDraft.js';
 import {
   canClearNotes,
   canDeleteSelected,
   canSave,
   getChangedRegions,
+  getDifficultyLook,
+  getLaneCountMotion,
+  hoverEditorButton,
+  hoverSegment,
+  pressEditorButton,
   getEditorDecorations,
   getEditorStatus,
+  getInitialDifficulty,
   getNotes,
   getPending,
   getSelection,
+  getSelectionPanel,
   hasUnsavedChanges,
   withDraft,
-} from '../../../src/game/editor/chartEditorState.js';
+} from '../../../../src/game/editor/state/chartEditorState.js';
 import type {
   ChartEditorState,
+  EditorPlayerStatus,
   EditPhase,
   EditorSession,
   SaveResult,
-} from '../../../src/game/editor/chartEditorState.js';
-import { createPlayhead } from '../../../src/game/editor/chartPlayback.js';
-import type { Note } from '../../../src/rhythm/types.js';
+} from '../../../../src/game/editor/state/chartEditorState.js';
+import { createPlayhead } from '../../../../src/game/editor/state/chartPlayback.js';
+import { requireDefined } from '../../../../src/invariant.js';
+import type { Note } from '../../../../src/rhythm/types.js';
 
 const song: Song = {
   id: 'test-song',
@@ -75,11 +84,15 @@ function makeSession(draft: ChartDraft, saveResult: SaveResult = { kind: 'idle' 
   };
 }
 
+const LOADING_PLAYER: EditorPlayerStatus = { kind: 'loading' };
+
 function inPhase(phase: EditPhase): ChartEditorState {
   return {
     phase,
     tool: 'tap',
     playhead: createPlayhead(1000),
+    player: LOADING_PLAYER,
+    hover: null,
   };
 }
 
@@ -281,23 +294,43 @@ describe('withDraft', () => {
 describe('getChangedRegions', () => {
   const all = [
     'selection',
+    'laneLines',
     'status',
     'confirm',
     'panel',
     'playButton',
-    'player',
     'playhead',
+    'seekMarks',
     'notes',
     'decorations',
+    'playerStatus',
+    'laneCountIndicator',
+    'laneCountSegments',
+    'toolIndicator',
+    'toolSegments',
+    'backButton',
+    'previousSongButton',
+    'nextSongButton',
+    'saveButton',
+    'deleteButton',
+    'clearButton',
+    'confirmButtons',
   ];
 
-  it('redraws every region when the phase changes or another chart opens', () => {
+  const allButToolIndicator = all.filter((region) => region !== 'toolIndicator');
+
+  it('redraws every region when the first chart opens', () => {
     expect(getChangedRegions(empty, loading)).toEqual(all);
-    expect(getChangedRegions(loading, clean)).toEqual(all);
-    expect(getChangedRegions(clean, editing(makeSession(cleanSession.draft)))).toEqual(all);
   });
 
-  it('redraws only the notes, panel and status for a notes edit, without the playhead', () => {
+  it('redraws every region but the tool indicator when the phase changes or another chart opens', () => {
+    expect(getChangedRegions(loading, clean)).toEqual(allButToolIndicator);
+    expect(getChangedRegions(clean, editing(makeSession(cleanSession.draft)))).toEqual(
+      allButToolIndicator,
+    );
+  });
+
+  it('redraws what reads the notes for a notes edit, without the playhead', () => {
     expect(
       getChangedRegions(
         clean,
@@ -312,7 +345,7 @@ describe('getChangedRegions', () => {
           ),
         ),
       ),
-    ).toEqual(['status', 'panel', 'notes']);
+    ).toEqual(['status', 'confirm', 'panel', 'seekMarks', 'notes', 'saveButton', 'deleteButton']);
     expect(
       getChangedRegions(
         clean,
@@ -321,10 +354,10 @@ describe('getChangedRegions', () => {
           draft: selectNote(cleanSession.draft, TAP),
         }),
       ),
-    ).toEqual(['panel', 'notes']);
+    ).toEqual(['panel', 'notes', 'deleteButton']);
   });
 
-  it('redraws the selection and status when a save changes the song and the saved notes', () => {
+  it('redraws what reads the song and the status when a save changes the song and the saved notes', () => {
     const savedSong: Song = {
       ...song,
       chartIds: {
@@ -344,7 +377,7 @@ describe('getChangedRegions', () => {
           saveResult: { kind: 'saved' },
         }),
       ),
-    ).toEqual(['selection', 'status']);
+    ).toEqual(['selection', 'status', 'playhead', 'seekMarks', 'notes', 'saveButton']);
   });
 
   it('redraws SAVE with the dialog and the decorations when it opens or closes', () => {
@@ -352,11 +385,15 @@ describe('getChangedRegions', () => {
       'status',
       'confirm',
       'decorations',
+      'saveButton',
+      'confirmButtons',
     ]);
     expect(getChangedRegions(withPending(dirtySession), dirty)).toEqual([
       'status',
       'confirm',
       'decorations',
+      'saveButton',
+      'confirmButtons',
     ]);
   });
 
@@ -396,7 +433,7 @@ describe('getChangedRegions', () => {
         ...clean,
         tool: 'hold',
       }),
-    ).toEqual(['panel']);
+    ).toEqual(['panel', 'toolIndicator', 'toolSegments']);
     expect(
       getChangedRegions(clean, {
         ...clean,
@@ -409,5 +446,136 @@ describe('getChangedRegions', () => {
         playhead: createPlayhead(5000),
       }),
     ).toEqual(['playhead', 'notes']);
+  });
+});
+
+describe('getChangedRegions for the player', () => {
+  it('redraws only the player status when only the player changes', () => {
+    expect(
+      getChangedRegions(clean, {
+        ...clean,
+        player: { kind: 'ready' },
+      }),
+    ).toEqual(['playerStatus']);
+  });
+});
+
+describe('getDifficultyLook', () => {
+  const hardSelection = inPhase({
+    kind: 'loading',
+    selection: {
+      ...SELECTION,
+      difficulty: 'hard',
+    },
+  });
+
+  it('tells the selected difficulty apart by whether it has a chart', () => {
+    expect(getDifficultyLook(loading, 'normal')).toBe('selectedWithChart');
+    expect(getDifficultyLook(hardSelection, 'hard')).toBe('selectedWithoutChart');
+  });
+
+  it('tells the other difficulties apart by whether they have a chart', () => {
+    expect(getDifficultyLook(hardSelection, 'normal')).toBe('withChart');
+    expect(getDifficultyLook(loading, 'expert')).toBe('withoutChart');
+  });
+
+  it('shows every difficulty without a chart when nothing is selected', () => {
+    expect(getDifficultyLook(empty, 'normal')).toBe('withoutChart');
+  });
+});
+
+describe('getInitialDifficulty', () => {
+  it('starts from the first difficulty with a chart, or easy without one', () => {
+    expect(getInitialDifficulty(song, 4)).toBe('normal');
+    expect(getInitialDifficulty(song, 5)).toBe('easy');
+  });
+});
+
+describe('getSelectionPanel', () => {
+  it('has no note count without a draft', () => {
+    expect(getSelectionPanel(empty)).toEqual({
+      titleKey: 'chartEditor.noSelection',
+      noteCount: null,
+    });
+  });
+
+  it('counts the notes and names the selection section when a note is selected', () => {
+    expect(getSelectionPanel(clean)).toEqual({
+      titleKey: 'chartEditor.noSelection',
+      noteCount: 1,
+    });
+    expect(
+      getSelectionPanel(
+        editing({
+          ...cleanSession,
+          draft: selectNote(cleanSession.draft, requireDefined(getNotes(clean)[0], 'Missing note')),
+        }),
+      ),
+    ).toEqual({
+      titleKey: 'chartEditor.selectionSection',
+      noteCount: 1,
+    });
+  });
+});
+
+describe('segments', () => {
+  it('redraws only the segments of the hovered control', () => {
+    expect(
+      getChangedRegions(
+        clean,
+        hoverSegment(clean, {
+          kind: 'laneCount',
+          laneCount: 5,
+        }),
+      ),
+    ).toEqual(['laneCountSegments']);
+    expect(
+      getChangedRegions(
+        clean,
+        hoverSegment(clean, {
+          kind: 'tool',
+          tool: 'hold',
+        }),
+      ),
+    ).toEqual(['toolSegments']);
+  });
+
+  it('keeps the same state when hovering the hovered segment again', () => {
+    const hovered = hoverSegment(clean, {
+      kind: 'tool',
+      tool: 'hold',
+    });
+
+    expect(
+      hoverSegment(hovered, {
+        kind: 'tool',
+        tool: 'hold',
+      }),
+    ).toBe(hovered);
+  });
+
+  it('snaps the lane count indicator only when there was no selection', () => {
+    expect(getLaneCountMotion(empty)).toBe('snap');
+    expect(getLaneCountMotion(clean)).toBe('slide');
+  });
+});
+
+describe('buttons', () => {
+  it('redraws only the hovered button when the hover changes', () => {
+    const hovered = hoverEditorButton(clean, 'back');
+
+    expect(getChangedRegions(clean, hovered)).toEqual(['backButton']);
+    expect(getChangedRegions(hovered, hoverEditorButton(hovered, 'play'))).toEqual([
+      'playButton',
+      'backButton',
+    ]);
+  });
+
+  it('redraws only the pressed button when it is pressed', () => {
+    const hovered = hoverEditorButton(clean, 'nextSong');
+
+    expect(getChangedRegions(hovered, pressEditorButton(hovered, 'nextSong'))).toEqual([
+      'nextSongButton',
+    ]);
   });
 });

@@ -1,5 +1,5 @@
-import type { CelestialSequenceStep } from '../celestial/celestialCatalog.js';
-import { requireDefined } from '../../invariant.js';
+import type { CelestialSequenceStep } from '../../celestial/state/celestialCatalog.js';
+import { requireDefined } from '../../../invariant.js';
 
 export type FinishAnchor = 'node' | 'rank' | 'jacket' | 'score';
 

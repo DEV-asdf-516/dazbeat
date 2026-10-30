@@ -1,4 +1,4 @@
-import type { Lane } from '../../rhythm/types.js';
+import type { Lane } from '../../../rhythm/types.js';
 import {
   addNote,
   MIN_HOLD_DURATION_MS,
@@ -92,13 +92,11 @@ export function startGesture(
 
 export function continueGesture(
   draft: ChartDraft,
-  gesture: PointerGesture,
+  gesture: Exclude<PointerGesture, { kind: 'none' }>,
   pointer: TimelinePointer,
   limits: GestureLimits,
 ): ChartDraft {
   switch (gesture.kind) {
-    case 'none':
-      return draft;
     case 'move': {
       const startMs = snapStartTimeMs(
         toEditTimeMs(pointer.timeMs - gesture.grabOffsetMs, draft.song),

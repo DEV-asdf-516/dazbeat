@@ -1,39 +1,65 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { SONG_FILTERS } from '../../data/songs.js';
-import { canCurrentUserOpenChartEditor } from '../accountState.js';
-import type { AccountAuth } from '../accountState.js';
-import { createEditorLayout } from './chartEditorLayout.js';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
-import { SCENE_KEYS, exitScene, startScene } from '../sceneRoutes.js';
-import type { ChartEditorSelectSceneData, SceneRequest } from '../sceneRoutes.js';
-import { STAYING } from '../sceneExit.js';
-import type { SceneExit } from '../sceneExit.js';
+import type { SongFilter } from '../../data/songs.js';
+import { canCurrentUserOpenChartEditor } from '../app/accountState.js';
+import type { AccountAuth } from '../app/accountState.js';
+import { createEditorLayout } from './state/chartEditorLayout.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
+import { SCENE_KEYS, exitScene, startScene } from '../app/sceneRoutes.js';
+import type { ChartEditorSelectSceneData, SceneRequest } from '../app/sceneRoutes.js';
+import { STAYING } from '../app/sceneExit.js';
+import type { SceneExit } from '../app/sceneExit.js';
 import { ChartEditorSelectController } from './ChartEditorSelectController.js';
+import type { ChartEditorSelectScreen } from './ChartEditorSelectController.js';
+import { pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import type { SongFeeds } from '../app/SongFeed.js';
+import {
+  getChangedRegions,
+  getChangedRowIndexes,
+  getEditorSelectButtonView,
+  getFilterMotion,
+  getFocusedRowIndex,
+  getHoveredFilter,
+  getListFrame,
+  getNoticeKind,
+} from './state/songListState.js';
 import type {
-  ChartEditorSelectScreen,
   ChartEditorSelectView,
-} from './ChartEditorSelectController.js';
-import type { SongFeeds } from '../SongFeed.js';
-import { IDLE_WHEEL, readWheelRows } from '../wheelRows.js';
-import type { SongListNotice, SongListStatus } from './songListState.js';
-import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
-import { handleEachEventOnce, requireKeyboard } from '../ui/menuInput.js';
-import { SEGMENTED_CONTROL_HEIGHT_PX, SegmentedControl } from './SegmentedControl.js';
-import { SongListPanel } from './SongListPanel.js';
-import { TextInput } from '../ui/TextInput.js';
-import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
-import { NoticeText } from '../ui/NoticeText.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+  EditorSelectButton,
+  EditorSelectRegion,
+  SongListNotice,
+  SongListStatus,
+} from './state/songListState.js';
+import { getSegmentAppearance } from './state/segmentAppearance.js';
+import { createAuxiliaryButton } from '../ui/view/widgets/auxiliaryButton.js';
+import type { Button } from '../ui/view/widgets/Button.js';
+import { handleEachEventOnce, requireKeyboard } from '../ui/view/input/menuInput.js';
+import { SEGMENTED_CONTROL_HEIGHT_PX, SegmentedControl } from './view/SegmentedControl.js';
+import { SongListPanel } from './view/SongListPanel.js';
+import { TextInput } from '../ui/view/widgets/TextInput.js';
+import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
+import { NoticeText } from '../ui/view/widgets/NoticeText.js';
+import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import {
   queueCelestialTextures,
   registerCelestialAnimations,
-} from '../celestial/celestialSprites.js';
-import { addKeyHintRow } from '../ui/keyHintView.js';
-import type { SongListFrame } from './SongListPanel.js';
-import { CELESTIAL_COLORS, typeStyle } from '../ui/theme.js';
-import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './editorTheme.js';
-import { addBarHairlines } from './hairline.js';
+} from '../celestial/view/celestialSprites.js';
+import { addKeyHintRow } from '../ui/view/widgets/keyHintView.js';
+import type { SongListFrame } from './view/SongListPanel.js';
+import { CELESTIAL_COLORS, typeStyle } from '../ui/view/theme.js';
+import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './view/editorTheme.js';
+import { addBarHairlines } from './view/hairline.js';
+
+interface SelectView {
+  readonly filter: SegmentedControl<SongFilter>;
+  readonly panel: SongListPanel;
+  readonly notice: NoticeText;
+  readonly statusText: Phaser.GameObjects.Text;
+  readonly backButton: Button;
+  readonly retryButton: Button;
+}
 
 const LAYOUT = createEditorLayout(GAME_WIDTH, GAME_HEIGHT);
 const LIST_WIDTH_PX = 720;
@@ -85,7 +111,13 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     }
     registerCelestialAnimations(this, this.celestial);
     this.exit = STAYING;
-    this.createChrome();
+    const pointer: ButtonPointer<EditorSelectButton> = {
+      pointerOver: (button) => controller.pointerOver(button),
+      pointerOut: (button) => controller.pointerOut(button),
+      pointerDown: (button) => controller.pointerDown(button),
+      pointerUp: (button) => controller.pointerUp(button),
+    };
+    const backButton = this.createChrome(pointer);
     const centerYPx = LAYOUT.topBar.centerYPx;
     const filter = new SegmentedControl(
       this,
@@ -98,7 +130,11 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         value,
         label: value.toUpperCase(),
       })),
-      (category) => controller.selectCategory(category),
+      {
+        onSelect: (category) => controller.selectCategory(category),
+        onHover: (category) => controller.hoverFilter(category),
+        onUnhover: (category) => controller.unhoverFilter(category),
+      },
     );
     const search = new TextInput(
       this,
@@ -117,15 +153,10 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     );
     // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, () => search.blur());
-    let wheel = IDLE_WHEEL;
     const panel = new SongListPanel(this, LIST_FRAME, {
       onHoverRow: (rowIndex) => controller.hoverRow(rowIndex),
       onPickRow: (rowIndex) => controller.pickRow(rowIndex),
-      onWheel: (deltaYPx) => {
-        const read = readWheelRows(wheel, deltaYPx, this.time.now, LIST_FRAME.rowHeightPx);
-        wheel = read.gesture;
-        controller.scroll(read.rows);
-      },
+      onWheel: (deltaYPx) => controller.scrollByWheel(deltaYPx, this.time.now),
     });
     const notice = new NoticeText(
       this,
@@ -141,7 +172,7 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     );
     const retryButton = createAuxiliaryButton(this, 0, centerYPx, {
       label: 'RETRY',
-      onActivate: () => controller.retry(),
+      pointer: pointButton(pointer, 'retry'),
     }).alignX(GAME_WIDTH - LAYOUT.video.leftPx, 1);
     const statusText = this.add
       .text(
@@ -153,29 +184,22 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       .setAlign('right')
       .setOrigin(1, 0.5);
     const screen: ChartEditorSelectScreen = {
-      render: (view: ChartEditorSelectView) => {
-        filter.render(view.category);
-        panel.render({
-          rows: view.rows.map(({ song, isFocused }) => ({
-            title: song.title,
-            category: song.category,
-            isFocused,
-          })),
-          topIndex: view.topIndex,
-          songCount: view.songCount,
-        });
-        notice.show(
-          view.notice === null
-            ? { kind: 'none' }
-            : {
-                kind: view.notice.kind === 'loading' ? 'loading' : 'text',
-                text: this.translateNotice(view.notice),
-              },
-        );
-        statusText
-          .setText(view.status === null ? '' : this.translateStatus(view.status))
-          .setVisible(view.status !== null);
-        retryButton.setVisible(view.canRetry);
+      render: (previous, next) => {
+        for (const region of getChangedRegions(previous, next)) {
+          this.renderRegion(
+            {
+              filter,
+              panel,
+              notice,
+              statusText,
+              backButton,
+              retryButton,
+            },
+            previous,
+            next,
+            region,
+          );
+        }
       },
       edit: (songId, list) =>
         this.leave({
@@ -201,6 +225,7 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       screen,
       LIST_FRAME.visibleRowCount,
       data,
+      LIST_FRAME.rowHeightPx,
     );
     requireKeyboard(this).on(
       'keydown',
@@ -216,17 +241,13 @@ export class ChartEditorSelectScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
-  private createChrome(): void {
+  private createChrome(pointer: ButtonPointer<EditorSelectButton>): Button {
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, CELESTIAL_COLORS.background).setOrigin(0, 0);
     addBarHairlines(this, LAYOUT, GAME_WIDTH);
     const centerYPx = LAYOUT.topBar.centerYPx;
-    createAuxiliaryButton(this, LAYOUT.video.leftPx, centerYPx, {
+    const backButton = createAuxiliaryButton(this, LAYOUT.video.leftPx, centerYPx, {
       label: 'BACK',
-      onActivate: () =>
-        this.leave({
-          key: 'main',
-          data: undefined,
-        }),
+      pointer: pointButton(pointer, 'back'),
     });
     this.add
       .text(
@@ -243,6 +264,70 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       LAYOUT.hint.leftPx,
       LAYOUT.bottomBar.centerYPx,
     );
+    return backButton;
+  }
+
+  private renderRegion(
+    view: SelectView,
+    previous: ChartEditorSelectView | null,
+    next: ChartEditorSelectView,
+    region: EditorSelectRegion,
+  ): void {
+    switch (region) {
+      case 'filterIndicator':
+        view.filter.renderIndicator(next.category, getFilterMotion(previous));
+        return;
+      case 'filterSegments': {
+        const hovered = getHoveredFilter(next);
+        view.filter.renderSegments((category) =>
+          getSegmentAppearance(category, next.category, hovered),
+        );
+        return;
+      }
+      case 'listRows':
+        for (const rowIndex of getChangedRowIndexes(previous, next)) {
+          const row = next.rows[rowIndex];
+          view.panel.renderRow(
+            rowIndex,
+            row === undefined
+              ? null
+              : {
+                  title: row.song.title,
+                  category: row.song.category,
+                },
+          );
+        }
+        return;
+      case 'listFocus':
+        view.panel.renderFocus(getFocusedRowIndex(next));
+        return;
+      case 'listFrame':
+        view.panel.renderFrame(getListFrame(next), next.rows.length);
+        return;
+      case 'notice':
+        view.notice.show(
+          next.notice === null
+            ? { kind: 'none' }
+            : {
+                kind: getNoticeKind(next.notice),
+                text: this.translateNotice(next.notice),
+              },
+        );
+        return;
+      case 'status':
+        if (next.status === null) {
+          view.statusText.setText('').setVisible(false);
+        } else {
+          view.statusText.setText(this.translateStatus(next.status)).setVisible(true);
+        }
+        return;
+      case 'backButton':
+        view.backButton.render(getEditorSelectButtonView(next, 'back'));
+        return;
+      case 'retryButton':
+        view.retryButton.setVisible(next.canRetry).render(getEditorSelectButtonView(next, 'retry'));
+        return;
+    }
   }
 
   private translateNotice(notice: SongListNotice): string {

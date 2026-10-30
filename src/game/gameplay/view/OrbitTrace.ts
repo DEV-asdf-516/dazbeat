@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
-import { COLORS, GAMEPLAY_DEPTH } from '../ui/theme.js';
+import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
+import { COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
 
 // 밝은 곡 화면 위에서도 궤적이 읽히도록 선 아래에 얇은 그림자 띠를 깐다.
 const SHADOW_HEIGHT_PX = 8;
@@ -21,7 +21,6 @@ export class OrbitTrace {
   private readonly passed: Phaser.GameObjects.Rectangle;
   private readonly passedGlow: Phaser.GameObjects.Rectangle;
   private readonly star: Phaser.GameObjects.Image;
-  private progress = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -61,11 +60,7 @@ export class OrbitTrace {
       .setDepth(depth);
   }
 
-  setProgress(progress: number): void {
-    if (progress === this.progress) {
-      return;
-    }
-    this.progress = progress;
+  render(progress: number): void {
     const passedWidthPx = this.widthPx * progress;
     this.passed.setSize(passedWidthPx, PASSED_HEIGHT_PX);
     this.passedGlow.setSize(passedWidthPx, PASSED_GLOW_HEIGHT_PX);

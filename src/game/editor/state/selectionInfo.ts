@@ -1,10 +1,11 @@
-import type { Note } from '../../rhythm/types.js';
+import type { Note } from '../../../rhythm/types.js';
+import { msToSec } from '../../../time.js';
 
 export function formatEditorTime(timeMs: number): string {
   const sign = timeMs < 0 ? '-' : '';
   const absMs = Math.abs(timeMs);
   const minutes = Math.floor(absMs / 60_000);
-  const seconds = Math.floor((absMs % 60_000) / 1000);
+  const seconds = Math.floor(msToSec(absMs % 60_000));
   const millis = absMs % 1000;
   return `${sign}${minutes}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
 }

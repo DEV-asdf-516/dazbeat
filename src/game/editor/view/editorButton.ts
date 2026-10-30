@@ -1,7 +1,8 @@
 import type Phaser from 'phaser';
-import { Button } from '../ui/Button.js';
-import type { QuietButtonColors, SecondaryButtonColors } from '../ui/Button.js';
-import { CELESTIAL_COLORS } from '../ui/theme.js';
+import { Button } from '../../ui/view/widgets/Button.js';
+import type { QuietButtonColors, SecondaryButtonColors } from '../../ui/view/widgets/Button.js';
+import type { PointerActions } from '../../ui/view/input/hoverTarget.js';
+import { CELESTIAL_COLORS } from '../../ui/view/theme.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 
 const EDITOR_QUIET_BUTTON_COLORS: Partial<QuietButtonColors> = {
@@ -24,7 +25,7 @@ const EDITOR_SECONDARY_BUTTON_COLORS: Partial<SecondaryButtonColors> = {
 interface EditorButtonOptions {
   variant: 'quiet' | 'secondary';
   label: string;
-  onActivate: () => void;
+  pointer: PointerActions;
   widthPx?: number;
   heightPx?: number;
 }

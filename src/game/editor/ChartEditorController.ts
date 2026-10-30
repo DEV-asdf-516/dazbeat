@@ -1,9 +1,14 @@
-import type { YouTubePlayerState } from '../../audio/YouTubePlayer.js';
+import type {
+  YouTubePlayer,
+  YouTubePlayerHandlers,
+  YouTubePlayerState,
+} from '../../audio/YouTubePlayer.js';
+import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
 import { InvalidChartError, parseChart } from '../../data/chartSchema.js';
 import type { ChartRef, Song } from '../../data/songs.js';
 import { requireDefined } from '../../invariant.js';
 import type { Chart, Difficulty, LaneCount } from '../../rhythm/types.js';
-import { clamp } from '../../range.js';
+import { stepItem } from '../../range.js';
 import {
   clearNotes,
   completeSave,
@@ -13,29 +18,39 @@ import {
   findInvalidNote,
   selectNote,
   toChart,
-} from './chartDraft.js';
-import type { ChartDraft } from './chartDraft.js';
+} from './state/chartDraft.js';
+import type { ChartDraft } from './state/chartDraft.js';
 import {
   decideNavigation,
   getActiveSelection,
   getPending,
   getSelection,
   getSession,
+  hoverEditorButton,
+  hoverSegment,
+  pressEditorButton,
   recordEdit,
+  releaseEditorButton,
+  settleEditorButtons,
   settleGesture,
   undoEdit,
+  unhoverEditorButton,
+  unhoverSegment,
   withDraft,
-} from './chartEditorState.js';
+} from './state/chartEditorState.js';
 import type {
   ChartEditorState,
+  EditorButton,
+  EditorPlayerStatus,
   EditPhase,
   EditorSession,
   Navigation,
   PendingAction,
+  SegmentHover,
   Selection,
-} from './chartEditorState.js';
-import { continueGesture, endGesture, NO_GESTURE, startGesture } from './chartGesture.js';
-import type { EditTool, GestureLimits, TimelinePointer } from './chartGesture.js';
+} from './state/chartEditorState.js';
+import { continueGesture, endGesture, NO_GESTURE, startGesture } from './state/chartGesture.js';
+import type { EditTool, GestureLimits, TimelinePointer } from './state/chartGesture.js';
 import {
   advancePlayback,
   createPlayhead,
@@ -43,9 +58,9 @@ import {
   pausePlayback,
   seekPlayback,
   togglePlayback,
-} from './chartPlayback.js';
-import type { PlaybackPlayer, Playhead } from './chartPlayback.js';
-import { getOpeningTimeMs } from './editorTimeline.js';
+} from './state/chartPlayback.js';
+import type { PlaybackPlayer, Playhead } from './state/chartPlayback.js';
+import { getOpeningTimeMs } from './state/editorTimeline.js';
 
 export interface ChartCatalog {
   loadChart(ref: ChartRef): Promise<Chart>;
@@ -62,8 +77,30 @@ export interface EditList {
   ): Song | undefined;
 }
 
+export type EditorVideoPlayer = Pick<
+  YouTubePlayer,
+  'requestPlay' | 'pause' | 'setVolume' | 'destroy'
+>;
+
+export interface EditorPlayerDeps {
+  readonly players: {
+    loadApi(): Promise<void>;
+    create(videoId: string, handlers: YouTubePlayerHandlers): EditorVideoPlayer;
+  };
+  readonly now: () => number;
+  readonly volume: number;
+}
+
+type VideoState =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'starting'; readonly player: EditorVideoPlayer }
+  | {
+      readonly kind: 'ready';
+      readonly player: EditorVideoPlayer;
+      readonly timeSource: YouTubeTimeSource;
+    };
+
 interface EditorScreen {
-  changeSong(song: Song): void;
   leave(focusedSongId: string | null): void;
   render(previous: ChartEditorState, next: ChartEditorState): void;
 }
@@ -78,15 +115,39 @@ const INITIAL_STATE: ChartEditorState = {
   phase: { kind: 'empty' },
   tool: 'tap',
   playhead: createPlayhead(0),
+  player: { kind: 'loading' },
+  hover: null,
 };
 
+// 닫힌 뒤에는 입력과 늦은 결과를 받지 않는다.
+type ScreenState = ChartEditorState | { readonly kind: 'closed' };
+
 export class ChartEditorController {
-  private current: ChartEditorState = INITIAL_STATE;
+  private screenState: ScreenState = INITIAL_STATE;
+  /** player 이벤트와 늦은 API 로드 결과는 시작 때 잡은 토큰이 아직 현재일 때만 반영한다. */
+  private playerToken: object | null = null;
+  private video: VideoState = { kind: 'none' };
+  private readonly player: PlaybackPlayer = {
+    play: (fromSec) => {
+      const { video } = this;
+      if (video.kind !== 'ready') {
+        return null;
+      }
+      video.timeSource.hold(fromSec);
+      video.player.requestPlay(fromSec);
+      return video.timeSource;
+    },
+    pause: () => {
+      if (this.video.kind === 'ready') {
+        this.video.player.pause();
+      }
+    },
+  };
 
   constructor(
     private readonly catalog: ChartCatalog,
     private readonly list: EditList,
-    private readonly player: PlaybackPlayer,
+    private readonly deps: EditorPlayerDeps,
     private readonly screen: EditorScreen,
     private readonly timing: EditorTiming,
   ) {}
@@ -95,9 +156,15 @@ export class ChartEditorController {
     return this.current;
   }
 
+  private get current(): ChartEditorState {
+    return 'kind' in this.screenState ? INITIAL_STATE : this.screenState;
+  }
+
   /** 씬이 닫힌 뒤 끝나는 로드·저장 결과가 반영되지 않도록 세션을 버린다. 화면이 없으므로 다시 그리지 않는다. */
   close(): void {
-    this.current = INITIAL_STATE;
+    this.screenState = { kind: 'closed' };
+    this.playerToken = null;
+    this.releasePlayer();
   }
 
   select(song: Song, laneCount: LaneCount, difficulty: Difficulty): void {
@@ -248,6 +315,64 @@ export class ChartEditorController {
     });
   }
 
+  hoverSegment(target: SegmentHover): void {
+    this.applyHover(hoverSegment(this.current, target));
+  }
+
+  unhoverSegment(target: SegmentHover): void {
+    this.applyHover(unhoverSegment(this.current, target));
+  }
+
+  pointerOverButton(button: EditorButton): void {
+    this.applyHover(hoverEditorButton(this.current, button));
+  }
+
+  pointerOutButton(button: EditorButton): void {
+    this.applyHover(unhoverEditorButton(this.current, button));
+  }
+
+  pointerDownButton(button: EditorButton): void {
+    this.applyHover(pressEditorButton(this.current, button));
+  }
+
+  pointerUpButton(button: EditorButton): void {
+    const released = releaseEditorButton(this.current, button);
+    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
+    if (released === this.current) {
+      return;
+    }
+    this.setState(released);
+    switch (button) {
+      case 'back':
+        this.back();
+        return;
+      case 'previousSong':
+        this.moveSong(-1);
+        return;
+      case 'nextSong':
+        this.moveSong(1);
+        return;
+      case 'save':
+        void this.save();
+        return;
+      case 'play':
+        this.togglePlayback();
+        return;
+      case 'delete':
+        this.deleteSelected();
+        return;
+      case 'clear':
+        this.requestClearNotes();
+        return;
+      case 'confirmCancel':
+        this.cancelPending();
+        return;
+      case 'confirmAccept':
+        this.confirmPending();
+        return;
+    }
+  }
+
   deleteSelected(): void {
     const session = this.getEditableSession();
     if (session !== null) {
@@ -322,7 +447,7 @@ export class ChartEditorController {
     }
   }
 
-  handlePlayerState(playerState: YouTubePlayerState): void {
+  private handlePlayerState(playerState: YouTubePlayerState): void {
     const playhead = followPlayerState(this.current.playhead, playerState);
     // 멈춘 뒤에 도착한 playing 은 영상만 재생 중이라는 뜻이므로 player 도 다시 멈춘다.
     if (playerState === 'playing' && playhead.transport.kind === 'paused') {
@@ -355,17 +480,13 @@ export class ChartEditorController {
       this.enter({ kind: 'empty' }, this.current.playhead.currentTimeMs);
       return;
     }
-    const index = songs.findIndex((song) => song.id === selection.song.id);
-    if (index === -1) {
-      throw new Error(`Selected song is not in the song list: ${selection.song.id}`);
-    }
-    const song = requireDefined(
-      songs[clamp(index + delta, 0, songs.length - 1)],
-      'Song list has no song at clamped index',
-      index + delta,
+    const listed = requireDefined(
+      songs.find((song) => song.id === selection.song.id),
+      'Selected song is not in the song list',
+      selection.song.id,
     );
     this.select(
-      song,
+      stepItem(songs, listed, delta),
       change.laneCount ?? selection.laneCount,
       change.difficulty ?? selection.difficulty,
     );
@@ -373,6 +494,9 @@ export class ChartEditorController {
 
   /** 확인 팝업을 띄우기 전에 진행 중인 drag 를 거두므로, 취소 뒤에 만들다 만 Hold 가 남지 않는다. */
   private requestNavigation(navigation: Navigation): void {
+    if ('kind' in this.screenState) {
+      return;
+    }
     const decision = decideNavigation(this.current, navigation);
     switch (decision.kind) {
       case 'ignore':
@@ -410,7 +534,7 @@ export class ChartEditorController {
     // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지하고, 보던 위치에서 이어 편집한다.
     const isSameSong = getSelection(this.current)?.song.id === song.id;
     if (!isSameSong) {
-      this.screen.changeSong(song);
+      this.replacePlayer(song);
     }
     const startTimeMs = isSameSong ? this.current.playhead.currentTimeMs : song.gameStartMs;
     // 에디터는 채보가 없는 레인 수·난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
@@ -458,6 +582,92 @@ export class ChartEditorController {
         ? this.current.playhead.currentTimeMs
         : getOpeningTimeMs(draft.notes, this.timing.openingLeadMs, song),
     );
+  }
+
+  private replacePlayer(song: Song): void {
+    const token = {};
+    this.playerToken = token;
+    this.releasePlayer();
+    this.setPlayerStatus({ kind: 'loading' });
+    void this.createPlayer(song, token);
+  }
+
+  private releasePlayer(): void {
+    const { video } = this;
+    if (video.kind !== 'none') {
+      video.player.destroy();
+      this.video = { kind: 'none' };
+    }
+  }
+
+  private async createPlayer(song: Song, token: object): Promise<void> {
+    const { players, now, volume } = this.deps;
+    try {
+      await players.loadApi();
+      if (this.playerToken !== token) {
+        return;
+      }
+      const timeSource = new YouTubeTimeSource(now);
+      const player = players.create(song.youtubeVideoId, {
+        onReady: () => {
+          if (this.playerToken !== token) {
+            return;
+          }
+          player.setVolume(volume);
+          this.video = {
+            kind: 'ready',
+            player,
+            timeSource,
+          };
+          this.setPlayerStatus({ kind: 'ready' });
+        },
+        onStateChange: (state) => {
+          if (this.playerToken === token) {
+            timeSource.handleStateChange(state);
+            this.handlePlayerState(state);
+          }
+        },
+        onError: (errorKind, code) => {
+          if (this.playerToken !== token) {
+            return;
+          }
+          player.destroy();
+          this.video = { kind: 'none' };
+          this.setPlayerStatus({
+            kind: 'failed',
+            failure: {
+              kind: 'videoError',
+              errorKind,
+              code,
+            },
+          });
+          this.stopPlayback();
+        },
+      });
+      this.video = {
+        kind: 'starting',
+        player,
+      };
+    } catch (error) {
+      if (this.playerToken === token) {
+        this.failPlayer(error);
+      }
+    }
+  }
+
+  private failPlayer(error: unknown): void {
+    console.error('Failed to load YouTube player for chart editor', error);
+    this.setPlayerStatus({
+      kind: 'failed',
+      failure: { kind: 'loadFailed' },
+    });
+  }
+
+  private setPlayerStatus(player: EditorPlayerStatus): void {
+    this.setState({
+      ...this.current,
+      player,
+    });
   }
 
   private enter(phase: EditPhase, currentTimeMs: number): void {
@@ -508,6 +718,12 @@ export class ChartEditorController {
     });
   }
 
+  private applyHover(next: ChartEditorState): void {
+    if (next !== this.current) {
+      this.setState(next);
+    }
+  }
+
   private setPlayhead(playhead: Playhead): void {
     if (this.current.playhead !== playhead) {
       this.setState({
@@ -518,9 +734,13 @@ export class ChartEditorController {
   }
 
   /** player 가 스스로 알린 정지 뒤의 pause 는 무해하다. */
-  private setState(next: ChartEditorState): void {
-    const previous = this.current;
-    this.current = next;
+  private setState(requested: ChartEditorState): void {
+    if ('kind' in this.screenState) {
+      return;
+    }
+    const next = settleEditorButtons(requested);
+    const previous = this.screenState;
+    this.screenState = next;
     if (
       previous.playhead.transport.kind !== 'paused' &&
       next.playhead.transport.kind === 'paused'

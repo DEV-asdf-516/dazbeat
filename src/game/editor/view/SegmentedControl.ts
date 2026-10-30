@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { HOVER_CURSOR } from '../ui/cursor.js';
-import { CELESTIAL_COLORS, MOTION, RADIUS, setTextColor, typeStyle } from '../ui/theme.js';
+import { HOVER_CURSOR } from '../../ui/view/input/cursor.js';
+import { CELESTIAL_COLORS, MOTION, RADIUS, setTextColor, typeStyle } from '../../ui/view/theme.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
-import { requireDefined } from '../../invariant.js';
+import { requireDefined } from '../../../invariant.js';
+import type { SegmentAppearance } from '../state/segmentAppearance.js';
 
 /** graphics 원점은 그림 왼쪽·세로 가운데다. */
 export interface SegmentGlyph {
@@ -15,8 +16,6 @@ export interface SegmentOption<T> {
   label: string;
   glyph?: SegmentGlyph;
 }
-
-type SegmentAppearance = 'selected' | 'hovered' | 'idle';
 
 interface Segment<T> {
   option: SegmentOption<T>;
@@ -32,20 +31,27 @@ const LABEL_TYPE = {
   weight: 600,
 } as const;
 const GLYPH_LABEL_GAP_PX = 8;
+const SEGMENT_COLORS: Readonly<Record<SegmentAppearance, number>> = {
+  selected: CELESTIAL_COLORS.textPrimary,
+  hovered: CELESTIAL_COLORS.textPrimary,
+  idle: CELESTIAL_COLORS.textSecondary,
+};
 
 export class SegmentedControl<T extends string | number> {
   readonly heightPx = SEGMENTED_CONTROL_HEIGHT_PX;
   private readonly scene: Phaser.Scene;
   private readonly indicator: Phaser.GameObjects.Rectangle;
   private readonly segments: Segment<T>[];
-  private selected: T | null = null;
-  private hovered: T | null = null;
 
   constructor(
     scene: Phaser.Scene,
     frame: { leftPx: number; topYPx: number; widthPx: number },
     options: readonly SegmentOption<T>[],
-    onSelect: (value: T) => void,
+    actions: {
+      readonly onSelect: (value: T) => void;
+      readonly onHover: (value: T) => void;
+      readonly onUnhover: (value: T) => void;
+    },
   ) {
     this.scene = scene;
     const { leftPx, topYPx, widthPx } = frame;
@@ -88,9 +94,9 @@ export class SegmentedControl<T extends string | number> {
         .zone(segmentLeftPx, topYPx, segmentWidthPx, SEGMENTED_CONTROL_HEIGHT_PX)
         .setOrigin(0, 0)
         .setInteractive({ cursor: HOVER_CURSOR })
-        .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => this.setHovered(option.value))
-        .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => this.setHovered(null))
-        .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => onSelect(option.value));
+        .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => actions.onHover(option.value))
+        .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => actions.onUnhover(option.value))
+        .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => actions.onSelect(option.value));
       return {
         option,
         label,
@@ -100,60 +106,32 @@ export class SegmentedControl<T extends string | number> {
     });
   }
 
-  render(value: T): void {
-    if (value === this.selected) {
-      return;
-    }
-    const isFirstRender = this.selected === null;
-    this.selected = value;
+  renderIndicator(value: T, motion: 'snap' | 'slide'): void {
     const targetXPx = this.requireSegment(value).centerXPx;
     this.scene.tweens.killTweensOf(this.indicator);
-    if (isFirstRender) {
-      this.indicator.setX(targetXPx);
-    } else {
-      this.scene.tweens.add({
-        targets: this.indicator,
-        x: targetXPx,
-        duration: MOTION.fastMs,
-        ease: 'Cubic.Out',
-      });
+    switch (motion) {
+      case 'snap':
+        this.indicator.setX(targetXPx);
+        return;
+      case 'slide':
+        this.scene.tweens.add({
+          targets: this.indicator,
+          x: targetXPx,
+          duration: MOTION.fastMs,
+          ease: 'Cubic.Out',
+        });
+        return;
     }
-    this.refresh();
   }
 
-  private setHovered(value: T | null): void {
-    if (value === this.hovered) {
-      return;
-    }
-    this.hovered = value;
-    this.refresh();
-  }
-
-  private refresh(): void {
+  renderSegments(appearanceOf: (value: T) => SegmentAppearance): void {
     this.segments.forEach(({ option, label, glyph }) => {
-      const color = this.getSegmentColor(option.value);
+      const color = SEGMENT_COLORS[appearanceOf(option.value)];
       setTextColor(label, color);
       if (glyph !== null) {
         glyph.spec.draw(glyph.graphics.clear(), color);
       }
     });
-  }
-
-  private getSegmentColor(value: T): number {
-    switch (this.getAppearance(value)) {
-      case 'selected':
-      case 'hovered':
-        return CELESTIAL_COLORS.textPrimary;
-      case 'idle':
-        return CELESTIAL_COLORS.textSecondary;
-    }
-  }
-
-  private getAppearance(value: T): SegmentAppearance {
-    if (value === this.selected) {
-      return 'selected';
-    }
-    return value === this.hovered ? 'hovered' : 'idle';
   }
 
   private requireSegment(value: T): Segment<T> {

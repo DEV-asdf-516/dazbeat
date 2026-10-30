@@ -1,23 +1,31 @@
 import type Phaser from 'phaser';
-import { ACHIEVEMENTS, findAchievement } from '../../data/achievements.js';
 import type {
+  AchievementCatalog,
+  AchievementCategory,
   AchievementDefinition,
-  AchievementId,
   AchievementMark,
   AchievementRule,
-} from '../../data/achievements.js';
-import { requireDefined } from '../../invariant.js';
-import { lerp } from '../../range.js';
-import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/zodiacFigures.js';
-import { createCanvasTexture } from './canvasTexture.js';
-import { fillFourPointStar, fillStar } from './starShapes.js';
-import { CELESTIAL_COLORS, cssColor } from './theme.js';
+} from '../../../../data/achievements.js';
+import { requireDefined } from '../../../../invariant.js';
+import { clamp, lerp } from '../../../../range.js';
+import { ZODIAC_FIGURES, fitZodiacFigure } from '../../../celestial/state/zodiacFigures.js';
+import { createCanvasTexture } from '../textures/canvasTexture.js';
+import { fillFourPointStar, fillStar } from '../textures/starShapes.js';
+import { CELESTIAL_COLORS, cssColor } from '../theme.js';
 
 // 시안(glyph-sheet)과 같은 100 단위 정사각 좌표계에서 그리고 표시 크기로 확대한다.
 const GRID_UNITS = 100;
 // 틀 꼭대기 표식(S·FC·AP 별)은 틀 선 위에 중심을 둬서 격자 위로 튀어나오므로, 잘리지 않게 사방을 띄운다.
 const EDGE_PADDING_UNITS = 2.5;
 const CENTER = 50;
+// 옛 Star Journey 세트의 범주다. 세트를 재분류해도 엠블럼 모양은 그대로 두려고 범주로 이중 틀을 정한다.
+const DOUBLE_FRAME_CATEGORIES: ReadonlySet<AchievementCategory> = new Set([
+  'chartPioneer',
+  'expert',
+  'precision',
+  'songMaster',
+  'zodiacPilgrimage',
+]);
 const FRAME_RADIUS = 46;
 const FRAME_LINE_WIDTH = 2.4;
 const INNER_FRAME_RADIUS = 41.5;
@@ -35,37 +43,8 @@ const ZODIAC_ACCENT_RADIUS = 4.6;
 const ZODIAC_NODE_RADIUS = 2.2;
 const EMBLEM_COLOR = cssColor(CELESTIAL_COLORS.highlight);
 // 플레이 단계별 궤적 길이(바퀴). 1단계는 궤적 없이 별만 둔다.
-// 플레이 횟수가 늘수록 궤적이 길어지고, 순서대로 가운데 별이 커진다.
-const PLAY_TRAILS = [
-  {
-    id: 'FIRST_FINISH',
-    turns: 0,
-  },
-  {
-    id: 'PLAY_3',
-    turns: 0.25,
-  },
-  {
-    id: 'PLAY_10',
-    turns: 0.5,
-  },
-  {
-    id: 'PLAY_50',
-    turns: 0.75,
-  },
-  {
-    id: 'PLAY_100',
-    turns: 1,
-  },
-  {
-    id: 'PLAY_200',
-    turns: 1.5,
-  },
-  {
-    id: 'PLAY_500',
-    turns: 2,
-  },
-] as const satisfies readonly { readonly id: AchievementId; readonly turns: number }[];
+// 단계가 오를수록 궤적이 길어지고 가운데 별이 커진다.
+const PLAY_TRAIL_TURNS: readonly number[] = [0, 0.25, 0.5, 0.75, 1, 1.5, 2];
 const PLAY_ORBIT_RADIUS_X = 27;
 const PLAY_ORBIT_RADIUS_Y = 11;
 // 한 바퀴를 넘긴 궤적은 바깥으로 넓어지는 나선이라 지난 바퀴와 겹치지 않고 별과도 부딪히지 않는다.
@@ -92,8 +71,8 @@ type ZodiacStageShape =
   { readonly kind: 'arcs'; readonly arcs: readonly ZodiacStageArc[] } | { readonly kind: 'ring' };
 
 // 황도 완성 수가 늘수록 원호가 늘다가 마지막에 원이 닫힌다(각도는 캔버스 기준, -90 이 꼭대기).
-const ZODIAC_STAGES: Partial<Record<AchievementId, ZodiacStageShape>> = {
-  ZODIAC_1_COMPLETE: {
+const ZODIAC_STAGES: readonly ZodiacStageShape[] = [
+  {
     kind: 'arcs',
     arcs: [
       {
@@ -102,7 +81,7 @@ const ZODIAC_STAGES: Partial<Record<AchievementId, ZodiacStageShape>> = {
       },
     ],
   },
-  ZODIAC_3_COMPLETE: {
+  {
     kind: 'arcs',
     arcs: [
       {
@@ -115,7 +94,7 @@ const ZODIAC_STAGES: Partial<Record<AchievementId, ZodiacStageShape>> = {
       },
     ],
   },
-  ZODIAC_6_COMPLETE: {
+  {
     kind: 'arcs',
     arcs: [
       {
@@ -132,8 +111,8 @@ const ZODIAC_STAGES: Partial<Record<AchievementId, ZodiacStageShape>> = {
       },
     ],
   },
-  ZODIAC_12_COMPLETE: { kind: 'ring' },
-};
+  { kind: 'ring' },
+];
 const ZODIAC_STAGE_ARC_RADIUS = 32;
 const ZODIAC_STAGE_ARC_LINE_WIDTH = 2;
 const ZODIAC_STAGE_ARC_SEGMENTS = 60;
@@ -151,12 +130,12 @@ type Point = readonly [number, number];
 
 export function getAchievementEmblemTexture(
   scene: Phaser.Scene,
-  id: AchievementId,
+  catalog: AchievementCatalog,
+  achievement: AchievementDefinition,
   sizePx: number,
 ): string {
-  const key = `achievement-emblem:${id}:${sizePx}`;
+  const key = `achievement-emblem:${achievement.id}:${sizePx}`;
   createCanvasTexture(scene, key, sizePx, sizePx, (context) => {
-    const achievement = requireDefined(findAchievement(id), 'Unknown achievement', id);
     const scale = sizePx / (GRID_UNITS + 2 * EDGE_PADDING_UNITS);
     context.scale(scale, scale);
     context.translate(EDGE_PADDING_UNITS, EDGE_PADDING_UNITS);
@@ -164,14 +143,18 @@ export function getAchievementEmblemTexture(
     context.fillStyle = EMBLEM_COLOR;
     context.lineCap = 'round';
     context.lineJoin = 'round';
-    paintEmblem(context, achievement);
+    paintEmblem(context, achievement, catalog.definitions);
   });
   return key;
 }
 
-function paintEmblem(context: CanvasRenderingContext2D, achievement: AchievementDefinition): void {
+function paintEmblem(
+  context: CanvasRenderingContext2D,
+  achievement: AchievementDefinition,
+  definitions: readonly AchievementDefinition[],
+): void {
   const { rule } = achievement;
-  const isJourney = achievement.set === 'starJourney';
+  const isJourney = DOUBLE_FRAME_CATEGORIES.has(achievement.category);
   const hasAscent = rule.kind === 'charts' && rule.difficulty === 'expert' && rule.mark !== 'clear';
   const hasTopMark = (rule.kind === 'zodiacComplete' && rule.mark !== 'clear') || hasAscent;
 
@@ -184,10 +167,10 @@ function paintEmblem(context: CanvasRenderingContext2D, achievement: Achievement
   }
   paintStageDots(
     context,
-    getStageDotCount(achievement),
+    getStageDotCount(achievement, definitions),
     isJourney ? INNER_STAGE_DOT_ORBIT_RADIUS : STAGE_DOT_ORBIT_RADIUS,
   );
-  paintSymbol(context, achievement);
+  paintSymbol(context, achievement, definitions);
   if (hasAscent) {
     withLineWidth(context, FRAME_LINE_WIDTH, () => {
       context.beginPath();
@@ -201,15 +184,19 @@ function paintEmblem(context: CanvasRenderingContext2D, achievement: Achievement
 
 // 단계 점은 같은 계열(rule.kind + mark + difficulty) 안에서 target 이 몇 번째인지 보여 준다.
 // 플레이, 황도 단계, 별자리 여행은 기호 자체가 단계를 보여 주고, 별자리 완성은 단계가 없다.
-function getStageDotCount({ rule }: AchievementDefinition): number {
+// 퇴역 업적도 대표 업적으로 남아 그려지므로, 퇴역 정의까지 세야 점 수가 바뀌지 않는다.
+function getStageDotCount(
+  { rule }: AchievementDefinition,
+  definitions: readonly AchievementDefinition[],
+): number {
   switch (rule.kind) {
     case 'songs':
     case 'charts':
-    case 'masteries': {
+    case 'songMarks': {
       const series = getSeries(rule);
-      return ACHIEVEMENTS.filter(
+      return definitions.filter(
         ({ rule: other }) =>
-          (other.kind === 'songs' || other.kind === 'charts' || other.kind === 'masteries') &&
+          (other.kind === 'songs' || other.kind === 'charts' || other.kind === 'songMarks') &&
           getSeries(other) === series &&
           other.target <= rule.target,
       ).length;
@@ -218,8 +205,27 @@ function getStageDotCount({ rule }: AchievementDefinition): number {
     case 'zodiacVisits':
     case 'zodiacComplete':
     case 'zodiacCompletions':
+    case 'album':
       return 0;
   }
+}
+
+// 플레이 궤적, 황도 단계, 별자리 여행 기호는 같은 계열에서 target 이 더 작은 정의 수로 그림을 고른다.
+// 대시보드에서 목표값을 끼워 넣으면 뒤 단계의 그림이 한 칸씩 밀리는 것을 받아들였다(사용자 결정).
+function getSeriesOrdinal(
+  rule: Extract<AchievementRule, { target: number }>,
+  definitions: readonly AchievementDefinition[],
+): number {
+  const series = getSeries(rule);
+  return definitions.filter(
+    ({ rule: other }) =>
+      'target' in other && getSeries(other) === series && other.target < rule.target,
+  ).length;
+}
+
+// 그림 표를 넘는 단계는 마지막 그림을 쓴다.
+function pickStage<T>(stages: readonly T[], ordinal: number): T {
+  return requireDefined(stages[clamp(ordinal, 0, stages.length - 1)], 'Emblem stages are empty');
 }
 
 function getSeries(rule: AchievementRule): string {
@@ -252,19 +258,25 @@ function paintStageDots(
   }
 }
 
-function paintSymbol(context: CanvasRenderingContext2D, achievement: AchievementDefinition): void {
-  const { id, rule } = achievement;
+function paintSymbol(
+  context: CanvasRenderingContext2D,
+  { rule }: AchievementDefinition,
+  definitions: readonly AchievementDefinition[],
+): void {
   switch (rule.kind) {
     case 'songs':
       paintMark(context, 'clear', 50, 44, 15);
       return;
     case 'plays':
-      paintPlayTrail(context, id);
+      paintPlayTrail(context, getSeriesOrdinal(rule, definitions));
       return;
     case 'charts':
       paintChartsSymbol(context, rule.mark, rule.difficulty === 'expert');
       return;
-    case 'masteries':
+    case 'album':
+      paintChartsSymbol(context, rule.mark, false);
+      return;
+    case 'songMarks':
       withLineWidth(context, 1.8, () => {
         traceDiamond(context, 50, 45, 15, 15);
         context.stroke();
@@ -283,23 +295,20 @@ function paintSymbol(context: CanvasRenderingContext2D, achievement: Achievement
       return;
     case 'zodiacVisits':
       context.lineWidth = TRAVEL_LINE_WIDTH;
-      requireDefined(TRAVEL_SYMBOLS[id], 'Missing travel symbol', id)(context);
+      pickStage(TRAVEL_SYMBOLS[rule.mark], getSeriesOrdinal(rule, definitions))(context);
       return;
     case 'zodiacComplete':
       paintZodiac(context, rule);
       return;
     case 'zodiacCompletions':
-      paintZodiacStage(
-        context,
-        requireDefined(ZODIAC_STAGES[id], 'Missing zodiac stage shape', id),
-      );
+      paintZodiacStage(context, pickStage(ZODIAC_STAGES, getSeriesOrdinal(rule, definitions)));
       return;
   }
 }
 
-function paintPlayTrail(context: CanvasRenderingContext2D, id: AchievementId): void {
-  const stageIndex = PLAY_TRAILS.findIndex((trail) => trail.id === id);
-  const { turns } = requireDefined(PLAY_TRAILS[stageIndex], 'Missing play trail', id);
+function paintPlayTrail(context: CanvasRenderingContext2D, ordinal: number): void {
+  const stageIndex = clamp(ordinal, 0, PLAY_TRAIL_TURNS.length - 1);
+  const turns = pickStage(PLAY_TRAIL_TURNS, stageIndex);
   const angleAt = (turn: number): number => PLAY_ORBIT_START_ANGLE - turn * 2 * Math.PI;
   const pointAt = (turn: number): readonly [number, number] => {
     const angle = angleAt(turn);
@@ -379,22 +388,25 @@ function paintZodiacStage(context: CanvasRenderingContext2D, shape: ZodiacStageS
   fillFourPointStar(context, CENTER, CENTER, starRadius, ZODIAC_STAGE_STAR_WAIST);
 }
 
-// 별자리 여행 기호(STAR TRAVELER 시안 v2)는 업적마다 모양이 달라 업적 ID 로 직접 고른다.
-const TRAVEL_SYMBOLS: Partial<Record<AchievementId, (context: CanvasRenderingContext2D) => void>> =
-  {
-    ZODIAC_VISIT_3: (context) => {
+// 별자리 여행 기호(STAR TRAVELER 시안 v2)는 단계마다 모양이 달라 표식별 단계 순서로 둔다.
+const TRAVEL_SYMBOLS: Record<
+  AchievementMark,
+  readonly ((context: CanvasRenderingContext2D) => void)[]
+> = {
+  clear: [
+    (context) => {
       fillGlow(context, 50, 50, 6, TRAVEL_GLOW_ALPHA);
       fillFourPointStar(context, 50, 50, 18, TRAVEL_STAR_WAIST);
     },
-    ZODIAC_VISIT_6: (context) => {
+    (context) => {
       fillCrescent(context, 48, 51, 16, [56, 45], 13);
       fillDot(context, 64, 37, 1.8);
     },
-    ZODIAC_VISIT_9: (context) => {
+    (context) => {
       fillGlow(context, 50, 50, 6, TRAVEL_GLOW_ALPHA);
       fillRayStar(context, 50, 50, [24, 9, 16, 9, 24, 9, 16, 9], 3.2);
     },
-    ZODIAC_VISIT_12: (context) => {
+    (context) => {
       const tilt = -0.45;
       const pointAt = (angle: number): Point => [
         50 + 22 * Math.cos(angle) * Math.cos(tilt) - 9 * Math.sin(angle) * Math.sin(tilt),
@@ -406,15 +418,17 @@ const TRAVEL_SYMBOLS: Partial<Record<AchievementId, (context: CanvasRenderingCon
       fillDot(context, ...pointAt(0.45), 3.4);
       fillDot(context, ...pointAt(Math.PI + 0.55), 1.8);
     },
-    ZODIAC_S_VISIT_3: (context) => {
+  ],
+  s: [
+    (context) => {
       fillFourPointStar(context, 47, 39, 8.5, TRAVEL_STAR_WAIST);
       fillFourPointStar(context, 38, 55, 7, TRAVEL_STAR_WAIST);
       fillFourPointStar(context, 61, 59, 8, TRAVEL_STAR_WAIST);
     },
-    ZODIAC_S_VISIT_6: (context) => {
+    (context) => {
       fillCrescent(context, 52, 50, 17, [43, 47], 15.5);
     },
-    ZODIAC_S_VISIT_12: (context) => {
+    (context) => {
       // 고리 뒤쪽 절반을 별보다 먼저 그려 고리가 별을 감싸 도는 깊이를 만든다.
       withLineWidth(context, TRAVEL_THIN_LINE_WIDTH, () => {
         context.beginPath();
@@ -428,13 +442,15 @@ const TRAVEL_SYMBOLS: Partial<Record<AchievementId, (context: CanvasRenderingCon
       context.stroke();
       fillFourPointStar(context, 50, 24, 3.5, TRAVEL_STAR_WAIST);
     },
-    ZODIAC_FC_VISIT_3: (context) => {
+  ],
+  fc: [
+    (context) => {
       fillPetal(context, [50, 62], [33, 35], 8);
       fillPetal(context, [50, 62], [37, 70], 3.5);
       fillPetal(context, [53, 57], [61, 34], 4);
       fillFourPointStar(context, 64, 61, 6, TRAVEL_STAR_WAIST);
     },
-    ZODIAC_FC_VISIT_6: (context) => {
+    (context) => {
       fillGlow(context, 58, 38, 4, TRAVEL_GLOW_ALPHA);
       fillFourPointStar(context, 58, 38, 10, TRAVEL_STAR_WAIST);
       context.beginPath();
@@ -448,24 +464,27 @@ const TRAVEL_SYMBOLS: Partial<Record<AchievementId, (context: CanvasRenderingCon
         context.stroke();
       });
     },
-    ZODIAC_FC_VISIT_12: (context) => {
+    (context) => {
       withLineWidth(context, TRAVEL_THIN_LINE_WIDTH, () => strokeRing(context, 50, 50, 11));
       fillGlow(context, 50, 50, 6, TRAVEL_GLOW_ALPHA);
       fillFourPointStar(context, 50, 50, 22, TRAVEL_NEEDLE_WAIST);
     },
-    ZODIAC_AP_VISIT_3: (context) => {
+  ],
+  ap: [
+    (context) => {
       traceDiamond(context, 50, 50, 11, 22);
       context.stroke();
       traceDiamond(context, 50, 50, 5, 11);
       context.fill();
     },
-    ZODIAC_AP_VISIT_6: (context) => {
+    (context) => {
       fillGlow(context, 50, 52, 6, TRAVEL_GLOW_ALPHA);
       fillRayStar(context, 50, 52, [20, 10, 18, 10, 20, 10, 18, 10], 3.2);
       traceDiamond(context, 50, 25, 2, 3.2);
       context.fill();
     },
-  };
+  ],
+};
 
 function paintChartsSymbol(
   context: CanvasRenderingContext2D,

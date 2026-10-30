@@ -1,6 +1,12 @@
-import { ALL_SONGS_QUERY, withSavedChart } from '../data/songs.js';
-import type { Song, SongBatch, SongBatchCursor, SongCategory, SongQuery } from '../data/songs.js';
-import type { Difficulty, LaneCount } from '../rhythm/types.js';
+import { ALL_SONGS_QUERY, withSavedChart } from '../../data/songs.js';
+import type {
+  Song,
+  SongBatch,
+  SongBatchCursor,
+  SongCategory,
+  SongQuery,
+} from '../../data/songs.js';
+import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 
 export type SongBatchLoader = (
   query: SongQuery,
@@ -31,15 +37,18 @@ export class SongFeed {
     private readonly loadBatch: SongBatchLoader,
     first?: SongBatch,
   ) {
-    this.loaded = first?.songs ?? [];
-    this.totalCount = first?.totalCount ?? 0;
-    this.progress =
-      first === undefined
-        ? {
-            kind: 'hasMore',
-            after: null,
-          }
-        : toProgress(first.next);
+    if (first === undefined) {
+      this.loaded = [];
+      this.totalCount = 0;
+      this.progress = {
+        kind: 'hasMore',
+        after: null,
+      };
+      return;
+    }
+    this.loaded = first.songs;
+    this.totalCount = first.totalCount ?? 0;
+    this.progress = toProgress(first.next);
   }
 
   get songs(): readonly Song[] {
@@ -167,7 +176,7 @@ export class SharedSongFeeds implements SongFeeds {
 
   constructor(
     private readonly loadBatch: SongBatchLoader,
-    first: SongBatch,
+    first?: SongBatch,
   ) {
     this.catalog = new SongFeed(ALL_SONGS_QUERY, loadBatch, first);
   }

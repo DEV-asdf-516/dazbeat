@@ -1,28 +1,34 @@
 import Phaser from 'phaser';
-import type { AchievementId } from '../../data/achievements.js';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
-import { getAchievementEmblemTexture } from '../ui/achievementEmblem.js';
-import { getCloseIconTexture } from '../ui/closeIcon.js';
-import { setFittedText } from '../ui/fitText.js';
-import { bindHoverTarget } from '../ui/hoverTarget.js';
-import { CARD_PANEL, COLORS, RADIUS, typeStyle } from '../ui/theme.js';
+import type { AchievementCatalog, NamedAchievementDefinition } from '../../../data/achievements.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../../app/config.js';
+import { getAchievementEmblemTexture } from '../../ui/view/widgets/achievementEmblem.js';
+import { getCloseIconTexture } from '../../ui/view/widgets/closeIcon.js';
+import { setFittedText } from '../../ui/view/widgets/fitText.js';
+import { bindHoverTarget } from '../../ui/view/input/hoverTarget.js';
+import { CARD_PANEL, COLORS, RADIUS, typeStyle } from '../../ui/view/theme.js';
+import { requireDefined } from '../../../invariant.js';
+import type { ShownToast, ToastChanges } from '../state/resultState.js';
 
-export interface AchievementNotice {
-  readonly id: AchievementId;
-  readonly name: string;
+interface ToastView {
+  readonly container: Phaser.GameObjects.Container;
+  readonly closeIcon: Phaser.GameObjects.Image;
 }
 
-interface Toast {
-  readonly container: Phaser.GameObjects.Container;
-  slideTween: Phaser.Tweens.Tween | null;
-  exitTimer: Phaser.Time.TimerEvent | null;
+interface ToastOptions {
+  readonly scene: Phaser.Scene;
+  readonly catalog: AchievementCatalog;
+  readonly label: string;
+  readonly onClose: (id: number) => void;
+  readonly onHover: (id: number) => void;
+  readonly onUnhover: (id: number) => void;
+  readonly onExpire: (id: number) => void;
+  readonly onRemoved: (id: number) => void;
 }
 
 const TOAST_WIDTH_PX = 440;
 const TOAST_HEIGHT_PX = 88;
 const EDGE_INSET_PX = 32;
 const STACK_GAP_PX = 12;
-const MAX_VISIBLE = 3;
 const EMBLEM_SIZE_PX = 64;
 const EMBLEM_INSET_PX = (TOAST_HEIGHT_PX - EMBLEM_SIZE_PX) / 2;
 const TEXT_X_PX = EMBLEM_INSET_PX + EMBLEM_SIZE_PX + 16;
@@ -48,43 +54,33 @@ const ENTER_RISE_PX = 24;
 const LEFT_X_PX = GAME_WIDTH - EDGE_INSET_PX - TOAST_WIDTH_PX;
 const BOTTOM_SLOT_Y_PX = GAME_HEIGHT - EDGE_INSET_PX - TOAST_HEIGHT_PX;
 
-/** 결과 화면 오른쪽 아래에 새 알림을 맨 아래로 쌓아 보이고, 자리가 없으면 순서대로 기다리게 한다. */
+/** 결과 화면 오른쪽 아래에 대기열이 정한 칸으로 알림을 들이고 옮기고 내보낸다. */
 export class AchievementToasts {
-  private readonly waiting: AchievementNotice[] = [];
-  private readonly toasts: Toast[] = [];
+  private readonly views = new Map<number, ToastView>();
 
-  constructor(
-    private readonly scene: Phaser.Scene,
-    private readonly label: string,
-  ) {
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.waiting.length = 0;
-      this.toasts.forEach(({ container, exitTimer }) => {
-        exitTimer?.remove();
-        scene.tweens.killTweensOf(container);
-        container.destroy();
-      });
-      this.toasts.length = 0;
+  constructor(private readonly options: ToastOptions) {
+    options.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.views.clear());
+  }
+
+  apply(changes: ToastChanges, nameOf: (achievement: NamedAchievementDefinition) => string): void {
+    changes.entered.forEach((toast) => this.enter(toast, nameOf(toast.achievement)));
+    changes.moved.forEach(({ id, slot }) => this.slide(this.getView(id).container, slot));
+    changes.leaving.forEach((id) => this.leave(id));
+  }
+
+  renderCloseHover(hoveredId: number | null): void {
+    this.views.forEach(({ closeIcon }, id) => {
+      if (id === hoveredId) {
+        closeIcon.clearTint();
+      } else {
+        closeIcon.setTint(COLORS.textMuted);
+      }
     });
   }
 
-  show(notices: readonly AchievementNotice[]): void {
-    this.waiting.push(...notices);
-    this.admitWaiting();
-  }
-
-  private admitWaiting(): void {
-    while (this.toasts.length < MAX_VISIBLE) {
-      const notice = this.waiting.shift();
-      if (notice === undefined) {
-        return;
-      }
-      this.enter(notice);
-    }
-  }
-
-  private enter(notice: AchievementNotice): void {
-    const { scene } = this;
+  private enter(toast: ShownToast, nameText: string): void {
+    const { scene, catalog, onClose, onHover, onUnhover, onExpire } = this.options;
+    const { id } = toast;
     const card = scene.add
       .rectangle(0, 0, TOAST_WIDTH_PX, TOAST_HEIGHT_PX, CARD_PANEL.fillColor, CARD_PANEL.fillAlpha)
       .setOrigin(0, 0)
@@ -94,17 +90,17 @@ export class AchievementToasts {
       .image(
         EMBLEM_INSET_PX,
         EMBLEM_INSET_PX,
-        getAchievementEmblemTexture(scene, notice.id, EMBLEM_SIZE_PX),
+        getAchievementEmblemTexture(scene, catalog, toast.achievement, EMBLEM_SIZE_PX),
       )
       .setOrigin(0, 0);
     const label = setFittedText(
       scene.add.text(TEXT_X_PX, LABEL_Y_PX, '', typeStyle(LABEL_TYPE, COLORS.textSecondary)),
-      this.label,
+      this.options.label,
       LABEL_MAX_WIDTH_PX,
     );
     const name = setFittedText(
       scene.add.text(TEXT_X_PX, NAME_Y_PX, '', typeStyle(NAME_TYPE, COLORS.textPrimary)),
-      notice.name,
+      nameText,
       TEXT_MAX_WIDTH_PX,
     );
     const closeIcon = scene.add
@@ -127,63 +123,58 @@ export class AchievementToasts {
         closeHit,
       ])
       .setAlpha(0);
-    const toast: Toast = {
-      container,
-      slideTween: null,
-      exitTimer: null,
-    };
     bindHoverTarget(closeHit, {
-      onOver: () => closeIcon.clearTint(),
-      onOut: () => closeIcon.setTint(COLORS.textMuted),
-      onActivate: () => {
-        // 타이머가 없으면 이미 사라지는 중이라 두 번 내보내지 않는다.
-        if (toast.exitTimer === null) {
-          return;
-        }
-        toast.exitTimer.remove();
-        this.exit(toast);
-      },
+      onOver: () => onHover(id),
+      onOut: () => onUnhover(id),
+      onActivate: () => onClose(id),
     });
-    this.toasts.push(toast);
-    this.layout();
+    this.views.set(id, {
+      container,
+      closeIcon,
+    });
+    this.slide(container, toast.slot);
     scene.tweens.add({
       targets: container,
       alpha: 1,
       duration: ENTER_MS,
     });
-    toast.exitTimer = scene.time.delayedCall(VISIBLE_MS, () => this.exit(toast));
+    scene.time.delayedCall(VISIBLE_MS, () => onExpire(id));
   }
 
-  /** 새 알림이 맨 아래 자리이고 먼저 온 알림일수록 위 자리다. */
-  private layout(): void {
-    this.toasts.forEach((toast, index) => {
-      const slot = this.toasts.length - 1 - index;
-      const yPx = BOTTOM_SLOT_Y_PX - slot * (TOAST_HEIGHT_PX + STACK_GAP_PX);
-      if (toast.container.y === yPx) {
-        return;
-      }
-      toast.slideTween?.stop();
-      toast.slideTween = this.scene.tweens.add({
-        targets: toast.container,
-        y: yPx,
-        duration: ENTER_MS,
-        ease: 'Cubic.Out',
-      });
+  private slide(container: Phaser.GameObjects.Container, slot: number): void {
+    this.findSlideTween(container)?.stop();
+    this.options.scene.tweens.add({
+      targets: container,
+      y: BOTTOM_SLOT_Y_PX - slot * (TOAST_HEIGHT_PX + STACK_GAP_PX),
+      duration: ENTER_MS,
+      ease: 'Cubic.Out',
     });
   }
 
-  private exit(toast: Toast): void {
-    toast.exitTimer = null;
-    this.scene.tweens.add({
-      targets: toast.container,
+  private leave(id: number): void {
+    const { container } = this.getView(id);
+    this.options.scene.tweens.add({
+      targets: container,
       alpha: 0,
       duration: EXIT_MS,
       onComplete: () => {
-        toast.slideTween?.stop();
-        toast.container.destroy();
-        this.toasts.splice(this.toasts.indexOf(toast), 1);
-        this.admitWaiting();
+        this.findSlideTween(container)?.stop();
+        container.destroy();
+        this.views.delete(id);
+        this.options.onRemoved(id);
       },
     });
+  }
+
+  private findSlideTween(container: Phaser.GameObjects.Container): Phaser.Tweens.Tween | undefined {
+    return this.options.scene.tweens
+      .getTweensOf(container)
+      .find((tween) =>
+        tween.data.some((data) => data instanceof Phaser.Tweens.TweenData && data.key === 'y'),
+      );
+  }
+
+  private getView(id: number): ToastView {
+    return requireDefined(this.views.get(id), 'Missing achievement toast view', id);
   }
 }

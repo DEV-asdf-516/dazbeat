@@ -1,8 +1,8 @@
-import { advanceTrail, emitTrail, getPuffLook } from './cursorTrail.js';
-import type { PointPx, TrailPuff } from './cursorTrail.js';
-import { lerp } from '../../range.js';
+import { advanceTrail, emitTrail, getPuffLook } from '../../state/cursorTrail.js';
+import type { PointPx, TrailPuff } from '../../state/cursorTrail.js';
+import { lerp } from '../../../../range.js';
 import { CURSOR_TAIL_OFFSET_PX } from './cursor.js';
-import { rgba } from './lightTextures.js';
+import { rgba } from '../textures/lightTextures.js';
 
 /** 흰 심이 없어야 연기처럼 흐리다. */
 const NEBULA_STOPS = [

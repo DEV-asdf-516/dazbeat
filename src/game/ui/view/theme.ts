@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import type { SongCategory } from '../../data/songs.js';
-import type { Judgment } from '../../rhythm/types.js';
+import type { SongCategory } from '../../../data/songs.js';
+import type { Judgment } from '../../../rhythm/types.js';
 
 export const COLORS = {
   background: 0x0f0f10,

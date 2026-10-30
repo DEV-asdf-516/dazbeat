@@ -1,7 +1,8 @@
 import type Phaser from 'phaser';
 import { Button } from './Button.js';
 import type { QuietButtonColors } from './Button.js';
-import { CELESTIAL_COLORS, SCREEN_LAYOUT, textStyle } from './theme.js';
+import type { PointerActions } from '../input/hoverTarget.js';
+import { CELESTIAL_COLORS, SCREEN_LAYOUT, textStyle } from '../theme.js';
 
 const AUXILIARY_BUTTON_COLORS: Partial<QuietButtonColors> = {
   label: CELESTIAL_COLORS.textSecondary,
@@ -10,7 +11,7 @@ const AUXILIARY_BUTTON_COLORS: Partial<QuietButtonColors> = {
 };
 const AUXILIARY_LABEL_TYPE = {
   sizePx: 14,
-  weight: 500,
+  weight: 400,
 } as const;
 const AUXILIARY_BUTTON_HEIGHT_PX = 44;
 // 메뉴형 화면 머리글 보조 버튼이 화면마다 같은 오른쪽 끝에 오게 한다.
@@ -20,7 +21,7 @@ export function createAuxiliaryButton(
   scene: Phaser.Scene,
   xPx: number,
   centerYPx: number,
-  options: { label: string; onActivate: () => void },
+  options: { label: string; pointer: PointerActions },
 ): Button {
   return new Button(scene, xPx, centerYPx - AUXILIARY_BUTTON_HEIGHT_PX / 2, {
     ...options,
@@ -34,7 +35,7 @@ export function createAuxiliaryButton(
 
 export function createHeaderAuxiliaryButtons(
   scene: Phaser.Scene,
-  items: readonly { label: string; onActivate: () => void }[],
+  items: readonly { label: string; pointer: PointerActions }[],
 ): Button[] {
   const probe = scene.make.text(
     {

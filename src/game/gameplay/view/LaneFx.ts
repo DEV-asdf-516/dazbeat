@@ -1,17 +1,17 @@
 import Phaser from 'phaser';
-import { requireDefined } from '../../invariant.js';
-import { lerp } from '../../range.js';
-import type { JudgmentEvent, Lane } from '../../rhythm/types.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { getPlayfieldTrapezoid } from './playfieldLayout.js';
-import type { PlayfieldLayout } from './playfieldLayout.js';
+import { requireDefined } from '../../../invariant.js';
+import { lerp } from '../../../range.js';
+import type { JudgmentEvent, Lane } from '../../../rhythm/types.js';
+import type { CelestialCatalog } from '../../celestial/state/celestialCatalog.js';
+import { getPlayfieldTrapezoid } from '../state/playfieldLayout.js';
+import type { PlayfieldLayout } from '../state/playfieldLayout.js';
 import { fillTrapezoid } from './trapezoidFill.js';
-import { getJudgmentEffect, getLaneEffectIds } from './judgmentEffects.js';
-import type { LaneEffectId } from './judgmentEffects.js';
-import { addCelestialSprite, playCelestialOnce } from '../celestial/celestialSprites.js';
+import { getJudgmentEffect, getLaneEffectIds } from '../state/judgmentEffects.js';
+import type { LaneEffectId } from '../state/judgmentEffects.js';
+import { addCelestialSprite, playCelestialOnce } from '../../celestial/view/celestialSprites.js';
 import { ensureJudgeLineTexture } from './gameplayTextures.js';
-import { LIGHT_TEXTURES, addLight } from '../ui/lightTextures.js';
-import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../ui/theme.js';
+import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
+import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../../ui/view/theme.js';
 
 // 상시 halo 가 노트보다 먼저 보이지 않게 낮게 둔다.
 const JUDGE_CORE_HEIGHT_PX = 3;
@@ -25,8 +25,6 @@ const ANCHOR_WIDTH_RATIO = 112 / 120;
 const ANCHOR_HEIGHT_PX = 24;
 const ANCHOR_IDLE_ALPHA = 0.1;
 const ANCHOR_PRESS_SCALE = 1.4;
-const ANCHOR_GOOD_ALPHA = 0.6;
-const ANCHOR_MISS_RECOVER_MS = 320;
 const COLUMN_HEIGHT_PX = 240;
 // 기둥 좌우 끝에서 이 비율 구간이 바깥 0 → 안쪽 1 로 감쇠한다.
 const COLUMN_EDGE_FADE_RATIO = 0.3;
@@ -208,26 +206,19 @@ export class LaneFx {
 
   judge(event: JudgmentEvent): void {
     const view = this.getLane(event.lane);
-    switch (event.judgment) {
-      case 'perfect':
-      case 'great':
-        break;
-      case 'good':
-      case 'bad':
-        this.flashAnchor(view.anchor, ANCHOR_GOOD_ALPHA, MOTION.fastMs);
-        break;
-      case 'miss':
-        this.flashAnchor(view.anchor, 0, ANCHOR_MISS_RECOVER_MS);
-        this.scene.tweens.killTweensOf(view.missShade);
-        view.missShade.setAlpha(MISS_SHADE_ALPHA);
-        this.scene.tweens.add({
-          targets: view.missShade,
-          alpha: 0,
-          duration: MISS_SHADE_FADE_MS,
-        });
-        break;
+    const { anchorFlash, hasMissShade, hasHitBloom, intensity } = getJudgmentEffect(event.judgment);
+    if (anchorFlash !== null) {
+      this.flashAnchor(view.anchor, anchorFlash.alpha, anchorFlash.recoverMs);
     }
-    const { hasHitBloom, intensity } = getJudgmentEffect(event.judgment);
+    if (hasMissShade) {
+      this.scene.tweens.killTweensOf(view.missShade);
+      view.missShade.setAlpha(MISS_SHADE_ALPHA);
+      this.scene.tweens.add({
+        targets: view.missShade,
+        alpha: 0,
+        duration: MISS_SHADE_FADE_MS,
+      });
+    }
     if (hasHitBloom) {
       this.playBloom(view.bloom, intensity);
       this.playPillar(view, intensity);

@@ -12,7 +12,3 @@ export function getPlaybackStartMs(gameStartMs: number): number {
 export function getPlayDurationMs(gameStartMs: number, gameEndMs: number): number {
   return gameEndMs - getPlaybackStartMs(gameStartMs);
 }
-
-export function getGameFraction(gameStartMs: number, gameEndMs: number, timeMs: number): number {
-  return (timeMs - gameStartMs) / (gameEndMs - gameStartMs);
-}

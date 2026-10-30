@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { DISABLED_CURSOR, HOVER_CURSOR } from './cursor.js';
-import { bindPress, setContainerHitArea } from './hoverTarget.js';
-import type { PointerPress } from './hoverTarget.js';
-import { LIGHT_TEXTURES, addLight, ensureLightTextures } from './lightTextures.js';
+import { DISABLED_CURSOR, HOVER_CURSOR } from '../input/cursor.js';
+import type { ButtonAppearance, ButtonView } from '../../state/buttonPointer.js';
+import { bindPointer, setContainerHitArea } from '../input/hoverTarget.js';
+import type { PointerActions } from '../input/hoverTarget.js';
+import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
 import {
   COLORS,
   CELESTIAL_COLORS,
@@ -11,7 +12,7 @@ import {
   TYPE_SCALE,
   setTextColor,
   typeStyle,
-} from './theme.js';
+} from '../theme.js';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'quiet';
 
@@ -44,7 +45,7 @@ export interface QuietButtonColors {
 
 interface ButtonContentOptions {
   label: string;
-  onActivate: () => void;
+  pointer: PointerActions;
   widthPx?: number;
   heightPx?: number;
   paddingXPx?: number;
@@ -110,8 +111,6 @@ type ButtonPaint =
   | { variant: 'primary'; colors: PrimaryButtonColors }
   | { variant: 'secondary'; colors: SecondaryButtonColors; borderWidthPx: number }
   | { variant: 'quiet'; colors: QuietButtonColors };
-
-type ButtonAppearance = 'disabled' | 'pressed' | 'hovered' | 'focused' | 'idle';
 
 type ButtonFocus =
   { kind: 'outline'; rect: Phaser.GameObjects.Rectangle } | { kind: 'glow' } | { kind: 'slide' };
@@ -288,40 +287,34 @@ function getQuietPaint(
 
 export class Button extends Phaser.GameObjects.Container {
   private readonly options: ButtonOptions;
-  private paint: ButtonPaint;
+  private readonly paint: ButtonPaint;
   private readonly focus: ButtonFocus;
   private readonly background: Phaser.GameObjects.Rectangle;
   private readonly focusGlow: Phaser.GameObjects.Image;
   private readonly labelText: Phaser.GameObjects.Text;
-  private icon: Phaser.GameObjects.Image | null = null;
-  private fixedWidthPx: number | undefined;
-  private fixedHeightPx: number | undefined;
+  // 글자와 아이콘을 늘 함께 칠해 두어, 글자·아이콘을 바꾸는 그리기와 모양 그리기의 순서에 기대지 않는다.
+  private readonly icon: Phaser.GameObjects.Image;
   private readonly hitArea = new Phaser.Geom.Rectangle();
-  /** 비활성일 때도 포인터 위치는 따라가, 활성이 바뀌는 순간 커서를 바로 바꾼다. */
-  private isPointerOver = false;
-  private readonly press: PointerPress;
-  private focused = false;
-  private enabled = true;
 
   constructor(scene: Phaser.Scene, xPx: number, yPx: number, options: ButtonOptions) {
     super(scene, xPx, yPx);
     this.options = options;
-    this.fixedWidthPx = options.widthPx;
-    this.fixedHeightPx = options.heightPx;
     const { paint, labelStyle } = resolveStyle(options);
     this.paint = paint;
     ensureLightTextures(scene);
     this.background = scene.add.rectangle(0, 0, 0, 0).setOrigin(0, 0).setRounded(RADIUS.smallPx);
     this.focusGlow = addLight(scene, LIGHT_TEXTURES.glow, 0, 0).setAlpha(0);
+    this.icon = scene.add.image(0, 0, '__DEFAULT').setVisible(false);
     this.labelText = scene.add.text(0, 0, options.label, labelStyle).setOrigin(0.5);
-    this.add([this.background, this.focusGlow, this.labelText]);
+    this.add([this.background, this.focusGlow, this.icon, this.labelText]);
     const focusKind = options.variant === 'primary' ? 'glow' : options.focus;
     if (focusKind === 'outline') {
       const rect = scene.add
         .rectangle(-FOCUS_OUTLINE_GAP_PX, -FOCUS_OUTLINE_GAP_PX, 0, 0)
         .setOrigin(0, 0)
         .setRounded(RADIUS.smallPx + FOCUS_OUTLINE_GAP_PX)
-        .setStrokeStyle(FOCUS_OUTLINE_WIDTH_PX, CELESTIAL_COLORS.highlight);
+        .setStrokeStyle(FOCUS_OUTLINE_WIDTH_PX, CELESTIAL_COLORS.highlight)
+        .setVisible(false);
       this.add(rect);
       this.focus = {
         kind: 'outline',
@@ -332,65 +325,56 @@ export class Button extends Phaser.GameObjects.Container {
         kind: focusKind,
       };
     }
-    this.layout();
-
-    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => {
-      this.isPointerOver = true;
-      this.refresh();
-    });
-    this.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
-      this.isPointerOver = false;
-      this.refresh();
-    });
-    this.press = bindPress(this, {
-      canPress: () => this.enabled,
-      onPressChange: () => this.refresh(),
-      onActivate: () => this.options.onActivate(),
-    });
-
+    this.layout(options.widthPx, options.heightPx);
+    bindPointer(this, options.pointer);
     scene.add.existing(this);
-    this.refresh();
   }
 
-  setFocused(focused: boolean): this {
-    if (focused === this.focused) {
-      return this;
+  render(view: ButtonView): this {
+    if (this.focus.kind === 'outline') {
+      this.focus.rect.setVisible(view.isFocused);
     }
-    this.focused = focused;
-    this.animateFocus();
-    this.refresh();
-    return this;
-  }
-
-  setEnabled(enabled: boolean): this {
-    if (enabled === this.enabled) {
-      return this;
-    }
-    this.enabled = enabled;
-    this.press.cancel();
-    // 비활성 버튼도 입력은 받아 그 위에서 비활성 커서를 보인다. 동작은 위 핸들러들이 막는다.
-    if (this.input !== null) {
-      this.input.cursor = enabled ? HOVER_CURSOR : DISABLED_CURSOR;
-      if (this.isPointerOver) {
+    this.paintAppearance(view.appearance);
+    const cursor = view.appearance === 'disabled' ? DISABLED_CURSOR : HOVER_CURSOR;
+    // 비활성 버튼도 입력은 받아 그 위에서 비활성 커서를 보인다. 커서가 바뀔 때만 캔버스에 옮겨야
+    // 누르는 동안 캔버스에 놓인 눌림 커서(pressedCursor)를 덮어쓰지 않는다.
+    if (this.input !== null && this.input.cursor !== cursor) {
+      this.input.cursor = cursor;
+      if (view.isPointerOver) {
         this.scene.input.setCursor(this.input);
       }
     }
-    this.refresh();
     return this;
   }
 
-  setSecondaryColors(colors: Partial<SecondaryButtonColors>): this {
-    if (this.paint.variant !== 'secondary') {
-      throw new Error(`setSecondaryColors called on a ${this.paint.variant} button`);
+  playFocus(isFocused: boolean): this {
+    if (this.focus.kind === 'outline') {
+      return this;
     }
-    this.paint = {
-      ...this.paint,
-      colors: {
-        ...DEFAULT_COLORS.secondary,
-        ...colors,
-      },
-    };
-    this.refresh();
+    const tweens = this.scene.tweens;
+    const content = this.content();
+    const xPx =
+      this.width / 2 + (this.focus.kind === 'slide' && isFocused ? QUIET_FOCUS_OFFSET_PX : 0);
+    tweens.killTweensOf([content, this.focusGlow]);
+    if (this.focus.kind === 'slide') {
+      tweens.add({
+        targets: content,
+        x: xPx,
+        duration: MOTION.fastMs,
+        ease: 'Cubic.Out',
+      });
+    }
+    if (!isFocused) {
+      this.focusGlow.setAlpha(0);
+      return this;
+    }
+    this.focusGlow.setPosition(xPx, this.height / 2).setAlpha(FOCUS_GLOW_ALPHA);
+    tweens.add({
+      targets: this.focusGlow,
+      alpha: 0,
+      duration: MOTION.fastMs,
+      ease: 'Quad.Out',
+    });
     return this;
   }
 
@@ -399,48 +383,34 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   setLabel(label: string): this {
-    if (this.icon === null && label === this.labelText.text) {
-      return this;
-    }
-    this.icon?.destroy();
-    this.icon = null;
+    this.icon.setVisible(false);
     this.labelText.setText(label).setVisible(true);
-    this.layout();
-    this.refresh();
+    this.layout(this.options.widthPx, this.options.heightPx);
     return this;
   }
 
   setFixedSize(widthPx: number, heightPx: number): this {
-    this.fixedWidthPx = widthPx;
-    this.fixedHeightPx = heightPx;
-    this.layout();
-    this.refresh();
+    this.layout(widthPx, heightPx);
     return this;
   }
 
   setIcon(textureKey: string, sizePx: number): this {
-    if (this.icon?.texture.key === textureKey) {
-      return this;
-    }
-    this.icon?.destroy();
-    this.icon = this.scene.add.image(0, 0, textureKey).setDisplaySize(sizePx, sizePx);
-    this.addAt(this.icon, this.getIndex(this.labelText));
+    this.icon.setTexture(textureKey).setDisplaySize(sizePx, sizePx).setVisible(true);
     this.labelText.setVisible(false);
-    this.layout();
-    this.refresh();
+    this.layout(this.options.widthPx, this.options.heightPx);
     return this;
   }
 
   private content(): Phaser.GameObjects.Text | Phaser.GameObjects.Image {
-    return this.icon ?? this.labelText;
+    return this.icon.visible ? this.icon : this.labelText;
   }
 
-  private layout(): void {
+  private layout(fixedWidthPx: number | undefined, fixedHeightPx: number | undefined): void {
     const padding = PADDING_PX[this.paint.variant];
     const paddingXPx = this.options.paddingXPx ?? padding.xPx;
     const content = this.content();
-    const widthPx = this.fixedWidthPx ?? content.displayWidth + paddingXPx * 2;
-    const heightPx = this.fixedHeightPx ?? content.displayHeight + padding.yPx * 2;
+    const widthPx = fixedWidthPx ?? content.displayWidth + paddingXPx * 2;
+    const heightPx = fixedHeightPx ?? content.displayHeight + padding.yPx * 2;
     this.setSize(widthPx, heightPx);
     this.background.setSize(widthPx, heightPx);
     if (this.focus.kind === 'outline') {
@@ -450,62 +420,12 @@ export class Button extends Phaser.GameObjects.Container {
       );
     }
     this.scene.tweens.killTweensOf(content);
-    content.setPosition(this.labelX(), heightPx / 2);
+    content.setPosition(widthPx / 2, heightPx / 2);
     this.focusGlow.setDisplaySize(content.displayWidth, content.displayHeight);
     setContainerHitArea(this, this.hitArea, widthPx, heightPx);
   }
 
-  private labelX(): number {
-    const offsetPx = this.focus.kind === 'slide' && this.focused ? QUIET_FOCUS_OFFSET_PX : 0;
-    return this.width / 2 + offsetPx;
-  }
-
-  private animateFocus(): void {
-    if (this.focus.kind === 'outline') {
-      return;
-    }
-    const tweens = this.scene.tweens;
-    const content = this.content();
-    tweens.killTweensOf([content, this.focusGlow]);
-    if (this.focus.kind === 'slide') {
-      tweens.add({
-        targets: content,
-        x: this.labelX(),
-        duration: MOTION.fastMs,
-        ease: 'Cubic.Out',
-      });
-    }
-    if (!this.focused) {
-      this.focusGlow.setAlpha(0);
-      return;
-    }
-    this.focusGlow.setPosition(this.labelX(), this.height / 2).setAlpha(FOCUS_GLOW_ALPHA);
-    tweens.add({
-      targets: this.focusGlow,
-      alpha: 0,
-      duration: MOTION.fastMs,
-      ease: 'Quad.Out',
-    });
-  }
-
-  private appearance(): ButtonAppearance {
-    if (!this.enabled) {
-      return 'disabled';
-    }
-    if (this.press.isPressed()) {
-      return 'pressed';
-    }
-    if (this.isPointerOver) {
-      return 'hovered';
-    }
-    return this.focused ? 'focused' : 'idle';
-  }
-
-  private refresh(): void {
-    if (this.focus.kind === 'outline') {
-      this.focus.rect.setVisible(this.focused);
-    }
-    const appearance = this.appearance();
+  private paintAppearance(appearance: ButtonAppearance): void {
     const paint = this.paint;
     switch (paint.variant) {
       case 'primary': {
@@ -519,16 +439,13 @@ export class Button extends Phaser.GameObjects.Container {
         this.background.setStrokeStyle(paint.borderWidthPx, border);
         this.setBackgroundFill(fill);
         setTextColor(this.labelText, label);
-        this.icon?.setTint(label);
+        this.icon.setTint(label);
         return;
       }
       case 'quiet': {
         const { fill, label, iconAlpha } = getQuietPaint(paint.colors, appearance);
         this.setBackgroundFill(fill);
-        if (this.icon !== null) {
-          this.icon.setAlpha(iconAlpha);
-          return;
-        }
+        this.icon.setAlpha(iconAlpha);
         setTextColor(this.labelText, label);
         return;
       }

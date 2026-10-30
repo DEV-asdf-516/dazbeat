@@ -1,6 +1,12 @@
 import type Phaser from 'phaser';
-import type { CelestialAtlasId, CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { addCelestialSprite, setCelestialLoopActive } from '../celestial/celestialSprites.js';
+import type {
+  CelestialAtlasId,
+  CelestialCatalog,
+} from '../../../celestial/state/celestialCatalog.js';
+import {
+  addCelestialSprite,
+  setCelestialLoopActive,
+} from '../../../celestial/view/celestialSprites.js';
 
 /** 씬 preload 목록에 넣어 텍스처를 미리 받는다. */
 export const LOADING_STAR_ID: CelestialAtlasId = 'R47';
@@ -26,6 +32,11 @@ export class LoadingStar {
       this.sprite.setPosition(anchor.left - LOADING_STAR_GAP_PX, anchor.centerY);
     }
     setCelestialLoopActive(this.sprite, anchor !== null);
+  }
+
+  /** 멈춘 별은 보이지 않으므로 도는 동안에만 보인다. */
+  setVisible(isVisible: boolean): void {
+    this.sprite.setVisible(isVisible && this.sprite.anims.isPlaying);
   }
 
   setDepth(depth: number): this {

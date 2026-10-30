@@ -4,8 +4,8 @@ import {
   getLaneAtXPx,
   getLaneCenterXPx,
   getLaneWidthPx,
-} from '../../../src/game/editor/chartEditorLayout.js';
-import type { LaneCount } from '../../../src/rhythm/types.js';
+} from '../../../../src/game/editor/state/chartEditorLayout.js';
+import type { LaneCount } from '../../../../src/rhythm/types.js';
 
 const layout = createEditorLayout(1920, 1080);
 const { leftPx, widthPx } = layout.lanes;

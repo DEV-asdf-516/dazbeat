@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Song } from '../../../src/data/songs.js';
-import { SongSelectJackets } from '../../../src/game/songSelect/SongSelectJackets.js';
-import type { JacketTextures } from '../../../src/game/songSelect/SongSelectJackets.js';
-import type { JacketRange } from '../../../src/game/songSelect/songSelectState.js';
+import type { Song } from '../../../../src/data/songs.js';
+import { SongSelectJackets } from '../../../../src/game/songSelect/state/SongSelectJackets.js';
+import type { JacketTextures } from '../../../../src/game/songSelect/state/SongSelectJackets.js';
+import type { JacketRange } from '../../../../src/game/songSelect/state/songSelectState.js';
+import { requireDefined } from '../../../../src/invariant.js';
 
 function makeSong(index: number): Song {
   return {
@@ -60,11 +61,7 @@ function createTextures(loadedSongIds: readonly string[] = []) {
     },
   };
   const lastQueue = (): QueueCall => {
-    const call = queued.at(-1);
-    if (call === undefined) {
-      throw new Error('No queue call');
-    }
-    return call;
+    return requireDefined(queued.at(-1), 'No queue call');
   };
   return {
     textures,
@@ -78,11 +75,11 @@ function createTextures(loadedSongIds: readonly string[] = []) {
 }
 
 function songFor(songId: string): Song {
-  const song = SONGS.find((candidate) => candidate.id === songId);
-  if (song === undefined) {
-    throw new Error(`Unknown song: ${songId}`);
-  }
-  return song;
+  return requireDefined(
+    SONGS.find((candidate) => candidate.id === songId),
+    'Unknown song',
+    songId,
+  );
 }
 
 function idsOf(...indexes: number[]): string[] {
@@ -160,13 +157,13 @@ describe('SongSelectJackets', () => {
   it('removes loaded jackets outside the range while keeping the range and in-use songs', () => {
     const fake = createTextures(idsOf(0, 1, 2, 3, 4, 5));
     const jackets = new SongSelectJackets(fake.textures);
-    jackets.show(rangeOf([0, 1], [2, 3]), songsAt(4, 5));
+    jackets.show(rangeOf([0, 1], [2, 3]), idsOf(4, 5));
 
-    jackets.show(rangeOf([2, 3], [0, 1, 4]), songsAt(5));
+    jackets.show(rangeOf([2, 3], [0, 1, 4]), idsOf(5));
 
     expect(fake.removed).toEqual([]);
 
-    jackets.show(rangeOf([4, 5], [2, 3]), songsAt(1));
+    jackets.show(rangeOf([4, 5], [2, 3]), idsOf(1));
 
     expect(fake.removed).toEqual([idsOf(0)]);
     expect([...fake.loaded].sort()).toEqual(idsOf(1, 2, 3, 4, 5).sort());
@@ -229,7 +226,7 @@ describe('SongSelectJackets', () => {
   it('ignores show, complete and failure callbacks after close', () => {
     const fake = createTextures(idsOf(8));
     const jackets = new SongSelectJackets(fake.textures);
-    jackets.show(rangeOf([0, 1], [2, 3]), songsAt(8));
+    jackets.show(rangeOf([0, 1], [2, 3]), idsOf(8));
 
     jackets.close();
     fake.failLast();

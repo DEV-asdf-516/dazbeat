@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { QUIET_PADDING_PX } from '../ui/Button.js';
-import type { Button } from '../ui/Button.js';
+import { QUIET_PADDING_PX } from '../../ui/view/widgets/Button.js';
+import type { Button } from '../../ui/view/widgets/Button.js';
 
 export const YOUTUBE_HEART_IMAGE = {
   key: 'ui:youtube-heart',

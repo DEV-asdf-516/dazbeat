@@ -1,6 +1,6 @@
-import { RhythmClock } from '../../audio/RhythmClock.js';
-import type { YouTubePlayerState } from '../../audio/YouTubePlayer.js';
-import type { Song } from '../../data/songs.js';
+import { RhythmClock } from '../../../audio/RhythmClock.js';
+import type { YouTubePlayerState } from '../../../audio/YouTubePlayer.js';
+import type { Song } from '../../../data/songs.js';
 import { getPlayStartMs, toEditTimeMs, toVideoSec } from './editorTimeline.js';
 
 export type Transport =
@@ -34,7 +34,10 @@ export function togglePlayback(
   player: PlaybackPlayer,
 ): Playhead {
   if (playhead.transport.kind !== 'paused') {
-    return pausePlayback(playhead);
+    return {
+      ...playhead,
+      transport: PAUSED,
+    };
   }
   const startMs = getPlayStartMs(playhead.currentTimeMs, song);
   const timeSource = player.play(toVideoSec(startMs, offsetMs));

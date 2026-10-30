@@ -1,4 +1,4 @@
-import type { Song } from '../../data/songs.js';
+import type { Song } from '../../../data/songs.js';
 import type { JacketRange } from './songSelectState.js';
 
 export interface JacketTextures {
@@ -14,8 +14,8 @@ type Lifecycle =
   | { readonly kind: 'loading'; readonly range: JacketRange }
   | { readonly kind: 'closed' };
 
-function isSameSongs(a: readonly Song[], b: readonly Song[]): boolean {
-  return a.length === b.length && a.every((song, index) => song === b[index]);
+function isSameSongs(next: readonly Song[], previous: readonly Song[]): boolean {
+  return next.length === previous.length && next.every((song, index) => song === previous[index]);
 }
 
 export class SongSelectJackets {
@@ -31,7 +31,7 @@ export class SongSelectJackets {
     }
   }
 
-  show(range: JacketRange, inUse: readonly Song[]): void {
+  show(range: JacketRange, inUse: readonly string[]): void {
     const state = this.state;
     if (state.kind === 'closed') {
       return;
@@ -58,7 +58,7 @@ export class SongSelectJackets {
     this.startNextBatch(range);
   }
 
-  complete(inUse: readonly Song[]): void {
+  complete(inUse: readonly string[]): void {
     const state = this.state;
     if (state.kind === 'closed' || state.kind === 'unranged') {
       return;
@@ -86,8 +86,11 @@ export class SongSelectJackets {
     return songs.filter((song) => !loaded.has(song.id) && !this.failedSongIds.has(song.id));
   }
 
-  private removeOutside(range: JacketRange, inUse: readonly Song[]): void {
-    const keep = new Set([...range.visible, ...range.adjacent, ...inUse].map((song) => song.id));
+  private removeOutside(range: JacketRange, inUse: readonly string[]): void {
+    const keep = new Set([
+      ...[...range.visible, ...range.adjacent].map((song) => song.id),
+      ...inUse,
+    ]);
     const songIds = this.textures.loadedSongIds().filter((songId) => !keep.has(songId));
     if (songIds.length > 0) {
       this.textures.remove(songIds);

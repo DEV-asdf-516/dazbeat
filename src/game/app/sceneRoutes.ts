@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
-import type { AchievementId } from '../data/achievements.js';
-import type { ChartRef } from '../data/songs.js';
-import type { Difficulty, GameplayResult } from '../rhythm/types.js';
+import type { NamedAchievementDefinition } from '../../data/achievements.js';
+import type { ChartRef } from '../../data/songs.js';
+import type { Difficulty, GameplayResult } from '../../rhythm/types.js';
 import { requestSceneExit } from './sceneExit.js';
 import type { SceneExit } from './sceneExit.js';
 import type { SongFeed } from './SongFeed.js';
@@ -40,7 +40,7 @@ export interface GameplaySceneData extends ChartRef {
 export interface ResultSceneData extends ChartRef {
   readonly mode: PlayMode;
   result: GameplayResult;
-  readonly newAchievements: Promise<readonly AchievementId[]>;
+  readonly newAchievements: Promise<readonly NamedAchievementDefinition[]>;
   readonly restore?: SongSelectRestore;
 }
 

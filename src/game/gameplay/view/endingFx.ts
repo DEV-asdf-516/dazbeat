@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
-import { requireDefined } from '../../invariant.js';
-import type { CelestialAtlasId, CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { GAME_WIDTH } from '../config.js';
-import { COLORS, GAMEPLAY_DEPTH, JUDGMENT_COLORS, MOTION, textStyle } from '../ui/theme.js';
-import { GAMEPLAY_FAILURE_STARS } from './failureStars.js';
-import { addHudEffect, addHudText, setTextShadow } from './hudObjects.js';
-import type { TextShadow } from './hudObjects.js';
+import { requireDefined } from '../../../invariant.js';
+import type { CelestialAtlasId, CelestialCatalog } from '../../celestial/state/celestialCatalog.js';
+import { GAME_WIDTH } from '../../app/config.js';
+import { addLight } from '../../ui/view/textures/lightTextures.js';
+import { COLORS, GAMEPLAY_DEPTH, JUDGMENT_COLORS, MOTION, textStyle } from '../../ui/view/theme.js';
+import { GAMEPLAY_FAILURE_STARS } from '../state/failureStars.js';
+import { addHudEffect, addHudText } from './hudObjects.js';
 import type { StarlightGauge } from './StarlightGauge.js';
 
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
@@ -36,19 +36,6 @@ const FULL_COMBO_STREAK = {
   url: '/assets/ui/gameplay/ending-streak-gold.png',
 } as const;
 const CLEAR_LETTER_SPACING_PX = 6;
-const CLEAR_SHADOW: TextShadow = {
-  offsetXPx: 0,
-  offsetYPx: 3,
-  color: 'rgba(120, 160, 220, 0.55)',
-  blurPx: 24,
-} as const;
-// 영상이 밝아도 금색 글자가 읽히도록 글자 바로 뒤에 짙은 밤색 그림자를 깐다.
-const FULL_COMBO_SHADOW: TextShadow = {
-  offsetXPx: 0,
-  offsetYPx: 3,
-  color: 'rgba(8, 15, 32, 0.85)',
-  blurPx: 14,
-} as const;
 const FULL_COMBO_SPARKLE_IDS = [
   'R07',
   'R09',
@@ -80,7 +67,7 @@ export const ENDING_FX_IDS: readonly CelestialAtlasId[] = [
 ];
 
 export function playClearFx(scene: Phaser.Scene, onDone: () => void): void {
-  const label = addEndingTitle(scene, 'CLEAR', COLORS.noteShade, CLEAR_SHADOW, CLEAR_STREAK.key);
+  const label = addEndingTitle(scene, 'CLEAR', COLORS.noteShade, CLEAR_STREAK.key);
   label.setLetterSpacing(CLEAR_LETTER_SPACING_PX);
   scene.time.delayedCall(MOTION.mediumMs + ENDING_HOLD_MS, onDone);
 }
@@ -91,7 +78,7 @@ export function playFullComboFx(
   onDone: () => void,
 ): void {
   const color = JUDGMENT_COLORS.perfect;
-  addEndingTitle(scene, 'FULL COMBO', color, FULL_COMBO_SHADOW, FULL_COMBO_STREAK.key);
+  addEndingTitle(scene, 'FULL COMBO', color, FULL_COMBO_STREAK.key);
   FULL_COMBO_SPARKLE_BEATS_MS.forEach((beatMs, beat) => {
     for (let index = 0; index < FULL_COMBO_SPARKLES_PER_BEAT; index += 1) {
       // 두 번째 묶음은 첫 묶음 사이사이에서 터지도록 각도를 반 칸 돌린다.
@@ -151,15 +138,12 @@ function addEndingTitle(
   scene: Phaser.Scene,
   text: string,
   color: number,
-  shadow: TextShadow,
   streakKey: string,
 ): Phaser.GameObjects.Text {
   // 빛줄기는 선택 리소스라 로드에 실패했으면 글자만 띄운다.
   if (scene.textures.exists(streakKey)) {
-    const streak = scene.add
-      .image(SCREEN_CENTER_X_PX, ENDING_TITLE_Y_PX, streakKey)
+    const streak = addLight(scene, streakKey, SCREEN_CENTER_X_PX, ENDING_TITLE_Y_PX)
       .setDepth(GAMEPLAY_DEPTH.text)
-      .setBlendMode(Phaser.BlendModes.ADD)
       .setAlpha(ENDING_STREAK_ALPHA);
     streak.setScale(ENDING_STREAK_WIDTH_PX / streak.width).setCrop(0, 0, 0, streak.height);
     // 왼쪽부터 오른쪽으로 펼쳐지도록 잘라 보이는 폭을 늘린다.
@@ -178,9 +162,12 @@ function addEndingTitle(
       onComplete: () => streak.destroy(),
     });
   }
-  const label = setTextShadow(
-    addHudText(scene, SCREEN_CENTER_X_PX, ENDING_TITLE_Y_PX, text, textStyle('title', color)),
-    shadow,
+  const label = addHudText(
+    scene,
+    SCREEN_CENTER_X_PX,
+    ENDING_TITLE_Y_PX,
+    text,
+    textStyle('title', color),
   )
     .setAlpha(0)
     .setScale(ENDING_POP_SCALE);
@@ -217,10 +204,13 @@ function addEndingTitle(
 export function playFailureFx(
   scene: Phaser.Scene,
   celestial: CelestialCatalog,
-  starlight: StarlightGauge,
+  // 별빛 게이지는 표준 모드 HUD 에만 있다.
+  starlight: StarlightGauge | null,
   onDone: () => void,
 ): void {
-  starlight.extinguish();
+  if (starlight !== null) {
+    starlight.extinguish();
+  }
   // 게이지 소멸(StarlightGauge.extinguish 의 MOTION.mediumMs)이 끝난 뒤에 별이 등장한다.
   const gaugeGoneMs = MOTION.mediumMs;
   const starsFadedMs =

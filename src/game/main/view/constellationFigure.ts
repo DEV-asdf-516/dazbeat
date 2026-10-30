@@ -1,7 +1,11 @@
 import Phaser from 'phaser';
-import { clamp, getProgress, lerp } from '../../range.js';
-import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
+import { clamp, getProgress, lerp } from '../../../range.js';
+import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
+import {
+  LIGHT_TEXTURES,
+  addLight,
+  ensureLightTextures,
+} from '../../ui/view/textures/lightTextures.js';
 
 /** 좌표는 모두 선화(1122×1402) 픽셀 기준이고 크기만 화면 픽셀이다. */
 const CORE_TEXTURE_KEY = 'main:constellation-core';

@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { YouTubePlayerHandlers } from '../../../src/audio/YouTubePlayer.js';
+import type { AchievementId, NamedAchievementDefinition } from '../../../src/data/achievements.js';
 import type { PreparedChart, VerifiedPlay } from '../../../src/data/playSession.js';
 import type { PlaySubmission } from '../../../src/data/playSubmission.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { GameplayController } from '../../../src/game/gameplay/GameplayController.js';
-import type { GameplayLoadError } from '../../../src/game/gameplay/GameplayController.js';
+import type {
+  GameplayButtons,
+  GameplayStatus,
+} from '../../../src/game/gameplay/state/gameplayStatus.js';
+import type {
+  GameplayFrame,
+  GameplayLoadError,
+} from '../../../src/game/gameplay/GameplayController.js';
 import type {
   GameplaySceneData,
   PlayMode,
   ResultSceneData,
-} from '../../../src/game/sceneRoutes.js';
+} from '../../../src/game/app/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { Chart, Difficulty, GameplayResult, LaneCount } from '../../../src/rhythm/types.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
@@ -137,6 +145,17 @@ interface Harness {
   readonly chart: Chart;
   // 프레임마다 그린 곡 시간.
   readonly songTimes: number[];
+  readonly frames: { readonly previous: GameplayFrame | null; readonly next: GameplayFrame }[];
+  readonly statuses: {
+    readonly previous: GameplayStatus | null;
+    readonly next: GameplayStatus;
+  }[];
+  readonly buttonRenders: {
+    readonly previous: GameplayButtons | null;
+    readonly next: GameplayButtons;
+  }[];
+  // 이 시각까지의 노트를 화면에 들어온 것으로 본다.
+  enteredUntilMs: number;
   rankedSessionId: string | null;
   isCreateThrowing: boolean;
   isSaveSettingsThrowing: boolean;
@@ -176,6 +195,10 @@ function createHarness(
     shownResults: [],
     chart: playedChart,
     songTimes: [],
+    frames: [],
+    statuses: [],
+    buttonRenders: [],
+    enteredUntilMs: Number.NEGATIVE_INFINITY,
     rankedSessionId: 'session-1',
     isCreateThrowing: false,
     isSaveSettingsThrowing: false,
@@ -262,7 +285,18 @@ function createHarness(
       now: () => harness.nowMs,
     },
     {
-      showStatus: (status) => record('showStatus', status),
+      showStatus: (previous, next) => {
+        record('showStatus', next);
+        harness.statuses.push({
+          previous,
+          next,
+        });
+      },
+      renderButtons: (previous, next) =>
+        harness.buttonRenders.push({
+          previous,
+          next,
+        }),
       showMvMode: (next) => record('showMvMode', next),
       setMvVisible: (isVisible) => record('setMvVisible', isVisible),
       showLoadError: (error) => record('showLoadError', error),
@@ -272,10 +306,15 @@ function createHarness(
         record('beginPlay', played);
         return {
           approachMs: harness.approachMs,
-          drawFrame: (frame) => {
+          drawFrame: (previous, next) => {
             record('drawFrame');
-            harness.songTimes.push(frame.songTimeMs);
+            harness.songTimes.push(next.songTimeMs);
+            harness.frames.push({
+              previous,
+              next,
+            });
           },
+          hasNoteEntered: (noteTimeMs) => noteTimeMs <= harness.enteredUntilMs,
           pressLane: (lane) => record('pressLane', lane),
           showJudgments: (events) => record('showJudgments', events),
           hideIntro: () => record('hideIntro'),
@@ -306,7 +345,25 @@ function createHarness(
   return Object.assign(harness, { controller });
 }
 
-function getShownAchievements(harness: Harness): Promise<readonly string[]> {
+function achievementOf(id: AchievementId): NamedAchievementDefinition {
+  return {
+    id,
+    set: 'rhythm',
+    category: 'play',
+    rule: {
+      kind: 'plays',
+      target: 1,
+    },
+    isRetired: false,
+    names: {
+      ko: id,
+      ja: id,
+      en: id,
+    },
+  };
+}
+
+function getShownAchievements(harness: Harness): Promise<readonly NamedAchievementDefinition[]> {
   return requireDefined(harness.shownResults[0], 'result was not shown').newAchievements;
 }
 
@@ -439,7 +496,10 @@ describe('GameplayController start', () => {
 
     getHandlers(harness).onReady();
     expect(harness.playerCalls).toEqual(['setVolume(0.25)']);
-    expect(harness.screenCalls.at(-1)).toEqual(['showStatus', { kind: 'awaitingStart' }]);
+    expect(harness.screenCalls.slice(-2)).toEqual([
+      ['showStatus', { kind: 'awaitingStart' }],
+      ['setMvVisible', true],
+    ]);
   });
 
   it('loads the practice chart for practice mode', async () => {
@@ -831,7 +891,7 @@ describe('GameplayController MV mode', () => {
     harness.controller.keyDown('Tab', false);
     harness.controller.keyDown('Tab', false);
 
-    expect(harness.savedSettings.map(({ mvMode }) => mvMode)).toEqual(['blur', 'off']);
+    expect(harness.savedSettings.map(({ mvMode }) => mvMode)).toEqual(['blur', 'normal']);
     expect(harness.savedSettings[0]).toEqual({
       ...SETTINGS,
       mvMode: 'blur',
@@ -839,7 +899,7 @@ describe('GameplayController MV mode', () => {
     expect(SETTINGS.mvMode).toBe('dim');
     expect(harness.screenCalls).toEqual([
       ['showMvMode', 'blur'],
-      ['showMvMode', 'off'],
+      ['showMvMode', 'normal'],
     ]);
   });
 
@@ -1109,7 +1169,6 @@ describe('GameplayController quit confirm', () => {
     harness.controller.keyDown('Escape', false);
     const pausedCalls = [
       ['showStatus', { kind: 'paused' }],
-      ['setMvVisible', false],
       ['openQuitConfirm', 'userPaused'],
     ];
     expect(harness.screenCalls).toEqual(pausedCalls);
@@ -1123,6 +1182,7 @@ describe('GameplayController quit confirm', () => {
       ...pausedCalls,
       ['closeQuitConfirm'],
       ['showStatus', { kind: 'resuming' }],
+      ['setMvVisible', false],
     ]);
     expect(harness.playerCalls).toEqual(['pause', 'setVolume(0.01)', 'resume']);
   });
@@ -1153,6 +1213,7 @@ describe('GameplayController quit confirm', () => {
     expect(harness.screenCalls).toEqual([
       ['closeQuitConfirm'],
       ['showStatus', { kind: 'resuming' }],
+      ['setMvVisible', false],
     ]);
     expect(harness.playerCalls).toEqual(['setVolume(0.01)', 'resume']);
   });
@@ -1208,6 +1269,7 @@ describe('GameplayController resync failure', () => {
     expect(harness.playerCalls).toEqual(['pause']);
     expect(harness.screenCalls.filter(([name]) => name !== 'drawFrame')).toEqual([
       ['showStatus', { kind: 'paused' }],
+      ['setMvVisible', true],
       ['openQuitConfirm', 'resyncFailed'],
     ]);
   });
@@ -1222,6 +1284,7 @@ describe('GameplayController resync failure', () => {
     expect(harness.screenCalls).toEqual([
       ['closeQuitConfirm'],
       ['showStatus', { kind: 'resuming' }],
+      ['setMvVisible', false],
     ]);
     expect(harness.playerCalls).toEqual(['setVolume(0.01)', 'resume']);
   });
@@ -1438,6 +1501,7 @@ describe('GameplayController run end', () => {
   });
 
   it('passes the new achievements of the submission response to the result', async () => {
+    const newAchievements = [achievementOf('FIRST_FINISH'), achievementOf('FIRST_CLEAR')];
     const harness = createHarness();
     await startVideo(harness);
     moveClock(harness, 10);
@@ -1450,10 +1514,10 @@ describe('GameplayController run end', () => {
       maxCombo: 0,
       cleared: true,
       bestScore: 0,
-      newAchievements: ['FIRST_FINISH', 'FIRST_CLEAR'],
+      newAchievements,
     });
 
-    await expect(getShownAchievements(harness)).resolves.toEqual(['FIRST_FINISH', 'FIRST_CLEAR']);
+    await expect(getShownAchievements(harness)).resolves.toEqual(newAchievements);
   });
 
   it('passes no new achievements when the submission is rejected', async () => {
@@ -1533,5 +1597,168 @@ describe('GameplayController run end', () => {
     expect(harness.screenCalls).toEqual([]);
     expect(harness.savedResults).toEqual([]);
     expect(harness.submissions).toEqual([]);
+  });
+});
+
+describe('GameplayController frames', () => {
+  it('draws the first frame without a previous frame and then with the last drawn one', async () => {
+    const harness = createHarness('standard', FAIL_CHART);
+    await startVideo(harness);
+
+    moveClock(harness, 3);
+    harness.controller.tick();
+    moveClock(harness, 3.1);
+    harness.controller.tick();
+
+    const [first, second] = harness.frames;
+    expect(first?.previous).toBeNull();
+    expect(second?.previous).toBe(first?.next);
+  });
+
+  it('counts the notes the screen reports as entered and never counts down', async () => {
+    const harness = createHarness('standard', FAIL_CHART);
+    await startVideo(harness);
+    const counts = (): number[] => harness.frames.map(({ next }) => next.enteredNoteCount);
+
+    moveClock(harness, 3);
+    harness.controller.tick();
+    harness.enteredUntilMs = 4020;
+    moveClock(harness, 3.1);
+    harness.controller.tick();
+    harness.enteredUntilMs = 4050;
+    moveClock(harness, 3.2);
+    harness.controller.tick();
+    harness.enteredUntilMs = Number.NEGATIVE_INFINITY;
+    moveClock(harness, 3.3);
+    harness.controller.tick();
+
+    expect(counts().slice(-4)).toEqual([0, 3, 6, 6]);
+  });
+});
+
+describe('GameplayController status', () => {
+  it('shows the first status without a previous one and then with the last shown one', async () => {
+    const harness = createHarness();
+    await startReady(harness);
+
+    expect(harness.statuses.slice(0, 2)).toEqual([
+      {
+        previous: null,
+        next: { kind: 'loading' },
+      },
+      {
+        previous: { kind: 'loading' },
+        next: { kind: 'awaitingStart' },
+      },
+    ]);
+  });
+});
+
+function lastButtons(harness: Harness): GameplayButtons {
+  return requireDefined(harness.buttonRenders.at(-1), 'buttons were not rendered').next;
+}
+
+describe('GameplayController button pointer', () => {
+  it('paints every button once at the start', () => {
+    const harness = createHarness();
+
+    expect(harness.buttonRenders).toEqual([
+      {
+        previous: null,
+        next: {
+          hover: null,
+          isQuitConfirmOpen: false,
+        },
+      },
+    ]);
+  });
+
+  it('goes back once for over, down and up on the back button', () => {
+    const harness = createHarness();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerDown('back');
+    harness.controller.pointerUp('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+  });
+
+  it('does not go back for an up that was pressed elsewhere', () => {
+    const harness = createHarness();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.screenCalls).toEqual([]);
+  });
+
+  it('releases the press when the pointer leaves the button', () => {
+    const harness = createHarness();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerDown('back');
+    harness.controller.pointerOut('back');
+    harness.controller.pointerOver('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.screenCalls).toEqual([]);
+    expect(lastButtons(harness).hover).toEqual({
+      kind: 'button',
+      button: 'back',
+      isPressed: false,
+    });
+  });
+
+  it('ignores a press on the quit confirm buttons while it is closed', () => {
+    const harness = createHarness();
+    const renderCount = harness.buttonRenders.length;
+
+    harness.controller.pointerDown('quitAccept');
+    harness.controller.pointerUp('quitAccept');
+
+    expect(harness.buttonRenders).toHaveLength(renderCount);
+    expect(harness.screenCalls).toEqual([]);
+  });
+
+  it('resumes with the cancel button and leaves with the accept button', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    harness.controller.keyDown('Escape', false);
+    resetCalls(harness);
+
+    harness.controller.pointerDown('quitCancel');
+    harness.controller.pointerUp('quitCancel');
+    expect(harness.screenCalls[0]).toEqual(['closeQuitConfirm']);
+    expect(lastButtons(harness).isQuitConfirmOpen).toBe(false);
+
+    harness.controller.keyDown('Escape', false);
+    resetCalls(harness);
+    harness.controller.pointerDown('quitAccept');
+    harness.controller.pointerUp('quitAccept');
+    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+  });
+
+  it('releases the hover of the confirm buttons when the quit confirm closes', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    harness.controller.keyDown('Escape', false);
+    harness.controller.pointerOver('quitAccept');
+
+    harness.controller.keyDown('Escape', false);
+
+    expect(lastButtons(harness)).toEqual({
+      hover: null,
+      isQuitConfirmOpen: false,
+    });
+  });
+
+  it('ignores the pointer after close', () => {
+    const harness = createHarness();
+    harness.controller.close();
+
+    harness.controller.pointerOver('back');
+
+    expect(harness.buttonRenders).toHaveLength(1);
   });
 });

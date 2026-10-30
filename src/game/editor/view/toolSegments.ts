@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
-import { LANE_COUNTS } from '../../rhythm/lanes.js';
-import type { LaneCount } from '../../rhythm/types.js';
-import type { EditTool } from './chartGesture.js';
+import { LANE_COUNTS } from '../../../rhythm/lanes.js';
+import type { LaneCount } from '../../../rhythm/types.js';
+import type { EditTool } from '../state/chartGesture.js';
 import type { SegmentGlyph, SegmentOption } from './SegmentedControl.js';
 
 const GLYPH_WIDTH_PX = 14;

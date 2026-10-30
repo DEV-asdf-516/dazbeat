@@ -1,4 +1,4 @@
-import { getProgress, lerp } from '../../range.js';
+import { getProgress, lerp } from '../../../range.js';
 
 export interface TrailPuff {
   readonly xPx: number;

@@ -1,8 +1,8 @@
 import type Phaser from 'phaser';
-import type { CelestialCatalog } from './celestialCatalog.js';
-import { CELESTIAL_SCREENS } from './celestialPlacements.js';
-import type { CelestialScreen } from './celestialPlacements.js';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
+import type { CelestialCatalog } from '../state/celestialCatalog.js';
+import { CELESTIAL_SCREENS } from '../state/celestialPlacements.js';
+import type { CelestialScreen } from '../state/celestialPlacements.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../../app/config.js';
 import {
   addCelestialSprite,
   playCelestialOnce,

@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { toParseIssue } from '../../data/parseIssue.js';
-import { requireDefined } from '../../invariant.js';
+import { toParseIssue } from '../../../data/parseIssue.js';
 
 /** 화면 코드가 id 마다 종류(이미지·정적·animation)에 기대므로 이 분류는 코드 쪽 계약이고, 로드할 때 manifest 와 정확히 같은지 확인한다. */
 const IMAGE_ROLE_IDS = ['R01', 'R02', 'R03', 'R05', 'R50'] as const;
@@ -210,27 +209,47 @@ const manifestSchema = z.object({
   sequenceManifest: path,
 });
 
+const regionFrame = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number().positive(),
+  h: z.number().positive(),
+  duration_ms: z.number(),
+});
+
 const regionsSchema = z.object({
   states: z.record(
     z.string(),
     z.object({
       anchor_px: pair,
-      frames: z
-        .array(
-          z.object({
-            x: z.number(),
-            y: z.number(),
-            w: z.number().positive(),
-            h: z.number().positive(),
-            duration_ms: z.number(),
-          }),
-        )
-        .min(1),
+      frames: z.tuple([regionFrame], regionFrame),
     }),
   ),
 });
 
 type RegionState = z.infer<typeof regionsSchema>['states'][string];
+
+const atlasSequenceChild = z.object({
+  resource: z.string(),
+  presentationRole: z.string(),
+  startMs: z.number(),
+  durationMs: z.number(),
+});
+
+const roleSequenceChild = z.object({
+  role: z.string(),
+  startMs: z.number(),
+  durationMs: z.number(),
+});
+
+const nestedSequenceChild = z.object({
+  sequence: z.string(),
+  fallbackSequence: z.string(),
+  startMs: z.number(),
+});
+
+type AtlasSequenceChild = z.infer<typeof atlasSequenceChild>;
+type RoleSequenceChild = z.infer<typeof roleSequenceChild>;
 
 type SequenceChild =
   | { kind: 'step'; step: CelestialSequenceStep }
@@ -329,14 +348,14 @@ function resolveResource(
 }
 
 function toOrigin(anchorPx: readonly [number, number], region: RegionState): [number, number] {
-  const firstFrame = requireDefined(region.frames[0], 'Region state has no frames');
+  const [firstFrame] = region.frames;
   return [anchorPx[0] / firstFrame.w, anchorPx[1] / firstFrame.h];
 }
 
 function toFrames(resolved: ResolvedResource, durationsMs: readonly number[]): CelestialFrame[] {
-  return resolved.region.frames.map((_frame, index) => ({
+  return durationsMs.map((durationMs, index) => ({
     frameName: frameNameOf(resolved.state, index),
-    durationMs: durationsMs[index] ?? 0,
+    durationMs,
   }));
 }
 
@@ -404,6 +423,56 @@ function toClipRolePresentation(
     scaleRange: atlasRole.scaleRange,
     originXY: toOrigin(atlasRole.anchorPx, resolved.region),
     opacity: atlasRole.opacity,
+  };
+}
+
+function toAtlasSequenceStep(
+  child: AtlasSequenceChild,
+  atlases: ReadonlyMap<string, AtlasSource>,
+  atlasRoles: ReadonlyMap<string, AtlasRole>,
+  url: string,
+): CelestialSequenceStep {
+  const resolved = resolveResource(atlases, child.resource, url);
+  const presentationRole = requireKnown(
+    atlasRoles.get(child.presentationRole),
+    url,
+    'presentationRole',
+    child.presentationRole,
+  );
+  const frameDurationsMs = resolved.region.frames.map((frame) => frame.duration_ms);
+  if (sum(frameDurationsMs) !== child.durationMs) {
+    throw invalid(url, `child ${child.resource} frame durations do not sum to durationMs`);
+  }
+  return {
+    presentationId: presentationRole.id,
+    startMs: child.startMs,
+    durationMs: child.durationMs,
+    presentation: {
+      textureKey: resolved.textureKey,
+      firstFrameName: frameNameOf(resolved.state, 0),
+      playback: {
+        kind: 'once',
+        animationKey: `celestial:${child.resource}@${presentationRole.id}`,
+        frames: toFrames(resolved, frameDurationsMs),
+      },
+      scaleXY: presentationRole.scaleXY,
+      scaleRange: presentationRole.scaleRange,
+      originXY: toOrigin(presentationRole.anchorPx, resolved.region),
+      opacity: presentationRole.opacity,
+    },
+  };
+}
+
+function toRoleSequenceStep(
+  child: RoleSequenceChild,
+  rolePresentations: ReadonlyMap<string, CelestialAtlasPresentation>,
+  url: string,
+): CelestialSequenceStep {
+  return {
+    presentationId: child.role,
+    startMs: child.startMs,
+    durationMs: child.durationMs,
+    presentation: requireKnown(rolePresentations.get(child.role), url, 'role', child.role),
   };
 }
 
@@ -484,93 +553,27 @@ export async function loadCelestialCatalog(
     semantic.opacity,
   );
 
+  const sequenceChild = z.union([
+    atlasSequenceChild.transform((child): SequenceChild => ({
+      kind: 'step',
+      step: toAtlasSequenceStep(child, atlases, atlasRoles, sequencesUrl),
+    })),
+    roleSequenceChild.transform((child): SequenceChild => ({
+      kind: 'step',
+      step: toRoleSequenceStep(child, rolePresentations, sequencesUrl),
+    })),
+    nestedSequenceChild.transform((child): SequenceChild => ({
+      kind: 'sequence',
+      ...child,
+    })),
+  ]);
   const sequences = parseJson(
     z.object({
       sequences: z.record(
         z.string(),
         z.object({
           durationMs: z.number(),
-          children: z.array(
-            z.union([
-              z
-                .object({
-                  resource: z.string(),
-                  presentationRole: z.string(),
-                  startMs: z.number(),
-                  durationMs: z.number(),
-                })
-                .transform((child): SequenceChild => {
-                  const resolved = resolveResource(atlases, child.resource, sequencesUrl);
-                  const presentationRole = requireKnown(
-                    atlasRoles.get(child.presentationRole),
-                    sequencesUrl,
-                    'presentationRole',
-                    child.presentationRole,
-                  );
-                  const frameDurationsMs = resolved.region.frames.map((frame) => frame.duration_ms);
-                  if (sum(frameDurationsMs) !== child.durationMs) {
-                    throw invalid(
-                      sequencesUrl,
-                      `child ${child.resource} frame durations do not sum to durationMs`,
-                    );
-                  }
-                  return {
-                    kind: 'step',
-                    step: {
-                      presentationId: presentationRole.id,
-                      startMs: child.startMs,
-                      durationMs: child.durationMs,
-                      presentation: {
-                        textureKey: resolved.textureKey,
-                        firstFrameName: frameNameOf(resolved.state, 0),
-                        playback: {
-                          kind: 'once',
-                          animationKey: `celestial:${child.resource}@${presentationRole.id}`,
-                          frames: toFrames(resolved, frameDurationsMs),
-                        },
-                        scaleXY: presentationRole.scaleXY,
-                        scaleRange: presentationRole.scaleRange,
-                        originXY: toOrigin(presentationRole.anchorPx, resolved.region),
-                        opacity: presentationRole.opacity,
-                      },
-                    },
-                  };
-                }),
-              z
-                .object({
-                  role: z.string(),
-                  startMs: z.number(),
-                  durationMs: z.number(),
-                })
-                .transform((child): SequenceChild => {
-                  const presentation = requireKnown(
-                    rolePresentations.get(child.role),
-                    sequencesUrl,
-                    'role',
-                    child.role,
-                  );
-                  return {
-                    kind: 'step',
-                    step: {
-                      presentationId: child.role,
-                      startMs: child.startMs,
-                      durationMs: child.durationMs,
-                      presentation,
-                    },
-                  };
-                }),
-              z
-                .object({
-                  sequence: z.string(),
-                  fallbackSequence: z.string(),
-                  startMs: z.number(),
-                })
-                .transform((child): SequenceChild => ({
-                  kind: 'sequence',
-                  ...child,
-                })),
-            ]),
-          ),
+          children: z.array(sequenceChild),
         }),
       ),
     }),

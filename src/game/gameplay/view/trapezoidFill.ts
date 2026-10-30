@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { lerp } from '../../range.js';
-import type { Trapezoid } from './playfieldLayout.js';
+import { lerp } from '../../../range.js';
+import type { Trapezoid } from '../state/playfieldLayout.js';
 
 // 조각 하나 안에서 위아래 alpha 가 이보다 크게 바뀌지 않도록 나눈다.
 const MAX_SLICE_ALPHA_STEP = 0.04;

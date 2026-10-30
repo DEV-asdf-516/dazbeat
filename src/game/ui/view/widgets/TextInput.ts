@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { CELESTIAL_COLORS, FONT_FAMILY, MOTION, RADIUS, cssColor } from './theme.js';
+import { CELESTIAL_COLORS, FONT_FAMILY, MOTION, RADIUS, cssColor } from '../theme.js';
 
 const PADDING_X_PX = 16;
 

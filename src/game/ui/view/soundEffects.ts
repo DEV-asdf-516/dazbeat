@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
-import { requireDefined } from '../../invariant.js';
-import type { Settings } from '../../storage/settings.js';
-import { warnOnLoadError } from './loadWarning.js';
+import { requireDefined } from '../../../invariant.js';
+import type { Settings } from '../../../storage/settings.js';
+import { warnOnLoadError } from './textures/loadWarning.js';
 
 export type SoundEffect = 'lanePress' | 'judgeGood' | 'judgeBad' | 'judgeMiss' | 'menuFocus';
 
@@ -85,9 +85,7 @@ export class SoundEffects {
       .getAllPlaying()
       .filter((playingSound) => groupKeys.has(playingSound.key));
     // stop() 만 하면 완료 이벤트가 없어 매니저에서 제거되지 않는다.
-    if (playing.length >= MAX_PLAYING_PER_GROUP) {
-      requireDefined(playing[0], 'Missing oldest sound effect', group).destroy();
-    }
+    playing.at(-MAX_PLAYING_PER_GROUP)?.destroy();
     manager.play(key, { volume: this.volume });
   }
 }

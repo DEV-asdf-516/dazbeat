@@ -1,18 +1,99 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ACHIEVEMENT_IDS } from '../../../src/data/achievements.js';
-import type { AchievementId } from '../../../src/data/achievements.js';
+import type {
+  AchievementDefinition,
+  AchievementId,
+  AchievementSet,
+  NamedAchievementDefinition,
+} from '../../../src/data/achievements.js';
 import { parseNickname } from '../../../src/data/nickname.js';
 import type { Nickname } from '../../../src/data/nickname.js';
 import { ProfileRequestError } from '../../../src/data/profile.js';
 import type { Profile, ProfileRequestErrorKind } from '../../../src/data/profile.js';
 import { ProfileController } from '../../../src/game/profile/ProfileController.js';
 import type { ProfileDeps } from '../../../src/game/profile/ProfileController.js';
-import type { ProfileState } from '../../../src/game/profile/profileState.js';
+import type { ProfileHover, ProfileState } from '../../../src/game/profile/state/profileState.js';
 import { requireDefined } from '../../../src/invariant.js';
 
 function nickname(input: string): Nickname {
   return requireDefined(parseNickname(input), 'Invalid test nickname', input);
 }
+
+type Classification<D extends AchievementDefinition = AchievementDefinition> = D extends unknown
+  ? [category: D['category'], rule: D['rule']]
+  : never;
+
+function definitionOf(
+  id: AchievementId,
+  set: AchievementSet,
+  ...[category, rule]: Classification
+): NamedAchievementDefinition {
+  const base = {
+    id,
+    set,
+    isRetired: false,
+    names: {
+      ko: id,
+      ja: id,
+      en: id,
+    },
+  };
+  return category === 'album'
+    ? {
+        ...base,
+        category,
+        rule,
+      }
+    : {
+        ...base,
+        category,
+        rule,
+      };
+}
+
+// 프로필 응답과 카탈로그로 만든 보이는 업적. 카테고리마다 연속해 놓아 줄이 나뉘고, 앨범은 album 이 달라 줄이 나뉜다.
+const DEFINITIONS: readonly NamedAchievementDefinition[] = [
+  ...[1, 5].map((target) =>
+    definitionOf(target === 1 ? 'FIRST_CLEAR' : `CLEAR_${target}_SONGS`, 'rhythm', 'songClear', {
+      kind: 'songs',
+      mark: 'clear',
+      target,
+    }),
+  ),
+  ...[1, 3, 10].map((target) =>
+    definitionOf(target === 1 ? 'FIRST_FINISH' : `PLAY_${target}`, 'rhythm', 'play', {
+      kind: 'plays',
+      target,
+    }),
+  ),
+  ...(
+    [
+      ['', 'zodiacComplete', 'clear'],
+      ['_S', 'zodiacAllS', 's'],
+      ['_FC', 'zodiacAllFullCombo', 'fc'],
+    ] as const
+  ).flatMap(([suffix, category, mark]) =>
+    (['aries', 'taurus'] as const).map((zodiac) =>
+      definitionOf(`ZODIAC_${zodiac.toUpperCase()}${suffix}`, 'zodiac', category, {
+        kind: 'zodiacComplete',
+        mark,
+        zodiac,
+      }),
+    ),
+  ),
+  ...['REMINDFUL_ONE', 'REMINDFUL_TWO', 'NOSTALZIA'].flatMap((album) =>
+    (['clear', 's', 'fc'] as const).map((mark) =>
+      definitionOf(`ALBUM_${album}_${mark.toUpperCase()}`, 'discography', 'album', {
+        kind: 'album',
+        album: `album_${album.toLowerCase()}`,
+        mark,
+      }),
+    ),
+  ),
+];
+const FIRST_CLEAR = requireDefined(
+  DEFINITIONS.find(({ id }) => id === 'FIRST_CLEAR'),
+  'Missing test achievement',
+);
 
 const EARNED_AT_MS = Date.parse('2026-10-21T09:12:33.000Z');
 const EARNED: readonly AchievementId[] = ['FIRST_CLEAR', 'FIRST_FINISH'];
@@ -28,13 +109,17 @@ function createProfile(overrides: Partial<Profile> = {}): Profile {
       fullComboChartCount: 0,
       allPerfectChartCount: 0,
     },
-    achievements: ACHIEVEMENT_IDS.map((id) => ({
-      id,
-      earnedAtMs: EARNED.includes(id) ? EARNED_AT_MS : null,
+    achievements: DEFINITIONS.map((definition) => ({
+      definition,
+      earnedAtMs: EARNED.includes(definition.id) ? EARNED_AT_MS : null,
       current: 0,
       target: 1,
     })),
     newAchievements: new Set(),
+    catalog: {
+      definitions: DEFINITIONS,
+      albumNames: new Map(),
+    },
     ...overrides,
   };
 }
@@ -71,20 +156,28 @@ interface Harness {
   readonly controller: ProfileController;
   readonly rendered: ProfileState[];
   readonly previous: (ProfileState | null)[];
+  readonly controlsOpen: boolean[];
+  readonly hovers: (ProfileHover | null)[];
   readonly loads: Pending<Profile>[];
   readonly nicknames: { nickname: string; response: Pending<Nickname> }[];
   readonly waits: { delayMs: number; done: Pending<void> }[];
   readonly checks: { nickname: string; response: Pending<boolean> }[];
-  readonly featured: { id: AchievementId | null; response: Pending<AchievementId | null> }[];
+  readonly featured: {
+    id: AchievementId | null;
+    response: Pending<AchievementId | null>;
+  }[];
   leaveCount(): number;
   focusSoundCount(): number;
   last(): ProfileState;
+  hover(): ProfileHover | null;
   loaded(): Extract<ProfileState, { kind: 'loaded' }>;
 }
 
 function createHarness(isSignedIn = true): Harness {
   const rendered: ProfileState[] = [];
   const previous: (ProfileState | null)[] = [];
+  const controlsOpen: boolean[] = [];
+  const hovers: (ProfileHover | null)[] = [];
   const loads: Pending<Profile>[] = [];
   const nicknames: Harness['nicknames'] = [];
   const waits: Harness['waits'] = [];
@@ -133,9 +226,11 @@ function createHarness(isSignedIn = true): Harness {
     },
   };
   const controller = new ProfileController(deps, {
-    render: (state, previousState) => {
-      rendered.push(state);
-      previous.push(previousState);
+    render: (previousState, next) => {
+      rendered.push(next.page);
+      previous.push(previousState?.page ?? null);
+      controlsOpen.push(next.isControlsOpen);
+      hovers.push(next.hover);
     },
     playFocusSound: () => {
       focusSounds += 1;
@@ -145,16 +240,14 @@ function createHarness(isSignedIn = true): Harness {
     },
   });
   const last = (): ProfileState => {
-    const state = rendered.at(-1);
-    if (state === undefined) {
-      throw new Error('nothing rendered');
-    }
-    return state;
+    return requireDefined(rendered.at(-1), 'nothing rendered');
   };
   return {
     controller,
     rendered,
     previous,
+    controlsOpen,
+    hovers,
     loads,
     nicknames,
     waits,
@@ -163,6 +256,7 @@ function createHarness(isSignedIn = true): Harness {
     leaveCount: () => leaves,
     focusSoundCount: () => focusSounds,
     last,
+    hover: () => requireDefined(hovers.at(-1), 'nothing rendered'),
     loaded: () => {
       const state = last();
       if (state.kind !== 'loaded') {
@@ -268,28 +362,22 @@ describe('ProfileController loading', () => {
 });
 
 describe('ProfileController focus and views', () => {
-  it('moves the summary focus from the nickname through the four sets and wraps around', async () => {
+  it('moves the summary focus from the nickname through the three sets and wraps around', async () => {
     const harness = await loadedHarness();
     harness.controller.moveFocus('right');
     expect(harness.loaded().summaryTab).toBe('collection');
 
     harness.controller.moveFocus('up');
-    expect(harness.loaded().summaryFocus).toBe('zodiacPerfection');
+    expect(harness.loaded().summaryFocus).toBe('discography');
     harness.controller.moveFocus('down');
     expect(harness.loaded().summaryFocus).toBe('nickname');
 
-    const focuses = [1, 2, 3, 4, 5].map(() => {
+    const focuses = [1, 2, 3, 4].map(() => {
       harness.controller.moveFocus('down');
       return harness.loaded().summaryFocus;
     });
 
-    expect(focuses).toEqual([
-      'starlightOrigin',
-      'starJourney',
-      'zodiacAscension',
-      'zodiacPerfection',
-      'nickname',
-    ]);
+    expect(focuses).toEqual(['rhythm', 'zodiac', 'discography', 'nickname']);
   });
 
   it('starts on the stats tab where only the nickname takes focus', async () => {
@@ -316,7 +404,7 @@ describe('ProfileController focus and views', () => {
   it('keeps the collection tab when coming back from a set', async () => {
     const harness = await loadedHarness();
     harness.controller.selectTab('collection');
-    harness.controller.select('starJourney');
+    harness.controller.select('zodiac');
 
     harness.controller.selectTab('stats');
     expect(harness.loaded().summaryTab).toBe('collection');
@@ -336,27 +424,30 @@ describe('ProfileController focus and views', () => {
 
     expect(harness.loaded().view).toBe('collection');
     expect(harness.loaded().collection).toEqual({
-      set: 'starJourney',
-      focusedId: 'CHART_CLEAR_25',
+      set: 'zodiac',
+      focusedId: 'ZODIAC_ARIES',
     });
 
     harness.controller.back();
 
     expect(harness.loaded().view).toBe('summary');
-    expect(harness.loaded().summaryFocus).toBe('starJourney');
+    expect(harness.loaded().summaryFocus).toBe('zodiac');
   });
 
   it('opens the pointed set from the summary regardless of the focus', async () => {
     const harness = await loadedHarness();
 
-    harness.controller.select('zodiacAscension');
+    harness.controller.select('discography');
 
     expect(harness.loaded().view).toBe('collection');
-    expect(harness.loaded().collection.set).toBe('zodiacAscension');
+    expect(harness.loaded().collection).toEqual({
+      set: 'discography',
+      focusedId: 'ALBUM_REMINDFUL_ONE_CLEAR',
+    });
 
     harness.controller.back();
 
-    expect(harness.loaded().summaryFocus).toBe('zodiacAscension');
+    expect(harness.loaded().summaryFocus).toBe('discography');
   });
 
   it('moves within a category row sideways and between rows vertically', async () => {
@@ -374,6 +465,30 @@ describe('ProfileController focus and views', () => {
     harness.controller.moveFocus('left');
     harness.controller.moveFocus('left');
     expect(harness.loaded().collection.focusedId).toBe('FIRST_CLEAR');
+  });
+
+  it('moves through an album row sideways and between albums vertically', async () => {
+    const harness = await loadedHarness();
+    harness.controller.select('discography');
+
+    harness.controller.moveFocus('right');
+    harness.controller.moveFocus('right');
+    expect(harness.loaded().collection.focusedId).toBe('ALBUM_REMINDFUL_ONE_FC');
+    harness.controller.moveFocus('down');
+    expect(harness.loaded().collection.focusedId).toBe('ALBUM_REMINDFUL_TWO_FC');
+    harness.controller.moveFocus('up');
+    harness.controller.moveFocus('up');
+    expect(harness.loaded().collection.focusedId).toBe('ALBUM_NOSTALZIA_FC');
+  });
+
+  it('stacks the zodiac rows by mark under the same constellation', async () => {
+    const harness = await loadedHarness();
+    harness.controller.select('zodiac');
+
+    harness.controller.moveFocus('down');
+    expect(harness.loaded().collection.focusedId).toBe('ZODIAC_ARIES_S');
+    harness.controller.moveFocus('down');
+    expect(harness.loaded().collection.focusedId).toBe('ZODIAC_ARIES_FC');
   });
 
   it('plays the focus sound only when a move changes the focus', async () => {
@@ -407,8 +522,15 @@ describe('ProfileController focus and views', () => {
 
     harness.controller.switchSet(-1);
 
-    expect(harness.loaded().collection.set).toBe('zodiacPerfection');
-    expect(harness.loaded().collection.focusedId).toBe('ZODIAC_ARIES_AP');
+    expect(harness.loaded().collection.set).toBe('discography');
+    expect(harness.loaded().collection.focusedId).toBe('ALBUM_REMINDFUL_ONE_CLEAR');
+
+    harness.controller.switchSet(1);
+
+    expect(harness.loaded().collection).toEqual({
+      set: 'rhythm',
+      focusedId: 'FIRST_CLEAR',
+    });
   });
 
   it('shows a pointed set tab and focuses its first achievement', async () => {
@@ -417,12 +539,12 @@ describe('ProfileController focus and views', () => {
     harness.controller.moveFocus('down');
     harness.controller.select();
 
-    harness.controller.selectSet('zodiacPerfection');
-    expect(harness.loaded().collection.set).toBe('zodiacPerfection');
-    expect(harness.loaded().collection.focusedId).toBe('ZODIAC_ARIES_AP');
+    harness.controller.selectSet('zodiac');
+    expect(harness.loaded().collection.set).toBe('zodiac');
+    expect(harness.loaded().collection.focusedId).toBe('ZODIAC_ARIES');
 
     const count = harness.rendered.length;
-    harness.controller.selectSet('zodiacPerfection');
+    harness.controller.selectSet('zodiac');
     expect(harness.rendered).toHaveLength(count);
   });
 
@@ -454,7 +576,7 @@ describe('ProfileController focus and views', () => {
 
     const count = harness.rendered.length;
     harness.controller.focusAchievement('PLAY_10');
-    harness.controller.focusAchievement('CHART_CLEAR_25');
+    harness.controller.focusAchievement('ZODIAC_ARIES');
     expect(harness.rendered).toHaveLength(count);
     expect(harness.focusSoundCount()).toBe(sounds + 1);
   });
@@ -476,6 +598,7 @@ describe('ProfileController nickname', () => {
     const harness = await editingHarness();
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: '과즙이4829',
       error: null,
     });
 
@@ -508,6 +631,7 @@ describe('ProfileController nickname', () => {
 
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: '과즙이4829',
       error: null,
     });
     expect(harness.loaded().summaryFocus).toBe('nickname');
@@ -522,6 +646,7 @@ describe('ProfileController nickname', () => {
 
       expect(harness.loaded().nickname).toEqual({
         kind: 'editing',
+        input: input,
         error: 'invalid',
       });
       expect(harness.nicknames).toHaveLength(0);
@@ -551,7 +676,10 @@ describe('ProfileController nickname', () => {
     const harness = await editingHarness();
 
     harness.controller.captureNicknameKey('confirm', '  별빛_01  ');
-    expect(harness.loaded().nickname).toEqual({ kind: 'saving' });
+    expect(harness.loaded().nickname).toEqual({
+      kind: 'saving',
+      input: '  별빛_01  ',
+    });
     expect(harness.nicknames.map(({ nickname }) => nickname)).toEqual(['별빛_01']);
 
     harness.nicknames[0]?.response.resolve(nickname('별빛_01'));
@@ -585,6 +713,7 @@ describe('ProfileController nickname', () => {
 
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: '별빛',
       error,
     });
     expect(harness.loaded().profile.nickname).toBe('과즙이4829');
@@ -619,6 +748,7 @@ describe('ProfileController nickname availability', () => {
     await flush();
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: ' 별빛 ',
       error: 'taken',
     });
   });
@@ -636,6 +766,7 @@ describe('ProfileController nickname availability', () => {
     expect(harness.rendered).toHaveLength(count);
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: '별빛',
       error: null,
     });
   });
@@ -663,6 +794,7 @@ describe('ProfileController nickname availability', () => {
 
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: '별빛2',
       error: null,
     });
   });
@@ -686,6 +818,7 @@ describe('ProfileController nickname availability', () => {
 
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: 'ab',
       error: null,
     });
   });
@@ -700,7 +833,10 @@ describe('ProfileController nickname availability', () => {
     harness.checks[0]?.response.resolve(false);
     await flush();
 
-    expect(harness.loaded().nickname).toEqual({ kind: 'saving' });
+    expect(harness.loaded().nickname).toEqual({
+      kind: 'saving',
+      input: '별빛',
+    });
   });
 
   it('keeps editing without an error when the check fails', async () => {
@@ -715,6 +851,7 @@ describe('ProfileController nickname availability', () => {
 
     expect(harness.loaded().nickname).toEqual({
       kind: 'editing',
+      input: '별빛',
       error: null,
     });
     warn.mockRestore();
@@ -737,15 +874,15 @@ describe('ProfileController featured achievement', () => {
     expect(harness.loaded().featuredSave).toBe('saving');
     expect(harness.featured.map(({ id }) => id)).toEqual(['FIRST_CLEAR']);
 
-    harness.featured[0]?.response.resolve('FIRST_CLEAR');
+    harness.featured[0]?.response.resolve(FIRST_CLEAR.id);
     await flush();
 
     expect(harness.loaded().featuredSave).toBe('idle');
-    expect(harness.loaded().profile.featuredAchievement).toBe('FIRST_CLEAR');
+    expect(harness.loaded().profile.featuredAchievement).toBe(FIRST_CLEAR);
   });
 
   it('unequips the featured achievement when it is selected again', async () => {
-    const harness = await collectionHarness(createProfile({ featuredAchievement: 'FIRST_CLEAR' }));
+    const harness = await collectionHarness(createProfile({ featuredAchievement: FIRST_CLEAR }));
 
     harness.controller.select();
     expect(harness.featured.map(({ id }) => id)).toEqual([null]);
@@ -791,7 +928,7 @@ describe('ProfileController featured achievement', () => {
     const count = harness.rendered.length;
     harness.controller.close();
 
-    harness.featured[0]?.response.resolve('FIRST_CLEAR');
+    harness.featured[0]?.response.resolve(FIRST_CLEAR.id);
     await flush();
 
     expect(harness.rendered).toHaveLength(count);
@@ -825,7 +962,7 @@ describe('ProfileController hover', () => {
       kind: 'summaryTab',
       tab: 'collection',
     });
-    expect(harness.loaded().hover).toEqual({
+    expect(harness.hover()).toEqual({
       kind: 'summaryTab',
       tab: 'collection',
     });
@@ -833,37 +970,37 @@ describe('ProfileController hover', () => {
       kind: 'summaryTab',
       tab: 'collection',
     });
-    expect(harness.loaded().hover).toBeNull();
-
-    harness.controller.hover({
-      kind: 'setRow',
-      set: 'starJourney',
-    });
-    expect(harness.loaded().hover).toEqual({
-      kind: 'setRow',
-      set: 'starJourney',
-    });
-    harness.controller.unhover({
-      kind: 'setRow',
-      set: 'starJourney',
-    });
-    expect(harness.loaded().hover).toBeNull();
+    expect(harness.hover()).toBeNull();
 
     harness.controller.selectTab('collection');
-    harness.controller.select('starJourney');
+    harness.controller.hover({
+      kind: 'setRow',
+      set: 'zodiac',
+    });
+    expect(harness.hover()).toEqual({
+      kind: 'setRow',
+      set: 'zodiac',
+    });
+    harness.controller.unhover({
+      kind: 'setRow',
+      set: 'zodiac',
+    });
+    expect(harness.hover()).toBeNull();
+
+    harness.controller.select('zodiac');
     harness.controller.hover({
       kind: 'collectionTab',
-      set: 'zodiacAscension',
+      set: 'discography',
     });
-    expect(harness.loaded().hover).toEqual({
+    expect(harness.hover()).toEqual({
       kind: 'collectionTab',
-      set: 'zodiacAscension',
+      set: 'discography',
     });
     harness.controller.unhover({
       kind: 'collectionTab',
-      set: 'zodiacAscension',
+      set: 'discography',
     });
-    expect(harness.loaded().hover).toBeNull();
+    expect(harness.hover()).toBeNull();
   });
 
   it('does not render for the same hover or an unhover of another target', async () => {
@@ -884,7 +1021,7 @@ describe('ProfileController hover', () => {
     });
     harness.controller.unhover({
       kind: 'setRow',
-      set: 'starJourney',
+      set: 'zodiac',
     });
 
     expect(harness.rendered).toHaveLength(count);
@@ -915,11 +1052,11 @@ describe('ProfileController hover', () => {
     });
     harness.controller.hover({
       kind: 'setRow',
-      set: 'starJourney',
+      set: 'zodiac',
     });
     harness.controller.unhover({
       kind: 'setRow',
-      set: 'starJourney',
+      set: 'zodiac',
     });
 
     expect(harness.focusSoundCount()).toBe(0);
@@ -930,20 +1067,20 @@ describe('ProfileController hover', () => {
     harness.controller.selectTab('collection');
     harness.controller.hover({
       kind: 'setRow',
-      set: 'starJourney',
+      set: 'zodiac',
     });
 
-    harness.controller.select('starJourney');
+    harness.controller.select('zodiac');
     expect(harness.loaded().view).toBe('collection');
-    expect(harness.loaded().hover).toBeNull();
+    expect(harness.hover()).toBeNull();
 
     harness.controller.hover({
       kind: 'collectionTab',
-      set: 'zodiacAscension',
+      set: 'discography',
     });
     harness.controller.back();
     expect(harness.loaded().view).toBe('summary');
-    expect(harness.loaded().hover).toBeNull();
+    expect(harness.hover()).toBeNull();
   });
 
   it('releases a set row hover when the summary tab changes', async () => {
@@ -951,13 +1088,13 @@ describe('ProfileController hover', () => {
     harness.controller.selectTab('collection');
     harness.controller.hover({
       kind: 'setRow',
-      set: 'starJourney',
+      set: 'zodiac',
     });
 
     harness.controller.selectTab('stats');
 
     expect(harness.loaded().summaryTab).toBe('stats');
-    expect(harness.loaded().hover).toBeNull();
+    expect(harness.hover()).toBeNull();
   });
 
   it('keeps a summary tab hover when that tab is selected', async () => {
@@ -970,9 +1107,131 @@ describe('ProfileController hover', () => {
     harness.controller.selectTab('collection');
 
     expect(harness.loaded().summaryTab).toBe('collection');
-    expect(harness.loaded().hover).toEqual({
+    expect(harness.hover()).toEqual({
       kind: 'summaryTab',
       tab: 'collection',
     });
+  });
+});
+
+const H_KEY = {
+  code: 'KeyH',
+  repeat: false,
+};
+const ESCAPE_KEY = {
+  code: 'Escape',
+  repeat: false,
+};
+const DOWN_KEY = {
+  code: 'ArrowDown',
+  repeat: false,
+};
+
+describe('ProfileController controls', () => {
+  it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
+    const harness = createHarness(false);
+    harness.controller.start();
+
+    expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
+    expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
+    expect(harness.controlsOpen.at(-1)).toBe(true);
+    expect(harness.last()).toEqual({ kind: 'guest' });
+    expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
+    expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
+    expect(harness.controlsOpen.at(-1)).toBe(false);
+    harness.controller.openControls();
+    expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
+    expect(harness.controlsOpen.at(-1)).toBe(false);
+  });
+});
+
+describe('ProfileController button pointer', () => {
+  async function collectionHarness(): Promise<Harness> {
+    const harness = await loadedHarness();
+    harness.controller.selectTab('collection');
+    harness.controller.moveFocus('down');
+    harness.controller.select();
+    return harness;
+  }
+
+  it('runs a button once for over, down and up on it', async () => {
+    const harness = await loadedHarness();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerDown('back');
+    harness.controller.pointerUp('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.leaveCount()).toBe(1);
+  });
+
+  it('does not run a button for an up that was pressed elsewhere', async () => {
+    const harness = await loadedHarness();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.leaveCount()).toBe(0);
+  });
+
+  it('releases the press when the pointer leaves the button', async () => {
+    const harness = await loadedHarness();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerDown('back');
+    harness.controller.pointerOut('back');
+    harness.controller.pointerOver('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.leaveCount()).toBe(0);
+  });
+
+  it('ignores a press on the close button while the controls are closed', async () => {
+    const harness = await loadedHarness();
+    const count = harness.rendered.length;
+
+    harness.controller.pointerDown('controlsClose');
+
+    expect(harness.rendered).toHaveLength(count);
+  });
+
+  it('features the focused achievement with the equip button', async () => {
+    const harness = await collectionHarness();
+
+    harness.controller.pointerOver('equip');
+    harness.controller.pointerDown('equip');
+    harness.controller.pointerUp('equip');
+
+    expect(harness.featured.map(({ id }) => id)).toEqual(['FIRST_CLEAR']);
+  });
+
+  it('releases the equip button hover when it hides after saving', async () => {
+    const harness = await collectionHarness();
+    harness.controller.pointerOver('equip');
+    harness.controller.pointerDown('equip');
+    harness.controller.pointerUp('equip');
+
+    harness.featured[0]?.response.resolve(FIRST_CLEAR.id);
+    await flush();
+
+    expect(harness.hover()).toBeNull();
+  });
+
+  it('opens with the entry, closes with the backdrop and releases the close button hover', async () => {
+    const harness = await loadedHarness();
+
+    harness.controller.pointerDown('controlsEntry');
+    harness.controller.pointerUp('controlsEntry');
+    expect(harness.controlsOpen.at(-1)).toBe(true);
+
+    harness.controller.pointerOver('controlsClose');
+    harness.controller.handleControlsKey(ESCAPE_KEY);
+    expect(harness.controlsOpen.at(-1)).toBe(false);
+    expect(harness.hover()).toBeNull();
+
+    harness.controller.openControls();
+    harness.controller.pointerDown('controlsBackdrop');
+    harness.controller.pointerUp('controlsBackdrop');
+    expect(harness.controlsOpen.at(-1)).toBe(false);
   });
 });

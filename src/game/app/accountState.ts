@@ -1,5 +1,5 @@
-import type { AuthUser } from '../data/account.js';
-import { isShallowEqual } from '../shallowEqual.js';
+import type { AuthUser } from '../../data/account.js';
+import { isShallowEqual } from '../../shallowEqual.js';
 
 export type AccountState =
   | { readonly kind: 'guest'; readonly hasSignInFailed: boolean }

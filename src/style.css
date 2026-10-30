@@ -41,11 +41,7 @@ body {
   transform: translate(-50%, -50%) scale(1.1);
 }
 
-#mv-layer[data-mv-mode='off'] iframe {
-  opacity: 0;
-}
-
-/* 게임 시작 뒤 음악이 정상 재생(running) 중이 아니면 MV 모드와 별개로 가린다.
+/* 플레이 중 영상 위치를 다시 맞추는 동안(로딩·재개·카운트다운)은 MV 모드와 별개로 가린다.
    곡 선택 미리듣기는 소리만 내므로 곡 선택 화면에 있는 동안에도 가린다. */
 #mv-layer[data-mv-hidden] iframe {
   opacity: 0;

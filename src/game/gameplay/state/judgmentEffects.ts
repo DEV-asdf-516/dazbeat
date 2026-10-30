@@ -1,6 +1,7 @@
-import type { Judgment, JudgmentEvent } from '../../rhythm/types.js';
-import type { CelestialAtlasId } from '../celestial/celestialCatalog.js';
-import type { SoundEffect } from '../ui/soundEffects.js';
+import type { Judgment, JudgmentEvent } from '../../../rhythm/types.js';
+import type { CelestialAtlasId } from '../../celestial/state/celestialCatalog.js';
+import type { SoundEffect } from '../../ui/view/soundEffects.js';
+import { MOTION } from '../../ui/view/theme.js';
 
 export const LANE_EFFECT_IDS = [
   'R32',
@@ -21,7 +22,14 @@ export interface JudgmentEffect {
   readonly hasShimmer: boolean;
   readonly sound: SoundEffect | null;
   readonly hitEffectIds: readonly LaneEffectId[];
+  readonly anchorFlash: { readonly alpha: number; readonly recoverMs: number } | null;
+  readonly hasMissShade: boolean;
 }
+
+const ANCHOR_GOOD_FLASH = {
+  alpha: 0.6,
+  recoverMs: MOTION.fastMs,
+} as const;
 
 const JUDGMENT_EFFECTS: Record<Judgment, JudgmentEffect> = {
   perfect: {
@@ -35,6 +43,8 @@ const JUDGMENT_EFFECTS: Record<Judgment, JudgmentEffect> = {
     sound: null,
     // 배열 순서가 재생 순서다.
     hitEffectIds: ['R34', 'R35', 'R36'],
+    anchorFlash: null,
+    hasMissShade: false,
   },
   great: {
     intensity: 0.75,
@@ -44,6 +54,8 @@ const JUDGMENT_EFFECTS: Record<Judgment, JudgmentEffect> = {
     hasShimmer: true,
     sound: null,
     hitEffectIds: ['R34', 'R35'],
+    anchorFlash: null,
+    hasMissShade: false,
   },
   good: {
     intensity: 0.45,
@@ -53,6 +65,8 @@ const JUDGMENT_EFFECTS: Record<Judgment, JudgmentEffect> = {
     hasShimmer: true,
     sound: 'judgeGood',
     hitEffectIds: ['R34'],
+    anchorFlash: ANCHOR_GOOD_FLASH,
+    hasMissShade: false,
   },
   bad: {
     intensity: 0,
@@ -62,6 +76,8 @@ const JUDGMENT_EFFECTS: Record<Judgment, JudgmentEffect> = {
     hasShimmer: false,
     sound: 'judgeBad',
     hitEffectIds: [],
+    anchorFlash: ANCHOR_GOOD_FLASH,
+    hasMissShade: false,
   },
   miss: {
     intensity: 0,
@@ -71,8 +87,18 @@ const JUDGMENT_EFFECTS: Record<Judgment, JudgmentEffect> = {
     hasShimmer: false,
     sound: 'judgeMiss',
     hitEffectIds: [],
+    anchorFlash: {
+      alpha: 0,
+      recoverMs: 320,
+    },
+    hasMissShade: true,
   },
 };
+
+// 한 프레임 묶음에서는 마지막 판정 하나만 글자로 보인다.
+export function getShownJudgment(events: readonly JudgmentEvent[]): JudgmentEvent | undefined {
+  return events.at(-1);
+}
 
 export function getJudgmentEffect(judgment: Judgment): JudgmentEffect {
   return JUDGMENT_EFFECTS[judgment];

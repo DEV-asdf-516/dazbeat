@@ -1,4 +1,4 @@
-import { getProgress, lerp } from '../../range.js';
+import { getProgress, lerp } from '../../../range.js';
 
 // 진행 표시(y 40)를 지나는 동안은 흐리게 둔다.
 const NOTE_EMERGE_END_Y_PX = 160;

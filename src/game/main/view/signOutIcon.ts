@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
-import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { COLORS, cssColor } from '../ui/theme.js';
+import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
+import { COLORS, cssColor } from '../../ui/view/theme.js';
 
 const GRID_UNITS = 24;
 const LINE_WIDTH = 1.6;
