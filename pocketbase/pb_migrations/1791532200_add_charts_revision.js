@@ -5,7 +5,7 @@ migrate(
     charts.fields.add(new TextField({ name: 'revision' }));
     app.save(charts);
 
-    // Same expression as the charts hook, so re-saving unchanged data keeps the backfilled revision.
+    // charts 훅과 같은 식이라, 바뀌지 않은 data 를 다시 저장해도 소급 계산한 revision 이 유지된다.
     app.findAllRecords('charts').forEach((record) => {
       record.set('revision', $security.sha256(toString(record.get('data'))));
       app.save(record);

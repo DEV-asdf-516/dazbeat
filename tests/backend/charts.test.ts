@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadChart, saveChart } from '../../src/backend/charts.js';
 import type { ChartRef, Song } from '../../src/data/songs.js';
 import type { Chart } from '../../src/rhythm/types.js';
+import { requireDefined } from '../../src/invariant.js';
 
 const song: Song = {
   id: 'test-song',
@@ -173,21 +174,14 @@ describe('saveChart', () => {
     const fetchMock = vi.fn<(...args: FetchCall) => Promise<Response>>(() => {
       const response = responses[index];
       index += 1;
-      if (response === undefined) {
-        throw new Error('unexpected request');
-      }
-      return Promise.resolve(response);
+      return Promise.resolve(requireDefined(response, 'unexpected request'));
     });
     vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
   }
 
   function getCall(fetchMock: ReturnType<typeof stubFetchSequence>, index: number) {
-    const call = fetchMock.mock.calls[index];
-    if (call === undefined) {
-      throw new Error(`missing request ${index}`);
-    }
-    const [input, init] = call;
+    const [input, init] = requireDefined(fetchMock.mock.calls[index], 'missing request', index);
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
     return {
       url: new URL(input),

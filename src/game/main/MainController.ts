@@ -6,15 +6,30 @@ import {
   createAccountState,
   failSignIn,
   startSignIn,
-} from '../accountState.js';
-import type { AccountAuth, AccountState } from '../accountState.js';
+} from '../app/accountState.js';
+import type { AccountAuth, AccountState } from '../app/accountState.js';
+import { readControlsKey } from '../app/controlsGuide.js';
+import {
+  createMainState,
+  hoverMainButton,
+  isCurrentAccountAttempt,
+  moveMainFocus,
+  pressMainButton,
+  releaseMainButton,
+  unhoverMainButton,
+  withAccount,
+  withControlsOpen,
+} from './state/mainMenu.js';
+import type { MainButton, MainFocus, MainState } from './state/mainMenu.js';
 
 export interface MainScreen {
-  showAccount(account: AccountState): void;
+  render(previous: MainState | null, next: MainState): void;
+  playFocusSound(): void;
+  activate(button: MainFocus | 'account'): void;
 }
 
 // 닫힌 뒤에는 입력과 늦은 로그인·갱신 결과를 받지 않는다.
-type ControllerState = AccountState | { readonly kind: 'closed' };
+type ControllerState = MainState | { readonly kind: 'closed' };
 
 export class MainController {
   private state: ControllerState;
@@ -24,8 +39,9 @@ export class MainController {
     private readonly screen: MainScreen,
   ) {
     const account = this.restoreAccount();
-    this.state = account;
-    this.screen.showAccount(account);
+    const first = createMainState(account);
+    this.state = first;
+    this.screen.render(null, first);
     if (account.kind === 'signedIn') {
       this.refresh(account);
     }
@@ -33,9 +49,10 @@ export class MainController {
 
   /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
   activateAccount(): void {
-    switch (this.state.kind) {
-      case 'closed':
-        return;
+    if ('kind' in this.state) {
+      return;
+    }
+    switch (this.state.account.kind) {
       case 'guest': {
         const attempt = startSignIn();
         const signInResult = this.auth.signIn();
@@ -65,8 +82,86 @@ export class MainController {
     }
   }
 
+  moveFocus(delta: 1 | -1): void {
+    if ('kind' in this.state) {
+      return;
+    }
+    const next = moveMainFocus(this.state, delta);
+    if (next === this.state) {
+      return;
+    }
+    this.apply(() => next);
+    this.screen.playFocusSound();
+  }
+
+  openControls(): void {
+    this.apply((state) => withControlsOpen(state, true));
+  }
+
+  closeControls(): void {
+    this.apply((state) => withControlsOpen(state, false));
+  }
+
+  pointerOver(button: MainButton): void {
+    this.apply((state) => hoverMainButton(state, button));
+  }
+
+  pointerOut(button: MainButton): void {
+    this.apply((state) => unhoverMainButton(state, button));
+  }
+
+  pointerDown(button: MainButton): void {
+    this.apply((state) => pressMainButton(state, button));
+  }
+
+  pointerUp(button: MainButton): void {
+    const previous = this.state;
+    this.apply((state) => releaseMainButton(state, button));
+    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
+    if (this.state === previous) {
+      return;
+    }
+    switch (button) {
+      case 'controlsEntry':
+        this.openControls();
+        return;
+      case 'controlsClose':
+      case 'controlsBackdrop':
+        this.closeControls();
+        return;
+      default:
+        this.screen.activate(button);
+        return;
+    }
+  }
+
+  handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    if ('kind' in this.state) {
+      return false;
+    }
+    switch (readControlsKey(this.state.isControlsOpen, event)) {
+      case 'open':
+        this.openControls();
+        return true;
+      case 'close':
+        this.closeControls();
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
+    }
+  }
+
+  confirm(): void {
+    if ('kind' in this.state) {
+      return;
+    }
+    this.screen.activate(this.state.focus);
+  }
+
   close(): void {
-    if (this.state.kind === 'signingIn') {
+    if (!('kind' in this.state) && this.state.account.kind === 'signingIn') {
       this.auth.cancelSignIn();
     }
     this.state = { kind: 'closed' };
@@ -90,7 +185,7 @@ export class MainController {
     void this.auth.refresh().then(
       (user) => this.applyAccount((current) => completeRefresh(current, attempt, user)),
       (error: unknown) => {
-        if (this.state === attempt) {
+        if (!('kind' in this.state) && isCurrentAccountAttempt(this.state, attempt)) {
           console.warn('Failed to refresh signed-in user', error);
         }
       },
@@ -98,14 +193,19 @@ export class MainController {
   }
 
   private applyAccount(transition: (current: AccountState) => AccountState): void {
-    if (this.state.kind === 'closed') {
+    this.apply((state) => withAccount(state, transition(state.account)));
+  }
+
+  private apply(transition: (state: MainState) => MainState): void {
+    if ('kind' in this.state) {
       return;
     }
-    const next = transition(this.state);
-    if (next === this.state) {
+    const previous = this.state;
+    const next = transition(previous);
+    if (next === previous) {
       return;
     }
     this.state = next;
-    this.screen.showAccount(next);
+    this.screen.render(previous, next);
   }
 }

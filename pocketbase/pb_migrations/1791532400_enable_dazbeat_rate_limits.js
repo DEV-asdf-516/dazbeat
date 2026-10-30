@@ -1,6 +1,6 @@
 /// <reference path="../pb_data/types.d.ts" />
-// The built-in limiter is IP based. Deploy this only after the trusted proxy header is configured
-// (see the client-ip diagnostics route), otherwise every player behind the proxy shares one bucket.
+// 내장 limiter 는 IP 기준이다. trusted proxy 헤더를 설정한 뒤에만 배포한다(client-ip 진단 라우트
+// 참고). 그러지 않으면 프록시 뒤 모든 플레이어가 버킷 하나를 같이 쓴다.
 const DAZBEAT_RATE_LIMIT_RULES = [
   { label: '*:auth', audience: '', maxRequests: 2, duration: 3 },
   { label: '*:create', audience: '', maxRequests: 20, duration: 5 },
@@ -11,7 +11,7 @@ const DAZBEAT_RATE_LIMIT_RULES = [
 ];
 const DAZBEAT_LABELS = ['POST /api/dazbeat/play-sessions', 'POST /api/dazbeat/play-sessions/'];
 
-// Copies the stored rules into plain objects so they can be unmarshaled back as a whole list.
+// 저장된 규칙을 일반 객체로 복사해 목록 전체를 다시 unmarshal 할 수 있게 한다.
 function readRules(settings) {
   return settings.rateLimits.rules.map((rule) => ({
     label: String(rule.label),

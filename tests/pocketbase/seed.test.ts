@@ -16,6 +16,7 @@ interface StoredRecord {
 interface WriteRequest {
   method: string;
   collection: string;
+  recordId?: string;
   body: Record<string, unknown>;
 }
 
@@ -101,6 +102,7 @@ async function writeFakeData(): Promise<void> {
   await writeFakeSongFiles('fake-a');
   await writeManifest({
     version: 2,
+    albums: [],
     songs: [fakeManifestSong('fake-a')],
   });
 }
@@ -134,7 +136,13 @@ function parseBody(body: unknown): Record<string, unknown> {
   throw new Error('Unsupported request body');
 }
 
-function stubPocketBase(store: Record<'songs' | 'charts', StoredRecord[]>) {
+function stubPocketBase(
+  initial: Record<'songs' | 'charts', StoredRecord[]> & { albums?: StoredRecord[] },
+) {
+  const store = {
+    albums: [],
+    ...initial,
+  };
   const writes: WriteRequest[] = [];
   let nextId = 1;
   const fetchMock = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>(
@@ -153,9 +161,26 @@ function stubPocketBase(store: Record<'songs' | 'charts', StoredRecord[]>) {
           ),
         );
       }
-      const match = /^\/api\/collections\/(songs|charts)\/records$/.exec(url.pathname);
+      const songUpdate = /^\/api\/collections\/songs\/records\/(\w+)$/.exec(url.pathname);
+      const recordId = songUpdate?.[1];
+      if (recordId !== undefined && init?.method === 'PATCH') {
+        const body = parseBody(init.body);
+        writes.push({
+          method: 'PATCH',
+          collection: 'songs',
+          recordId,
+          body,
+        });
+        const record = store.songs.find((stored) => stored.id === recordId);
+        if (record === undefined) {
+          return Promise.resolve(new Response('not found', { status: 404 }));
+        }
+        Object.assign(record, body);
+        return Promise.resolve(new Response(JSON.stringify(record)));
+      }
+      const match = /^\/api\/collections\/(albums|songs|charts)\/records$/.exec(url.pathname);
       const collection = match?.[1];
-      if (collection !== 'songs' && collection !== 'charts') {
+      if (collection !== 'albums' && collection !== 'songs' && collection !== 'charts') {
         return Promise.resolve(new Response('not found', { status: 404 }));
       }
       const method = init?.method ?? 'GET';
@@ -216,7 +241,7 @@ async function seedError(env: Readonly<Record<string, string | undefined>>): Pro
 }
 
 describe('seedPocketBase', () => {
-  it('creates the song with its jacket and charts on an empty server', async () => {
+  it('creates the song with its jacket and charts on an empty server, then publishes it', async () => {
     await writeFakeData();
     const { writes } = stubPocketBase({
       songs: [],
@@ -225,14 +250,18 @@ describe('seedPocketBase', () => {
 
     await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
 
-    expect(writes.map((write) => write.collection)).toEqual([
-      'songs',
-      'charts',
-      'charts',
-      'charts',
+    expect(writes.map((write) => [write.method, write.collection])).toEqual([
+      ['POST', 'songs'],
+      ['POST', 'charts'],
+      ['POST', 'charts'],
+      ['POST', 'charts'],
+      ['PATCH', 'songs'],
     ]);
-    const [songWrite, ...chartWrites] = writes;
-    expect(songWrite?.method).toBe('POST');
+    const [songWrite, ...laterWrites] = writes;
+    const chartWrites = laterWrites.slice(0, -1);
+    expect(songWrite?.body).not.toHaveProperty('isPublished');
+    expect(songWrite?.body).not.toHaveProperty('previewStartMs');
+    expect(songWrite?.body).not.toHaveProperty('album');
     expect(songWrite?.body).toMatchObject({
       key: 'fake-a',
       title: 'Fake fake-a',
@@ -283,13 +312,140 @@ describe('seedPocketBase', () => {
         },
       },
     ]);
+    expect(laterWrites.at(-1)).toEqual({
+      method: 'PATCH',
+      collection: 'songs',
+      recordId: 'songs_1',
+      body: { isPublished: true },
+    });
   });
+
+  it('creates only the missing albums and links new songs to the album records', async () => {
+    await writeFakeSongFiles('fake-a');
+    await writeFakeSongFiles('fake-b');
+    await writeManifest({
+      version: 2,
+      albums: [
+        {
+          key: 'orbit',
+          name: 'orbit (renamed in manifest)',
+          sortOrder: 30,
+        },
+        {
+          key: 'freshAlbum',
+          name: 'Fresh Album',
+          sortOrder: 70,
+        },
+      ],
+      songs: [
+        fakeManifestSong('fake-a', { album: 'orbit' }),
+        fakeManifestSong('fake-b', { album: 'freshAlbum' }),
+      ],
+    });
+    const { writes } = stubPocketBase({
+      albums: [
+        {
+          id: 'album_orbit',
+          key: 'orbit',
+          name: 'orbit',
+          sortOrder: 30,
+        },
+      ],
+      songs: [],
+      charts: [],
+    });
+
+    await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
+
+    const albumWrites = writes.filter((write) => write.collection === 'albums');
+    expect(albumWrites).toEqual([
+      {
+        method: 'POST',
+        collection: 'albums',
+        body: {
+          key: 'freshAlbum',
+          name: 'Fresh Album',
+          sortOrder: 70,
+        },
+      },
+    ]);
+    expect(writes[0]?.collection).toBe('albums');
+    const songWrites = writes.filter(
+      (write) => write.collection === 'songs' && write.method === 'POST',
+    );
+    expect(songWrites.map((write) => write.body['album'])).toEqual(['album_orbit', 'albums_1']);
+  });
+
+  it('creates the song with its preview start when the manifest has one', async () => {
+    await writeFakeSongFiles('fake-a');
+    await writeManifest({
+      version: 2,
+      albums: [],
+      songs: [fakeManifestSong('fake-a', { previewStartMs: 15000 })],
+    });
+    const { writes } = stubPocketBase({
+      songs: [],
+      charts: [],
+    });
+
+    await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
+
+    expect(writes[0]?.body).toMatchObject({ previewStartMs: '15000' });
+  });
+
+  it('does not update an existing song even when the manifest has a preview start', async () => {
+    await writeFakeSongFiles('fake-a');
+    await writeManifest({
+      version: 2,
+      albums: [],
+      songs: [fakeManifestSong('fake-a', { previewStartMs: 15000 })],
+    });
+    const { writes } = stubPocketBase({
+      songs: [
+        {
+          id: 'existing_song',
+          key: 'fake-a',
+          isPublished: true,
+          previewStartMs: 0,
+        },
+      ],
+      charts: [],
+    });
+
+    await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
+
+    expect(writes.filter((write) => write.collection === 'songs')).toEqual([]);
+  });
+
+  it.each([-1, 1.5, '15000'])(
+    'rejects a preview start of %j without sending requests',
+    async (previewStartMs) => {
+      await writeFakeSongFiles('fake-a');
+      await writeManifest({
+        version: 2,
+        albums: [],
+        songs: [fakeManifestSong('fake-a', { previewStartMs })],
+      });
+      const { fetchMock } = stubPocketBase({
+        songs: [],
+        charts: [],
+      });
+
+      const error = await seedError(LOCAL_ENV);
+
+      expect(error).toBeInstanceOf(InvalidSeedDataError);
+      const message = error instanceof Error ? error.message : '';
+      expect(message).toContain('manifest.songs[0].previewStartMs (song "fake-a")');
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it('uploads the jacket under its real file name when the name has spaces or non-ASCII', async () => {
     await writeFakeSongFiles('fake-a');
     await writeDataFile('fake-a/My 재킷.png', PNG_BYTES);
     await writeManifest({
       version: 2,
+      albums: [],
       songs: [fakeManifestSong('fake-a', { jacket: 'fake-a/My 재킷.png' })],
     });
     const { writes } = stubPocketBase({
@@ -310,6 +466,7 @@ describe('seedPocketBase', () => {
         {
           id: 'existing_song',
           key: 'fake-a',
+          isPublished: true,
         },
       ],
       charts: [
@@ -347,6 +504,7 @@ describe('seedPocketBase', () => {
         {
           id: 'existing_song',
           key: 'fake-a',
+          isPublished: true,
         },
       ],
       charts: [
@@ -384,6 +542,54 @@ describe('seedPocketBase', () => {
       },
     ]);
   });
+
+  it('publishes an unpublished song after creating its missing charts', async () => {
+    await writeFakeData();
+    const { writes } = stubPocketBase({
+      songs: [
+        {
+          id: 'existing_song',
+          key: 'fake-a',
+          isPublished: false,
+        },
+      ],
+      charts: [
+        {
+          id: 'existing_easy',
+          song: 'existing_song',
+          difficulty: 'easy',
+          laneCount: 4,
+        },
+        {
+          id: 'existing_expert',
+          song: 'existing_song',
+          difficulty: 'expert',
+          laneCount: 4,
+        },
+      ],
+    });
+
+    await seedPocketBase(new PocketBase('http://pb.test'), await loadSeedManifest(dataDir));
+
+    expect(writes).toEqual([
+      {
+        method: 'POST',
+        collection: 'charts',
+        body: {
+          song: 'existing_song',
+          difficulty: 'easy',
+          laneCount: 6,
+          data: fakeChart('fake-a', 'easy', 6),
+        },
+      },
+      {
+        method: 'PATCH',
+        collection: 'songs',
+        recordId: 'existing_song',
+        body: { isPublished: true },
+      },
+    ]);
+  });
 });
 
 describe('runSeed', () => {
@@ -404,6 +610,7 @@ describe('runSeed', () => {
       'charts',
       'charts',
       'charts',
+      'songs',
     ]);
   });
 
@@ -509,6 +716,7 @@ describe('runSeed', () => {
         await writeFakeSongFiles('fake-a');
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [fakeManifestSong('fake-a', { titel: 'typo' })],
         });
       },
@@ -538,6 +746,7 @@ describe('runSeed', () => {
         await writeFakeSongFiles('fake-a');
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [fakeManifestSong('fake-a'), fakeManifestSong('fake-a')],
         });
       },
@@ -549,6 +758,7 @@ describe('runSeed', () => {
         await writeFakeSongFiles('fake-a');
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [fakeManifestSong('fake-a', { category: 'remix' })],
         });
       },
@@ -560,16 +770,73 @@ describe('runSeed', () => {
         await writeFakeSongFiles('fake-a');
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [fakeManifestSong('fake-a', { releasedOn: '2026-13-01' })],
         });
       },
       failedPath: 'manifest.json',
     },
     {
+      name: 'the manifest has no albums field',
+      prepare: async () => {
+        await writeFakeSongFiles('fake-a');
+        await writeManifest({
+          version: 2,
+          songs: [fakeManifestSong('fake-a')],
+        });
+      },
+      failedPath: 'manifest.json',
+      location: 'manifest.albums',
+    },
+    {
+      name: 'the manifest repeats an album key',
+      prepare: async () => {
+        await writeFakeSongFiles('fake-a');
+        await writeManifest({
+          version: 2,
+          albums: [
+            {
+              key: 'orbit',
+              name: 'orbit',
+              sortOrder: 30,
+            },
+            {
+              key: 'orbit',
+              name: 'orbit again',
+              sortOrder: 40,
+            },
+          ],
+          songs: [fakeManifestSong('fake-a')],
+        });
+      },
+      failedPath: 'manifest.json',
+      location: 'manifest.albums[1].key',
+    },
+    {
+      name: 'a song points to an album key missing from albums',
+      prepare: async () => {
+        await writeFakeSongFiles('fake-a');
+        await writeManifest({
+          version: 2,
+          albums: [
+            {
+              key: 'orbit',
+              name: 'orbit',
+              sortOrder: 30,
+            },
+          ],
+          songs: [fakeManifestSong('fake-a', { album: 'nostalzia' })],
+        });
+      },
+      failedPath: 'manifest.json',
+      location: 'manifest.songs[0].album (song "fake-a")',
+    },
+    {
       name: 'the manifest has no songs',
       prepare: () =>
         writeManifest({
           version: 2,
+          albums: [],
           songs: [],
         }),
       failedPath: 'manifest.json',
@@ -589,6 +856,7 @@ describe('runSeed', () => {
         await writeDataFile('fake-a/jacket.gif', PNG_BYTES);
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [fakeManifestSong('fake-a', { jacket: 'fake-a/jacket.gif' })],
         });
       },
@@ -634,6 +902,7 @@ describe('runSeed', () => {
         await writeFakeSongFiles('fake-a');
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [
             fakeManifestSong('fake-a', {
               charts: { 4: { easy: '../outside/easy.json' } },
@@ -650,6 +919,7 @@ describe('runSeed', () => {
         await writeFakeSongFiles('fake-a');
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [
             fakeManifestSong('fake-a', {
               charts: { 4: { easy: join(dataDirPath, 'fake-a/charts/easy.json') } },
@@ -666,6 +936,7 @@ describe('runSeed', () => {
         await writeFakeSongFiles('fake-a');
         await writeManifest({
           version: 2,
+          albums: [],
           songs: [
             fakeManifestSong('fake-a', {
               jacket: pathToFileURL(join(dataDirPath, 'fake-a/jacket.png')).href,
@@ -700,10 +971,37 @@ describe('runSeed', () => {
     },
   );
 
+  it('reads the albums of the manifest', async () => {
+    await writeFakeSongFiles('fake-a');
+    const albums = [
+      {
+        key: 'orbit',
+        name: 'orbit',
+        sortOrder: 30,
+      },
+      {
+        key: 'nemuranaiYume',
+        name: '眠らない夢',
+        sortOrder: 50,
+      },
+    ];
+    await writeManifest({
+      version: 2,
+      albums,
+      songs: [fakeManifestSong('fake-a', { album: 'nemuranaiYume' })],
+    });
+
+    const manifest = await loadSeedManifest(dataDir);
+
+    expect(manifest.albums).toEqual(albums);
+    expect(manifest.songs[0]?.album).toBe('nemuranaiYume');
+  });
+
   it('names the song key and field when a song field is invalid', async () => {
     await writeFakeSongFiles('fake-a');
     await writeManifest({
       version: 2,
+      albums: [],
       songs: [fakeManifestSong('fake-a', { category: 'remix' })],
     });
 
@@ -720,6 +1018,7 @@ describe('runSeed', () => {
     await writeFakeSongFiles('fake-a');
     await writeManifest({
       version: 2,
+      albums: [],
       songs: [fakeManifestSong('fake-a', { charts: { 4: { easy: 'http://[' } } })],
     });
 
@@ -737,6 +1036,7 @@ describe('runSeed', () => {
     await writeFakeSongFiles('fake-a');
     await writeManifest({
       version: 2,
+      albums: [],
       songs: [fakeManifestSong('fake-a', { charts: { 4: { easy: unconvertibleUrl } } })],
     });
     const { fetchMock } = stubPocketBase({

@@ -1,52 +1,53 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { SceneRequest, SettingsReturn, SettingsSceneData } from '../sceneRoutes.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
-import type { Language } from '../../i18n/language.js';
+import { getControlsGuide } from '../app/controlsGuide.js';
+import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
+import type { SceneRequest, SettingsReturn, SettingsSceneData } from '../app/sceneRoutes.js';
+import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
+import { parseLanguage } from '../../i18n/language.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { DEFAULT_SETTINGS } from '../../storage/settings.js';
-import type { Settings } from '../../storage/settings.js';
-import { canAdjust } from './settingsAdjust.js';
-import type { SettingsRow } from './settingsAdjust.js';
-import { formatRowValue, isChoiceRow } from './settingsRowView.js';
-import { STAYING } from '../sceneExit.js';
-import type { SceneExit } from '../sceneExit.js';
+import type { SettingsRow } from './state/settingsAdjust.js';
+import { isChoiceRow } from './state/settingsRowView.js';
+import { STAYING } from '../app/sceneExit.js';
+import type { SceneExit } from '../app/sceneExit.js';
+import { SettingsController } from './SettingsController.js';
 import {
-  adjustRow,
-  applyPointer,
-  cancelPrompt,
-  confirmReset,
-  createSettingsEditorState,
-  focusRow,
+  getBackButtonView,
+  getChangedRegions,
+  getKeyBoxButton,
+  getKeyBoxView,
+  getResetDialogButtonViews,
   getRowAppearance,
-  hoverRow,
-  isRowShown,
-  moveFocus,
-  pressBack,
-  readSettingsKey,
-  requestReset,
-  startWaiting,
-  unhoverRow,
-} from './settingsEditorState.js';
-import type { SettingsEditorState } from './settingsEditorState.js';
-import { Button } from '../ui/Button.js';
-import type { SecondaryButtonColors } from '../ui/Button.js';
-import { ConfirmDialog } from '../ui/ConfirmDialog.js';
-import { HOVER_CURSOR } from '../ui/cursor.js';
-import { bindHoverTarget } from '../ui/hoverTarget.js';
-import { MENU_KEY_HINT_STYLE } from '../ui/keyHintView.js';
-import { createCanvasTexture } from '../ui/canvasTexture.js';
-import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
-import { addCelestialSprite, queueCelestialTextures } from '../celestial/celestialSprites.js';
-import { requireKeyboard } from '../ui/menuInput.js';
-import type { MenuAction } from '../ui/menuInput.js';
-import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
-import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
-import { bindTextEntry } from '../ui/textEntry.js';
-import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/theme.js';
+  getRowValue,
+  getSettingsControlsCloseView,
+  getStepButton,
+  getStepView,
+  getWaitingLane,
+  isResetEntryHovered,
+  isRowShownAt,
+  isSettingsControlsEntryHovered,
+} from './state/settingsEditorState.js';
+import type {
+  SettingsButton,
+  SettingsEditorState,
+  SettingsRegion,
+} from './state/settingsEditorState.js';
+import { Button } from '../ui/view/widgets/Button.js';
+import type { SecondaryButtonColors } from '../ui/view/widgets/Button.js';
+import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import { HOVER_CURSOR } from '../ui/view/input/cursor.js';
+import { bindHoverTarget, bindPointer, pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import { MENU_KEY_HINT_STYLE } from '../ui/view/widgets/keyHintView.js';
+import { createCanvasTexture } from '../ui/view/textures/canvasTexture.js';
+import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import { addCelestialSprite, queueCelestialTextures } from '../celestial/view/celestialSprites.js';
+import { requireKeyboard } from '../ui/view/input/menuInput.js';
+import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
+import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import { renderTextEntry } from '../ui/view/widgets/textEntry.js';
+import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/view/theme.js';
 import { requireDefined } from '../../invariant.js';
-import { isShallowEqual } from '../../shallowEqual.js';
 
 type SettingsGroup = 'audio' | 'input' | 'general';
 type SettingsColumn = 'left' | 'right';
@@ -201,6 +202,9 @@ interface RowView {
 }
 
 interface SettingsView {
+  chrome: MenuSceneChrome;
+  backButton: Button;
+  resetEntry: Phaser.GameObjects.Text;
   title: Phaser.GameObjects.Text;
   groups: readonly { group: SettingsGroup; text: Phaser.GameObjects.Text }[];
   rows: readonly RowView[];
@@ -210,21 +214,16 @@ interface SettingsView {
   resetDialog: ConfirmDialog;
 }
 
-type Transition = (state: SettingsEditorState) => SettingsEditorState;
-
 export class SettingsScene extends Phaser.Scene {
   private returnTo: SettingsReturn = {
     key: 'main',
     data: undefined,
   };
-  private editor = createSettingsEditorState(ROWS, DEFAULT_SETTINGS);
   private exit: SceneExit<SceneRequest> = STAYING;
 
-  /** 언어는 이 씬만 바꾸므로 i18n 이 언어를 바꾼 뒤 함께 갱신해 i18n 의 언어 문자열을 다시 해석하지 않는다. */
   constructor(
     private readonly save: LocalSave,
     private readonly i18n: I18n,
-    private displayedLanguage: Language,
     private readonly celestial: CelestialCatalog,
   ) {
     super(SCENE_KEYS.settings);
@@ -240,21 +239,33 @@ export class SettingsScene extends Phaser.Scene {
 
   create(data: SettingsSceneData): void {
     this.exit = STAYING;
-    const chrome = new MenuSceneChrome(this, {
-      celestial: this.celestial,
-      screen: 'secondary',
-      readControlsMessages: () => this.i18n.t('controls', { returnObjects: true }),
-      readSettings: () => this.editor.settings,
-    });
-    const keyboard = requireKeyboard(this);
     this.returnTo = data.returnTo;
-    this.editor = createSettingsEditorState(ROWS, this.save.loadSettings());
+    // 컨트롤러는 첫 그림을 위해 view 가 먼저 있어야 하므로, 입력 콜백은 만든 뒤에 불릴 때 컨트롤러를 찾는다.
+    const getController = (): SettingsController => controller;
+    const pointer: ButtonPointer<SettingsButton> = {
+      pointerOver: (button) => controller.pointerOver(button),
+      pointerOut: (button) => controller.pointerOut(button),
+      pointerDown: (button) => controller.pointerDown(button),
+      pointerUp: (button) => controller.pointerUp(button),
+    };
+    const chrome = new MenuSceneChrome(
+      this,
+      {
+        celestial: this.celestial,
+        screen: 'secondary',
+      },
+      {
+        isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) => controller.captureKey(event),
+        handleControlsKey: (event) => controller.handleControlsKey(event),
+        handleMenuKey: (action) => controller.handleMenuKey(action),
+      },
+      pointer,
+    );
+    const keyboard = requireKeyboard(this);
 
-    const update = (transition: Transition): void => this.applyTransition(view, transition);
-    const onPointer = (transition: Transition): void =>
-      update((state) => applyPointer(state, transition));
-
-    const widgets: Omit<SettingsView, 'controlsEntry'> = {
+    const widgets: Omit<SettingsView, 'controlsEntry' | 'backButton'> = {
+      chrome,
       title: this.add.text(
         SCREEN_LAYOUT.leftXPx,
         SCREEN_LAYOUT.headerYPx,
@@ -270,7 +281,7 @@ export class SettingsScene extends Phaser.Scene {
           textStyle('secondary', COLORS.textSecondary, GROUP_TITLE_WEIGHT),
         ),
       })),
-      rows: ROWS.map((row, index) => this.createRow(row, index, update, onPointer)),
+      rows: ROWS.map((row, index) => this.createRow(row, index, getController, pointer)),
       waitingText: this.add.text(
         SCREEN_LAYOUT.leftXPx,
         SCREEN_LAYOUT.hintYPx,
@@ -279,32 +290,54 @@ export class SettingsScene extends Phaser.Scene {
       ),
       focusStar: addCelestialSprite(this, this.celestial.atlasPresentations[FOCUS_STAR_ID], 0, 0),
       resetDialog: new ConfirmDialog(this, {
-        onAccept: () => update(confirmReset),
-        onCancel: () => update(cancelPrompt),
+        cancel: pointButton(pointer, 'resetCancel'),
+        accept: pointButton(pointer, 'resetAccept'),
       }),
+      resetEntry: this.addResetEntry(pointer),
     };
-    this.addResetEntry(() => onPointer(requestReset));
-    createHeaderAuxiliaryButtons(this, [
+    const [backButton] = createHeaderAuxiliaryButtons(this, [
       {
         label: 'BACK',
-        onActivate: () => this.pressBack(update),
+        pointer: pointButton(pointer, 'back'),
       },
     ]);
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     const view: SettingsView = {
       ...widgets,
-      controlsEntry: chrome.start(widgets.title.getBounds(), {
-        isLeaving: () => this.exit.kind === 'leaving',
-        captureKey: (event) => this.captureEditorKey(event, update),
-        handleMenuKey: (action) => this.handleMenuKey(action, update),
-      }),
+      backButton: requireDefined(backButton, 'Missing settings header button', 'BACK'),
+      controlsEntry: chrome.start(widgets.title.getBounds()),
     };
-    this.render(view);
+    const controller = new SettingsController(
+      {
+        save: this.save,
+        changeLanguage: (language) => this.i18n.changeLanguage(language),
+      },
+      {
+        render: (previous, next) => {
+          for (const region of getChangedRegions(previous, next)) {
+            this.renderRegion(view, next, region);
+          }
+        },
+        // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
+        playFocusSound: (settings) => new SoundEffects(this, settings).play('menuFocus'),
+        leave: () => {
+          this.exit = exitScene(this, this.exit, this.returnTo);
+        },
+      },
+      ROWS,
+      this.save.loadSettings(),
+      requireDefined(
+        parseLanguage(this.i18n.language),
+        'Unsupported i18n language',
+        this.i18n.language,
+      ),
+    );
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
   /** 되돌릴 수 없는 동작이라 설정 행과 떨어뜨려 화면 우하단에 CONTROLS 진입점과 같은 높이로 둔다. */
-  private addResetEntry(onActivate: () => void): void {
+  private addResetEntry(pointer: ButtonPointer<SettingsButton>): Phaser.GameObjects.Text {
     const label = this.add
       .text(
         SCREEN_LAYOUT.rightXPx,
@@ -314,14 +347,15 @@ export class SettingsScene extends Phaser.Scene {
       )
       .setOrigin(1, 0.5)
       .setInteractive({ cursor: HOVER_CURSOR });
-    bindTextEntry(label, label, onActivate);
+    bindPointer(label, pointButton(pointer, 'resetEntry'));
+    return label;
   }
 
   private createRow(
     row: SettingsRow & RowLayout,
     index: number,
-    update: (transition: Transition) => void,
-    onPointer: (transition: Transition) => void,
+    getController: () => SettingsController,
+    pointer: ButtonPointer<SettingsButton>,
   ): RowView {
     const leftXPx = COLUMN_LEFT_X_PX[row.column];
     const centerYPx = row.yPx + ROW_HEIGHT_PX / 2;
@@ -330,9 +364,9 @@ export class SettingsScene extends Phaser.Scene {
       .rectangle(leftXPx, row.yPx, ROW_HIT_WIDTH_PX, ROW_HEIGHT_PX)
       .setOrigin(0, 0);
     bindHoverTarget(hitArea, {
-      onOver: () => update((state) => hoverRow(state, index)),
-      onOut: () => update((state) => unhoverRow(state, index)),
-      onActivate: () => onPointer((state) => focusRow(state, index)),
+      onOver: () => getController().hoverRow(index),
+      onOut: () => getController().unhoverRow(index),
+      onActivate: () => getController().pointRow(index),
     });
     const label = this.add
       .text(leftXPx + LABEL_OFFSET_X_PX, centerYPx, '', textStyle('primary', COLORS.textSecondary))
@@ -346,7 +380,7 @@ export class SettingsScene extends Phaser.Scene {
         label: '',
         widthPx: KEY_BOX_WIDTH_PX,
         heightPx: KEY_BOX_HEIGHT_PX,
-        onActivate: () => onPointer((state) => startWaiting(state, index)),
+        pointer: pointButton(pointer, getKeyBoxButton(index)),
       });
       return {
         row,
@@ -368,8 +402,7 @@ export class SettingsScene extends Phaser.Scene {
         label: buttonLabel,
         widthPx: STEP_SIZE_PX,
         heightPx: STEP_SIZE_PX,
-        onActivate: () =>
-          onPointer((state) => adjustRow(state, index, direction, this.displayedLanguage)),
+        pointer: pointButton(pointer, getStepButton(index, direction)),
       });
       if (isChoice) {
         button.setIcon(ensureChevronTexture(this, direction), CHEVRON_SIZE_PX);
@@ -398,171 +431,141 @@ export class SettingsScene extends Phaser.Scene {
     };
   }
 
-  private captureEditorKey(
-    event: KeyboardEvent,
-    update: (transition: Transition) => void,
-  ): boolean {
-    const result = readSettingsKey(this.editor, event);
-    switch (result.kind) {
-      case 'pass':
-        return false;
-      case 'state':
-        update(() => result.state);
-        return true;
-    }
-  }
-
-  private handleMenuKey(action: MenuAction | null, update: (transition: Transition) => void): void {
-    switch (action) {
-      case 'up':
-      case 'down': {
-        update((state) => moveFocus(state, action === 'up' ? -1 : 1));
+  private renderRegion(
+    view: SettingsView,
+    state: SettingsEditorState,
+    region: SettingsRegion,
+  ): void {
+    switch (region) {
+      case 'title':
+        view.title.setText(this.i18n.t('settings.title'));
+        return;
+      case 'groups':
+        view.groups.forEach(({ group, text }) =>
+          text.setText(this.i18n.t(`settings.groups.${group}`)),
+        );
+        return;
+      case 'rowLabels':
+        view.rows.forEach((rowView) => this.renderRowLabel(rowView, state));
+        return;
+      case 'rowControls':
+        view.rows.forEach((rowView) => this.renderRowControl(rowView, state));
+        return;
+      case 'focusStar': {
+        const focused = requireDefined(
+          ROWS[state.rowIndex],
+          'Invalid settings row index',
+          state.rowIndex,
+        );
+        view.focusStar.setPosition(
+          COLUMN_LEFT_X_PX[focused.column] - FOCUS_STAR_GAP_PX,
+          focused.yPx + ROW_HEIGHT_PX / 2,
+        );
         return;
       }
-      case 'left':
-        update((state) => adjustRow(state, state.rowIndex, -1, this.displayedLanguage));
-        return;
-      case 'right':
-        update((state) => adjustRow(state, state.rowIndex, 1, this.displayedLanguage));
-        return;
-      case 'confirm':
-        update((state) => startWaiting(state, state.rowIndex));
-        return;
-      case 'back':
-        this.pressBack(update);
-        return;
-      case null:
-        return;
-    }
-  }
-
-  private applyTransition(view: SettingsView, transition: Transition): void {
-    const previous = this.editor;
-    const next = transition(previous);
-    if (next === previous) {
-      return;
-    }
-    this.editor = next;
-    if (isShallowEqual(next, previous, ['hoveredRowIndex'])) {
-      [previous.hoveredRowIndex, next.hoveredRowIndex].forEach((index) => {
-        if (index !== null) {
-          this.renderLabelColor(
-            requireDefined(view.rows[index], 'Invalid settings row index', index),
-          );
+      case 'waitingText': {
+        const waitingLane = getWaitingLane(state);
+        view.waitingText.setVisible(waitingLane !== null);
+        if (waitingLane !== null) {
+          view.waitingText.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
         }
-      });
-      return;
-    }
-    if (next.settings !== previous.settings) {
-      this.applySettings(view, next.settings);
-    }
-    // 키 이동과 클릭 모두 줄 포커스가 바뀌면 같은 효과음을 낸다.
-    if (next.rowIndex !== previous.rowIndex) {
-      // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
-      new SoundEffects(this, next.settings).play('menuFocus');
-    }
-    this.render(view);
-  }
-
-  private pressBack(update: (transition: Transition) => void): void {
-    const outcome = pressBack(this.editor);
-    if (outcome.kind === 'stay') {
-      update(() => outcome.state);
-      return;
-    }
-    this.exit = exitScene(this, this.exit, this.returnTo);
-  }
-
-  private applySettings(view: SettingsView, settings: Settings): void {
-    try {
-      this.save.saveSettings(settings);
-    } catch (error) {
-      console.error('Failed to save settings', error);
-    }
-    const { language } = settings;
-    if (language !== null && language !== this.displayedLanguage) {
-      this.i18n.changeLanguage(language).then(
-        () => {
-          this.displayedLanguage = language;
-          this.render(view);
-        },
-        (error: unknown) => console.error('Failed to change language', error),
-      );
-    }
-  }
-
-  private render(view: SettingsView): void {
-    const { settings, mode } = this.editor;
-    const waitingLane = mode.kind === 'waitingKey' ? mode.lane : null;
-    const language = this.displayedLanguage;
-    view.title.setText(this.i18n.t('settings.title'));
-    const focused = requireDefined(
-      ROWS[this.editor.rowIndex],
-      'Invalid settings row index',
-      this.editor.rowIndex,
-    );
-    view.focusStar.setPosition(
-      COLUMN_LEFT_X_PX[focused.column] - FOCUS_STAR_GAP_PX,
-      focused.yPx + ROW_HEIGHT_PX / 2,
-    );
-    view.groups.forEach(({ group, text }) => text.setText(this.i18n.t(`settings.groups.${group}`)));
-    view.rows.forEach((rowView) => {
-      const { row, hitArea, label, control } = rowView;
-      const isShown = isRowShown(row, settings);
-      hitArea.setVisible(isShown);
-      label.setVisible(isShown);
-      switch (control.kind) {
-        case 'key':
-          control.keyBox.setVisible(isShown);
-          break;
-        case 'step':
-          control.value.setVisible(isShown);
-          control.steps.forEach(({ button }) => button.setVisible(isShown));
-          break;
-      }
-      if (!isShown) {
         return;
       }
-      label.setText(this.formatLabel(row));
-      this.renderLabelColor(rowView);
-      const value = formatRowValue(row, settings, language, waitingLane);
-      switch (control.kind) {
-        case 'key':
-          control.keyBox.setLabel(value);
-          return;
-        case 'step':
-          control.value.setText(value);
-          control.steps.forEach(({ button, direction }) => {
-            button.setEnabled(canAdjust(settings, row, direction, language));
-          });
-          return;
+      case 'controlsEntry':
+        view.controlsEntry.setVisible(getWaitingLane(state) === null);
+        view.chrome.renderControlsEntry(isSettingsControlsEntryHovered(state));
+        return;
+      case 'controlsClose':
+        view.chrome.renderControlsClose(getSettingsControlsCloseView(state));
+        return;
+      case 'backButton':
+        view.backButton.render(getBackButtonView(state));
+        return;
+      case 'resetEntry':
+        renderTextEntry(view.resetEntry, isResetEntryHovered(state));
+        return;
+      case 'resetButtons': {
+        const { cancel, accept } = getResetDialogButtonViews(state);
+        view.resetDialog.renderButtons(cancel, accept);
+        return;
       }
-    });
-    view.waitingText.setVisible(waitingLane !== null);
-    view.controlsEntry.setVisible(waitingLane === null);
-    if (waitingLane !== null) {
-      view.waitingText.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
-    }
-    if (mode.kind === 'confirmingReset') {
-      view.resetDialog.show({
-        title: this.i18n.t('settings.resetTitle'),
-        body: this.i18n.t('settings.resetConfirm'),
-        cancelLabel: 'CANCEL',
-        acceptLabel: 'RESET',
-        acceptTone: 'danger',
-      });
-    } else {
-      view.resetDialog.hide();
+      case 'rowButtons':
+        view.rows.forEach(({ index, control }) => {
+          switch (control.kind) {
+            case 'key':
+              control.keyBox.render(getKeyBoxView(state, index));
+              return;
+            case 'step':
+              control.steps.forEach(({ button, direction }) =>
+                button.render(getStepView(state, index, direction)),
+              );
+              return;
+          }
+        });
+        return;
+      case 'resetDialog':
+        switch (state.mode.kind) {
+          case 'confirmingReset':
+            view.resetDialog.render({
+              title: this.i18n.t('settings.resetTitle'),
+              body: this.i18n.t('settings.resetConfirm'),
+              cancelLabel: 'CANCEL',
+              acceptLabel: 'RESET',
+              acceptTone: 'danger',
+            });
+            return;
+          case 'browsing':
+          case 'waitingKey':
+            view.resetDialog.render(null);
+            return;
+        }
+        return;
+      case 'controls':
+        // 조작 안내의 레인 키는 이 화면에서 바뀌므로 저장소가 아니라 지금 설정으로 그린다.
+        view.chrome.renderControls(
+          state.isControlsOpen
+            ? getControlsGuide(this.i18n.t('controls', { returnObjects: true }), state.settings)
+            : null,
+        );
+        return;
     }
   }
 
-  private renderLabelColor(rowView: RowView): void {
+  private renderRowLabel(
+    { row, index, hitArea, label }: RowView,
+    state: SettingsEditorState,
+  ): void {
+    const isShown = isRowShownAt(state, index);
+    hitArea.setVisible(isShown);
+    label.setVisible(isShown);
+    if (!isShown) {
+      return;
+    }
+    label.setText(this.formatLabel(row));
     setTextColor(
-      rowView.label,
-      getRowAppearance(this.editor, rowView.index) === 'emphasized'
-        ? COLORS.textPrimary
-        : COLORS.textSecondary,
+      label,
+      getRowAppearance(state, index) === 'emphasized' ? COLORS.textPrimary : COLORS.textSecondary,
     );
+  }
+
+  private renderRowControl({ index, control }: RowView, state: SettingsEditorState): void {
+    const isShown = isRowShownAt(state, index);
+    switch (control.kind) {
+      case 'key':
+        control.keyBox.setVisible(isShown);
+        if (isShown) {
+          control.keyBox.setLabel(getRowValue(state, index));
+        }
+        return;
+      case 'step':
+        control.value.setVisible(isShown);
+        control.steps.forEach(({ button }) => button.setVisible(isShown));
+        if (!isShown) {
+          return;
+        }
+        control.value.setText(getRowValue(state, index));
+        return;
+    }
   }
 
   private formatLabel(row: SettingsRow): string {

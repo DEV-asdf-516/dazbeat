@@ -1,10 +1,10 @@
 /// <reference path="../pb_data/types.d.ts" />
-// isEditor is granted only by a superuser, so users can neither set it on sign-up nor change it.
+// isEditor 는 superuser 만 부여하므로 사용자는 가입 때 설정할 수도, 나중에 바꿀 수도 없다.
 const USERS_CREATE_INVARIANT = '@request.body.isEditor:isset = false';
 const USERS_UPDATE_INVARIANT = '@request.body.isEditor:changed = false';
 const CHARTS_EDITOR_RULE = '@request.auth.id != "" && @request.auth.isEditor = true';
 
-// JSVM hands non-null rules over as string wrapper objects, not JS strings.
+// JSVM 은 null 이 아닌 규칙을 JS 문자열이 아니라 문자열 래퍼 객체로 넘긴다.
 function readRule(rule) {
   return rule === null ? null : String(rule);
 }

@@ -26,10 +26,17 @@ interface LaneEntry<T extends Note = Note> {
   note: T;
 }
 
+interface LaneState {
+  readonly entries: LaneEntry[];
+  cursor: number;
+  holding: LaneEntry<HoldNote> | null;
+}
+
 const PLAYING: GameplayProgress = { outcome: 'playing' };
 
 interface UpdateCandidate {
   judgedAtMs: number;
+  laneState: LaneState;
   entry: LaneEntry;
   kind: JudgmentEvent['kind'];
   judgment: Judgment;
@@ -43,10 +50,7 @@ export class GameplaySession {
   private readonly windows: JudgmentWindows;
   private readonly canFail: boolean;
   private readonly statuses: NoteStatus[];
-  private readonly lanes: readonly Lane[];
-  private readonly laneEntries: LaneEntry[][];
-  private readonly laneCursors: number[];
-  private readonly holdingEntries: (LaneEntry<HoldNote> | null)[];
+  private readonly laneStates: readonly LaneState[];
   private unjudgedCount: number;
   private score = 0;
   private combo = 0;
@@ -72,12 +76,13 @@ export class GameplaySession {
     this.windows = windows;
     this.canFail = rules.canFail;
     this.statuses = chart.notes.map((): NoteStatus => 'pending');
-    this.lanes = getLanes(chart.laneCount);
-    this.laneEntries = this.lanes.map(() => []);
-    this.laneCursors = this.lanes.map(() => 0);
-    this.holdingEntries = this.lanes.map(() => null);
+    this.laneStates = getLanes(chart.laneCount).map(() => ({
+      entries: [],
+      cursor: 0,
+      holding: null,
+    }));
     chart.notes.forEach((note, noteIndex) => {
-      atLane(this.laneEntries, note.lane).push({
+      atLane(this.laneStates, note.lane).entries.push({
         noteIndex,
         note,
       });
@@ -145,14 +150,16 @@ export class GameplaySession {
     return this.latestTimeMs;
   }
 
-  /** 실패 뒤의 입력도 기록한다. 리플레이가 같은 호출 순서를 재현해야 하기 때문이다. */
+  /** 실패 뒤의 입력도 기록한다. 서버가 제출 입력을 같은 호출 순서로 다시 판정해 검증하기 때문이다. */
   private judgeInput(lane: Lane, kind: InputKind, songTimeMs: number): JudgmentEvent[] {
     // 범위 밖 레인은 입력 기록·시각 전진 전에 거부해 세션 상태를 하나도 바꾸지 않는다.
-    atLane(this.laneEntries, lane);
+    const laneState = atLane(this.laneStates, lane);
     const judgedAtMs = this.recordInput(lane, kind, songTimeMs);
     const events = this.judgeExpired(judgedAtMs);
     const event =
-      kind === 'press' ? this.judgePress(lane, judgedAtMs) : this.judgeRelease(lane, judgedAtMs);
+      kind === 'press'
+        ? this.judgePress(lane, laneState, judgedAtMs)
+        : this.judgeRelease(lane, laneState, judgedAtMs);
     return event === null ? events : [...events, event];
   }
 
@@ -166,14 +173,14 @@ export class GameplaySession {
     return judgedAtMs;
   }
 
-  private judgePress(lane: Lane, songTimeMs: number): JudgmentEvent | null {
-    if (this.hasFailed || atLane(this.holdingEntries, lane) !== null) {
+  private judgePress(lane: Lane, laneState: LaneState, songTimeMs: number): JudgmentEvent | null {
+    if (this.hasFailed || laneState.holding !== null) {
       return null;
     }
-    const entries = atLane(this.laneEntries, lane);
+    const { entries } = laneState;
     let selected: LaneEntry | null = null;
     let selectedDiffMs = Infinity;
-    for (let i = atLane(this.laneCursors, lane); i < entries.length; i++) {
+    for (let i = laneState.cursor; i < entries.length; i++) {
       const entry = entries[i];
       if (entry === undefined || entry.note.timeMs > songTimeMs + this.windows.badMs) {
         break;
@@ -195,7 +202,7 @@ export class GameplaySession {
     const judgment = judgeTap(selected.note.timeMs, songTimeMs, this.windows);
     this.applyJudgment(judgment);
     if (selected.note.type === 'tap') {
-      this.settle(selected, 'hit');
+      this.settle(laneState, selected, 'hit');
       return {
         noteIndex: selected.noteIndex,
         lane,
@@ -204,11 +211,11 @@ export class GameplaySession {
       };
     }
     this.statuses[selected.noteIndex] = 'holding';
-    this.holdingEntries[lane] = {
+    laneState.holding = {
       noteIndex: selected.noteIndex,
       note: selected.note,
     };
-    this.advanceCursor(lane);
+    this.advanceCursor(laneState);
     return {
       noteIndex: selected.noteIndex,
       lane,
@@ -217,15 +224,15 @@ export class GameplaySession {
     };
   }
 
-  private judgeRelease(lane: Lane, songTimeMs: number): JudgmentEvent | null {
-    const holding = atLane(this.holdingEntries, lane);
+  private judgeRelease(lane: Lane, laneState: LaneState, songTimeMs: number): JudgmentEvent | null {
+    const { holding } = laneState;
     if (this.hasFailed || holding === null) {
       return null;
     }
     const judgment = judgeHoldRelease(holding.note.endTimeMs, songTimeMs, this.windows);
     this.applyJudgment(judgment);
-    this.holdingEntries[lane] = null;
-    this.settle(holding, judgment === 'perfect' ? 'hit' : 'missed');
+    laneState.holding = null;
+    this.settle(laneState, holding, judgment === 'perfect' ? 'hit' : 'missed');
     return {
       noteIndex: holding.noteIndex,
       lane,
@@ -239,18 +246,18 @@ export class GameplaySession {
       return [];
     }
     const candidates: UpdateCandidate[] = [];
-    for (const lane of this.lanes) {
-      const holding = atLane(this.holdingEntries, lane);
+    for (const laneState of this.laneStates) {
+      const { holding, entries } = laneState;
       if (holding !== null && holding.note.endTimeMs < songTimeMs) {
         candidates.push({
           judgedAtMs: holding.note.endTimeMs,
+          laneState,
           entry: holding,
           kind: 'holdEnd',
           judgment: 'perfect',
         });
       }
-      const entries = atLane(this.laneEntries, lane);
-      for (let i = atLane(this.laneCursors, lane); i < entries.length; i++) {
+      for (let i = laneState.cursor; i < entries.length; i++) {
         const entry = entries[i];
         if (entry === undefined) {
           break;
@@ -270,6 +277,7 @@ export class GameplaySession {
         if (entry.note.type === 'tap') {
           candidates.push({
             judgedAtMs,
+            laneState,
             entry,
             kind: 'tap',
             judgment: 'miss',
@@ -277,12 +285,14 @@ export class GameplaySession {
         } else {
           candidates.push({
             judgedAtMs,
+            laneState,
             entry,
             kind: 'holdStart',
             judgment: 'miss',
           });
           candidates.push({
             judgedAtMs,
+            laneState,
             entry,
             kind: 'holdEnd',
             judgment: 'miss',
@@ -293,14 +303,14 @@ export class GameplaySession {
     candidates.sort((a, b) => a.judgedAtMs - b.judgedAtMs || a.entry.note.lane - b.entry.note.lane);
 
     const events: JudgmentEvent[] = [];
-    for (const { entry, kind, judgment } of candidates) {
+    for (const { laneState, entry, kind, judgment } of candidates) {
       const lane = entry.note.lane;
       this.applyJudgment(judgment);
       if (kind === 'holdEnd' && judgment === 'perfect') {
-        this.holdingEntries[lane] = null;
-        this.settle(entry, 'hit');
+        laneState.holding = null;
+        this.settle(laneState, entry, 'hit');
       } else if (kind !== 'holdStart') {
-        this.settle(entry, 'missed');
+        this.settle(laneState, entry, 'missed');
       }
       events.push({
         noteIndex: entry.noteIndex,
@@ -324,20 +334,20 @@ export class GameplaySession {
     this.hasFailed = this.canFail && this.hp === 0;
   }
 
-  private settle(entry: LaneEntry, status: 'hit' | 'missed'): void {
+  private settle(laneState: LaneState, entry: LaneEntry, status: 'hit' | 'missed'): void {
     this.statuses[entry.noteIndex] = status;
     this.unjudgedCount -= 1;
-    this.advanceCursor(entry.note.lane);
+    this.advanceCursor(laneState);
   }
 
-  private advanceCursor(lane: Lane): void {
-    const entries = atLane(this.laneEntries, lane);
-    let cursor = atLane(this.laneCursors, lane);
+  private advanceCursor(laneState: LaneState): void {
+    const { entries } = laneState;
+    let { cursor } = laneState;
     let entry = entries[cursor];
     while (entry !== undefined && this.statuses[entry.noteIndex] !== 'pending') {
       cursor += 1;
       entry = entries[cursor];
     }
-    this.laneCursors[lane] = cursor;
+    laneState.cursor = cursor;
   }
 }

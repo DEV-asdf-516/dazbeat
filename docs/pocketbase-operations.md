@@ -6,7 +6,9 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 - 운영 데이터의 원본은 운영 PocketBase 다. Git 저장소나 로컬 시드 데이터가 원본이 아니다.
 - 곡 메타데이터와 재킷은 PocketBase 관리 UI 에서 입력·수정한다.
+- 새 곡은 비공개(`isPublished = false`)로 만들어지고, 관리 UI 에서 `isPublished` 를 켜야 플레이어에게 보인다. 에디터는 비공개 곡을 채보 에디터에서만 보며, 공개된 곡에 새로 저장한 난이도는 바로 보인다.
 - 곡 목록은 `releasedOn`(YouTube 업로드일) 최신순이다. `releasedOn` 은 필수 필드라, 필드를 추가하는 마이그레이션 배포 뒤에는 시드 4곡(`sample`·`karma`·`lucy`·`moechakka`) 외의 기존 곡에 관리 UI 에서 값을 넣어야 한다. 비어 있는 곡은 다른 필드를 고쳐도 저장되지 않는다.
+- 운영 인스턴스에 곡을 넣을 때 `previewStartMs`(미리듣기 시작 위치, YouTube 영상 ms)는 관리 UI 에서 입력한다. 비워 두면(0) `gameStartMs` 부터 미리듣는다.
 - 채보는 권한형 에디터(`users.isEditor = true` 인 계정)로 저장한다. `charts.revision` 은 서버 hook 이 채보 내용으로 계산하므로 직접 넣지 않는다.
 - 로컬 데이터로 운영 원본을 덮어쓰는 배포를 하지 않는다. `npm run seed` 는 로컬 루프백 PocketBase(`localhost`, `127.0.0.1`, `[::1]`) 전용이며 다른 대상은 네트워크 요청 전에 거절한다. 운영 PocketBase 를 Git·로컬 상태로 되돌리는 동기화 도구도 두지 않는다.
 
@@ -19,6 +21,13 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 ```json
 {
   "version": 2,
+  "albums": [
+    {
+      "key": "orbit",
+      "name": "orbit",
+      "sortOrder": 30
+    }
+  ],
   "songs": [
     {
       "key": "example-song",
@@ -27,9 +36,11 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
       "youtubeVideoId": "xxxxxxxxxxx",
       "accentColor": 4773608,
       "constellation": "gemini",
+      "album": "orbit",
       "releasedOn": "2026-01-01",
       "gameStartMs": 0,
       "gameEndMs": 30000,
+      "previewStartMs": 15000,
       "credit": ["Example credit line"],
       "jacket": "example-song/jacket.jpg",
       "charts": {
@@ -46,7 +57,10 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 }
 ```
 
-- `songs` 는 1개 이상이고 `key` 는 manifest 안에서 유일해야 한다. `category`·`constellation`·난이도는 게임의 도메인 값만 쓸 수 있고, 알 수 없는 필드가 있으면 오류다. `releasedOn` 은 `YYYY-MM-DD` 형식의 YouTube 업로드일이다. `credit` 은 선택이다.
+- `songs` 는 1개 이상이고 `key` 는 manifest 안에서 유일해야 한다. `category`·`constellation`·난이도는 게임의 도메인 값만 쓸 수 있고, 알 수 없는 필드가 있으면 오류다. `releasedOn` 은 `YYYY-MM-DD` 형식의 YouTube 업로드일이다. `credit` 은 선택이다. `album` 은 선택이며 디스코그래피 업적의 수록 앨범으로, `albums` 의 `key` 중 하나여야 한다.
+- `albums` 는 필수다(앨범이 없으면 빈 배열). `key` 는 manifest 안에서 유일하고 `^[a-z][A-Za-z0-9]*$` 형식이며, `name` 은 비어 있지 않은 표시 이름, `sortOrder` 는 정수다.
+- 시드는 곡보다 먼저 앨범을 `key` 로 찾아 없는 앨범만 만들고, 새로 만드는 곡만 그 앨범에 연결한다. 이미 있는 앨범과 곡은 갱신하지 않는다.
+- `previewStartMs` 는 선택이며 0 이상의 정수 ms(YouTube 영상 위치)다. 없거나 0 이면 `gameStartMs` 부터 미리듣는다. 새로 만드는 곡에만 저장하고, 이미 있는 곡은 갱신하지 않는다.
 - 재킷 확장자는 `.jpg`/`.jpeg`/`.png`/`.webp` 만 허용한다.
 - `version` 은 `2` 만 허용한다. 난이도를 바로 두던 version 1 manifest 는 변환하지 않고 오류로 거부한다.
 - `charts` 는 레인 수(`"4"`·`"5"`·`"6"`) → 난이도 → 채보 파일 경로이며, 레인 수·난이도 모두 일부만 있어도 된다. 각 채보 파일은 게임의 채보 검증을 그 곡의 `key`·`gameStartMs`·`gameEndMs`, 난이도, manifest 의 레인 수로 통과해야 한다.
@@ -57,7 +71,8 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 1. `.env` 에 `VITE_POCKETBASE_URL`(예: `http://127.0.0.1:8090`), `PB_SUPERUSER_EMAIL`, `PB_SUPERUSER_PASSWORD` 를 넣는다(변수 설명은 `.env.example`).
 2. 아래 "개발 Docker 실행" 으로 로컬 PocketBase 를 띄우고, 그 인스턴스에 superuser 를 만든다.
-3. `npm run seed` 를 실행한다. `key` 로 곡을 찾아 없으면 재킷과 함께 만들고, 곡의 레인 수·난이도 조합 채보가 없으면 만든다. 이미 있는 곡·같은 조합의 채보는 갱신·삭제하지 않고 건너뛴다.
+3. `npm run seed` 를 실행한다. `key` 로 곡을 찾아 없으면 재킷과 함께 만들고, 곡의 레인 수·난이도 조합 채보가 없으면 만든다. 이미 있는 곡·같은 조합의 채보는 갱신·삭제하지 않고 건너뛴다. 곡의 채보를 다 만든 뒤 비공개 곡을 공개한다.
+4. `previewStartMs` 필드가 생기기 전에 시드한 로컬 곡은 `node --env-file-if-exists=.env --import ./pocketbase/seed/resolveTsImports.mjs pocketbase/seed/patchPreviewStarts.ts <preview-starts.json 경로>` 로 채운다. 파일은 곡 `key` → `{ "previewStartMs": … }` 형식이고, 값이 다른 곡의 `previewStartMs` 만 고친다. `npm run seed` 와 같은 환경 변수를 쓰며 로컬 루프백 PocketBase 전용이다.
 
 ### 레인 수 마이그레이션 뒤 로컬 데이터 재생성
 
@@ -84,7 +99,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 
 개발 Docker PocketBase 는 운영과 같은 `pb_migrations` 와 `pb_hooks` 를 쓴다.
 
-1. `npm run build:hooks` 로 hook 이 `require` 하는 서버 번들 `pocketbase/pb_hooks/lib/*.cjs`(목록은 `vite.hooks.config.ts`)를 만든다. 빌드 산출물이라 Git 무시 대상이며, 없으면 플레이 세션·곡 검색 API 와 채보 저장이 동작하지 않는다. `src/rhythm/`, `src/data/`, `pocketbase/verification/` 을 바꾼 뒤에도 다시 빌드한다.
+1. `npm run build:hooks` 로 hook 이 `require` 하는 서버 번들 `pocketbase/pb_hooks/lib/` 아래 `.cjs`(목록은 `vite.hooks.config.ts`)를 만든다. 빌드 산출물이라 Git 무시 대상이며, 없으면 플레이 세션·곡 검색 API 와 채보 저장이 동작하지 않는다. `src/rhythm/`, `src/data/`, `pocketbase/lib/` 을 바꾼 뒤에도 다시 빌드한다.
 2. `docker compose up --build` 로 PocketBase 를 띄운다. `127.0.0.1:8090` 에서만 열린다.
    - `./pocketbase/pb_data` → `/pb/pb_data`, `./pocketbase/pb_migrations` → `/pb/pb_migrations`, `./pocketbase/pb_hooks` → `/pb/pb_hooks` 로 마운트된다. DB 와 업로드 파일은 Git 무시 대상인 `pocketbase/pb_data/` 에 남아, 컨테이너나 Docker 볼륨을 지워도 사라지지 않는다.
    - `DAZBEAT_ALLOWED_ORIGINS` 는 Vite 개발 서버 Origin 인 `http://localhost:5173,http://127.0.0.1:5173` 이다.
@@ -278,31 +293,81 @@ done
 
 | 컬렉션 | 내용 |
 |---|---|
-| `play_results` | 검증을 통과한 판 1행(세션당 최대 1행). 총 플레이 횟수와 PLAY 계열 업적의 근거 |
-| `achievement_marks` | 채보 단위 달성 증거(clear, s, fc, ap). `source` 가 `play` 면 제출, `backfill` 이면 소급 |
-| `song_masteries` | 곡 마스터 달성 이력. 한 번 기록되면 지우지 않는다 |
+| `play_results` | 검증을 통과한 판 1행(세션당 최대 1행). 총 플레이 횟수와 PLAY 계열 업적의 근거. 오토플레이 검사 결과(`autoplayCheck`, `autoplayReasons`, `inputStats`)도 함께 담는다 |
+| `earned_chart_marks` | 채보 단위 도장(clear, s, fc, ap). `source` 가 `play` 면 제출, `backfill` 이면 소급 |
+| `earned_song_marks` | 곡 단위 도장(곡의 모든 난이도에서 같은 도장을 받음). 한 번 기록되면 지우지 않는다 |
 | `earned_achievements` | 획득 업적(= 컬렉션 요소). `earnedAt` 은 서버가 한 번 쓰고 바꾸지 않는다 |
+| `achievements` | 업적 정의. 플레이어는 읽기만 하고 superuser 만 쓴다. 생성과 수정 요청은 저장 전에 규칙 값을 검사한다 |
+| `albums` | 앨범(`key`, 표시 이름 `name`, `sortOrder`). 플레이어는 읽기만 하고 superuser 만 쓴다. 곡의 `album` 과 album 업적이 이 행을 가리킨다 |
 
-네 컬렉션 모두 API 규칙이 `null` 이라 관리자와 hook 만 읽고 쓴다. 사용자 관계는 cascade 라 계정을 지우면 함께 지워지고, 곡과 채보는 id 문자열이라 곡이나 채보를 지워도 달성 이력은 남는다. `users` 에는 `nickname`(필수, 대소문자 무시 유일)과 `featuredAchievement`(대표 컬렉션, 빈 값 가능)가 추가되며, 일반 users API 로는 둘 다 만들거나 바꿀 수 없다.
+위 네 기록 컬렉션은 API 규칙이 `null` 이라 관리자와 hook 만 읽고 쓴다. 사용자 관계는 cascade 라 계정을 지우면 함께 지워지고, 곡과 채보는 id 문자열이라 곡이나 채보를 지워도 달성 이력은 남는다. `users` 에는 `nickname`(필수, 대소문자 무시 유일)과 `featuredAchievement`(대표 컬렉션, 빈 값 가능)가 추가된다. 둘 다 가입 때는 설정할 수 없고, 본인 users 레코드 update 로 바꾼다. 형식과 획득 검사는 users 업데이트 요청 훅(`users.pb.js`)이, 닉네임 중복은 유일 인덱스가 맡는다. 관리자 수정은 검사를 생략한다.
 
 ### 경로
 
 | 경로 | 동작 |
 |---|---|
 | `POST /api/dazbeat/play-sessions/{sessionId}/result` | 기존 결과 제출. 최고 점수 트랜잭션 안에서 판, 증거, 업적을 함께 기록하고 응답에 `newAchievements` 를 더한다 |
-| `GET /api/dazbeat/profile` | 본인 스냅샷으로 평가해 새 업적을 지급한 뒤 닉네임, 통계, 117개 진행 상태를 돌려준다 |
-| `POST /api/dazbeat/profile/nickname` | 닉네임 변경. `400 invalid_nickname`, `409 nickname_taken`, `400 invalid_request` |
-| `GET /api/dazbeat/profile/nickname/available?nickname=…` | 입력 중 닉네임 사용 가능 여부 안내(`{ available }`). 저장 때 다시 확인한다. `400 invalid_nickname`, `400 invalid_request` |
-| `POST /api/dazbeat/profile/featured` | 대표 컬렉션 지정과 해제. `409 achievement_not_earned`, `400 invalid_request` |
+| `GET /api/dazbeat/profile` | 본인 스냅샷으로 평가해 새 업적을 지급한 뒤 닉네임, 통계, 활성 업적 진행 상태를 돌려준다 |
+| `GET /api/dazbeat/profile/nickname/available?nickname=…` | 입력 중 닉네임 사용 가능 여부 안내(`{ available }`). 저장은 유일 인덱스가 판정한다. `400 invalid_nickname`, `400 invalid_request` |
+| `PATCH /api/collections/users/records/{id}`(본인) | 닉네임과 대표 컬렉션 변경(`featuredAchievement` 빈 값은 해제). `400 data.nickname.code = invalid_nickname \| validation_not_unique`, `400 data.featuredAchievement.code = achievement_not_earned`, 본인이 아니면 `404` |
 
-네 프로필 경로는 로그인이 필요하다(비로그인 `401`). 다른 사용자의 프로필을 보는 경로는 없다.
+두 프로필 경로는 로그인이 필요하다(비로그인 `401`). 다른 사용자의 프로필을 보는 경로는 없다.
+
+### 대시보드에서 업적과 앨범 관리
+
+- 업적 추가: `achievements` 에 행을 만든다. `key` 는 `^[A-Z][A-Z0-9_]*$`, 이름 3개는 필수다. 종류(`kind`)별로 채울 칸은 아래와 같고, 맞지 않으면 저장이 틀린 칸의 오류로 막힌다. 종류가 쓰지 않는 칸은 무시된다.
+
+  | kind | 필요한 칸 | 허용 표식(`mark`) |
+  |---|---|---|
+  | `plays` | `target` 1 이상 | 없음 |
+  | `songs` | `target` 1 이상, `mark` | `clear` |
+  | `charts` | `target` 1 이상, `mark`(`difficulty` 는 비우면 전체, 또는 `expert`) | `clear`, `s`, `fc`, `ap` |
+  | `songMarks` | `target` 1 이상, `mark` | `clear`, `s`, `fc`, `ap` |
+  | `zodiacVisits` | `target` 1 이상, `mark` | `clear`, `s`, `fc`, `ap` |
+  | `zodiacComplete` | `mark`, `zodiac` | `clear`, `s`, `fc`, `ap` |
+  | `zodiacCompletions` | `target` 1 이상 | 없음 |
+  | `album` | `mark`, `album` | `clear`, `s`, `fc` |
+
+  `category` 가 `album` 이면 `kind` 도 `album` 이어야 하고 그 반대도 같다.
+- 앨범 추가: `albums` 행을 만들고, 곡의 `album` 을 그 앨범으로 연결한 뒤, 그 앨범의 CLEAR, S, FC 업적 3행을 직접 추가한다(자동으로 생기지 않는다).
+- 업적은 지우지 말고 `retired` 로 은퇴시킨다. 은퇴 업적은 판정과 진행률에서 빠지지만 획득 기록과 대표 업적은 남는다.
+- `key` 는 저장 뒤 바꾸지 않는다. 획득 기록과 대표 업적이 key 로 연결된다.
+- 세트(`achievementSet`)의 활성 업적을 모두 은퇴시키지 않는다. 비는 세트가 있으면 프로필을 열 수 없다.
+- 순서는 `sortOrder` 가 작은 값이 앞이고, 같으면 `key` 순이다.
+- 플레이어 화면은 부팅 때 정의를 한 번 읽으므로, 변경은 새로고침한 뒤 보인다.
 
 ### 소급과 집계 시작 시점
 
-- `1792900900_backfill_achievement_marks.js` 는 적용 시점의 `scores` 최고 기록에서 증명되는 mark 만 `achievement_marks`(source `backfill`, 별자리 빈 값)로 옮긴다. 업적은 지급하지 않고, 그 사용자의 다음 프로필 조회나 다음 제출의 평가가 지급한다.
+- `1792900900_backfill_achievement_marks.js` 는 적용 시점의 `scores` 최고 기록에서 증명되는 mark 만 `achievement_marks`(지금 이름 `earned_chart_marks`, source `backfill`, 별자리 빈 값)로 옮긴다. 업적은 지급하지 않고, 그 사용자의 다음 프로필 조회나 다음 제출의 평가가 지급한다.
 - 플레이 횟수(FIRST_FINISH, PLAY 계열)와 황도 순례는 소급하지 않는다. `play_results` 는 이 기능을 배포한 뒤 검증된 판부터 쌓이므로, 총 플레이 횟수는 배포 시점부터 센다.
 - `1792901000_add_users_profile_fields.js` 는 기존 사용자마다 `과즙이` + 4자리 숫자 기본 닉네임을 채운 뒤 `nickname` 을 필수로 바꾼다. 새 계정은 `users.pb.js` 훅이 저장 전에 같은 규칙으로 채운다. 4자리가 모두 쓰인 뒤에만 자릿수가 늘어난다.
-- 되돌릴 때는 파일 이름 역순으로 down 한다. 닉네임 마이그레이션 down 은 두 필드와 인덱스, 규칙 불변식을 지우고, 소급 down 은 `backfill` 증거만 지운다.
+- 되돌릴 때는 파일 이름 역순으로 down 한다. 닉네임 마이그레이션 down 은 두 필드와 인덱스, 규칙 불변식을 지우고, 소급 down 은 `backfill` 증거만 지운다. `1793152800_allow_users_profile_updates.js` down 은 두 필드의 직접 변경 금지 조건을 users 업데이트 규칙에 다시 덧붙인다.
+
+### 오토플레이 의심 표시
+
+결과 제출 훅이 검증을 통과한 판마다 입력 통계를 계산해 `play_results` 행에 같은 저장으로 남긴다. 표시만 하며 제출 응답, 최고 점수, 업적, 랭킹에는 영향이 없다. 플레이어 API 로는 볼 수 없고 대시보드에서만 본다.
+
+| 필드 | 값 |
+|---|---|
+| `autoplayCheck` | `unjudged`(표본 50개 미만이라 판정 안 함), `clear`(사유 없음), `suspicious`(사유 하나 이상) |
+| `autoplayReasons` | `suspicious` 일 때 걸린 사유(순서 의미 없음). `low_std_dev`: 오차 표준편차 2ms 이하, `zero_cluster`: ±1ms 안 표본 비율 0.5 이상, `synced_chords`: 동시 노트 묶음 10개 이상이고 묶음 안 입력 간격 1ms 이하 묶음 비율 0.95 이상. 그 밖에는 빈 값 |
+| `inputStats` | 판정 결과와 관계없이 아래 여섯 값. 숫자는 반올림하지 않는다 |
+
+`inputStats` 의 키(오차 = 입력 시각 − 노트 시각, press 로 판정된 tap 과 hold 시작만 표본이다. miss 와 hold 끝은 넣지 않는다):
+
+- `sampleCount`: 표본 수
+- `chordCount`: 같은 시각의 노트 중 press 로 판정된 것이 2개 이상인 묶음 수
+- `meanOffsetMs`: 오차 평균(부호 있음, 음수면 일찍 누름). 단독 사유로 쓰지 않는다
+- `stdDevMs`: 오차의 모표준편차
+- `nearZeroRatio`: |오차| ≤ 1ms 인 표본 비율
+- `syncedChordRatio`: 묶음 안 입력 시각의 최댓값 − 최솟값 ≤ 1ms 인 묶음 비율
+
+`null` 은 표본이 없어 정의되지 않는 값이다. `sampleCount` 가 0 이면 `meanOffsetMs`, `stdDevMs`, `nearZeroRatio` 가, `chordCount` 가 0 이면 `syncedChordRatio` 가 `null` 이다.
+
+- 대시보드 필터 예: `autoplayCheck = 'suspicious'`, `autoplayReasons ?= 'synced_chords'`.
+- `1793239200_add_play_results_autoplay_check.js` 이전에 기록된 행은 세 필드가 빈 값이며 기능 배포 전 기록을 뜻한다.
+- 임계값과 최소 표본 수는 `pocketbase/verification/autoplayCheck.ts` 의 `AUTOPLAY_THRESHOLDS` 에 모여 있다. 처음 값이며 쌓인 `inputStats` 를 보고 다시 정한다.
+- 이 마이그레이션을 되돌리면 세 필드와 그 값이 지워진다. 행과 다른 필드는 남는다.
 
 ## 백업·복구
 

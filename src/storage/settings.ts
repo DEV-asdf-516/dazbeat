@@ -5,9 +5,9 @@ import { INPUT_OFFSET_RANGE_MS } from '../rhythm/playTiming.js';
 import type { LaneCount } from '../rhythm/types.js';
 import { isFiniteNumber, isOneOf, isRecord, isString } from '../typeGuards.js';
 
-export type MvMode = 'normal' | 'dim' | 'blur' | 'off';
+export type MvMode = 'normal' | 'dim' | 'blur';
 
-export const MV_MODES: readonly MvMode[] = ['normal', 'dim', 'blur', 'off'];
+export const MV_MODES: readonly MvMode[] = ['normal', 'dim', 'blur'];
 
 export type KeyBindings = Readonly<Record<LaneCount, readonly string[]>>;
 

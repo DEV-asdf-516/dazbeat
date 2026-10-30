@@ -1,5 +1,5 @@
 /// <reference path="../pb_data/types.d.ts" />
-// YouTube upload dates of the songs seeded before this field existed; other songs must be set by an admin.
+// 이 필드가 생기기 전에 시드된 곡들의 YouTube 업로드 날짜다. 다른 곡은 관리자가 설정해야 한다.
 const KNOWN_RELEASES = {
   sample: '2026-10-02 00:00:00.000Z',
   karma: '2026-05-01 00:00:00.000Z',

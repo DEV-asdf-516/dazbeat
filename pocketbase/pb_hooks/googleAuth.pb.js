@@ -1,7 +1,7 @@
 /// <reference path="../pb_data/types.d.ts" />
-// The Google OAuth2 client lives only in the database, so a fresh local data folder does not have
-// it. A migration would run once, possibly before the variables are set, so this runs on every
-// start instead. Without the variables (PocketHost) the dashboard configuration is left alone.
+// Google OAuth2 클라이언트는 DB 에만 있어 새 로컬 데이터 폴더에는 없다. 마이그레이션은 한 번만,
+// 그것도 변수가 설정되기 전에 돌 수 있어 대신 시작할 때마다 실행한다. 변수가 없으면(PocketHost)
+// 대시보드 설정을 건드리지 않는다.
 onBootstrap((e) => {
   e.next();
   const clientId = $os.getenv('DAZBEAT_GOOGLE_CLIENT_ID');
@@ -18,7 +18,7 @@ onBootstrap((e) => {
   ) {
     return;
   }
-  // DAZBEAT signs in with Google only, so the provider list is this one entry.
+
   unmarshal({ oauth2: { providers: [{ name: 'google', clientId, clientSecret }] } }, users);
   e.app.save(users);
 });

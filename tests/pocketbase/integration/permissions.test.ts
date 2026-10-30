@@ -13,11 +13,14 @@ import {
   fakeChartData,
 } from './testData.js';
 import type { TestUser } from './testData.js';
+import { requireDefined } from '../../../src/invariant.js';
 
-// PocketBase answers a null rule with 403, a failed create rule with 400 and a failed update rule with 404.
+// PocketBase answers a null rule with 403, a failed create rule with 400 and a failed update or
+// view rule with 404.
 const SUPERUSER_ONLY = 403;
 const CREATE_RULE_FAILED = 400;
 const UPDATE_RULE_FAILED = 404;
+const VIEW_RULE_FAILED = 404;
 
 const PUBLIC_SCORE_FIELDS = [
   'id',
@@ -50,6 +53,9 @@ const chartData = fakeChartData('perm', 'easy');
 let chart: RecordModel;
 let scoredChart: RecordModel;
 let currentScore: RecordModel;
+let hiddenSong: RecordModel;
+let hiddenChart: RecordModel;
+let hiddenScore: RecordModel;
 let playSession: RecordModel;
 let playSessionQuota: RecordModel;
 const achievementRecords: ServerOnlyRecord[] = [];
@@ -103,7 +109,7 @@ function achievementRecordBodies(userId: string) {
       },
     },
     {
-      collection: 'achievement_marks',
+      collection: 'earned_chart_marks',
       forgedField: 'chartRevision',
       body: {
         user: userId,
@@ -117,7 +123,7 @@ function achievementRecordBodies(userId: string) {
       },
     },
     {
-      collection: 'song_masteries',
+      collection: 'earned_song_marks',
       forgedField: 'song',
       body: {
         user: userId,
@@ -136,10 +142,10 @@ function achievementRecordBodies(userId: string) {
   ];
 }
 
-function scoreBody(userId: string, chartRevision: string) {
+function scoreBody(userId: string, chartRevision: string, chartId = scoredChart.id) {
   return {
     user: userId,
-    chart: scoredChart.id,
+    chart: chartId,
     chartRevision,
     score: 900_000,
     accuracy: 95,
@@ -163,13 +169,23 @@ beforeAll(async () => {
   user = await createUser(server, 'user@example.com');
   editor = await createUser(server, 'editor@example.com', true);
   scorer = await createUser(server, 'scorer@example.com');
-  song = await createSong(superuser, 'perm');
+  song = await createSong(superuser, 'perm', 5_000, { previewStartMs: 2_000 });
   chart = await createChart(superuser, song.id, 'easy', chartData);
   scoredChart = await createChart(superuser, song.id, 'normal', fakeChartData('perm', 'normal'));
   currentScore = await superuser
     .collection('scores')
     .create(scoreBody(scorer.id, String(scoredChart['revision'])));
   await superuser.collection('scores').create(scoreBody(scorer.id, 'stale-revision'));
+  hiddenSong = await createSong(superuser, 'hidden', 5_000, { isPublished: false });
+  hiddenChart = await createChart(
+    superuser,
+    hiddenSong.id,
+    'easy',
+    fakeChartData('hidden', 'easy'),
+  );
+  hiddenScore = await superuser
+    .collection('scores')
+    .create(scoreBody(scorer.id, String(hiddenChart['revision']), hiddenChart.id));
   const nowMs = Date.now();
   playSession = await superuser.collection('play_sessions').create({
     user: user.id,
@@ -202,13 +218,37 @@ describe.each<Role>(['guest', 'user', 'editor'])('%s', (role) => {
   it('lists songs but cannot create, update or delete them', async () => {
     const pb = clientFor(role);
     const songs = await pb.collection('songs').getFullList();
-    expect(songs.map((record) => record.id)).toContain(song.id);
+    expect(songs.find((record) => record.id === song.id)?.['previewStartMs']).toBe(2_000);
     await expectStatus(pb.collection('songs').create({ key: `new-${role}` }), SUPERUSER_ONLY);
     await expectStatus(pb.collection('songs').update(song.id, { title: role }), SUPERUSER_ONLY);
     await expectStatus(pb.collection('songs').delete(song.id), SUPERUSER_ONLY);
     const stored = await server.superuser.collection('songs').getOne(song.id);
     expect(stored['title']).toBe(song['title']);
   });
+
+  it.each(['albums', 'achievements'])(
+    'lists and views %s but cannot create, update or delete them',
+    async (collection) => {
+      const pb = clientFor(role);
+      const records = await pb.collection(collection).getFullList();
+      const stored = await server.superuser.collection(collection).getFullList();
+      expect(records.map(({ id }) => id)).toEqual(stored.map(({ id }) => id));
+      const first = requireDefined(stored[0], 'Collection has no records', collection);
+      await expect(pb.collection(collection).getOne(first.id)).resolves.toMatchObject({
+        id: first.id,
+      });
+      await expectStatus(pb.collection(collection).create({ key: 'forged' }), SUPERUSER_ONLY);
+      await expectStatus(
+        pb.collection(collection).update(first.id, { key: 'forged' }),
+        SUPERUSER_ONLY,
+      );
+      await expectStatus(pb.collection(collection).delete(first.id), SUPERUSER_ONLY);
+      expect(await server.superuser.collection(collection).getOne(first.id)).toEqual(first);
+      expect(await server.superuser.collection(collection).getFullList()).toHaveLength(
+        stored.length,
+      );
+    },
+  );
 
   it('lists charts and cannot delete them', async () => {
     const pb = clientFor(role);
@@ -327,7 +367,9 @@ describe('chart writes', () => {
       UPDATE_RULE_FAILED,
     );
     const charts = await server.superuser.collection('charts').getFullList();
-    expect(charts.map((record) => record.id).sort()).toEqual([chart.id, scoredChart.id].sort());
+    expect(charts.map((record) => record.id).sort()).toEqual(
+      [chart.id, scoredChart.id, hiddenChart.id].sort(),
+    );
     const stored = await server.superuser.collection('charts').getOne(chart.id);
     expect(stored['data']).toEqual(chart['data']);
   });
@@ -343,6 +385,46 @@ describe('chart writes', () => {
     const data = fakeChartData('perm', 'easy', 1_500);
     const updated = await editor.client.collection('charts').update(chart.id, { data });
     expect(updated['data']).toEqual(data);
+  });
+});
+
+describe('unpublished songs', () => {
+  const listIds = async (pb: PocketBase, collection: string): Promise<string[]> =>
+    (await pb.collection(collection).getFullList()).map((record) => record.id);
+
+  const expectPublishLocked = async (pb: PocketBase): Promise<void> => {
+    await expectStatus(
+      pb.collection('songs').update(hiddenSong.id, { isPublished: true }),
+      SUPERUSER_ONLY,
+    );
+    const stored = await server.superuser.collection('songs').getOne(hiddenSong.id);
+    expect(stored['isPublished']).toBe(false);
+  };
+
+  it.each<Role>(['guest', 'user'])(
+    'are hidden from the %s with their charts and scores',
+    async (role) => {
+      const pb = clientFor(role);
+      expect(await listIds(pb, 'songs')).toEqual([song.id]);
+      expect(await listIds(pb, 'charts')).not.toContain(hiddenChart.id);
+      expect(await listIds(pb, 'scores')).not.toContain(hiddenScore.id);
+      await expectStatus(pb.collection('songs').getOne(hiddenSong.id), VIEW_RULE_FAILED);
+      await expectStatus(pb.collection('charts').getOne(hiddenChart.id), VIEW_RULE_FAILED);
+      await expectStatus(pb.collection('scores').getOne(hiddenScore.id), VIEW_RULE_FAILED);
+      await expectPublishLocked(pb);
+    },
+  );
+
+  it('are visible to an editor with their charts but not their scores', async () => {
+    const pb = editor.client;
+    expect(await listIds(pb, 'songs')).toEqual(expect.arrayContaining([song.id, hiddenSong.id]));
+    expect(await listIds(pb, 'charts')).toContain(hiddenChart.id);
+    await expect(pb.collection('songs').getOne(hiddenSong.id)).resolves.toMatchObject({
+      isPublished: false,
+    });
+    await expect(pb.collection('charts').getOne(hiddenChart.id)).resolves.toBeDefined();
+    expect(await listIds(pb, 'scores')).not.toContain(hiddenScore.id);
+    await expectPublishLocked(pb);
   });
 });
 
@@ -402,16 +484,48 @@ describe('profile fields', () => {
     expect(users).toEqual([]);
   });
 
-  it.each([
-    ['nickname', 'Forged'],
-    ['featuredAchievement', 'FIRST_CLEAR'],
-  ])('cannot change %s through the users API', async (field, value) => {
+  it.each(['guest', 'editor'] as const)(
+    'cannot be changed on another account by the %s',
+    async (role) => {
+      const before = await server.superuser.collection('users').getOne(user.id);
+      await expectStatus(
+        clientFor(role).collection('users').update(user.id, {
+          nickname: 'Forged',
+          featuredAchievement: 'FIRST_CLEAR',
+        }),
+        UPDATE_RULE_FAILED,
+      );
+      const stored = await server.superuser.collection('users').getOne(user.id);
+      expect(stored['nickname']).toBe(before['nickname']);
+      expect(stored['featuredAchievement']).toBe(before['featuredAchievement']);
+    },
+  );
+
+  it('cannot be saved together with a forged isEditor', async () => {
     const before = await server.superuser.collection('users').getOne(user.id);
     await expectStatus(
-      user.client.collection('users').update(user.id, { [field]: value }),
+      user.client.collection('users').update(user.id, {
+        nickname: 'Forged',
+        isEditor: true,
+      }),
       UPDATE_RULE_FAILED,
     );
     const stored = await server.superuser.collection('users').getOne(user.id);
-    expect(stored[field]).toBe(before[field]);
+    expect(stored['nickname']).toBe(before['nickname']);
+    expect(stored['isEditor']).toBe(false);
+  });
+});
+
+// 비공개 곡을 공개하면 다른 describe 의 정확한 목록 비교가 바뀌므로 마지막에 둔다.
+describe('publishing a song', () => {
+  it('shows the song, its charts and its scores to players', async () => {
+    await server.superuser.collection('songs').update(hiddenSong.id, { isPublished: true });
+
+    const songs = await user.client.collection('songs').getFullList();
+    expect(songs.map((record) => record.id)).toContain(hiddenSong.id);
+    const charts = await user.client.collection('charts').getFullList();
+    expect(charts.map((record) => record.id)).toContain(hiddenChart.id);
+    const scores = await user.client.collection('scores').getFullList();
+    expect(scores.map((record) => record.id)).toContain(hiddenScore.id);
   });
 });

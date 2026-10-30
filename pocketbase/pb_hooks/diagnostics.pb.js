@@ -1,6 +1,6 @@
 /// <reference path="../pb_data/types.d.ts" />
-// Lets an operator see which header carries the real client IP behind PocketHost, so the trusted
-// proxy setting can be configured before the IP-based rate limits are enabled.
+// PocketHost 뒤에서 실제 클라이언트 IP 가 어느 헤더에 실리는지 운영자가 확인하게 해,
+// IP 기반 rate limit 을 켜기 전에 trusted proxy 설정을 맞출 수 있게 한다.
 routerAdd(
   'GET',
   '/api/dazbeat/diagnostics/client-ip',

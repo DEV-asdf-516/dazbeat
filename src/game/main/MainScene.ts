@@ -1,34 +1,50 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
+import type { AchievementCatalog } from '../../data/achievements.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
-import type { AccountAuth, AccountState } from '../accountState.js';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
-import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { SceneRequest } from '../sceneRoutes.js';
-import { getAccountPanel } from './accountPanel.js';
+import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
+import type { AccountAuth } from '../app/accountState.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
+import { getControlsGuide } from '../app/controlsGuide.js';
+import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
+import type { SceneRequest } from '../app/sceneRoutes.js';
+import { getAccountPanel } from './state/accountPanel.js';
 import { MainController } from './MainController.js';
-import type { CornerPanel, UserPanel } from './accountPanel.js';
-import { addConstellationFigure } from './constellationFigure.js';
-import { getMainMenuItems } from './mainMenu.js';
-import { getSignOutIconTexture } from './signOutIcon.js';
-import type { MainMenuItem } from './mainMenu.js';
-import { STAYING } from '../sceneExit.js';
-import type { SceneExit } from '../sceneExit.js';
-import { getAchievementEmblemTexture } from '../ui/achievementEmblem.js';
-import { Button, QUIET_PADDING_PX } from '../ui/Button.js';
+import type { CornerPanel, UserPanel } from './state/accountPanel.js';
+import { addConstellationFigure } from './view/constellationFigure.js';
+import {
+  getChangedRegions,
+  getMainButtonView,
+  getMainControlsCloseView,
+  getMainMenuItems,
+  isMainControlsEntryHovered,
+  isMainFocused,
+} from './state/mainMenu.js';
+import { getSignOutIconTexture } from './view/signOutIcon.js';
+import type {
+  MainButton,
+  MainFocus,
+  MainMenuItem,
+  MainRegion,
+  MainState,
+} from './state/mainMenu.js';
+import { STAYING } from '../app/sceneExit.js';
+import type { SceneExit } from '../app/sceneExit.js';
+import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmblem.js';
+import { requireDefined } from '../../invariant.js';
+import { Button, QUIET_PADDING_PX } from '../ui/view/widgets/Button.js';
 import {
   addCelestialSprite,
   playCelestialOnce,
   queueCelestialTextures,
-} from '../celestial/celestialSprites.js';
-import { queueImageLoads } from '../ui/imageLoad.js';
-import { MenuFocus } from '../ui/MenuFocus.js';
-import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
-import { YOUTUBE_HEART_IMAGE, playYoutubeHearts } from './youtubeHearts.js';
-import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
-import type { MenuAction } from '../ui/menuInput.js';
-import { LOADING_STAR_ID, LoadingStar } from '../ui/LoadingStar.js';
+} from '../celestial/view/celestialSprites.js';
+import { pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
+import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import { YOUTUBE_HEART_IMAGE, playYoutubeHearts } from './view/youtubeHearts.js';
+import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
+import { LOADING_STAR_ID, LoadingStar } from '../ui/view/widgets/LoadingStar.js';
 import {
   CARD_PANEL,
   COLORS,
@@ -38,12 +54,9 @@ import {
   TYPE_SCALE,
   textStyle,
   typeStyle,
-} from '../ui/theme.js';
-
-type MenuItem = MainMenuItem | 'account' | 'profile' | 'youtube';
+} from '../ui/view/theme.js';
 
 const LOGO_Y_PX = 300;
-const INITIAL_MENU_FOCUS: MenuItem = 'play';
 const PLAY_SPACING_AFTER_PX = 120;
 const MENU_SPACING_PX = 64;
 const MENU_ITEMS: Record<
@@ -162,6 +175,12 @@ const GROUND_FADE_COLOR = 0x050c1a;
 const GROUND_FADE_TOP_Y_PX = 820;
 const GROUND_FADE_MAX_ALPHA = 0.92;
 
+interface MainView {
+  chrome: MenuSceneChrome;
+  account: AccountView;
+  menuButtons: readonly { item: MainMenuItem; button: Button }[];
+}
+
 interface AccountView {
   hasGoogleIcon: boolean;
   button: Button;
@@ -177,10 +196,6 @@ interface AccountView {
 }
 
 export class MainScene extends Phaser.Scene {
-  private menuEntries: readonly { item: MainMenuItem; button: Button }[] = [];
-  private menu: MenuFocus<MenuItem> | null = null;
-  private playFocusSound: () => void = () => undefined;
-  private activateAccount: () => void = () => undefined;
   private exit: SceneExit<SceneRequest> = STAYING;
 
   constructor(
@@ -188,6 +203,7 @@ export class MainScene extends Phaser.Scene {
     private readonly i18n: I18n,
     private readonly auth: AccountAuth,
     private readonly celestial: CelestialCatalog,
+    private readonly catalog: AchievementCatalog,
   ) {
     super(SCENE_KEYS.main);
   }
@@ -224,13 +240,39 @@ export class MainScene extends Phaser.Scene {
   create(): void {
     this.exit = STAYING;
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
-    this.playFocusSound = () => soundEffects.play('menuFocus');
-    const chrome = new MenuSceneChrome(this, {
-      celestial: this.celestial,
-      screen: 'main',
-      readControlsMessages: () => this.i18n.t('controls', { returnObjects: true }),
-      readSettings: () => this.save.loadSettings(),
-    });
+    const pointer: ButtonPointer<MainButton> = {
+      pointerOver: (button) => controller.pointerOver(button),
+      pointerOut: (button) => controller.pointerOut(button),
+      pointerDown: (button) => controller.pointerDown(button),
+      pointerUp: (button) => controller.pointerUp(button),
+    };
+    const chrome = new MenuSceneChrome(
+      this,
+      {
+        celestial: this.celestial,
+        screen: 'main',
+      },
+      {
+        isLeaving: () => this.exit.kind === 'leaving',
+        handleControlsKey: (event) => controller.handleControlsKey(event),
+        handleMenuKey: (action) => {
+          switch (action) {
+            case 'up':
+              controller.moveFocus(-1);
+              return;
+            case 'down':
+              controller.moveFocus(1);
+              return;
+            case 'confirm':
+              controller.confirm();
+              return;
+            default:
+              return;
+          }
+        },
+      },
+      pointer,
+    );
     // 배경 바로 위에 두어 로고·메뉴·계정 UI 가 캐릭터 앞에 그려지게 한다.
     if (this.textures.exists(CHARACTER_TEXTURE_KEY)) {
       addConstellationFigure(
@@ -291,7 +333,7 @@ export class MainScene extends Phaser.Scene {
       focus: 'outline',
       label: '',
       colors: { hoverFill: COLORS.surfaceRaised },
-      onActivate: () => this.activate('profile'),
+      pointer: pointButton(pointer, 'profile'),
     }).setVisible(false);
     // 계정 동작은 메뉴보다 한 단계 작은 글자로 두어 PLAY 등 주 메뉴와 경쟁하지 않게 한다.
     const accountButton = new Button(this, 0, 0, {
@@ -299,21 +341,18 @@ export class MainScene extends Phaser.Scene {
       focus: 'slide',
       label: '',
       labelType: TYPE_SCALE.secondary,
-      onActivate: () => this.activate('account'),
+      pointer: pointButton(pointer, 'account'),
     });
     const youtubeButton = new Button(this, 0, YOUTUBE_BUTTON_TOP_Y_PX, {
       variant: 'quiet',
       focus: 'slide',
       label: 'YOUTUBE',
-      onActivate: () => this.activate('youtube'),
+      pointer: pointButton(pointer, 'youtube'),
     });
     if (this.textures.exists(YOUTUBE_ICON_TEXTURE_KEY)) {
       youtubeButton.setIcon(YOUTUBE_ICON_TEXTURE_KEY, YOUTUBE_ICON_SIZE_PX);
     }
     youtubeButton.alignX(ACCOUNT_BUTTON_RIGHT_X_PX, 1);
-    youtubeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () =>
-      playYoutubeHearts(this, youtubeButton),
-    );
     const view: AccountView = {
       hasGoogleIcon: this.textures.exists(GOOGLE_ICON_TEXTURE_KEY),
       button: accountButton,
@@ -344,105 +383,116 @@ export class MainScene extends Phaser.Scene {
         .setOrigin(0, 0),
       loadingStar: new LoadingStar(this, this.celestial),
     };
-    // 이전 create 의 Button 은 씬 종료와 함께 사라졌으므로 메뉴를 처음부터 구성한다.
-    this.menuEntries = [];
-    // 지난 방문의 메뉴 포커스는 이어받지 않는다.
-    this.menu = null;
+    // 메뉴 항목마다 버튼을 한 번만 만들고, 계정에 따라 보일 버튼과 자리는 menu 영역이 정한다.
+    const menuItems: readonly MainMenuItem[] = [
+      'play',
+      'practice',
+      'chartEditor',
+      'settings',
+      'credits',
+    ];
+    const mainView: MainView = {
+      chrome,
+      account: view,
+      menuButtons: menuItems.map((item) => ({
+        item,
+        button: new Button(this, SCREEN_LAYOUT.leftXPx, MENU_TOP_Y_PX, {
+          label: MENU_ITEMS[item].label,
+          variant: 'quiet',
+          focus: 'slide',
+          pointer: pointButton(pointer, item),
+        }),
+      })),
+    };
+    chrome.start(logo.getBounds());
     const controller = new MainController(this.auth, {
-      showAccount: (account) => {
-        this.renderAccount(view, account);
-        this.renderMenu(
-          view,
-          account,
-          this.menu === null ? INITIAL_MENU_FOCUS : this.menu.getFocused(),
-        );
+      render: (previous, next) => {
+        for (const region of getChangedRegions(previous, next)) {
+          this.renderRegion(mainView, next, region);
+        }
       },
-    });
-    this.activateAccount = () => controller.activateAccount();
-    chrome.start(logo.getBounds(), {
-      isLeaving: () => this.exit.kind === 'leaving',
-      handleMenuKey: (action) => this.handleMenuKey(action),
+      playFocusSound: () => soundEffects.play('menuFocus'),
+      activate: (button) => this.activate(button, controller),
     });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
-  private renderMenu(view: AccountView, account: AccountState, focused: MenuItem): void {
-    const items = getMainMenuItems(account);
-    if (
-      items.length !== this.menuEntries.length ||
-      items.some((item, index) => item !== this.menuEntries[index]?.item)
-    ) {
-      this.menuEntries.forEach(({ button }) => button.destroy());
-      let yPx = MENU_TOP_Y_PX;
-      this.menuEntries = items.map((item) => {
-        const button = new Button(this, SCREEN_LAYOUT.leftXPx, yPx, {
-          label: MENU_ITEMS[item].label,
-          variant: 'quiet',
-          focus: 'slide',
-          onActivate: () => this.activate(item),
-        });
-        yPx += MENU_ITEMS[item].spacingAfterPx;
-        return {
-          item,
-          button,
-        };
-      });
-    }
-    // 프로필 진입은 로그인 상태에 따라 생기고 없어지므로, 메뉴 항목이 그대로여도 포커스 순서는 다시 만든다.
-    // 화면 모서리에 있어도 키보드로 닿을 수 있도록 포커스 순서의 마지막에 둔다.
-    const entries: { item: MenuItem; button: Button }[] = [
-      ...this.menuEntries,
-      ...(account.kind === 'signedIn'
-        ? [
-            {
-              item: 'profile' as const,
-              button: view.profileButton,
-            },
-          ]
-        : []),
-      {
-        item: 'youtube',
-        button: view.youtubeButton,
-      },
-    ];
-    this.menu = new MenuFocus<MenuItem>(
-      entries,
-      (item) => {
-        this.playFocusSound();
-        if (item === 'youtube') {
-          playYoutubeHearts(this, view.youtubeButton);
+  private renderRegion(view: MainView, state: MainState, region: MainRegion): void {
+    switch (region) {
+      case 'account':
+        this.renderAccount(view.account, state);
+        return;
+      case 'menu': {
+        view.menuButtons.forEach(({ button }) => button.setVisible(false));
+        let yPx = MENU_TOP_Y_PX;
+        for (const item of getMainMenuItems(state.account)) {
+          requireDefined(
+            view.menuButtons.find((entry) => entry.item === item),
+            'Missing main menu button',
+            item,
+          )
+            .button.setY(yPx)
+            .setVisible(true);
+          yPx += MENU_ITEMS[item].spacingAfterPx;
         }
-      },
-      entries.some(({ item }) => item === focused) ? focused : INITIAL_MENU_FOCUS,
-    );
+        return;
+      }
+      case 'menuButtons':
+        view.menuButtons.forEach(({ item, button }) =>
+          button.render(getMainButtonView(state, item)),
+        );
+        return;
+      case 'profileButton':
+        view.account.profileButton.render(getMainButtonView(state, 'profile'));
+        return;
+      case 'accountButton':
+        view.account.button.render(getMainButtonView(state, 'account'));
+        return;
+      case 'youtubeButton':
+        view.account.youtubeButton.render(getMainButtonView(state, 'youtube'));
+        return;
+      case 'controlsEntry':
+        view.chrome.renderControlsEntry(isMainControlsEntryHovered(state));
+        return;
+      case 'controlsClose':
+        view.chrome.renderControlsClose(getMainControlsCloseView(state));
+        return;
+      case 'menuFocusMotion':
+        view.menuButtons.forEach(({ item, button }) =>
+          button.playFocus(isMainFocused(state, item)),
+        );
+        view.account.profileButton.playFocus(isMainFocused(state, 'profile'));
+        view.account.youtubeButton.playFocus(isMainFocused(state, 'youtube'));
+        return;
+      case 'menuItemsMotion':
+        view.menuButtons.forEach(({ item, button }) =>
+          button.playFocus(isMainFocused(state, item)),
+        );
+        return;
+      case 'controls':
+        view.chrome.renderControls(
+          state.isControlsOpen
+            ? getControlsGuide(
+                this.i18n.t('controls', { returnObjects: true }),
+                this.save.loadSettings(),
+              )
+            : null,
+        );
+        return;
+      case 'youtubeHearts':
+        playYoutubeHearts(this, view.account.youtubeButton);
+        return;
+    }
   }
 
-  private handleMenuKey(action: MenuAction | null): void {
-    if (this.menu === null) {
-      return;
-    }
-    switch (action) {
-      case 'up':
-        this.menu.move(-1);
-        break;
-      case 'down':
-        this.menu.move(1);
-        break;
-      case 'confirm':
-        this.activate(this.menu.getFocused());
-        break;
-      default:
-        break;
-    }
-  }
-
-  private activate(item: MenuItem): void {
+  // 씬 전환 중에는 이동하지 않고 계정 로그인·로그아웃도 시작하지 않는다.
+  private activate(item: MainFocus | 'account', controller: MainController): void {
     if (this.exit.kind === 'leaving') {
       return;
     }
     switch (item) {
       case 'account':
-        this.activateAccount();
+        controller.activateAccount();
         return;
       case 'profile':
         this.exit = exitScene(this, this.exit, PROFILE_REQUEST);
@@ -457,25 +507,25 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private renderAccount(view: AccountView, account: AccountState): void {
-    const panel = getAccountPanel(account, view.hasGoogleIcon);
+  private renderAccount(view: AccountView, state: MainState): void {
+    const panel = getAccountPanel(state.account, view.hasGoogleIcon, this.catalog);
     switch (panel.kind) {
       case 'user':
         this.renderUserPanel(view, panel);
-        break;
+        view.loadingStar.show(null);
+        return;
       case 'corner':
         this.renderCornerPanel(view, panel);
-        break;
+        view.loadingStar.show(
+          panel.isSigningIn
+            ? {
+                left: view.button.x + QUIET_PADDING_PX.xPx,
+                centerY: view.button.y + view.button.height / 2,
+              }
+            : null,
+        );
+        return;
     }
-    // 진행 중 안내 문구는 따로 띄우지 않고 버튼 글자 옆에서 별만 돌린다.
-    view.loadingStar.show(
-      account.kind === 'signingIn'
-        ? {
-            left: view.button.x + QUIET_PADDING_PX.xPx,
-            centerY: view.button.y + view.button.height / 2,
-          }
-        : null,
-    );
   }
 
   private renderUserPanel(view: AccountView, panel: UserPanel): void {
@@ -503,7 +553,12 @@ export class MainScene extends Phaser.Scene {
     } else {
       view.userEmblem
         .setTexture(
-          getAchievementEmblemTexture(this, panel.featuredAchievement, USER_EMBLEM_SIZE_PX),
+          getAchievementEmblemTexture(
+            this,
+            this.catalog,
+            panel.featuredAchievement,
+            USER_EMBLEM_SIZE_PX,
+          ),
         )
         .setPosition(contentLeftXPx, view.userName.y + view.userName.height / 2)
         .setVisible(true);

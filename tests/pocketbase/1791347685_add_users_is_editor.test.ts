@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import { requireDefined } from '../../src/invariant.js';
 
 const MIGRATION_URL = new URL(
   '../../pocketbase/pb_migrations/1791347685_add_users_is_editor.js',
@@ -108,11 +109,7 @@ function makeApp(usersRules: Partial<Rules> = {}) {
   const saved: SavedCollection[] = [];
   const app: FakeApp = {
     findCollectionByNameOrId(name) {
-      const collection = collections.get(name);
-      if (collection === undefined) {
-        throw new Error(`Unknown collection ${name}`);
-      }
-      return collection;
+      return requireDefined(collections.get(name), 'Unknown collection', name);
     },
     save(collection) {
       const rules: Rules = {
@@ -159,11 +156,11 @@ async function loadMigration(): Promise<{ up: MigrationStep; down: MigrationStep
 }
 
 function lastSaved(saved: SavedCollection[], name: string): SavedCollection {
-  const collection = saved.findLast((entry) => entry.name === name);
-  if (collection === undefined) {
-    throw new Error(`${name} was not saved`);
-  }
-  return collection;
+  return requireDefined(
+    saved.findLast((entry) => entry.name === name),
+    'Collection was not saved',
+    name,
+  );
 }
 
 describe('1791347685_add_users_is_editor migration', () => {

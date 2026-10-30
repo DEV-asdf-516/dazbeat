@@ -1,42 +1,45 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { loadYouTubeIframeApi, YouTubePlayer } from '../../audio/YouTubePlayer.js';
-import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
-import { DIFFICULTIES, getAvailableDifficulties } from '../../data/songs.js';
-import type { Song } from '../../data/songs.js';
+import { DIFFICULTIES } from '../../data/songs.js';
 import { getLanes } from '../../rhythm/lanes.js';
 import { getNoteTimeAtY, getNoteY } from '../../rhythm/notePosition.js';
-import type { Difficulty, LaneCount, Note } from '../../rhythm/types.js';
+import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { DEFAULT_SETTINGS } from '../../storage/settings.js';
-import type { Settings } from '../../storage/settings.js';
-import { canCurrentUserOpenChartEditor } from '../accountState.js';
-import type { AccountAuth } from '../accountState.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import { canCurrentUserOpenChartEditor } from '../app/accountState.js';
+import type { AccountAuth } from '../app/accountState.js';
+import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import { ChartEditorController } from './ChartEditorController.js';
 import type { ChartCatalog } from './ChartEditorController.js';
 import {
-  canClearNotes,
-  canDeleteSelected,
-  canSave,
+  getEditorButtonView,
   getEditorDecorations,
   getChangedRegions,
+  getDifficultyLook,
+  getHoveredLaneCount,
+  getHoveredTool,
   getEditorStatus,
+  getInitialDifficulty,
+  getLaneCountMotion,
   getNotes,
   getPending,
+  getPlayButtonLabel,
   getSelection,
+  getSelectionPanel,
   getSession,
-  getTransport,
+  getToolMotion,
   hasUnsavedChanges,
-} from './chartEditorState.js';
+} from './state/chartEditorState.js';
 import type {
   ChartEditorState,
+  DifficultyLook,
+  EditorButton,
+  EditorPlayerStatus,
   EditorRegion,
   EditorStatus,
   PendingAction,
-  Selection,
-} from './chartEditorState.js';
-import type { EditTool, TimelinePointer } from './chartGesture.js';
+} from './state/chartEditorState.js';
+import type { EditTool, TimelinePointer } from './state/chartGesture.js';
 import {
   createEditorLayout,
   getLaneAtXPx,
@@ -45,32 +48,39 @@ import {
   getSeekTimeMs,
   getSeekXPx,
   toViewportRect,
-} from './chartEditorLayout.js';
-import type { PxRect } from './chartEditorLayout.js';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
-import { SCENE_KEYS, startScene } from '../sceneRoutes.js';
-import type { ChartEditorSceneData } from '../sceneRoutes.js';
-import { getGridTimesMs } from './editorTimeline.js';
-import { describeSelection, formatEditorTime } from './selectionInfo.js';
-import type { Button } from '../ui/Button.js';
-import { ConfirmDialog } from '../ui/ConfirmDialog.js';
-import type { ConfirmTone } from '../ui/ConfirmDialog.js';
-import { DRAG_CURSOR, HOVER_CURSOR } from '../ui/cursor.js';
+} from './state/chartEditorLayout.js';
+import type { PxRect } from './state/chartEditorLayout.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
+import { SCENE_KEYS, startScene } from '../app/sceneRoutes.js';
+import type { ChartEditorSceneData } from '../app/sceneRoutes.js';
+import { getGridTimesMs } from './state/editorTimeline.js';
+import { describeSelection, formatEditorTime } from './state/selectionInfo.js';
+import type { Button } from '../ui/view/widgets/Button.js';
+import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import type { ConfirmTone } from '../ui/view/widgets/ConfirmDialog.js';
+import { DRAG_CURSOR, HOVER_CURSOR } from '../ui/view/input/cursor.js';
 import {
   addCelestialSprite,
   queueCelestialTextures,
   registerCelestialAnimations,
-} from '../celestial/celestialSprites.js';
-import { createAuxiliaryButton } from '../ui/auxiliaryButton.js';
-import { createCenteredEditorButton, createEditorButton } from './editorButton.js';
-import { EditorNoteLayer } from './EditorNoteLayer.js';
-import { SegmentedControl } from './SegmentedControl.js';
-import { LANE_COUNT_SEGMENTS, TOOL_SEGMENTS } from './toolSegments.js';
-import { setFittedText } from '../ui/fitText.js';
-import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
-import { NoticeText, type Notice } from '../ui/NoticeText.js';
-import { addKeyHintColumn } from '../ui/keyHintView.js';
-import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../ui/menuInput.js';
+} from '../celestial/view/celestialSprites.js';
+import { createAuxiliaryButton } from '../ui/view/widgets/auxiliaryButton.js';
+import { pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer, PointerActions } from '../ui/view/input/hoverTarget.js';
+import { createCenteredEditorButton, createEditorButton } from './view/editorButton.js';
+import { EditorNoteLayer } from './view/EditorNoteLayer.js';
+import { SegmentedControl } from './view/SegmentedControl.js';
+import { getSegmentAppearance } from './state/segmentAppearance.js';
+import { LANE_COUNT_SEGMENTS, TOOL_SEGMENTS } from './view/toolSegments.js';
+import { setFittedText } from '../ui/view/widgets/fitText.js';
+import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
+import { NoticeText, type Notice } from '../ui/view/widgets/NoticeText.js';
+import { addKeyHintColumn } from '../ui/view/widgets/keyHintView.js';
+import {
+  handleEachEventOnce,
+  readMenuAction,
+  requireKeyboard,
+} from '../ui/view/input/menuInput.js';
 import {
   CELESTIAL_COLORS,
   GAMEPLAY_DEPTH,
@@ -78,10 +88,10 @@ import {
   addTextUnderline,
   setTextColor,
   typeStyle,
-} from '../ui/theme.js';
-import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './editorTheme.js';
-import { addBarHairlines } from './hairline.js';
-import { addHairline, HAIRLINE_PX } from '../ui/hairline.js';
+} from '../ui/view/theme.js';
+import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './view/editorTheme.js';
+import { addBarHairlines } from './view/hairline.js';
+import { addHairline, HAIRLINE_PX } from '../ui/view/textures/hairline.js';
 import { requireDefined } from '../../invariant.js';
 import { msToSec, secToMs } from '../../time.js';
 
@@ -91,17 +101,16 @@ interface DifficultyItem {
   underline: Phaser.GameObjects.Rectangle;
 }
 
-type PlayerStatus =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'starting'; readonly player: YouTubePlayer }
-  | {
-      readonly kind: 'ready';
-      readonly player: YouTubePlayer;
-      readonly timeSource: YouTubeTimeSource;
-    }
-  | { readonly kind: 'error'; readonly message: string };
+interface SegmentActions<T> {
+  readonly onSelect: (value: T) => void;
+  readonly onHover: (value: T) => void;
+  readonly onUnhover: (value: T) => void;
+}
 
 interface EditorView {
+  backButton: Button;
+  previousSongButton: Button;
+  nextSongButton: Button;
   songTitle: Phaser.GameObjects.Text;
   difficulties: DifficultyItem[];
   status: NoticeText;
@@ -113,6 +122,7 @@ interface EditorView {
   seekMarks: Phaser.GameObjects.Graphics;
   playButton: Button;
   playerText: Phaser.GameObjects.Text;
+  noteLayer: EditorNoteLayer;
   grid: Phaser.GameObjects.Graphics;
   gridLabels: Phaser.GameObjects.Text[];
   laneLines: Phaser.GameObjects.Graphics;
@@ -131,6 +141,26 @@ const LAYOUT = createEditorLayout(GAME_WIDTH, GAME_HEIGHT);
 const TIMELINE_HEIGHT_PX = LAYOUT.timeline.bottomYPx - LAYOUT.timeline.topYPx;
 const BUTTON_GAP_PX = 4;
 const DIFFICULTY_GAP_PX = 24;
+const DIFFICULTY_LOOKS: Readonly<
+  Record<DifficultyLook, { readonly color: number; readonly isUnderlined: boolean }>
+> = {
+  selectedWithChart: {
+    color: CELESTIAL_COLORS.textPrimary,
+    isUnderlined: true,
+  },
+  selectedWithoutChart: {
+    color: CELESTIAL_COLORS.textSecondary,
+    isUnderlined: true,
+  },
+  withChart: {
+    color: CELESTIAL_COLORS.textPrimary,
+    isUnderlined: false,
+  },
+  withoutChart: {
+    color: CELESTIAL_COLORS.textSecondary,
+    isUnderlined: false,
+  },
+};
 const SAVE_WIDTH_PX = 88;
 const SAVE_HEIGHT_PX = 38;
 const STATUS_GAP_PX = 16;
@@ -208,14 +238,6 @@ const SNAP_THRESHOLD_MS = secToMs(SNAP_THRESHOLD_PX / PX_PER_SECOND);
 const PICK_TOLERANCE_MS = secToMs(PICK_TOLERANCE_PX / PX_PER_SECOND);
 
 export class ChartEditorScene extends Phaser.Scene {
-  private noteLayer: { songId: string; laneCount: LaneCount; layer: EditorNoteLayer } | null = null;
-  private laneLinesLaneCount: LaneCount | null = null;
-  private seekMarkedNotes: readonly Note[] | null = null;
-  private settings: Settings = DEFAULT_SETTINGS;
-  /** player 이벤트와 늦은 API 로드 결과는 시작 때 잡은 토큰이 아직 현재일 때만 반영한다. */
-  private playerToken: object | null = null;
-  private playerStatus: PlayerStatus = { kind: 'loading' };
-
   constructor(
     private readonly save: LocalSave,
     private readonly mvLayer: HTMLElement,
@@ -242,12 +264,8 @@ export class ChartEditorScene extends Phaser.Scene {
     }
     registerCelestialAnimations(this, this.celestial);
     const keyboard = requireKeyboard(this);
-    this.settings = this.save.loadSettings();
+    const settings = this.save.loadSettings();
     this.mvLayer.dataset.mvMode = 'normal';
-    this.noteLayer = null;
-    this.laneLinesLaneCount = null;
-    this.seekMarkedNotes = null;
-    this.playerStatus = { kind: 'loading' };
     const onResize = (): void => this.placeVideoPreview();
     onResize();
     this.scale.on(Phaser.Scale.Events.RESIZE, onResize);
@@ -255,22 +273,14 @@ export class ChartEditorScene extends Phaser.Scene {
       this.catalog,
       data.list,
       {
-        play: (fromSec) => {
-          if (this.playerStatus.kind !== 'ready') {
-            return null;
-          }
-          this.playerStatus.timeSource.hold(fromSec);
-          this.playerStatus.player.requestPlay(fromSec);
-          return this.playerStatus.timeSource;
+        players: {
+          loadApi: loadYouTubeIframeApi,
+          create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
         },
-        pause: () => {
-          if (this.playerStatus.kind === 'ready') {
-            this.playerStatus.player.pause();
-          }
-        },
+        now: () => performance.now(),
+        volume: settings.masterVolume * settings.musicVolume,
       },
       {
-        changeSong: (song) => this.replacePlayer(view, editor, song),
         leave: (focusedSongId) =>
           startScene(this, 'chartEditorSelect', {
             kind: 'return',
@@ -306,9 +316,6 @@ export class ChartEditorScene extends Phaser.Scene {
       delete this.mvLayer.dataset.mvFrame;
       Object.values(MV_FRAME_PROPERTIES).forEach((name) => this.mvLayer.style.removeProperty(name));
       editor.close();
-      this.noteLayer = null;
-      this.playerToken = null;
-      this.releasePlayer();
     });
 
     // 곡 목록 화면이 같은 편집 목록에서 고른 곡이므로 없으면 진입 경로의 오류다.
@@ -317,8 +324,8 @@ export class ChartEditorScene extends Phaser.Scene {
       'Chart editor opened for a song not in the list',
       data.songId,
     );
-    const { laneMode } = this.settings;
-    editor.select(song, laneMode, getAvailableDifficulties(song, laneMode)[0] ?? 'easy');
+    const { laneMode } = settings;
+    editor.select(song, laneMode, getInitialDifficulty(song, laneMode));
   }
 
   private placeVideoPreview(): void {
@@ -356,35 +363,41 @@ export class ChartEditorScene extends Phaser.Scene {
       )
       .setOrigin(0, 0)
       .setRounded(RADIUS.smallPx);
+    const pointer: ButtonPointer<EditorButton> = {
+      pointerOver: (button) => editor.pointerOverButton(button),
+      pointerOut: (button) => editor.pointerOutButton(button),
+      pointerDown: (button) => editor.pointerDownButton(button),
+      pointerUp: (button) => editor.pointerUpButton(button),
+    };
     const topCenterYPx = LAYOUT.topBar.centerYPx;
-    const back = createAuxiliaryButton(this, LAYOUT.video.leftPx, topCenterYPx, {
+    const backButton = createAuxiliaryButton(this, LAYOUT.video.leftPx, topCenterYPx, {
       label: 'BACK',
-      onActivate: () => editor.back(),
+      pointer: pointButton(pointer, 'back'),
     });
-    const previousSong = createCenteredEditorButton(
+    const songBackButton = createCenteredEditorButton(
       this,
-      back.x + back.width + BUTTON_GAP_PX,
+      backButton.x + backButton.width + BUTTON_GAP_PX,
       topCenterYPx,
       {
         variant: 'quiet',
         label: '◀',
-        onActivate: () => editor.moveSong(-1),
+        pointer: pointButton(pointer, 'previousSong'),
       },
     );
-    createCenteredEditorButton(
+    const nextSongButton = createCenteredEditorButton(
       this,
-      previousSong.x + previousSong.width + BUTTON_GAP_PX,
+      songBackButton.x + songBackButton.width + BUTTON_GAP_PX,
       topCenterYPx,
       {
         variant: 'quiet',
         label: '▶',
-        onActivate: () => editor.moveSong(1),
+        pointer: pointButton(pointer, 'nextSong'),
       },
     );
     const saveButton = createCenteredEditorButton(this, 0, topCenterYPx, {
       variant: 'secondary',
       label: 'SAVE',
-      onActivate: () => void editor.save(),
+      pointer: pointButton(pointer, 'save'),
       widthPx: SAVE_WIDTH_PX,
       heightPx: SAVE_HEIGHT_PX,
     }).alignX(LAYOUT.tools.leftPx + LAYOUT.tools.widthPx, 1);
@@ -399,6 +412,9 @@ export class ChartEditorScene extends Phaser.Scene {
     const statusLeftXPx = lastDifficulty.text.x + lastDifficulty.text.width + STATUS_GAP_PX;
     const transportYPx = LAYOUT.bottomBar.centerYPx;
     const view: EditorView = {
+      backButton,
+      previousSongButton: songBackButton,
+      nextSongButton,
       songTitle: this.add
         .text(
           LAYOUT.title.leftPx,
@@ -458,7 +474,7 @@ export class ChartEditorScene extends Phaser.Scene {
       playButton: createCenteredEditorButton(this, LAYOUT.playLeftPx, transportYPx, {
         variant: 'quiet',
         label: 'PLAY',
-        onActivate: () => editor.togglePlayback(),
+        pointer: pointButton(pointer, 'play'),
       }),
       playerText: this.add.text(LAYOUT.playerText.leftPx, LAYOUT.playerText.topYPx, '', {
         ...typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
@@ -466,6 +482,12 @@ export class ChartEditorScene extends Phaser.Scene {
           width: LAYOUT.playerText.widthPx,
           useAdvancedWrap: true,
         },
+      }),
+      noteLayer: new EditorNoteLayer(this, {
+        playheadYPx: LAYOUT.timeline.playheadYPx,
+        pxPerSecond: PX_PER_SECOND,
+        topYPx: LAYOUT.timeline.topYPx,
+        bottomYPx: LAYOUT.timeline.bottomYPx,
       }),
       grid: this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider),
       gridLabels: Array.from({ length: GRID_LABEL_COUNT }, () =>
@@ -477,14 +499,38 @@ export class ChartEditorScene extends Phaser.Scene {
       ),
       laneLines: this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider),
       ...this.createToolArea(toolSurface, {
-        onSelectLaneCount: (laneCount) => editor.selectLaneCount(laneCount),
-        onSelectTool: (tool) => editor.selectTool(tool),
-        onDelete: () => editor.deleteSelected(),
-        onClear: () => editor.requestClearNotes(),
+        laneCount: {
+          onSelect: (laneCount) => editor.selectLaneCount(laneCount),
+          onHover: (laneCount) =>
+            editor.hoverSegment({
+              kind: 'laneCount',
+              laneCount,
+            }),
+          onUnhover: (laneCount) =>
+            editor.unhoverSegment({
+              kind: 'laneCount',
+              laneCount,
+            }),
+        },
+        tool: {
+          onSelect: (tool) => editor.selectTool(tool),
+          onHover: (tool) =>
+            editor.hoverSegment({
+              kind: 'tool',
+              tool,
+            }),
+          onUnhover: (tool) =>
+            editor.unhoverSegment({
+              kind: 'tool',
+              tool,
+            }),
+        },
+        deletePointer: pointButton(pointer, 'delete'),
+        clearPointer: pointButton(pointer, 'clear'),
       }),
       confirm: new ConfirmDialog(this, {
-        onAccept: () => editor.confirmPending(),
-        onCancel: () => editor.cancelPending(),
+        cancel: pointButton(pointer, 'confirmCancel'),
+        accept: pointButton(pointer, 'confirmAccept'),
       }),
     };
     this.createTimeline(editor);
@@ -528,10 +574,10 @@ export class ChartEditorScene extends Phaser.Scene {
   private createToolArea(
     surface: Phaser.GameObjects.Rectangle,
     actions: {
-      onSelectLaneCount: (laneCount: LaneCount) => void;
-      onSelectTool: (tool: EditTool) => void;
-      onDelete: () => void;
-      onClear: () => void;
+      laneCount: SegmentActions<LaneCount>;
+      tool: SegmentActions<EditTool>;
+      deletePointer: PointerActions;
+      clearPointer: PointerActions;
     },
   ): Pick<
     EditorView,
@@ -557,7 +603,7 @@ export class ChartEditorScene extends Phaser.Scene {
         widthPx: TOOLS_CONTENT_RIGHT_PX - TOOLS_CONTENT_LEFT_PX,
       },
       LANE_COUNT_SEGMENTS,
-      actions.onSelectLaneCount,
+      actions.laneCount,
     );
     const toolRuleYPx = laneCountsYPx + laneCountSwitch.heightPx + TOOLS_SECTION_GAP_PX;
     addHairline(this, TOOLS_CONTENT_LEFT_PX, toolRuleYPx, TOOLS_CONTENT_RIGHT_PX);
@@ -574,7 +620,7 @@ export class ChartEditorScene extends Phaser.Scene {
         widthPx: TOOLS_CONTENT_RIGHT_PX - TOOLS_CONTENT_LEFT_PX,
       },
       TOOL_SEGMENTS,
-      actions.onSelectTool,
+      actions.tool,
     );
     const selectionRuleYPx = toolsYPx + toolSwitch.heightPx + TOOLS_SECTION_GAP_PX;
     addHairline(this, TOOLS_CONTENT_LEFT_PX, selectionRuleYPx, TOOLS_CONTENT_RIGHT_PX);
@@ -614,7 +660,7 @@ export class ChartEditorScene extends Phaser.Scene {
         // 선택 노트에 대한 동작임이 보이도록 정보 열 폭 전체를 SAVE 와 같은 테두리 버튼으로 채운다.
         variant: 'secondary',
         label: 'DELETE',
-        onActivate: actions.onDelete,
+        pointer: actions.deletePointer,
         widthPx: TOOLS_CONTENT_RIGHT_PX - TOOLS_CONTENT_LEFT_PX,
         heightPx: SAVE_HEIGHT_PX,
       },
@@ -624,7 +670,7 @@ export class ChartEditorScene extends Phaser.Scene {
     const clearButton = createEditorButton(this, 0, countRuleYPx + TOOLS_SECTION_GAP_PX, {
       variant: 'quiet',
       label: 'CLEAR',
-      onActivate: actions.onClear,
+      pointer: actions.clearPointer,
     }).alignX(TOOLS_CONTENT_RIGHT_PX, 1);
     const noteCountText = this.add
       .text(
@@ -769,22 +815,51 @@ export class ChartEditorScene extends Phaser.Scene {
     next: ChartEditorState,
   ): void {
     for (const region of getChangedRegions(previous, next)) {
-      this.renderRegion(view, next, region);
+      this.renderRegion(view, previous, next, region);
     }
   }
 
-  private renderRegion(view: EditorView, state: ChartEditorState, region: EditorRegion): void {
+  private renderRegion(
+    view: EditorView,
+    previous: ChartEditorState,
+    state: ChartEditorState,
+    region: EditorRegion,
+  ): void {
     switch (region) {
       case 'selection': {
         const selection = getSelection(state);
         this.renderSongTitle(view, selection?.song.title ?? '');
-        view.difficulties.forEach((item) => this.renderDifficulty(item, selection));
+        view.difficulties.forEach((item) => this.renderDifficulty(item, state));
+        return;
+      }
+      case 'laneCountIndicator': {
+        const selection = getSelection(state);
         if (selection !== null) {
-          view.laneCountSwitch.render(selection.laneCount);
-          this.renderLaneLines(view, selection.laneCount);
+          view.laneCountSwitch.renderIndicator(selection.laneCount, getLaneCountMotion(previous));
         }
         return;
       }
+      case 'laneCountSegments': {
+        const selection = getSelection(state);
+        if (selection !== null) {
+          const hovered = getHoveredLaneCount(state);
+          view.laneCountSwitch.renderSegments((laneCount) =>
+            getSegmentAppearance(laneCount, selection.laneCount, hovered),
+          );
+        }
+        return;
+      }
+      case 'toolIndicator':
+        view.toolSwitch.renderIndicator(state.tool, getToolMotion(previous, state));
+        return;
+      case 'toolSegments': {
+        const hovered = getHoveredTool(state);
+        view.toolSwitch.renderSegments((tool) => getSegmentAppearance(tool, state.tool, hovered));
+        return;
+      }
+      case 'laneLines':
+        this.renderLaneLines(view, getSelection(state)?.laneCount ?? null);
+        return;
       case 'status':
         this.renderStatus(view, state);
         return;
@@ -797,17 +872,44 @@ export class ChartEditorScene extends Phaser.Scene {
       case 'playButton':
         this.renderPlayButton(view, state);
         return;
-      case 'player':
-        this.renderPlayerStatus(view);
-        return;
       case 'playhead':
         this.renderPlayhead(view, state);
+        return;
+      case 'seekMarks':
+        this.renderSeekMarks(view, state);
         return;
       case 'notes':
         this.renderNotes(view, state);
         return;
       case 'decorations':
         this.renderDecorations(view, state);
+        return;
+      case 'playerStatus':
+        this.renderPlayerStatus(view, state.player);
+        return;
+      case 'backButton':
+        view.backButton.render(getEditorButtonView(state, 'back'));
+        return;
+      case 'previousSongButton':
+        view.previousSongButton.render(getEditorButtonView(state, 'previousSong'));
+        return;
+      case 'nextSongButton':
+        view.nextSongButton.render(getEditorButtonView(state, 'nextSong'));
+        return;
+      case 'saveButton':
+        view.saveButton.render(getEditorButtonView(state, 'save'));
+        return;
+      case 'deleteButton':
+        view.deleteButton.render(getEditorButtonView(state, 'delete'));
+        return;
+      case 'clearButton':
+        view.clearButton.render(getEditorButtonView(state, 'clear'));
+        return;
+      case 'confirmButtons':
+        view.confirm.renderButtons(
+          getEditorButtonView(state, 'confirmCancel'),
+          getEditorButtonView(state, 'confirmAccept'),
+        );
         return;
     }
   }
@@ -839,100 +941,34 @@ export class ChartEditorScene extends Phaser.Scene {
     zone.on(Phaser.Input.Events.GAMEOBJECT_DRAG, seekToPointer);
   }
 
-  private replacePlayer(view: EditorView, editor: ChartEditorController, song: Song): void {
-    const token = {};
-    this.playerToken = token;
-    this.releasePlayer();
-    this.playerStatus = { kind: 'loading' };
-    void this.createPlayer(view, editor, song, token);
-  }
-
-  private releasePlayer(): void {
-    const status = this.playerStatus;
-    if (status.kind === 'starting' || status.kind === 'ready') {
-      status.player.destroy();
-      this.playerStatus = { kind: 'loading' };
-    }
-  }
-
-  private async createPlayer(
-    view: EditorView,
-    editor: ChartEditorController,
-    song: Song,
-    token: object,
-  ): Promise<void> {
-    try {
-      await loadYouTubeIframeApi();
-    } catch (error) {
-      if (this.playerToken === token) {
-        this.failPlayer(view, this.i18n.t('gameplay.playerLoadFailed'), error);
-      }
-      return;
-    }
-    if (this.playerToken !== token) {
-      return;
-    }
-    try {
-      const player = new YouTubePlayer(this.mvLayer, song.youtubeVideoId, {
-        onReady: () => {
-          if (this.playerToken !== token) {
-            return;
-          }
-          player.setVolume(this.settings.masterVolume * this.settings.musicVolume);
-          this.playerStatus = {
-            kind: 'ready',
-            player,
-            timeSource,
-          };
-          this.renderPlayerStatus(view);
-        },
-        onStateChange: (state) => {
-          if (this.playerToken === token) {
-            timeSource.handleStateChange(state);
-            editor.handlePlayerState(state);
-          }
-        },
-        onError: (kind, code) => {
-          if (this.playerToken !== token) {
-            return;
-          }
-          player.destroy();
-          this.playerStatus = {
-            kind: 'error',
-            message: this.i18n.t('youtubeError.withCode', {
-              message: this.i18n.t(`youtubeError.${kind}`),
-              code,
-            }),
-          };
-          editor.stopPlayback();
-          this.renderPlayerStatus(view);
-        },
-      });
-      const timeSource = new YouTubeTimeSource(() => performance.now());
-      this.playerStatus = {
-        kind: 'starting',
-        player,
-      };
-    } catch (error) {
-      this.failPlayer(view, this.i18n.t('gameplay.playerLoadFailed'), error);
-    }
-  }
-
-  private failPlayer(view: EditorView, message: string, error: unknown): void {
-    console.error('Failed to load YouTube player for chart editor', error);
-    this.playerStatus = {
-      kind: 'error',
-      message,
-    };
-    this.renderPlayerStatus(view);
-  }
-
   private renderPlayButton(view: EditorView, state: ChartEditorState): void {
-    view.playButton.setLabel(getTransport(state).kind === 'paused' ? 'PLAY' : 'PAUSE');
+    view.playButton.setLabel(getPlayButtonLabel(state)).render(getEditorButtonView(state, 'play'));
   }
 
-  private renderPlayerStatus(view: EditorView): void {
-    view.playerText.setText(this.playerStatus.kind === 'error' ? this.playerStatus.message : '');
+  private renderPlayerStatus(view: EditorView, player: EditorPlayerStatus): void {
+    switch (player.kind) {
+      case 'loading':
+      case 'ready':
+        view.playerText.setText('');
+        return;
+      case 'failed':
+        view.playerText.setText(this.translatePlayerFailure(player.failure));
+        return;
+    }
+  }
+
+  private translatePlayerFailure(
+    failure: Extract<EditorPlayerStatus, { kind: 'failed' }>['failure'],
+  ): string {
+    switch (failure.kind) {
+      case 'loadFailed':
+        return this.i18n.t('gameplay.playerLoadFailed');
+      case 'videoError':
+        return this.i18n.t('youtubeError.withCode', {
+          message: this.i18n.t(`youtubeError.${failure.errorKind}`),
+          code: failure.code,
+        });
+    }
   }
 
   private renderSongTitle(view: EditorView, title: string): void {
@@ -942,7 +978,6 @@ export class ChartEditorScene extends Phaser.Scene {
   private renderStatus(view: EditorView, state: ChartEditorState): void {
     const status = getEditorStatus(state);
     view.status.show(this.getStatusMessage(status));
-    view.saveButton.setEnabled(canSave(state));
     view.unsavedDot.setVisible(hasUnsavedChanges(state));
   }
 
@@ -953,11 +988,11 @@ export class ChartEditorScene extends Phaser.Scene {
   private renderConfirm(view: EditorView, state: ChartEditorState): void {
     const pending = getPending(state);
     if (pending === null) {
-      view.confirm.hide();
+      view.confirm.render(null);
       return;
     }
     const labels = CONFIRM_LABELS[pending.kind];
-    view.confirm.show({
+    view.confirm.render({
       title: this.i18n.t(labels.titleKey),
       body: this.i18n.t(labels.bodyKey, { noteCount: getNotes(state).length }),
       cancelLabel: 'CANCEL',
@@ -967,35 +1002,27 @@ export class ChartEditorScene extends Phaser.Scene {
   }
 
   private renderPanel(view: EditorView, state: ChartEditorState): void {
-    view.toolSwitch.render(state.tool);
-    const draft = getSession(state)?.draft ?? null;
-    const selected = draft?.selected ?? null;
-    view.selectionTitle.setText(
-      this.i18n.t(selected === null ? 'chartEditor.noSelection' : 'chartEditor.selectionSection'),
-    );
-    describeSelection(selected).forEach(({ value }, index) => {
+    const { titleKey, noteCount } = getSelectionPanel(state);
+    view.selectionTitle.setText(this.i18n.t(titleKey));
+    describeSelection(getSession(state)?.draft.selected ?? null).forEach(({ value }, index) => {
       requireDefined(
         view.selectionValues[index],
         'Missing selection value text for row',
         index,
       ).setText(value);
     });
-    view.deleteButton.setEnabled(canDeleteSelected(state));
     view.noteCountText.setText(
-      draft === null ? '' : this.i18n.t('chartEditor.noteCount', { count: draft.notes.length }),
+      noteCount === null ? '' : this.i18n.t('chartEditor.noteCount', { count: noteCount }),
     );
-    view.clearButton.setEnabled(canClearNotes(state));
   }
 
   private renderDifficulty(
     { difficulty, text, underline }: DifficultyItem,
-    selection: Selection | null,
+    state: ChartEditorState,
   ): void {
-    const hasChart =
-      selection !== null &&
-      getAvailableDifficulties(selection.song, selection.laneCount).includes(difficulty);
-    setTextColor(text, hasChart ? CELESTIAL_COLORS.textPrimary : CELESTIAL_COLORS.textSecondary);
-    underline.setVisible(selection?.difficulty === difficulty);
+    const { color, isUnderlined } = DIFFICULTY_LOOKS[getDifficultyLook(state, difficulty)];
+    setTextColor(text, color);
+    underline.setVisible(isUnderlined);
   }
 
   private getStatusMessage(status: EditorStatus): Notice {
@@ -1066,31 +1093,36 @@ export class ChartEditorScene extends Phaser.Scene {
   private renderNotes(view: EditorView, state: ChartEditorState): void {
     const selection = getSelection(state);
     if (selection === null) {
-      view.seekMarks.clear();
-      this.seekMarkedNotes = null;
-      this.noteLayer?.layer.destroy();
-      this.noteLayer = null;
+      view.noteLayer.render({
+        notes: [],
+        selected: null,
+        currentTimeMs: state.playhead.currentTimeMs,
+        laneCenterXPx: [],
+        accentColor: CELESTIAL_COLORS.textPrimary,
+      });
       return;
     }
-    const notes = getNotes(state);
-    this.renderSeekMarks(view, notes, selection.song);
-    this.getNoteLayer(selection.song, selection.laneCount).render(
-      notes,
-      getSession(state)?.draft.selected ?? null,
-      state.playhead.currentTimeMs,
-    );
+    const { song, laneCount } = selection;
+    view.noteLayer.render({
+      notes: getNotes(state),
+      selected: getSession(state)?.draft.selected ?? null,
+      currentTimeMs: state.playhead.currentTimeMs,
+      laneCenterXPx: getLanes(laneCount).map((lane) => getLaneCenterXPx(LAYOUT, laneCount, lane)),
+      accentColor: song.accentColor,
+    });
   }
 
-  private renderSeekMarks(view: EditorView, notes: readonly Note[], song: Song): void {
-    if (notes === this.seekMarkedNotes) {
+  private renderSeekMarks(view: EditorView, state: ChartEditorState): void {
+    const { seekMarks } = view;
+    seekMarks.clear();
+    const selection = getSelection(state);
+    if (selection === null) {
       return;
     }
-    this.seekMarkedNotes = notes;
-    const { seekMarks } = view;
-    seekMarks.clear().lineStyle(HAIRLINE_PX, CELESTIAL_COLORS.selected, SEEK_MARK_ALPHA);
+    seekMarks.lineStyle(HAIRLINE_PX, CELESTIAL_COLORS.selected, SEEK_MARK_ALPHA);
     const { centerYPx: transportYPx } = LAYOUT.bottomBar;
-    notes.forEach((note) => {
-      const xPx = getSeekXPx(LAYOUT, note.timeMs, song);
+    getNotes(state).forEach((note) => {
+      const xPx = getSeekXPx(LAYOUT, note.timeMs, selection.song);
       seekMarks.lineBetween(
         xPx,
         transportYPx - SEEK_MARK_HEIGHT_PX / 2,
@@ -1142,14 +1174,13 @@ export class ChartEditorScene extends Phaser.Scene {
     });
   }
 
-  private renderLaneLines(view: EditorView, laneCount: LaneCount): void {
-    if (this.laneLinesLaneCount === laneCount) {
+  private renderLaneLines(view: EditorView, laneCount: LaneCount | null): void {
+    view.laneLines.clear();
+    if (laneCount === null) {
       return;
     }
-    this.laneLinesLaneCount = laneCount;
     const { lanes, timeline } = LAYOUT;
     const laneWidthPx = getLaneWidthPx(LAYOUT, laneCount);
-    view.laneLines.clear();
     [...getLanes(laneCount), laneCount].forEach((boundary) => {
       const isEdge = boundary === 0 || boundary === laneCount;
       view.laneLines
@@ -1161,28 +1192,6 @@ export class ChartEditorScene extends Phaser.Scene {
           TIMELINE_HEIGHT_PX,
         );
     });
-  }
-
-  /** 노트 색이 곡 accent 를, 위치가 레인 수를 따르므로 둘 중 하나가 바뀌면 layer 를 새로 만든다. */
-  private getNoteLayer(song: Song, laneCount: LaneCount): EditorNoteLayer {
-    if (this.noteLayer?.songId === song.id && this.noteLayer.laneCount === laneCount) {
-      return this.noteLayer.layer;
-    }
-    this.noteLayer?.layer.destroy();
-    const layer = new EditorNoteLayer(this, {
-      laneCenterXPx: getLanes(laneCount).map((lane) => getLaneCenterXPx(LAYOUT, laneCount, lane)),
-      playheadYPx: LAYOUT.timeline.playheadYPx,
-      pxPerSecond: PX_PER_SECOND,
-      topYPx: LAYOUT.timeline.topYPx,
-      bottomYPx: LAYOUT.timeline.bottomYPx,
-      accentColor: song.accentColor,
-    });
-    this.noteLayer = {
-      songId: song.id,
-      laneCount,
-      layer,
-    };
-    return layer;
   }
 
   private handleKey(editor: ChartEditorController, event: KeyboardEvent): void {

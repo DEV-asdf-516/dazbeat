@@ -1,6 +1,6 @@
 /// <reference path="../pb_data/types.d.ts" />
-// Song title search: short queries match the title prefix through the NOCASE index, longer ones
-// match anywhere in the title through the FTS5 trigram table that the triggers keep in sync.
+// 곡 제목 검색: 짧은 검색어는 NOCASE 인덱스로 제목 앞부분을, 긴 검색어는 트리거가 동기화하는
+// FTS5 trigram 테이블로 제목 어디서든 찾는다.
 const TITLE_INDEX = 'idx_songs_title_nocase';
 const FTS_TABLE = 'songs_title_fts';
 const TRIGGERS = {

@@ -5,7 +5,8 @@ import type PocketBase from 'pocketbase';
 import { ClientResponseError } from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildSongSearchQuery } from '../../../pocketbase/verification/songSearch.js';
+import { parseSongSearchInput } from '../../../pocketbase/lib/song/dto.js';
+import { buildSongSearchQuery } from '../../../pocketbase/lib/song/repository.js';
 import {
   REPO_HOOKS_DIR,
   REPO_MIGRATIONS_DIR,
@@ -19,6 +20,7 @@ import type { PocketBaseServer } from './pocketBaseServer.js';
 import {
   createChart,
   createSong,
+  createUser,
   excludeLoopbackFromRateLimits,
   fakeChartData,
 } from './testData.js';
@@ -442,6 +444,14 @@ describe('song title search API', () => {
         afterId: 'a'.repeat(65),
       }),
     );
+    for (const scope of ['published', '', 'everything']) {
+      await expectInvalidRequest(
+        search(guest, {
+          title: 'abc',
+          scope,
+        }),
+      );
+    }
     await expect(search(guest, { title: '𝄞'.repeat(100) })).resolves.toEqual({
       items: [],
       totalItems: 0,
@@ -458,6 +468,7 @@ describe('song title search API', () => {
     const original = await createSong(superuser, 'nova-original', undefined, {
       title: 'Nova Original',
       releasedOn: '2026-02-01',
+      previewStartMs: 2_000,
     });
     const easy = await createChart(
       superuser,
@@ -487,6 +498,7 @@ describe('song title search API', () => {
       collectionId: original.collectionId,
       collectionName: 'songs',
       key: 'nova-original',
+      previewStartMs: 2_000,
     });
     expect(items[0]?.['jacket']).toBe(original['jacket']);
     const charts = [...(items[0]?.expand?.charts_via_song ?? [])].sort((a, b) =>
@@ -581,40 +593,33 @@ describe('song title search API', () => {
     });
   });
 
-  it('applies the songs list rule and charts view rule to the requester', async () => {
-    const { url, superuser } = await startSearchServer();
-    const song = await createSong(superuser, 'guarded', undefined, { title: 'Guarded Song' });
-    const chart = await createChart(superuser, song.id, 'easy', fakeChartData('guarded', 'easy'));
-    const guest = createClient(url);
-
-    const open = await search(guest, { title: 'Guarded' });
-    expect(open.items.map((item) => item.expand)).toEqual([
-      {
-        charts_via_song: [
-          {
-            id: chart.id,
-            difficulty: 'easy',
-            laneCount: 4,
-          },
-        ],
-      },
-    ]);
-
-    await superuser.collections.update('charts', { viewRule: null });
-    const hiddenCharts = await search(guest, { title: 'Guarded' });
-    expect(hiddenCharts.items.map((item) => item.id)).toEqual([song.id]);
-    expect(hiddenCharts.items[0]).not.toHaveProperty('expand');
-
-    await superuser.collections.update('songs', { listRule: null });
-    await expect(search(guest, { title: 'Guarded' })).resolves.toEqual({
-      items: [],
-      totalItems: null,
-      next: null,
+  it('lists unpublished songs only to editors and superusers asking for every song', async () => {
+    const server = await startSearchServer();
+    const { url, superuser } = server;
+    const published = await createSong(superuser, 'guarded', undefined, {
+      title: 'Guarded Song',
     });
-    const asSuperuser = await search(superuser, { title: 'Guarded' });
-    expect(asSuperuser.items.map((item) => item.id)).toEqual([song.id]);
-    expect(asSuperuser.totalItems).toBe(1);
-    expect(asSuperuser.items[0]?.expand).toEqual({
+    const publishedChart = await createChart(
+      superuser,
+      published.id,
+      'easy',
+      fakeChartData('guarded', 'easy'),
+    );
+    const hidden = await createSong(superuser, 'hidden', undefined, {
+      title: 'Guarded Draft',
+      releasedOn: '2026-02-01',
+      isPublished: false,
+    });
+    const hiddenChart = await createChart(
+      superuser,
+      hidden.id,
+      'easy',
+      fakeChartData('hidden', 'easy'),
+    );
+    const player = await createUser(server, 'player@example.com');
+    const editor = await createUser(server, 'editor@example.com', true);
+    const guest = createClient(url);
+    const summary = (chart: RecordModel) => ({
       charts_via_song: [
         {
           id: chart.id,
@@ -623,6 +628,40 @@ describe('song title search API', () => {
         },
       ],
     });
+
+    for (const client of [guest, player.client, editor.client]) {
+      const found = await search(client, { title: 'Guarded' });
+      expect(found.items.map((item) => item.id)).toEqual([published.id]);
+      expect(found.totalItems).toBe(1);
+      expect(found.items[0]?.expand).toEqual(summary(publishedChart));
+    }
+
+    for (const client of [editor.client, superuser]) {
+      const found = await search(client, {
+        title: 'Guarded',
+        scope: 'all',
+      });
+      expect(found.items.map((item) => item.id)).toEqual([hidden.id, published.id]);
+      expect(found.totalItems).toBe(2);
+      expect(found.items.map((item) => item.expand)).toEqual([
+        summary(hiddenChart),
+        summary(publishedChart),
+      ]);
+    }
+
+    for (const client of [guest, player.client]) {
+      const error: unknown = await search(client, {
+        title: 'Guarded',
+        scope: 'all',
+      }).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({
+        status: 403,
+        response: {
+          status: 403,
+          code: 'editor_required',
+        },
+      });
+    }
   });
 
   it('plans prefixes on the NOCASE index and longer titles on the FTS index, counts included', async () => {
@@ -647,13 +686,19 @@ describe('song title search API', () => {
           ...cursor,
         },
       ];
-      for (const params of searches) {
-        const search = buildSongSearchQuery({
-          title: params['title'],
-          category: params['category'],
-          afterReleasedOn: params['afterReleasedOn'],
-          afterId: params['afterId'],
-        });
+      for (const [params, scope] of searches.flatMap((params) =>
+        [undefined, 'all'].map((scope) => [params, scope] as const),
+      )) {
+        const search = buildSongSearchQuery(
+          parseSongSearchInput({
+            title: params['title'],
+            category: params['category'],
+            afterReleasedOn: params['afterReleasedOn'],
+            afterId: params['afterId'],
+            scope,
+            canListUnpublished: true,
+          }),
+        );
         // The hook hands these parts to a songs record query and a count query, which build these statements.
         const matches =
           'FROM songs' +

@@ -1,5 +1,5 @@
 /// <reference path="../pb_data/types.d.ts" />
-// A song can have one chart per difficulty for each lane count, so the lane count joins the unique key.
+// 곡은 레인 수마다 난이도별로 채보를 하나씩 가질 수 있어 레인 수를 유니크 키에 넣는다.
 migrate(
   (app) => {
     const charts = app.findCollectionByNameOrId('charts');

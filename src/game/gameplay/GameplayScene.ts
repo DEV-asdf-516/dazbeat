@@ -1,15 +1,16 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import type { CelestialAtlasId, CelestialCatalog } from '../celestial/celestialCatalog.js';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
-import { SCENE_KEYS, startScene } from '../sceneRoutes.js';
-import type { GameplaySceneData, ResultSceneData } from '../sceneRoutes.js';
+import type { CelestialAtlasId, CelestialCatalog } from '../celestial/state/celestialCatalog.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
+import { SCENE_KEYS, startScene } from '../app/sceneRoutes.js';
+import type { GameplaySceneData, ResultSceneData } from '../app/sceneRoutes.js';
 import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.js';
 import type { PreparedChart } from '../../data/playSession.js';
 import type { ChartRef } from '../../data/songs.js';
 import { requireDefined } from '../../invariant.js';
+import { calculateAccuracy } from '../../rhythm/accuracy.js';
 import { getLanes } from '../../rhythm/lanes.js';
-import type { Chart, JudgmentEvent } from '../../rhythm/types.js';
+import type { Chart, Judgment, JudgmentEvent } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { MvMode } from '../../storage/settings.js';
 import { secToMs } from '../../time.js';
@@ -19,48 +20,82 @@ import {
   playClearFx,
   playFailureFx,
   playFullComboFx,
-} from './endingFx.js';
+} from './view/endingFx.js';
 import { GameplayController } from './GameplayController.js';
 import type {
   GameplayFrame,
   GameplayLoadError,
   GameplayScreen,
   PlayScreen,
-  QuitConfirmReason,
   RankedPlay,
 } from './GameplayController.js';
-import { getStatusView } from './gameplayStatus.js';
-import type { GameplayStatus, GameplayStatusMessage } from './gameplayStatus.js';
-import { addHudEffect, addHudText } from './hudObjects.js';
+import {
+  getChangedButtonRegions,
+  getChangedStatusRegions,
+  getGameplayButtonView,
+  getLoadErrorText,
+  getMvModeMarks,
+  getStatusView,
+} from './state/gameplayStatus.js';
+import type {
+  GameplayButton,
+  GameplayButtonRegion,
+  GameplayButtons,
+  GameplayStatus,
+  GameplayStatusMessage,
+  GameplayStatusRegion,
+  GameplayStatusView,
+  LoadErrorMessage,
+} from './state/gameplayStatus.js';
+import { QUIT_CONFIRM_TEXTS } from './state/quitConfirm.js';
+import type { QuitConfirmReason } from './state/quitConfirm.js';
+import { HUD_LABEL, addHudEffect, addHudText, withHudOutline } from './view/hudObjects.js';
 import {
   JUDGMENT_SHIMMER_ID,
   LANE_EFFECT_IDS,
   getJudgmentEffect,
   getJudgmentSoundEffect,
-} from './judgmentEffects.js';
-import { Button } from '../ui/Button.js';
+  getShownJudgment,
+} from './state/judgmentEffects.js';
+import { Button } from '../ui/view/widgets/Button.js';
 import {
   addCelestialAtmosphere,
   getCelestialAtmosphereUses,
-} from '../celestial/celestialAtmosphere.js';
-import { playCelestialOnce, queueCelestialTextures } from '../celestial/celestialSprites.js';
-import { ConfirmDialog } from '../ui/ConfirmDialog.js';
-import { formatKeyCode, formatScore } from '../ui/format.js';
-import { queueImageLoads } from '../ui/imageLoad.js';
-import { LaneFx } from './LaneFx.js';
-import { MvModeIndicator } from './MvModeIndicator.js';
-import { LANE_ORNAMENT_IMAGES, addLaneOrnaments } from './laneOrnaments.js';
-import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../ui/lightTextures.js';
-import { NoteLayer } from './NoteLayer.js';
-import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
-import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
-import { NoticeText } from '../ui/NoticeText.js';
-import { OrbitTrace } from './OrbitTrace.js';
-import { getPlayfieldLayout, getPlayfieldTrapezoid, getPlayfieldXAtY } from './playfieldLayout.js';
-import type { PlayfieldLayout, Trapezoid } from './playfieldLayout.js';
-import { PracticeStats } from './PracticeStats.js';
-import { StarlightGauge } from './StarlightGauge.js';
-import { fillTrapezoid } from './trapezoidFill.js';
+} from '../celestial/view/celestialAtmosphere.js';
+import { playCelestialOnce, queueCelestialTextures } from '../celestial/view/celestialSprites.js';
+import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import { pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import { formatKeyCode, formatScore } from '../ui/state/format.js';
+import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
+import { LaneFx } from './view/LaneFx.js';
+import { MvModeIndicator } from './view/MvModeIndicator.js';
+import { LANE_ORNAMENT_IMAGES, addLaneOrnaments } from './view/laneOrnaments.js';
+import {
+  LIGHT_TEXTURES,
+  addLight,
+  ensureLightTextures,
+} from '../ui/view/textures/lightTextures.js';
+import { NoteLayer } from './view/NoteLayer.js';
+import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
+import { NoticeText } from '../ui/view/widgets/NoticeText.js';
+import { OrbitTrace } from './view/OrbitTrace.js';
+import {
+  getPlayfieldLayout,
+  getPlayfieldTrapezoid,
+  getPlayfieldXAtY,
+} from './state/playfieldLayout.js';
+import type { PlayfieldLayout, Trapezoid } from './state/playfieldLayout.js';
+import { PracticeStats } from './view/PracticeStats.js';
+import { StarlightGauge } from './view/StarlightGauge.js';
+import { IntroStarChart, getIntroStarChartUses } from './view/IntroStarChart.js';
+import { getComboTier } from './state/comboTier.js';
+import { getChangedHudRegions, getEnteredNoteRange } from './state/gameplayHud.js';
+import type { HudRegion } from './state/gameplayHud.js';
+import { getStarlightBand, isBreathingBand } from './state/starlightBand.js';
+import type { ComboTier } from './state/comboTier.js';
+import { fillTrapezoid } from './view/trapezoidFill.js';
 import {
   CELESTIAL_COLORS,
   COLORS,
@@ -69,20 +104,22 @@ import {
   MOTION,
   setTextColor,
   textStyle,
-} from '../ui/theme.js';
+} from '../ui/view/theme.js';
 
 // 판정·콤보는 플레이필드 가운데에, 안내·종료 문구는 화면 가운데에 놓는다.
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
-const NIGHT_SKY_IMAGE = {
-  key: 'gameplay-night-sky',
-  url: '/assets/ui/gameplay/gameplay-night-sky.webp',
-} as const;
-const LANE_PANEL_ALPHA = 0.85;
+// 밝은 영상 위에서도 상단 HUD 가 읽히도록 화면 전체에 위가 짙고 아래로 사라지는 밤빛을 덮는다.
+const SKY_SCRIM_PROFILE: VerticalProfile = [
+  [0, 0.6],
+  [0.25, 0.25],
+  [1, 0],
+];
+const LANE_PANEL_ALPHA = 0.95;
 // 세로 프로필은 [화면 높이 비율, alpha] 정지점이고 정지점 사이는 선형이다.
 const LANE_PANEL_PROFILE: VerticalProfile = [
-  [0, 0],
-  [0.3, 0.55],
-  [0.8, 1],
+  [0, 0.2],
+  [0.3, 0.75],
+  [0.7, 1],
   [1, 1],
 ];
 const LANE_LINE_PROFILE: VerticalProfile = [
@@ -114,8 +151,33 @@ const JUDGMENT_GLOW_WIDTH_SCALE = [1.1, 1.4] as const;
 const JUDGMENT_GLOW_HEIGHT_PX = [56, 80] as const;
 const COMBO_Y_PX = 360;
 const COMBO_LABEL_Y_PX = 430;
-// 같은 월광색 노트가 레인 가운데의 큰 숫자 위를 지날 때 숫자와 섞이지 않도록 한 단계 물린다.
-const COMBO_ALPHA = 0.6;
+// 노트가 레인 가운데의 큰 숫자 위를 지나도 보이도록 조금 물린다. 색이 노트의 흰색과 달라 많이 물리지 않아도 섞이지 않는다.
+const COMBO_ALPHA = 0.85;
+// 숫자는 흰색으로 채우고 위아래 모서리 틴트로 색을 입힌다. 콤보가 길어질수록 금빛과 아래 색이 짙어진다.
+const COMBO_FILL = 0xffffff;
+const COMBO_TIER_TINTS: Readonly<Record<ComboTier, { top: number; bottom: number }>> = {
+  spark: {
+    top: CELESTIAL_COLORS.highlight,
+    bottom: COLORS.holdRibbon,
+  },
+  glow: {
+    top: JUDGMENT_COLORS.perfect,
+    bottom: COLORS.holdRibbon,
+  },
+  radiant: {
+    top: JUDGMENT_COLORS.perfect,
+    bottom: JUDGMENT_COLORS.good,
+  },
+  stellar: {
+    top: 0xffd98a,
+    bottom: 0x9ee6b0,
+  },
+};
+const COMBO_TIER_POP_SCALE = 1.25;
+// 라벨도 숫자와 같은 단계 색을 입혀 한 묶음으로 읽히게 하고, 숫자보다 앞서지 않게 조금 물린다.
+const COMBO_LABEL_WEIGHT = 600;
+const COMBO_LABEL_LETTER_SPACING_PX = 6;
+const COMBO_LABEL_ALPHA = 0.75;
 const SCORE_RIGHT_X_PX = 1800;
 const SCORE_LABEL_Y_PX = 96;
 const SCORE_Y_PX = 128;
@@ -127,6 +189,15 @@ const PRACTICE_STATS_Y_PX = 184;
 const INTRO_TITLE_Y_PX = 440;
 const INTRO_DIFFICULTY_Y_PX = 520;
 const STATUS_Y_PX = 600;
+// 게임 키워드처럼 언어와 관계없이 영어 대문자로 두고, 입력을 기다리는 동안 천천히 깜빡인다.
+const START_PROMPT = 'PRESS ENTER TO START';
+const NOTICE_LETTER_SPACING_PX: Readonly<Record<GameplayStatusView['notice']['kind'], number>> = {
+  none: 0,
+  loading: 0,
+  startPrompt: 4,
+};
+const START_PROMPT_DIM_ALPHA = 0.35;
+const START_PROMPT_BLINK_MS = 1100;
 // MV 전환도 키 조작이라 레인 키 이름과 같은 줄, 레인 왼쪽 바깥에 둔다. 노트를 가리지 않고 YouTube 의 구석 버튼과도 떨어진다.
 const MV_MODE_LANE_GAP_PX = 48;
 // 곡이 끝나면 레인·판정 HUD 를 먼저 걷어 입력이 끝났음을 보여 준 뒤 종료 연출을 띄운다.
@@ -152,7 +223,6 @@ const COUNTDOWN_POP_START_ALPHA = 0.3;
 
 const STATUS_MESSAGES = {
   loading: 'gameplay.loading',
-  awaitingStart: 'gameplay.pressEnterToStart',
   resuming: 'gameplay.resuming',
 } as const satisfies Record<GameplayStatusMessage, string>;
 
@@ -163,7 +233,6 @@ interface LaneView {
 }
 
 interface GameplayView {
-  nightSky: Phaser.GameObjects.Image;
   playfield: PlayfieldLayout;
   playfieldChrome: readonly Phaser.GameObjects.GameObject[];
   soundEffects: SoundEffects;
@@ -175,16 +244,29 @@ interface GameplayView {
   judgmentText: Phaser.GameObjects.Text;
   judgmentFlash: Phaser.GameObjects.Text;
   comboText: Phaser.GameObjects.Text;
+  comboLabel: Phaser.GameObjects.Text;
+  introChart: IntroStarChart;
   scoreText: Phaser.GameObjects.Text;
   progress: OrbitTrace;
   modeHud: ModeHud;
   introTitle: Phaser.GameObjects.Text;
   introDifficulty: Phaser.GameObjects.Text;
+  statusText: Phaser.GameObjects.Text;
   status: NoticeText;
   countdownText: Phaser.GameObjects.Text;
   mvMode: MvModeIndicator;
   quitDialog: ConfirmDialog;
+  backButton: Button;
 }
+
+const PRACTICE_COUNT_JUDGMENTS: Readonly<Record<Extract<HudRegion, `${Judgment}Count`>, Judgment>> =
+  {
+    perfectCount: 'perfect',
+    greatCount: 'great',
+    goodCount: 'good',
+    badCount: 'bad',
+    missCount: 'miss',
+  };
 
 type ModeHud =
   | { readonly kind: 'standard'; readonly starlight: StarlightGauge }
@@ -206,30 +288,48 @@ export class GameplayScene extends Phaser.Scene {
   preload(): void {
     queueCelestialTextures(this, this.celestial, [
       ...getCelestialAtmosphereUses(this.celestial, 'gameplay'),
+      ...getIntroStarChartUses(this.celestial),
       ...CELESTIAL_IDS.map((id) => this.celestial.atlasPresentations[id]),
     ]);
     queueImageLoads(this, ENDING_IMAGES, 'ending effect');
-    queueImageLoads(this, [NIGHT_SKY_IMAGE, ...LANE_ORNAMENT_IMAGES], 'gameplay backdrop');
+    queueImageLoads(this, LANE_ORNAMENT_IMAGES, 'lane ornament');
     queueSoundEffects(this);
   }
 
   create(data: GameplaySceneData): void {
     const settings = this.save.loadSettings();
-    // 캔버스가 투명해 MV 를 끄면 검은 바탕이 드러나므로 밤하늘을 깐다. 먼지보다 아래다.
-    // 다른 모드에서 로딩·카운트다운으로 영상만 잠깐 가릴 때 깔면 OFF 로 바뀐 것처럼 보여 OFF 에서만 깐다.
-    const nightSky = this.add
-      .image(0, 0, NIGHT_SKY_IMAGE.key)
-      .setOrigin(0, 0)
-      .setVisible(settings.mvMode === 'off');
     addCelestialAtmosphere(this, this.celestial, 'gameplay');
+    const introChart = new IntroStarChart(
+      this,
+      this.celestial,
+      data.song.constellation,
+      SCREEN_CENTER_X_PX,
+    );
+    // 화면에 고정해 기준 폭으로 그리고, 창 비율에 따라 넓어진 화면 폭만큼 가로로 늘린다.
+    const skyScrim = this.add.graphics().setScrollFactor(0).setDepth(GAMEPLAY_DEPTH.world);
+    fillVerticalProfile(
+      skyScrim,
+      SKY_SCRIM_PROFILE,
+      (topYPx, bottomYPx) => ({
+        topYPx,
+        bottomYPx,
+        topLeftXPx: 0,
+        topRightXPx: GAME_WIDTH,
+        bottomLeftXPx: 0,
+        bottomRightXPx: GAME_WIDTH,
+      }),
+      CELESTIAL_COLORS.background,
+      {
+        left: 1,
+        right: 1,
+      },
+    );
     this.mvLayer.dataset.mvMode = settings.mvMode;
-    delete this.mvLayer.dataset.mvHidden;
     ensureLightTextures(this);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const playfield = getPlayfieldLayout(GAME_WIDTH, data.laneCount);
     const laneChrome = this.add.graphics().setDepth(GAMEPLAY_DEPTH.lanePanel);
-    // 남청 밤하늘 위에서 회흑색 판이 따로 떠 보이지 않게 천체 화면의 바탕색으로 깐다.
     fillVerticalProfile(
       laneChrome,
       LANE_PANEL_PROFILE,
@@ -316,20 +416,20 @@ export class GameplayScene extends Phaser.Scene {
         ),
       );
     const laneOrnaments = addLaneOrnaments(this, playfield, data.laneCount);
-    const comboLabel = addHudText(
-      this,
-      playfield.centerXPx,
-      COMBO_LABEL_Y_PX,
-      'COMBO',
-      textStyle('meta', COLORS.textMuted),
-    );
+    const comboLabel = addHudText(this, playfield.centerXPx, COMBO_LABEL_Y_PX, 'COMBO', {
+      ...textStyle('meta', COMBO_FILL, COMBO_LABEL_WEIGHT),
+      letterSpacing: COMBO_LABEL_LETTER_SPACING_PX,
+    }).setAlpha(0);
     const rightHudStartIndex = this.children.list.length;
     addHudText(
       this,
       SCORE_RIGHT_X_PX,
       SCORE_LABEL_Y_PX,
       'SCORE',
-      textStyle('meta', COLORS.textMuted),
+      withHudOutline({
+        ...textStyle('meta', HUD_LABEL.color, HUD_LABEL.weight),
+        letterSpacing: HUD_LABEL.letterSpacingPx,
+      }),
     ).setOrigin(1, 0);
     // STARLIGHT(연습이면 배지)는 SCORE 위에 두어 체력·점수를 우상단 한 묶음으로 읽게 한다.
     // YouTube 임베드가 재생 시작·일시정지 때 띄우는 제목 바(좌상단)·버튼(아래 양 구석)과도 겹치지 않는다.
@@ -348,7 +448,7 @@ export class GameplayScene extends Phaser.Scene {
       SCORE_RIGHT_X_PX,
       SCORE_Y_PX,
       formatScore(0),
-      textStyle('hudScore', COLORS.textPrimary),
+      withHudOutline(textStyle('hudScore', COLORS.textPrimary)),
     ).setOrigin(1, 0);
     // 창 폭이 바뀌면 오른쪽 끝을 따라 함께 옮기도록 묶는다. 묶음 안에서도 기존 depth 순서로 그린다.
     const rightHud = this.add
@@ -362,8 +462,20 @@ export class GameplayScene extends Phaser.Scene {
       playfield.leftPx + playfield.widthPx,
       PROGRESS_Y_PX,
     );
+    const statusText = addHudText(
+      this,
+      SCREEN_CENTER_X_PX,
+      STATUS_Y_PX,
+      '',
+      textStyle('meta', COLORS.textMuted),
+    );
+    const pointer: ButtonPointer<GameplayButton> = {
+      pointerOver: (button) => controller.pointerOver(button),
+      pointerOut: (button) => controller.pointerOut(button),
+      pointerDown: (button) => controller.pointerDown(button),
+      pointerUp: (button) => controller.pointerUp(button),
+    };
     const view: GameplayView = {
-      nightSky,
       playfield,
       playfieldChrome: [laneChrome, laneDividers, ...laneOrnaments, comboLabel],
       soundEffects: new SoundEffects(this, settings),
@@ -412,13 +524,15 @@ export class GameplayScene extends Phaser.Scene {
       )
         .setAlpha(0)
         .setBlendMode(Phaser.BlendModes.SCREEN),
+      comboLabel,
       comboText: addHudText(
         this,
         playfield.centerXPx,
         COMBO_Y_PX,
         '0',
-        textStyle('combo', COLORS.textPrimary),
-      ).setAlpha(COMBO_ALPHA),
+        textStyle('combo', COMBO_FILL),
+      ).setAlpha(0),
+      introChart,
       scoreText,
       progress: new OrbitTrace(
         this,
@@ -441,11 +555,8 @@ export class GameplayScene extends Phaser.Scene {
         data.difficulty.toUpperCase(),
         textStyle('secondary', COLORS.textSecondary),
       ),
-      status: new NoticeText(
-        this,
-        this.celestial,
-        addHudText(this, SCREEN_CENTER_X_PX, STATUS_Y_PX, '', textStyle('meta', COLORS.textMuted)),
-      ),
+      statusText,
+      status: new NoticeText(this, this.celestial, statusText),
       countdownText: addHudText(
         this,
         SCREEN_CENTER_X_PX,
@@ -459,17 +570,32 @@ export class GameplayScene extends Phaser.Scene {
         KEY_LABEL_Y_PX,
       ),
       quitDialog: new ConfirmDialog(this, {
-        onCancel: () => controller.closeQuitConfirm(),
-        onAccept: () => controller.leave(),
+        cancel: pointButton(pointer, 'quitCancel'),
+        accept: pointButton(pointer, 'quitAccept'),
       }),
+      backButton: new Button(this, 0, ERROR_BUTTON_Y_PX, {
+        variant: 'primary',
+        label: this.i18n.t('gameplay.backToSongSelect'),
+        pointer: pointButton(pointer, 'back'),
+      })
+        .alignX(SCREEN_CENTER_X_PX, 0.5)
+        .setDepth(GAMEPLAY_DEPTH.text)
+        .setVisible(false),
     };
+    // 플레이어가 준비되기 전에는 보일 영상이 없으므로 가린 상태로 시작한다.
+    this.setMvVisible(view, false);
 
     const restoreData = data.restore === undefined ? {} : { restore: data.restore };
     const screen: GameplayScreen = {
-      showStatus: (status) => this.setStatus(view, status),
+      showStatus: (previous, next) => this.renderStatus(view, previous, next),
+      renderButtons: (previous, next) => {
+        for (const region of getChangedButtonRegions(previous, next)) {
+          this.renderButtonRegion(view, next, region);
+        }
+      },
       showMvMode: (mode) => this.showMvMode(view, mode),
-      setMvVisible: (isVisible) => this.setMvVisible(isVisible),
-      showLoadError: (error) => this.showLoadError(view, controller, error),
+      setMvVisible: (isVisible) => this.setMvVisible(view, isVisible),
+      showLoadError: (error) => this.showLoadError(view, error),
       openQuitConfirm: (reason) => this.openQuitConfirm(view, reason),
       closeQuitConfirm: () => this.closeQuitConfirm(view),
       beginPlay: (chart) => this.beginPlay(view, chart, settings.scrollSpeedPxPerSecond),
@@ -516,6 +642,7 @@ export class GameplayScene extends Phaser.Scene {
       }
       const edgeOffsetPx = (gameWidthPx - GAME_WIDTH) / 2;
       this.cameras.main.setScroll(-edgeOffsetPx, 0);
+      skyScrim.setScale(gameWidthPx / GAME_WIDTH, 1);
       rightHud.setX(Math.max(edgeOffsetPx, minRightHudOffsetPx));
     };
     fitToWindow();
@@ -541,7 +668,6 @@ export class GameplayScene extends Phaser.Scene {
       // 다른 화면은 1920×1080 배치를 FIT 으로 맞춘다.
       this.scale.setGameSize(GAME_WIDTH, GAME_HEIGHT);
       controller.close();
-      // mv-layer 는 채보 에디터도 쓰므로 가림을 남기지 않는다.
       delete this.mvLayer.dataset.mvHidden;
     });
 
@@ -561,32 +687,71 @@ export class GameplayScene extends Phaser.Scene {
     return new PracticeStats(this, SCORE_RIGHT_X_PX, PRACTICE_STATS_Y_PX);
   }
 
-  private setStatus(view: GameplayView, status: GameplayStatus): void {
+  private renderStatus(
+    view: GameplayView,
+    previous: GameplayStatus | null,
+    next: GameplayStatus,
+  ): void {
+    for (const region of getChangedStatusRegions(previous, next)) {
+      this.renderStatusRegion(view, next, region);
+    }
+  }
+
+  private renderStatusRegion(
+    view: GameplayView,
+    status: GameplayStatus,
+    region: GameplayStatusRegion,
+  ): void {
     const { notice, countdownDigit } = getStatusView(status);
-    view.status.show(
-      notice.kind === 'none'
-        ? notice
-        : {
-            kind: notice.kind,
-            text: this.i18n.t(STATUS_MESSAGES[notice.message]),
-          },
-    );
-    const { countdownText } = view;
-    const digitText = countdownDigit === null ? '' : `${countdownDigit}`;
-    if (digitText !== countdownText.text) {
-      this.tweens.killTweensOf(countdownText);
-      countdownText.setText(digitText).setScale(1).setAlpha(1);
-      if (digitText !== '') {
-        // 숫자가 바뀌는 순간을 박자처럼 읽게 해 재개 시점을 미리 맞출 수 있게 한다.
-        countdownText.setScale(COUNTDOWN_POP_SCALE).setAlpha(COUNTDOWN_POP_START_ALPHA);
-        this.tweens.add({
-          targets: countdownText,
-          scale: 1,
-          alpha: 1,
-          duration: MOTION.fastMs,
-          ease: 'Cubic.Out',
-        });
-      }
+    const { statusText, countdownText } = view;
+    switch (region) {
+      case 'notice':
+        this.tweens.killTweensOf(statusText);
+        statusText.setAlpha(1).setLetterSpacing(NOTICE_LETTER_SPACING_PX[notice.kind]);
+        switch (notice.kind) {
+          case 'none':
+            view.status.show(notice);
+            return;
+          case 'loading':
+            view.status.show({
+              kind: 'loading',
+              text: this.i18n.t(STATUS_MESSAGES[notice.message]),
+            });
+            return;
+          case 'startPrompt':
+            view.status.show({
+              kind: 'text',
+              text: START_PROMPT,
+            });
+            this.tweens.add({
+              targets: statusText,
+              alpha: START_PROMPT_DIM_ALPHA,
+              duration: START_PROMPT_BLINK_MS,
+              ease: 'Sine.InOut',
+              yoyo: true,
+              repeat: -1,
+            });
+            return;
+        }
+        return;
+      case 'countdown':
+        countdownText.setText(countdownDigit === null ? '' : `${countdownDigit}`);
+        return;
+      case 'countdownPop':
+        this.tweens.killTweensOf(countdownText);
+        countdownText.setScale(1).setAlpha(1);
+        if (countdownDigit !== null) {
+          // 숫자가 바뀌는 순간을 박자처럼 읽게 해 재개 시점을 미리 맞출 수 있게 한다.
+          countdownText.setScale(COUNTDOWN_POP_SCALE).setAlpha(COUNTDOWN_POP_START_ALPHA);
+          this.tweens.add({
+            targets: countdownText,
+            scale: 1,
+            alpha: 1,
+            duration: MOTION.fastMs,
+            ease: 'Cubic.Out',
+          });
+        }
+        return;
     }
   }
 
@@ -596,20 +761,21 @@ export class GameplayScene extends Phaser.Scene {
       playfield: view.playfield,
       scrollSpeedPxPerSecond,
     });
-    const hud = {
-      combo: 0,
-      score: 0,
-    };
+    setComboTint([view.comboText, view.comboLabel], getComboTier(0));
     return {
       approachMs: secToMs(view.playfield.judgeLineYPx / scrollSpeedPxPerSecond),
-      drawFrame: (frame) => {
-        view.laneFx.setActivation(frame.activation.level);
-        if (frame.activation.reachedFull) {
+      drawFrame: (previous, next) => {
+        view.laneFx.setActivation(next.activation.level);
+        if (next.activation.reachedFull) {
           playCelestialOnce(view.comboGlint);
         }
-        notes.render(frame.session, frame.songTimeMs);
-        this.renderHud(view, hud, frame);
+        notes.spawn(getEnteredNoteRange(previous, next));
+        notes.render(next.session, next.songTimeMs);
+        for (const region of getChangedHudRegions(previous, next)) {
+          this.renderHudRegion(view, next, region);
+        }
       },
+      hasNoteEntered: (noteTimeMs, songTimeMs) => notes.hasEntered(noteTimeMs, songTimeMs),
       pressLane: (lane) => {
         view.soundEffects.play('lanePress');
         view.laneFx.press(lane);
@@ -621,85 +787,114 @@ export class GameplayScene extends Phaser.Scene {
         this.clearPlayfield(view, () => playFullComboFx(this, this.celestial, onDone)),
       // 확인창이 열려 있어도 keyup 판정으로 실패할 수 있으므로 확인창만 숨긴다.
       playFailure: (onDone) => {
-        const { modeHud } = view;
-        if (modeHud.kind !== 'standard') {
-          throw new Error('Practice play cannot fail');
-        }
-        view.quitDialog.hide();
-        playFailureFx(this, this.celestial, modeHud.starlight, onDone);
+        view.quitDialog.render(null);
+        playFailureFx(
+          this,
+          this.celestial,
+          view.modeHud.kind === 'standard' ? view.modeHud.starlight : null,
+          onDone,
+        );
       },
       playClear: (onDone) => this.clearPlayfield(view, () => playClearFx(this, onDone)),
     };
   }
 
-  private showLoadError(
-    view: GameplayView,
-    controller: GameplayController,
-    error: GameplayLoadError,
-  ): void {
-    let message: string;
-    let hint: string | undefined;
-    switch (error.kind) {
-      case 'chartLoadFailed':
-        message = this.i18n.t('gameplay.chartLoadFailed');
-        break;
-      case 'playerLoadFailed':
-        message = this.i18n.t('gameplay.playerLoadFailed');
-        break;
-      case 'videoError':
-        message = this.i18n.t('gameplay.videoError', {
-          message: this.i18n.t('youtubeError.withCode', {
-            message: this.i18n.t(`youtubeError.${error.errorKind}`),
-            code: error.code,
-          }),
-        });
-        if (error.errorKind === 'embeddingNotAllowed') {
-          hint = this.i18n.t('youtubeError.embeddingNotAllowedHint');
-        }
-        break;
-      case 'playbackStartFailed':
-        message = this.i18n.t('gameplay.playbackStartFailed');
-        break;
-    }
-    view.quitDialog.hide();
+  private showLoadError(view: GameplayView, error: GameplayLoadError): void {
+    const { message, hasHint } = getLoadErrorText(error);
+    view.quitDialog.render(null);
     this.hideIntro(view);
-    this.setStatus(view, { kind: 'none' });
+    // 오류 뒤에는 컨트롤러가 안내를 더 보내지 않으므로 처음 그리듯 안내를 지운다.
+    this.renderStatus(view, null, { kind: 'none' });
     addHudText(
       this,
       SCREEN_CENTER_X_PX,
       ERROR_MESSAGE_Y_PX,
-      message,
+      this.translateLoadError(message),
       textStyle('heading', COLORS.textPrimary),
     );
-    if (hint !== undefined) {
+    if (hasHint) {
       addHudText(
         this,
         SCREEN_CENTER_X_PX,
         ERROR_HINT_Y_PX,
-        hint,
+        this.i18n.t('youtubeError.embeddingNotAllowedHint'),
         textStyle('secondary', COLORS.textSecondary),
       );
     }
-    const button = new Button(this, 0, ERROR_BUTTON_Y_PX, {
-      variant: 'primary',
-      label: this.i18n.t('gameplay.backToSongSelect'),
-      onActivate: () => controller.leave(),
-    });
-    button.alignX(SCREEN_CENTER_X_PX, 0.5).setFocused(true).setDepth(GAMEPLAY_DEPTH.text);
+    view.backButton.setVisible(true).playFocus(true);
+  }
+
+  private renderButtonRegion(
+    view: GameplayView,
+    buttons: GameplayButtons,
+    region: GameplayButtonRegion,
+  ): void {
+    switch (region) {
+      case 'backButton':
+        view.backButton.render(getGameplayButtonView(buttons, 'back'));
+        return;
+      case 'quitConfirmButtons':
+        view.quitDialog.renderButtons(
+          getGameplayButtonView(buttons, 'quitCancel'),
+          getGameplayButtonView(buttons, 'quitAccept'),
+        );
+        return;
+    }
+  }
+
+  private translateLoadError(message: LoadErrorMessage): string {
+    switch (message.kind) {
+      case 'key':
+        return this.i18n.t(message.key);
+      case 'videoError':
+        return this.i18n.t('gameplay.videoError', {
+          message: this.i18n.t('youtubeError.withCode', {
+            message: this.i18n.t(`youtubeError.${message.errorKind}`),
+            code: message.code,
+          }),
+        });
+    }
   }
 
   private hideIntro(view: GameplayView): void {
     view.introTitle.setVisible(false);
     view.introDifficulty.setVisible(false);
+    // 콤보는 곡 제목과 같은 자리라 시작 전에는 숨겨 두고 제목이 걷힐 때 들인다.
+    this.tweens.add({
+      targets: view.comboText,
+      alpha: COMBO_ALPHA,
+      duration: MOTION.mediumMs,
+    });
+    this.tweens.add({
+      targets: view.comboLabel,
+      alpha: COMBO_LABEL_ALPHA,
+      duration: MOTION.mediumMs,
+    });
+  }
+
+  private popComboTier(comboText: Phaser.GameObjects.Text): void {
+    this.tweens.add({
+      targets: comboText,
+      scale: {
+        from: COMBO_TIER_POP_SCALE,
+        to: 1,
+      },
+      alpha: {
+        from: 1,
+        to: COMBO_ALPHA,
+      },
+      duration: MOTION.mediumMs,
+      ease: 'Cubic.Out',
+    });
   }
 
   private openQuitConfirm(view: GameplayView, reason: QuitConfirmReason): void {
     view.status.setVisible(false);
     view.countdownText.setVisible(false);
-    const isResyncFailed = reason === 'resyncFailed';
-    view.quitDialog.show({
-      title: this.i18n.t(isResyncFailed ? 'gameplay.resyncFailedTitle' : 'gameplay.quitTitle'),
-      body: this.i18n.t(isResyncFailed ? 'gameplay.resyncFailedBody' : 'gameplay.quitConfirm'),
+    const { titleKey, bodyKey } = QUIT_CONFIRM_TEXTS[reason];
+    view.quitDialog.render({
+      title: this.i18n.t(titleKey),
+      body: this.i18n.t(bodyKey),
       cancelLabel: 'CONTINUE',
       acceptLabel: 'QUIT',
       acceptTone: 'default',
@@ -707,18 +902,19 @@ export class GameplayScene extends Phaser.Scene {
   }
 
   private closeQuitConfirm(view: GameplayView): void {
-    view.quitDialog.hide();
+    view.quitDialog.render(null);
     view.status.setVisible(true);
     view.countdownText.setVisible(true);
   }
 
   private showMvMode(view: GameplayView, mode: MvMode): void {
     this.mvLayer.dataset.mvMode = mode;
-    view.nightSky.setVisible(mode === 'off');
-    view.mvMode.show(mode);
+    view.mvMode.show(mode, getMvModeMarks(mode));
   }
 
-  private setMvVisible(isVisible: boolean): void {
+  private setMvVisible(view: GameplayView, isVisible: boolean): void {
+    // 영상이 가려지면 화면이 검게 비므로 그 동안만 밤하늘 성도를 깐다.
+    view.introChart.render(!isVisible);
     if (isVisible) {
       delete this.mvLayer.dataset.mvHidden;
       return;
@@ -769,7 +965,7 @@ export class GameplayScene extends Phaser.Scene {
         view.soundEffects.play(effect);
       }
     });
-    const lastEvent = events.at(-1);
+    const lastEvent = getShownJudgment(events);
     if (lastEvent === undefined) {
       return;
     }
@@ -826,26 +1022,80 @@ export class GameplayScene extends Phaser.Scene {
     }
   }
 
-  private renderHud(
-    view: GameplayView,
-    hud: { combo: number; score: number },
-    frame: GameplayFrame,
-  ): void {
+  private renderHudRegion(view: GameplayView, frame: GameplayFrame, region: HudRegion): void {
     const { state } = frame;
-    if (state.combo !== hud.combo) {
-      hud.combo = state.combo;
-      view.comboText.setText(`${state.combo}`);
+    switch (region) {
+      case 'combo':
+        view.comboText.setText(`${state.combo}`);
+        return;
+      case 'comboTier':
+        setComboTint([view.comboText, view.comboLabel], getComboTier(state.combo));
+        return;
+      case 'comboPop':
+        this.popComboTier(view.comboText);
+        return;
+      case 'score':
+        view.scoreText.setText(formatScore(state.score));
+        return;
+      case 'progress':
+        view.progress.render(frame.progress);
+        return;
+      case 'gaugeFill':
+      case 'gaugeBand':
+      case 'gaugeGlint':
+        switch (view.modeHud.kind) {
+          case 'standard':
+            this.renderGaugeRegion(view.modeHud.starlight, frame, region);
+            return;
+          case 'practice':
+            return;
+        }
+        return;
+      case 'accuracy':
+        switch (view.modeHud.kind) {
+          case 'standard':
+            return;
+          case 'practice':
+            view.modeHud.stats.renderAccuracy(calculateAccuracy(frame.state.counts));
+            return;
+        }
+        return;
+      case 'perfectCount':
+      case 'greatCount':
+      case 'goodCount':
+      case 'badCount':
+      case 'missCount':
+        switch (view.modeHud.kind) {
+          case 'standard':
+            return;
+          case 'practice': {
+            const judgment = PRACTICE_COUNT_JUDGMENTS[region];
+            view.modeHud.stats.renderCount(judgment, state.counts[judgment]);
+            return;
+          }
+        }
+        return;
     }
-    if (state.score !== hud.score) {
-      hud.score = state.score;
-      view.scoreText.setText(formatScore(state.score));
-    }
-    view.progress.setProgress(frame.progress);
-    const { modeHud } = view;
-    if (modeHud.kind === 'standard') {
-      modeHud.starlight.setHp(state.hp);
-    } else {
-      modeHud.stats.setCounts(state.counts);
+  }
+
+  private renderGaugeRegion(
+    starlight: StarlightGauge,
+    frame: GameplayFrame,
+    region: Extract<HudRegion, 'gaugeFill' | 'gaugeBand' | 'gaugeGlint'>,
+  ): void {
+    const { hp } = frame.state;
+    switch (region) {
+      case 'gaugeFill':
+        starlight.renderFill(hp);
+        return;
+      case 'gaugeBand': {
+        const band = getStarlightBand(hp);
+        starlight.renderBand(band, isBreathingBand(band));
+        return;
+      }
+      case 'gaugeGlint':
+        starlight.flashGlint();
+        return;
     }
   }
 
@@ -855,6 +1105,11 @@ export class GameplayScene extends Phaser.Scene {
     );
     this.cameras.main.fadeOut(MOTION.mediumMs);
   }
+}
+
+function setComboTint(texts: readonly Phaser.GameObjects.Text[], tier: ComboTier): void {
+  const { top, bottom } = COMBO_TIER_TINTS[tier];
+  texts.forEach((text) => text.setTint(top, top, bottom, bottom));
 }
 
 // 정지점 사이 구간마다 사다리꼴 하나를 채우고 구간 안은 꼭짓점 alpha 보간에 맡긴다.

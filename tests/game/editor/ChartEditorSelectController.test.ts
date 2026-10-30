@@ -8,13 +8,17 @@ import type {
   SongQuery,
 } from '../../../src/data/songs.js';
 import { ChartEditorSelectController } from '../../../src/game/editor/ChartEditorSelectController.js';
-import type { ChartEditorSelectView } from '../../../src/game/editor/ChartEditorSelectController.js';
-import type { SongListKey } from '../../../src/game/editor/songListState.js';
-import { SongFeed } from '../../../src/game/SongFeed.js';
-import type { ChartEditorSelectSceneData } from '../../../src/game/sceneRoutes.js';
+import type {
+  ChartEditorSelectView,
+  SongListKey,
+} from '../../../src/game/editor/state/songListState.js';
+import { SongFeed } from '../../../src/game/app/SongFeed.js';
+import type { ChartEditorSelectSceneData } from '../../../src/game/app/sceneRoutes.js';
+import { requireDefined } from '../../../src/invariant.js';
 
 const PAGE_SIZE = 6;
 const VISIBLE_ROW_COUNT = 4;
+const ROW_HEIGHT_PX = 56;
 const RELEASED_ON = '2026-05-01';
 
 function makeSong(index: number, category: SongCategory = 'original'): Song {
@@ -83,10 +87,7 @@ function createServer(songs: readonly Song[]) {
 type Server = ReturnType<typeof createServer>;
 
 async function settle(call: PendingCall | undefined, kind: 'resolve' | 'reject' = 'resolve') {
-  if (call === undefined) {
-    throw new Error('Missing call');
-  }
-  call[kind]();
+  requireDefined(call, 'Missing call')[kind]();
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
@@ -96,6 +97,7 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
   const server = createServer(songs);
   const created: SongFeed[] = [];
   const views: ChartEditorSelectView[] = [];
+  const previousViews: (ChartEditorSelectView | null)[] = [];
   const edits: { songId: string; list: SongFeed }[] = [];
   let leaveCount = 0;
   const search = {
@@ -116,7 +118,10 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
         },
       },
       {
-        render: (view) => views.push(view),
+        render: (previous, next) => {
+          previousViews.push(previous);
+          views.push(next);
+        },
         edit: (songId, list) =>
           edits.push({
             songId,
@@ -140,6 +145,7 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
       },
       VISIBLE_ROW_COUNT,
       entry,
+      ROW_HEIGHT_PX,
     );
     return controller;
   };
@@ -148,24 +154,18 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
     catalog: feed,
     created,
     views,
+    previousViews,
     edits,
     search,
     open,
     get controller(): ChartEditorSelectController {
-      if (controller === undefined) {
-        throw new Error('Not opened');
-      }
-      return controller;
+      return requireDefined(controller, 'Not opened');
     },
     get leaveCount() {
       return leaveCount;
     },
     get view(): ChartEditorSelectView {
-      const view = views.at(-1);
-      if (view === undefined) {
-        throw new Error('Nothing rendered');
-      }
-      return view;
+      return requireDefined(views.at(-1), 'Nothing rendered');
     },
   };
 }
@@ -606,5 +606,145 @@ describe('ChartEditorSelectController close', () => {
 
     expect(harness.views).toHaveLength(renderCount);
     expect(harness.server.calls).toHaveLength(callCount);
+  });
+});
+
+describe('ChartEditorSelectController input after close', () => {
+  it('ignores pointer, wheel and key input after closing', () => {
+    const harness = openLoaded();
+    harness.controller.pointerDown('back');
+    const renderCount = harness.views.length;
+
+    harness.controller.close();
+    harness.controller.pointerUp('back');
+    harness.controller.pointerOver('back');
+    harness.controller.hoverFilter('original');
+    harness.controller.hoverRow(1);
+    harness.controller.scrollByWheel(1000, 0);
+    harness.controller.handleKey(key('Escape'));
+
+    expect(harness.views).toHaveLength(renderCount);
+    expect(harness.leaveCount).toBe(0);
+  });
+});
+
+describe('ChartEditorSelectController view', () => {
+  it('renders the first view without a previous one and then with the last rendered one', () => {
+    const harness = openLoaded();
+    const first = harness.view;
+
+    harness.controller.scroll(1);
+
+    expect(harness.previousViews[0]).toBeNull();
+    expect(harness.previousViews.at(-1)).toBe(first);
+  });
+
+  it('keeps the hovered filter in the view and renders nothing for the same hover', () => {
+    const harness = openLoaded();
+
+    harness.controller.hoverFilter('cover');
+    expect(harness.view.hover).toEqual({
+      kind: 'filter',
+      category: 'cover',
+    });
+    const renderCount = harness.views.length;
+    harness.controller.hoverFilter('cover');
+    harness.controller.unhoverFilter('original');
+    expect(harness.views).toHaveLength(renderCount);
+
+    harness.controller.unhoverFilter('cover');
+    expect(harness.view.hover).toBeNull();
+  });
+});
+
+describe('ChartEditorSelectController wheel', () => {
+  it('scrolls one row for a wheel of one row height', () => {
+    const harness = openLoaded();
+
+    harness.controller.scrollByWheel(ROW_HEIGHT_PX, 0);
+
+    expect(harness.view.topIndex).toBe(1);
+  });
+
+  it('ignores a wheel smaller than the start ratio', () => {
+    const harness = openLoaded();
+    const renderCount = harness.views.length;
+
+    harness.controller.scrollByWheel(10, 0);
+
+    expect(harness.views).toHaveLength(renderCount);
+  });
+
+  it('accumulates wheels within the gesture gap', () => {
+    const harness = openLoaded();
+
+    harness.controller.scrollByWheel(10, 0);
+    harness.controller.scrollByWheel(10, 100);
+
+    expect(harness.view.topIndex).toBe(1);
+  });
+});
+
+describe('ChartEditorSelectController button pointer', () => {
+  it('leaves once for over, down and up on BACK', () => {
+    const harness = openLoaded();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerDown('back');
+    harness.controller.pointerUp('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.leaveCount).toBe(1);
+  });
+
+  it('does not leave for an up that was pressed elsewhere', () => {
+    const harness = openLoaded();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.leaveCount).toBe(0);
+  });
+
+  it('releases the press when the pointer leaves the button', () => {
+    const harness = openLoaded();
+
+    harness.controller.pointerOver('back');
+    harness.controller.pointerDown('back');
+    harness.controller.pointerOut('back');
+    harness.controller.pointerOver('back');
+    harness.controller.pointerUp('back');
+
+    expect(harness.leaveCount).toBe(0);
+    expect(harness.view.hover).toEqual({
+      kind: 'button',
+      button: 'back',
+      isPressed: false,
+    });
+  });
+
+  it('ignores a press on RETRY while nothing failed', () => {
+    const harness = openLoaded();
+    const renderCount = harness.views.length;
+
+    harness.controller.pointerDown('retry');
+
+    expect(harness.views).toHaveLength(renderCount);
+  });
+
+  it('retries with RETRY and releases its hover when it hides', async () => {
+    const harness = createHarness(songs);
+    harness.open({ kind: 'fresh' });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await settle(harness.server.calls[0], 'reject');
+
+    harness.controller.pointerOver('retry');
+    harness.controller.pointerDown('retry');
+    harness.controller.pointerUp('retry');
+    expect(harness.server.calls).toHaveLength(2);
+
+    await settle(harness.server.calls[1]);
+    expect(harness.view.canRetry).toBe(false);
+    expect(harness.view.hover).toBeNull();
   });
 });

@@ -4,7 +4,7 @@ migrate(
     const users = app.findCollectionByNameOrId('users');
     const charts = app.findCollectionByNameOrId('charts');
 
-    // Only superusers and server hooks touch sessions.
+    // superuser 와 서버 훅만 세션을 다룬다.
     const playSessions = new Collection({
       type: 'base',
       name: 'play_sessions',
@@ -38,7 +38,7 @@ migrate(
     });
     app.save(playSessions);
 
-    // Public reads only show records of the chart's current revision; writes go through server hooks.
+    // 공개 조회는 채보의 현재 revision 기록만 보여 준다. 쓰기는 서버 훅을 거친다.
     const scores = new Collection({
       type: 'base',
       name: 'scores',

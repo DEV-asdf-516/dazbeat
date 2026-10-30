@@ -1,13 +1,13 @@
 /// <reference path="../pb_data/types.d.ts" />
-// nickname and featuredAchievement change only through the /api/dazbeat/profile routes, which
-// normalize, check duplicates and check ownership, so the plain users API can neither set nor change them.
+// nickname 과 featuredAchievement 는 정규화, 중복 검사, 소유 확인을 하는 /api/dazbeat/profile
+// 라우트로만 바뀌므로 기본 users API 로는 설정도 변경도 할 수 없다.
 const USERS_CREATE_INVARIANT =
   '@request.body.nickname:isset = false && @request.body.featuredAchievement:isset = false';
 const USERS_UPDATE_INVARIANT =
   '@request.body.nickname:changed = false && @request.body.featuredAchievement:changed = false';
 const NICKNAME_INDEX = 'idx_users_nickname_nocase';
-// Migrations are snapshots and cannot import profileRequest.ts, so the default nickname rule is
-// copied here: the prefix plus unused digits, with one more digit only once every value is taken.
+// 마이그레이션은 스냅샷이라 profileRequest.ts 를 import 할 수 없어 기본 닉네임 규칙을 여기 복사한다.
+// 접두사에 쓰이지 않은 숫자를 붙이고, 모든 값이 찼을 때만 자릿수를 하나 늘린다.
 const DEFAULT_NICKNAME_PREFIX = '과즙이';
 const DEFAULT_NICKNAME_MIN_DIGITS = 4;
 const DEFAULT_NICKNAME_MAX_DIGITS = 13;
@@ -41,7 +41,7 @@ function pickDefaultNickname(used) {
   throw new Error('No default nickname is left');
 }
 
-// JSVM hands non-null rules over as string wrapper objects, not JS strings.
+// JSVM 은 null 이 아닌 규칙을 JS 문자열이 아니라 문자열 래퍼 객체로 넘긴다.
 function readRule(rule) {
   return rule === null ? null : String(rule);
 }

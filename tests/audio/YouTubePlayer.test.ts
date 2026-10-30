@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { YouTubePlayer } from '../../src/audio/YouTubePlayer.js';
 import type { YouTubePlayerHandlers } from '../../src/audio/YouTubePlayer.js';
+import { requireDefined } from '../../src/invariant.js';
 
 type PlayerOptions = ConstructorParameters<NonNullable<NonNullable<Window['YT']>['Player']>>[1];
 
@@ -52,10 +53,7 @@ function createPlayer(handlers: YouTubePlayerHandlers): Harness {
   };
   // 실제 DOM 이 없는 node 환경이라 생성자가 쓰는 append 만 가진 대역으로 대신한다.
   const player = new YouTubePlayer(container as unknown as HTMLElement, 'aaaaaaaaaaa', handlers);
-  const options = captured[0];
-  if (options === undefined) {
-    throw new Error('YT.Player was not constructed');
-  }
+  const options = requireDefined(captured[0], 'YT.Player was not constructed');
   return {
     options,
     player,

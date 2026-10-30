@@ -1,44 +1,47 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import { ACHIEVEMENTS, ACHIEVEMENT_SETS, findAchievement } from '../../data/achievements.js';
+import { ACHIEVEMENT_SETS } from '../../data/achievements.js';
 import type {
-  AchievementCategory,
+  AchievementCatalog,
   AchievementDefinition,
   AchievementId,
   AchievementSet,
+  NamedAchievementDefinition,
 } from '../../data/achievements.js';
 import { NICKNAME_MAX_LENGTH } from '../../data/nickname.js';
 import type { AchievementStatus, ProfileStats } from '../../data/profile.js';
 import { requireDefined } from '../../invariant.js';
-import { isShallowEqual } from '../../shallowEqual.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import type { CelestialCatalog } from '../celestial/celestialCatalog.js';
+import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import {
   addCelestialSprite,
   applyCelestialPresentation,
   queueCelestialTextures,
   setCelestialLoopActive,
-} from '../celestial/celestialSprites.js';
-import { GAME_HEIGHT, GAME_WIDTH } from '../config.js';
-import { SCENE_KEYS, exitScene } from '../sceneRoutes.js';
-import type { SceneRequest } from '../sceneRoutes.js';
-import { STAYING } from '../sceneExit.js';
-import type { SceneExit } from '../sceneExit.js';
-import { getAchievementEmblemTexture } from '../ui/achievementEmblem.js';
-import { createHeaderAuxiliaryButtons } from '../ui/auxiliaryButton.js';
-import { Button } from '../ui/Button.js';
-import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/MenuSceneChrome.js';
-import { readMenuAction } from '../ui/menuInput.js';
-import type { MenuAction } from '../ui/menuInput.js';
-import { HOVER_CURSOR } from '../ui/cursor.js';
-import { queueImageLoads } from '../ui/imageLoad.js';
-import { addHairline } from '../ui/hairline.js';
-import { bindHoverTarget } from '../ui/hoverTarget.js';
-import { SoundEffects, queueSoundEffects } from '../ui/soundEffects.js';
-import { MENU_KEY_HINT_STYLE, addKeyHintRow } from '../ui/keyHintView.js';
-import { TextInput } from '../ui/TextInput.js';
-import { LOADING_STAR_ID } from '../ui/LoadingStar.js';
-import { NoticeText } from '../ui/NoticeText.js';
+} from '../celestial/view/celestialSprites.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
+import { getControlsGuide } from '../app/controlsGuide.js';
+import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
+import type { SceneRequest } from '../app/sceneRoutes.js';
+import { STAYING } from '../app/sceneExit.js';
+import type { SceneExit } from '../app/sceneExit.js';
+import { getAchievementName } from '../ui/state/achievementName.js';
+import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmblem.js';
+import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import { Button } from '../ui/view/widgets/Button.js';
+import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
+import { readMenuAction } from '../ui/view/input/menuInput.js';
+import type { MenuAction } from '../ui/view/input/menuInput.js';
+import { HOVER_CURSOR } from '../ui/view/input/cursor.js';
+import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
+import { addHairline } from '../ui/view/textures/hairline.js';
+import { bindHoverTarget, pointButton } from '../ui/view/input/hoverTarget.js';
+import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import { MENU_KEY_HINT_STYLE, addKeyHintRow } from '../ui/view/widgets/keyHintView.js';
+import { TextInput } from '../ui/view/widgets/TextInput.js';
+import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
+import { NoticeText } from '../ui/view/widgets/NoticeText.js';
 import {
   CELESTIAL_COLORS,
   COLORS,
@@ -51,18 +54,49 @@ import {
   setTextColor,
   setTextWeight,
   textStyle,
-} from '../ui/theme.js';
-import { TextTabs } from '../ui/TextTabs.js';
-import type { TextTabsStyle } from '../ui/TextTabs.js';
+} from '../ui/view/theme.js';
+import { TextTabs } from '../ui/view/widgets/TextTabs.js';
+import type { TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import { ProfileController } from './ProfileController.js';
 import type { ProfileDeps } from './ProfileController.js';
 import {
+  getCellLook,
+  getChangedRegions,
   getChoiceAppearance,
   getCollectionRows,
+  getEarnedProgress,
   getFeaturedAction,
-  isEarned,
-} from './profileState.js';
-import type { LoadedProfileState, ProfileHover, ProfileState, SummaryTab } from './profileState.js';
+  getFeaturedIdentity,
+  getFocusedEarning,
+  getLoadedScreen,
+  getNicknameCountInput,
+  getNicknameEdit,
+  getNicknameLook,
+  getPenAppearance,
+  getProfileButtonView,
+  getProfileControlsCloseView,
+  getProfileNotice,
+  getProfilePage,
+  getProgressDisplay,
+  getSummaryFocusKind,
+  isFocusedFeatured,
+  isProfileControlsEntryHovered,
+} from './state/profileState.js';
+import type {
+  CollectionRegion,
+  LoadedProfileState,
+  LoadedScreen,
+  NicknameEdit,
+  NicknameLook,
+  ProfileButton,
+  ProfilePageKind,
+  ProfileRegion,
+  ProfileScreenState,
+  ProfileState,
+  ProfileTarget,
+  SummaryRegion,
+  SummaryTab,
+} from './state/profileState.js';
 
 // 획득 날짜와 대표 컬렉션은 시안의 champagne 으로 칭호처럼 보인다.
 const FEATURED_COLOR = 0xe8d6b1;
@@ -79,28 +113,96 @@ const NICKNAME_FIELD_PADDING_X_PX = 20;
 const NICKNAME_COUNT_RESERVE_PX = 72;
 const NICKNAME_FIELD_IDLE_FILL_ALPHA = 0.55;
 const NICKNAME_FIELD_EDIT_FILL_ALPHA = 0.88;
-type NicknameFieldLook = 'idle' | 'editing' | 'invalid';
 const NICKNAME_FIELD_LOOKS: Record<
-  NicknameFieldLook,
-  { readonly fillAlpha: number; readonly borderColor: number; readonly borderAlpha: number }
+  NicknameLook['kind'],
+  {
+    readonly fillAlpha: number;
+    readonly borderColor: number;
+    readonly borderAlpha: number;
+    readonly isNameShown: boolean;
+    readonly isHintShown: boolean;
+  }
 > = {
   idle: {
     fillAlpha: NICKNAME_FIELD_IDLE_FILL_ALPHA,
     borderColor: CELESTIAL_COLORS.border,
     borderAlpha: 0.6,
+    isNameShown: true,
+    isHintShown: false,
   },
   editing: {
     fillAlpha: NICKNAME_FIELD_EDIT_FILL_ALPHA,
     borderColor: CELESTIAL_COLORS.selected,
     borderAlpha: 1,
+    isNameShown: false,
+    isHintShown: true,
   },
   invalid: {
     fillAlpha: NICKNAME_FIELD_EDIT_FILL_ALPHA,
     borderColor: STATUS_COLORS.danger,
     borderAlpha: 1,
+    isNameShown: false,
+    isHintShown: false,
   },
 };
 const NICKNAME_COUNT_ALPHA = 0.7;
+const TITLE_KEYS = {
+  guest: 'profile.title',
+  loading: 'profile.title',
+  failed: 'profile.title',
+  summary: 'profile.title',
+  collection: 'collection.title',
+} as const satisfies Record<ProfilePageKind, string>;
+const NOTICE_KEYS = {
+  guest: ['profile.guestRecord', 'profile.guestSignIn'],
+  failed: ['profile.loadFailed', 'profile.retry'],
+} as const;
+const PAGE_VISIBILITY: Readonly<
+  Record<
+    ProfilePageKind,
+    {
+      readonly isNoticeVisible: boolean;
+      readonly isLoadingVisible: boolean;
+      readonly isSummaryVisible: boolean;
+      readonly isCollectionVisible: boolean;
+    }
+  >
+> = {
+  guest: {
+    isNoticeVisible: true,
+    isLoadingVisible: false,
+    isSummaryVisible: false,
+    isCollectionVisible: false,
+  },
+  loading: {
+    isNoticeVisible: false,
+    isLoadingVisible: true,
+    isSummaryVisible: false,
+    isCollectionVisible: false,
+  },
+  failed: {
+    isNoticeVisible: true,
+    isLoadingVisible: false,
+    isSummaryVisible: false,
+    isCollectionVisible: false,
+  },
+  summary: {
+    isNoticeVisible: false,
+    isLoadingVisible: false,
+    isSummaryVisible: true,
+    isCollectionVisible: false,
+  },
+  collection: {
+    isNoticeVisible: false,
+    isLoadingVisible: false,
+    isSummaryVisible: false,
+    isCollectionVisible: true,
+  },
+};
+const CELL_ALPHAS: Readonly<Record<'earned' | 'locked', number>> = {
+  earned: 1,
+  locked: LOCKED_ALPHA,
+};
 const FEATURED_CENTER_Y_PX = 256;
 const FEATURED_EMBLEM_SIZE_PX = 40;
 const FEATURED_NAME_GAP_PX = 12;
@@ -150,11 +252,11 @@ const SET_NODE_IDS = {
 } as const;
 const ROW_LABEL_WEIGHT = 500;
 const GRID_TOP_Y_PX = 256;
-const GRID_EMBLEM_SIZE_PX = 68;
-const GRID_CELL_PX = 82;
-const GRID_CATEGORY_STRIDE_PX = 138;
+const GRID_EMBLEM_SIZE_PX = 60;
+const GRID_CELL_PX = 74;
+const GRID_CATEGORY_STRIDE_PX = 116;
 const GRID_EMBLEM_OFFSET_Y_PX = 40;
-const HALO_SIZE_PX = 100;
+const HALO_SIZE_PX = 88;
 const NEW_LABEL_TYPE = {
   sizePx: 14,
   weight: 700,
@@ -170,7 +272,6 @@ const DETAIL_NAME_Y_PX = 476;
 const DETAIL_CONDITION_Y_PX = 536;
 const DETAIL_PROGRESS_Y_PX = 610;
 const DETAIL_STATUS_Y_PX = 652;
-const DETAIL_NOTE_Y_PX = 694;
 const DETAIL_RULE_Y_PX = 744;
 const DETAIL_BUTTON_TOP_Y_PX = 768;
 const DETAIL_BUTTON_HEIGHT_PX = 64;
@@ -204,7 +305,7 @@ interface SetRowView {
 }
 
 interface CellView {
-  id: AchievementId;
+  definition: NamedAchievementDefinition;
   image: Phaser.GameObjects.Image;
   newLabel: Phaser.GameObjects.Text;
 }
@@ -212,8 +313,7 @@ interface CellView {
 interface SetGridView {
   container: Phaser.GameObjects.Container;
   groupTitles: readonly {
-    category: AchievementCategory;
-    row: readonly AchievementDefinition[];
+    row: readonly [NamedAchievementDefinition, ...NamedAchievementDefinition[]];
     text: Phaser.GameObjects.Text;
   }[];
   cells: readonly CellView[];
@@ -252,7 +352,6 @@ interface ProfileView {
   detailCondition: Phaser.GameObjects.Text;
   detailProgressLabel: Phaser.GameObjects.Text;
   detailProgressValue: Phaser.GameObjects.Text;
-  detailNote: Phaser.GameObjects.Text;
   detailStatusLabel: Phaser.GameObjects.Text;
   detailStatus: Phaser.GameObjects.Text;
   featuredHalo: Phaser.GameObjects.Sprite;
@@ -265,11 +364,11 @@ interface ProfileView {
 }
 
 interface ProfileViewActions {
-  readonly select: () => void;
   readonly selectTab: (tab: SummaryTab) => void;
   readonly selectSet: (set: AchievementSet) => void;
-  readonly hover: (hover: ProfileHover) => void;
-  readonly unhover: (hover: ProfileHover) => void;
+  readonly hover: (hover: ProfileTarget) => void;
+  readonly unhover: (hover: ProfileTarget) => void;
+  readonly pointer: ButtonPointer<ProfileButton>;
 }
 
 function formatNicknameCount(nickname: string): string {
@@ -287,17 +386,18 @@ function getStatus(
   id: AchievementId,
 ): AchievementStatus {
   return requireDefined(
-    achievements.find((status) => status.id === id),
+    achievements.find((status) => status.definition.id === id),
     'Missing achievement status',
     id,
   );
 }
 
-function countEarned(
-  state: LoadedProfileState,
-  definitions: readonly AchievementDefinition[],
-): number {
-  return definitions.filter(({ id }) => isEarned(state, id)).length;
+function formatEarned({ earned, total }: { earned: number; total: number }): string {
+  return `${earned} / ${total}`;
+}
+
+function getAlbumName(catalog: AchievementCatalog, album: string): string {
+  return requireDefined(catalog.albumNames.get(album), 'Unknown album', album);
 }
 
 // 세트 이름은 여러 줄로 쌓인 고유 명칭이라 ALL CAPS 대신 Title Case 로 단어 모양을 살린다.
@@ -344,22 +444,37 @@ export class ProfileScene extends Phaser.Scene {
 
   create(): void {
     this.exit = STAYING;
-    const chrome = new MenuSceneChrome(this, {
-      celestial: this.celestial,
-      screen: 'songSelect',
-      readControlsMessages: () => this.i18n.t('controls', { returnObjects: true }),
-      readSettings: () => this.save.loadSettings(),
-    });
+    const pointer: ButtonPointer<ProfileButton> = {
+      pointerOver: (button) => controller.pointerOver(button),
+      pointerOut: (button) => controller.pointerOut(button),
+      pointerDown: (button) => controller.pointerDown(button),
+      pointerUp: (button) => controller.pointerUp(button),
+    };
+    const chrome = new MenuSceneChrome(
+      this,
+      {
+        celestial: this.celestial,
+        screen: 'songSelect',
+      },
+      {
+        isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) =>
+          controller.captureNicknameKey(readMenuAction(event), view.input.text),
+        handleControlsKey: (event) => controller.handleControlsKey(event),
+        handleMenuKey: (action) => this.handleMenuKey(action, controller),
+      },
+      pointer,
+    );
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
     const view = this.createView({
-      select: () => controller.select(),
       selectTab: (tab) => controller.selectTab(tab),
       selectSet: (set) => controller.selectSet(set),
       hover: (hover) => controller.hover(hover),
       unhover: (hover) => controller.unhover(hover),
+      pointer,
     });
     const controller = new ProfileController(this.deps, {
-      render: (state, previous) => this.render(view, state, previous, controller),
+      render: (previous, next) => this.render(view, chrome, backButton, next, previous, controller),
       playFocusSound: () => soundEffects.play('menuFocus'),
       leaveToMain: () => {
         this.exit = exitScene(this, this.exit, {
@@ -368,15 +483,19 @@ export class ProfileScene extends Phaser.Scene {
         });
       },
     });
-    createHeaderAuxiliaryButtons(this, [
-      {
-        label: 'BACK',
-        onActivate: () => controller.back(),
-      },
-    ]);
+    const backButton = requireDefined(
+      createHeaderAuxiliaryButtons(this, [
+        {
+          label: 'BACK',
+          pointer: pointButton(pointer, 'back'),
+        },
+      ])[0],
+      'Missing profile header button',
+      'BACK',
+    );
     const bindHover = (
       target: Phaser.GameObjects.GameObject,
-      hover: ProfileHover,
+      hover: ProfileTarget,
       onActivate: () => void,
     ): void =>
       bindHoverTarget(target, {
@@ -395,22 +514,15 @@ export class ProfileScene extends Phaser.Scene {
         () => controller.select(set),
       ),
     );
-    view.input.onInput((value) => {
-      view.nicknameCount.setText(formatNicknameCount(value));
-      controller.changeNicknameInput(value);
-    });
+    view.input.onInput((value) => controller.changeNicknameInput(value));
     // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, () => view.input.blur());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       controller.close();
       view.input.destroy();
     });
+    chrome.start(view.title.getBounds());
     controller.start();
-    chrome.start(view.title.getBounds(), {
-      isLeaving: () => this.exit.kind === 'leaving',
-      captureKey: (event) => controller.captureNicknameKey(readMenuAction(event), view.input.text),
-      handleMenuKey: (action) => this.handleMenuKey(action, controller),
-    });
   }
 
   private handleMenuKey(action: MenuAction | null, controller: ProfileController): void {
@@ -731,12 +843,6 @@ export class ProfileScene extends Phaser.Scene {
       'secondary',
       COLORS.textPrimary,
     ).setOrigin(1, 0);
-    const detailNote = text(
-      DETAIL_X_PX,
-      DETAIL_NOTE_Y_PX,
-      'meta',
-      COLORS.textMuted,
-    ).setWordWrapWidth(DETAIL_WIDTH_PX);
     const detailStatusLabel = text(
       DETAIL_X_PX,
       DETAIL_STATUS_Y_PX,
@@ -776,7 +882,7 @@ export class ProfileScene extends Phaser.Scene {
       label: this.i18n.t('collection.setFeatured'),
       widthPx: DETAIL_WIDTH_PX,
       heightPx: DETAIL_BUTTON_HEIGHT_PX,
-      onActivate: actions.select,
+      pointer: pointButton(actions.pointer, 'equip'),
     });
     const unequipButton = new Button(this, DETAIL_X_PX, DETAIL_BUTTON_TOP_Y_PX, {
       variant: 'secondary',
@@ -785,7 +891,7 @@ export class ProfileScene extends Phaser.Scene {
       label: this.i18n.t('collection.unsetFeatured'),
       widthPx: DETAIL_WIDTH_PX,
       heightPx: DETAIL_BUTTON_HEIGHT_PX,
-      onActivate: actions.select,
+      pointer: pointButton(actions.pointer, 'unequip'),
     });
     const detailFailure = text(
       DETAIL_X_PX,
@@ -803,7 +909,6 @@ export class ProfileScene extends Phaser.Scene {
       detailCondition,
       detailProgressLabel,
       detailProgressValue,
-      detailNote,
       detailStatusLabel,
       detailStatus,
       detailFeatured,
@@ -865,7 +970,6 @@ export class ProfileScene extends Phaser.Scene {
       detailCondition,
       detailProgressLabel,
       detailProgressValue,
-      detailNote,
       detailStatusLabel,
       detailStatus,
       detailFeatured,
@@ -880,160 +984,208 @@ export class ProfileScene extends Phaser.Scene {
 
   private render(
     view: ProfileView,
-    state: ProfileState,
-    previous: ProfileState | null,
+    chrome: MenuSceneChrome,
+    backButton: Button,
+    screen: ProfileScreenState,
+    previous: ProfileScreenState | null,
     controller: ProfileController,
   ): void {
-    // hover 만 바뀌면 hover 표시만 칠한다. 편집 중 hover 가 입력란 포커스를 되살리지 않게 한다.
-    if (
-      previous?.kind === 'loaded' &&
-      state.kind === 'loaded' &&
-      isShallowEqual(previous, state, ['hover'])
-    ) {
-      this.paintHover(view, state);
+    const regions = getChangedRegions(previous, screen);
+    for (const region of regions.profile) {
+      switch (region) {
+        case 'controls':
+          chrome.renderControls(
+            screen.isControlsOpen
+              ? getControlsGuide(
+                  this.i18n.t('controls', { returnObjects: true }),
+                  this.save.loadSettings(),
+                )
+              : null,
+          );
+          break;
+        case 'backButton':
+          backButton.render(getProfileButtonView(screen, 'back'));
+          break;
+        case 'controlsEntry':
+          chrome.renderControlsEntry(isProfileControlsEntryHovered(screen));
+          break;
+        case 'controlsClose':
+          chrome.renderControlsClose(getProfileControlsCloseView(screen));
+          break;
+        default:
+          this.renderProfile(view, screen.page, region);
+      }
+    }
+    const loaded = getLoadedScreen(screen);
+    if (loaded === null) {
       return;
     }
-    const isLoaded = state.kind === 'loaded';
-    const shownView = isLoaded ? state.view : null;
-    const previousView = previous?.kind === 'loaded' ? previous.view : null;
-    if (previous?.kind !== state.kind || previousView !== shownView) {
-      view.notice.setVisible(state.kind === 'guest' || state.kind === 'failed');
-      view.loading.show(
-        state.kind === 'loading'
-          ? {
-              kind: 'loading',
-              text: this.i18n.t('profile.loading'),
-            }
-          : { kind: 'none' },
-      );
-      view.summary.setVisible(shownView === 'summary');
-      view.collection.setVisible(shownView === 'collection');
-      view.grids.forEach((grid) => grid.container.setVisible(false));
+    for (const region of regions.summary) {
+      this.renderSummary(view, loaded, region);
     }
-    // 같은 보기를 이어 그릴 때만 이전 상태와 비교하고, 보기가 바뀌면 처음부터 그린다.
-    const before = previous?.kind === 'loaded' && previousView === shownView ? previous : null;
-    switch (state.kind) {
-      case 'guest':
-        if (previous?.kind !== state.kind) {
-          this.renderNotice(view, 'profile.guestRecord', 'profile.guestSignIn');
-        }
-        break;
-      case 'loading':
-        if (previous?.kind !== state.kind) {
-          view.title.setText(this.i18n.t('profile.title'));
-        }
-        break;
-      case 'failed':
-        if (previous?.kind !== state.kind) {
-          this.renderNotice(view, 'profile.loadFailed', 'profile.retry');
-        }
-        break;
-      case 'loaded':
-        if (state.view === 'summary') {
-          this.renderSummary(view, before, state);
-        } else {
-          this.renderCollection(view, before, state, controller);
-        }
-        if (before !== null && before.hover !== state.hover) {
-          this.paintHover(view, state);
-        }
-        break;
+    for (const region of regions.collection) {
+      this.renderCollection(view, loaded, region, controller);
     }
-    this.renderNicknameInput(view, previous, state);
   }
 
-  private renderNotice(
+  private renderProfile(
     view: ProfileView,
-    firstKey: 'profile.guestRecord' | 'profile.loadFailed',
-    secondKey: 'profile.guestSignIn' | 'profile.retry',
-  ): void {
-    view.title.setText(this.i18n.t('profile.title'));
-    const [first, second] = view.noticeLines;
-    requireDefined(first, 'Missing first notice line').setText(this.i18n.t(firstKey));
-    requireDefined(second, 'Missing second notice line').setText(this.i18n.t(secondKey));
-  }
-
-  private renderNicknameInput(
-    view: ProfileView,
-    previous: ProfileState | null,
     state: ProfileState,
+    region: Exclude<ProfileRegion, 'controls' | 'backButton' | 'controlsEntry' | 'controlsClose'>,
   ): void {
-    const before = previous?.kind === 'loaded' ? previous.nickname.kind : 'idle';
-    if (state.kind !== 'loaded' || state.nickname.kind === 'idle') {
-      if (before !== 'idle') {
+    const page = getProfilePage(state);
+    switch (region) {
+      case 'pages': {
+        const visibility = PAGE_VISIBILITY[page];
+        view.notice.setVisible(visibility.isNoticeVisible);
+        view.loading.show(
+          visibility.isLoadingVisible
+            ? {
+                kind: 'loading',
+                text: this.i18n.t('profile.loading'),
+              }
+            : { kind: 'none' },
+        );
+        view.summary.setVisible(visibility.isSummaryVisible);
+        view.collection.setVisible(visibility.isCollectionVisible);
+        return;
+      }
+      case 'title':
+        view.title.setText(this.i18n.t(TITLE_KEYS[page]));
+        return;
+      case 'notice': {
+        const notice = getProfileNotice(page);
+        if (notice !== null) {
+          view.noticeLines.forEach((line, index) =>
+            line.setText(
+              this.i18n.t(requireDefined(NOTICE_KEYS[notice][index], 'Missing notice key', index)),
+            ),
+          );
+        }
+        return;
+      }
+      case 'nicknameInput':
+        this.renderNicknameInput(view, getNicknameEdit(state));
+        return;
+    }
+  }
+
+  private renderNicknameInput(view: ProfileView, edit: NicknameEdit): void {
+    switch (edit.kind) {
+      case 'idle':
         view.input.blur();
         view.input.setVisible(false);
-      }
-      return;
-    }
-    if (before === 'idle') {
-      view.input.setText(state.profile.nickname);
-      view.nicknameCount.setText(formatNicknameCount(state.profile.nickname));
-      view.input.setVisible(true);
-    }
-    // 저장 중 입력은 응답이 오면 사라지므로 요청이 끝날 때까지 편집을 막는다.
-    const isEditing = state.nickname.kind === 'editing';
-    view.input.setEnabled(isEditing);
-    if (isEditing) {
-      view.input.focus();
-    } else {
-      view.input.blur();
+        return;
+      case 'editing':
+        view.input.setText(edit.input);
+        view.input.setVisible(true);
+        view.input.setEnabled(true);
+        view.input.focus();
+        return;
+      // 저장 중 입력은 응답이 오면 사라지므로 요청이 끝날 때까지 편집을 막는다.
+      case 'saving':
+        view.input.setText(edit.input);
+        view.input.setVisible(true);
+        view.input.setEnabled(false);
+        view.input.blur();
+        return;
     }
   }
 
-  private renderSummary(
-    view: ProfileView,
-    before: LoadedProfileState | null,
-    state: LoadedProfileState,
-  ): void {
-    const { profile, nickname } = state;
-    if (before === null) {
-      view.title.setText(this.i18n.t('profile.title'));
-      STAT_FIELDS.forEach((field, index) => {
-        requireDefined(view.statRows[index], 'Missing stat row', field).label.setText(
-          this.i18n.t(`profile.stats.${field}`),
+  private renderSummary(view: ProfileView, screen: LoadedScreen, region: SummaryRegion): void {
+    const state = screen.page;
+    const { profile } = state;
+    switch (region) {
+      case 'labels':
+        STAT_FIELDS.forEach((field, index) => {
+          requireDefined(view.statRows[index], 'Missing stat row', field).label.setText(
+            this.i18n.t(`profile.stats.${field}`),
+          );
+        });
+        view.earnedRow.label.setText(this.i18n.t('profile.stats.earnedAchievements'));
+        return;
+      case 'identity':
+        this.renderIdentity(view, state);
+        return;
+      case 'pen': {
+        const pen = getPenAppearance(screen);
+        view.pen
+          .setVisible(pen !== 'hidden')
+          .setTint(pen === 'emphasized' ? COLORS.textPrimary : COLORS.textSecondary);
+        return;
+      }
+      case 'nicknameCount': {
+        const input = getNicknameCountInput(state);
+        view.nicknameCount.setVisible(input !== null);
+        if (input !== null) {
+          view.nicknameCount.setText(formatNicknameCount(input));
+        }
+        return;
+      }
+      case 'stats': {
+        STAT_FIELDS.forEach((field, index) => {
+          requireDefined(view.statRows[index], 'Missing stat row', field).value.setText(
+            `${profile.stats[field]}`,
+          );
+        });
+        const visible = profile.achievements.map(({ definition }) => definition);
+        view.earnedRow.value.setText(formatEarned(getEarnedProgress(state, visible)));
+        view.setRows.forEach(({ set, count }) => {
+          count.setText(
+            formatEarned(
+              getEarnedProgress(
+                state,
+                visible.filter((definition) => definition.set === set),
+              ),
+            ),
+          );
+        });
+        return;
+      }
+      case 'summaryTab':
+        view.stats.setVisible(state.summaryTab === 'stats');
+        view.sets.setVisible(state.summaryTab === 'collection');
+        return;
+      case 'tabs':
+        view.summaryTabs.render(
+          (tab) =>
+            getChoiceAppearance(screen, {
+              kind: 'summaryTab',
+              tab,
+            }),
+          COLORS.textPrimary,
         );
-      });
-      view.earnedRow.label.setText(this.i18n.t('profile.stats.earnedAchievements'));
-    }
-    // 구역마다 그 구역이 읽는 필드만 골라 비교해, 다른 구역의 변경으로 다시 그리지 않는다.
-    if (
-      before === null ||
-      before.nickname !== nickname ||
-      before.profile.nickname !== profile.nickname ||
-      before.profile.featuredAchievement !== profile.featuredAchievement
-    ) {
-      this.renderIdentity(view, state);
-    }
-    if (
-      before === null ||
-      before.profile.stats !== profile.stats ||
-      before.profile.achievements !== profile.achievements
-    ) {
-      STAT_FIELDS.forEach((field, index) => {
-        requireDefined(view.statRows[index], 'Missing stat row', field).value.setText(
-          `${profile.stats[field]}`,
+        return;
+      case 'summaryFocus':
+        this.renderSummaryFocus(view, screen);
+        return;
+      case 'setNodes':
+        view.setRows.forEach(({ set, node }) =>
+          applyCelestialPresentation(
+            node,
+            this.celestial.atlasPresentations[
+              SET_NODE_IDS[
+                getChoiceAppearance(screen, {
+                  kind: 'setRow',
+                  set,
+                })
+              ]
+            ],
+          ),
         );
-      });
-      view.earnedRow.value.setText(`${countEarned(state, ACHIEVEMENTS)} / ${ACHIEVEMENTS.length}`);
-      view.setRows.forEach(({ set, count }) => {
-        const inSet = ACHIEVEMENTS.filter((achievement) => achievement.set === set);
-        count.setText(`${countEarned(state, inSet)} / ${inSet.length}`);
-      });
+        return;
     }
-    const tab = state.summaryTab;
-    if (before === null || before.summaryTab !== tab) {
-      this.paintSummaryTabs(view, state);
-      view.stats.setVisible(tab === 'stats');
-      view.sets.setVisible(tab === 'collection');
-    }
-    const focus = state.summaryFocus;
-    if (before !== null && before.summaryFocus === focus) {
-      return;
-    }
-    view.focusStar.setVisible(focus === 'nickname');
+  }
+
+  private renderSummaryFocus(view: ProfileView, screen: LoadedScreen): void {
+    const focusKind = getSummaryFocusKind(screen.page);
+    view.focusStar.setVisible(focusKind === 'nickname');
     view.setRows.forEach(({ set, fill, label }) => {
-      const isSelected = set === focus;
+      const isSelected =
+        getChoiceAppearance(screen, {
+          kind: 'setRow',
+          set,
+        }) === 'selected';
       fill.setVisible(isSelected);
       setTextWeight(label, isSelected ? TYPE_SCALE.primary.weight : ROW_LABEL_WEIGHT);
       this.tweens.killTweensOf(label);
@@ -1047,71 +1199,14 @@ export class ProfileScene extends Phaser.Scene {
         view.setHalo.setY(label.y);
       }
     });
-    setCelestialLoopActive(view.setHalo, focus !== 'nickname');
-    this.paintSetNodes(view, state);
-  }
-
-  private paintHover(view: ProfileView, state: LoadedProfileState): void {
-    if (state.view === 'summary') {
-      view.pen.setTint(
-        state.hover?.kind === 'nickname' ? COLORS.textPrimary : COLORS.textSecondary,
-      );
-      this.paintSummaryTabs(view, state);
-      this.paintSetNodes(view, state);
-    } else {
-      this.paintCollectionTabs(view, state);
-    }
-  }
-
-  private paintSummaryTabs(view: ProfileView, state: LoadedProfileState): void {
-    view.summaryTabs.render(
-      (tab) =>
-        getChoiceAppearance(state, {
-          kind: 'summaryTab',
-          tab,
-        }),
-      COLORS.textPrimary,
-    );
-  }
-
-  private paintSetNodes(view: ProfileView, state: LoadedProfileState): void {
-    view.setRows.forEach(({ set, node }) =>
-      applyCelestialPresentation(
-        node,
-        this.celestial.atlasPresentations[
-          SET_NODE_IDS[
-            getChoiceAppearance(state, {
-              kind: 'setRow',
-              set,
-            })
-          ]
-        ],
-      ),
-    );
-  }
-
-  private paintCollectionTabs(view: ProfileView, state: LoadedProfileState): void {
-    view.tabs.render(
-      (set) =>
-        getChoiceAppearance(state, {
-          kind: 'collectionTab',
-          set,
-        }),
-      COLORS.textPrimary,
-    );
+    setCelestialLoopActive(view.setHalo, focusKind === 'set');
   }
 
   private renderIdentity(view: ProfileView, state: LoadedProfileState): void {
-    const { profile, nickname } = state;
-    const error = nickname.kind === 'editing' ? nickname.error : null;
-    let look: NicknameFieldLook = 'editing';
-    if (nickname.kind === 'idle') {
-      look = 'idle';
-    } else if (error !== null) {
-      look = 'invalid';
-    }
-    const isIdle = look === 'idle';
-    const { fillAlpha, borderColor, borderAlpha } = NICKNAME_FIELD_LOOKS[look];
+    const { profile } = state;
+    const look = getNicknameLook(state);
+    const { fillAlpha, borderColor, borderAlpha, isNameShown, isHintShown } =
+      NICKNAME_FIELD_LOOKS[look.kind];
     view.nicknameField
       .clear()
       .fillStyle(CELESTIAL_COLORS.surface, fillAlpha)
@@ -1130,143 +1225,168 @@ export class ProfileScene extends Phaser.Scene {
         NICKNAME_FIELD_HEIGHT_PX,
         RADIUS.mediumPx,
       );
-    view.nickname.setText(profile.nickname).setVisible(isIdle);
-    view.pen.setVisible(isIdle);
-    view.nicknameCount.setVisible(!isIdle);
-    view.nicknameHint.setVisible(look === 'editing');
-    view.nicknameMessage.setVisible(look === 'invalid');
-    if (error !== null) {
-      view.nicknameMessage.setText(this.i18n.t(`profile.nicknameErrors.${error}`));
+    view.nickname.setText(profile.nickname).setVisible(isNameShown);
+    view.nicknameHint.setVisible(isHintShown);
+    switch (look.kind) {
+      case 'idle':
+      case 'editing':
+        view.nicknameMessage.setVisible(false);
+        break;
+      case 'invalid':
+        view.nicknameMessage
+          .setText(this.i18n.t(`profile.nicknameErrors.${look.error}`))
+          .setVisible(true);
+        break;
     }
-    const featured = profile.featuredAchievement;
-    view.featuredEmblem.setVisible(isIdle && featured !== null);
-    view.featuredName.setVisible(isIdle);
-    if (featured === null) {
-      view.featuredName.setText(this.i18n.t('profile.noFeatured')).setX(LEFT_X_PX);
-      setTextColor(view.featuredName, COLORS.textMuted);
-    } else {
-      view.featuredEmblem.setTexture(
-        getAchievementEmblemTexture(this, featured, FEATURED_EMBLEM_SIZE_PX),
-      );
-      view.featuredName
-        .setText(this.i18n.t(`achievements.names.${featured}`))
-        .setX(LEFT_X_PX + FEATURED_EMBLEM_SIZE_PX + FEATURED_NAME_GAP_PX);
-      setTextColor(view.featuredName, FEATURED_COLOR);
+    view.featuredName.setVisible(isNameShown);
+    const featured = getFeaturedIdentity(state);
+    switch (featured.kind) {
+      case 'none':
+        view.featuredEmblem.setVisible(false);
+        view.featuredName.setText(this.i18n.t('profile.noFeatured')).setX(LEFT_X_PX);
+        setTextColor(view.featuredName, COLORS.textMuted);
+        return;
+      case 'equipped':
+        view.featuredEmblem
+          .setTexture(
+            getAchievementEmblemTexture(
+              this,
+              profile.catalog,
+              featured.achievement,
+              FEATURED_EMBLEM_SIZE_PX,
+            ),
+          )
+          .setVisible(featured.isEmblemShown);
+        view.featuredName
+          .setText(getAchievementName(this.i18n, featured.achievement))
+          .setX(LEFT_X_PX + FEATURED_EMBLEM_SIZE_PX + FEATURED_NAME_GAP_PX);
+        setTextColor(view.featuredName, FEATURED_COLOR);
+        return;
     }
   }
 
   private renderCollection(
     view: ProfileView,
-    before: LoadedProfileState | null,
-    state: LoadedProfileState,
+    screen: LoadedScreen,
+    region: CollectionRegion,
     controller: ProfileController,
   ): void {
+    const state = screen.page;
     const { profile, collection } = state;
-    const isSetChanged = before === null || before.collection.set !== collection.set;
-    // 획득 표시가 읽는 필드만 골라 비교해, 닉네임 같은 다른 프로필 변경으로 격자를 다시 그리지 않는다.
-    const isEarnedChanged =
-      before === null ||
-      before.profile.achievements !== profile.achievements ||
-      before.profile.newAchievements !== profile.newAchievements;
-    const isFocusChanged = isSetChanged || before.collection.focusedId !== collection.focusedId;
-    if (before === null) {
-      view.title.setText(this.i18n.t('collection.title'));
-    }
-    if (isSetChanged) {
-      this.paintCollectionTabs(view, state);
-      const bounds = view.tabs.getBounds(collection.set);
-      view.tabStar.setPosition(bounds.left - FOCUS_STAR_GAP_PX, bounds.centerY);
-      view.grids.forEach((shownGrid) => shownGrid.container.setVisible(false));
-    }
-
-    const grid = this.requireGrid(view, collection.set, controller);
-    if (isSetChanged) {
-      grid.container.setVisible(true);
-    }
-    if (isSetChanged || isEarnedChanged) {
-      grid.groupTitles.forEach(({ category, row, text }) => {
-        text.setText(
-          `${this.i18n.t(`achievements.categories.${category}`)}  ${countEarned(state, row)} / ${row.length}`,
-        );
-      });
-      grid.cells.forEach(({ id, image, newLabel }) => {
-        image.setAlpha(isEarned(state, id) ? 1 : LOCKED_ALPHA);
-        newLabel.setVisible(profile.newAchievements.has(id));
-      });
-    }
-
     const id = collection.focusedId;
-    const status = getStatus(profile.achievements, id);
-    const isFocusedEarned = isEarned(state, id);
-    if (isFocusChanged) {
-      const focusedCell = requireDefined(
-        grid.cells.find((cell) => cell.id === id),
-        'Focused achievement has no cell',
-        id,
-      );
-      view.halo.setPosition(focusedCell.image.x, focusedCell.image.y);
+    switch (region) {
+      case 'tabs':
+        view.tabs.render(
+          (set) =>
+            getChoiceAppearance(screen, {
+              kind: 'collectionTab',
+              set,
+            }),
+          COLORS.textPrimary,
+        );
+        return;
+      case 'tabStar': {
+        const bounds = view.tabs.getBounds(collection.set);
+        view.tabStar.setPosition(bounds.left - FOCUS_STAR_GAP_PX, bounds.centerY);
+        return;
+      }
+      case 'grid': {
+        const grid = this.requireGrid(view, state, controller);
+        view.grids.forEach((shownGrid) => shownGrid.container.setVisible(shownGrid === grid));
+        grid.groupTitles.forEach(({ row, text }) => {
+          text.setText(
+            `${this.getRowTitle(profile.catalog, row[0])}  ${formatEarned(getEarnedProgress(state, row))}`,
+          );
+        });
+        grid.cells.forEach(({ definition, image, newLabel }) => {
+          image.setAlpha(CELL_ALPHAS[getCellLook(state, definition.id)]);
+          newLabel.setVisible(profile.newAchievements.has(definition));
+        });
+        return;
+      }
+      case 'halo': {
+        const focusedCell = requireDefined(
+          this.requireGrid(view, state, controller).cells.find((cell) => cell.definition.id === id),
+          'Focused achievement has no cell',
+          id,
+        );
+        view.halo.setPosition(focusedCell.image.x, focusedCell.image.y);
+        return;
+      }
+      case 'detail':
+        this.renderDetail(view, state);
+        return;
+      case 'featured': {
+        const isFeatured = isFocusedFeatured(state);
+        setCelestialLoopActive(view.featuredHalo, isFeatured);
+        view.detailFeatured.setVisible(isFeatured);
+        const featuredAction = getFeaturedAction(state);
+        view.equipButton.setVisible(featuredAction === 'equip');
+        view.unequipButton.setVisible(featuredAction === 'unequip');
+        return;
+      }
+      case 'featuredSave':
+        view.detailFailure
+          .setText(this.i18n.t('profile.featuredSaveFailed'))
+          .setVisible(state.featuredSave === 'failed');
+        return;
+      case 'equipButton':
+        view.equipButton.render(getProfileButtonView(screen, 'equip'));
+        return;
+      case 'unequipButton':
+        view.unequipButton.render(getProfileButtonView(screen, 'unequip'));
+        return;
     }
-    if (isFocusChanged || isEarnedChanged) {
-      const definition = requireDefined(findAchievement(id), 'Unknown achievement', id);
-      view.detailEmblem
-        .setTexture(getAchievementEmblemTexture(this, id, DETAIL_EMBLEM_SIZE_PX))
-        .setAlpha(isFocusedEarned ? 1 : LOCKED_ALPHA);
-      view.detailName.setText(this.i18n.t(`achievements.names.${id}`));
-      view.detailCondition.setText(this.describeCondition(definition));
-      const isCurrentSongs = definition.rule.kind === 'zodiacComplete';
-      view.detailProgressLabel.setText(
-        this.i18n.t(isCurrentSongs ? 'collection.currentSongs' : 'collection.progress'),
-      );
-      view.detailProgressValue.setText(
-        isCurrentSongs && status.target === 0
-          ? this.i18n.t('collection.noAssignedSongs')
-          : `${status.current} / ${status.target}`,
-      );
-      view.detailNote
-        .setText(this.i18n.t('collection.currentSongsNote'))
-        .setVisible(isCurrentSongs);
-      if (status.earnedAtMs === null) {
+  }
+
+  private renderDetail(view: ProfileView, state: LoadedProfileState): void {
+    const { definition } = getStatus(state.profile.achievements, state.collection.focusedId);
+    const earning = getFocusedEarning(state);
+    view.detailEmblem
+      .setTexture(
+        getAchievementEmblemTexture(this, state.profile.catalog, definition, DETAIL_EMBLEM_SIZE_PX),
+      )
+      .setAlpha(CELL_ALPHAS[earning.kind]);
+    view.detailName.setText(getAchievementName(this.i18n, definition));
+    view.detailCondition.setText(this.describeCondition(state.profile.catalog, definition));
+    const progress = getProgressDisplay(state);
+    view.detailProgressLabel.setText(this.i18n.t(progress.labelKey));
+    switch (progress.value.kind) {
+      case 'ratio':
+        view.detailProgressValue.setText(`${progress.value.current} / ${progress.value.target}`);
+        break;
+      case 'noAssignedSongs':
+        view.detailProgressValue.setText(this.i18n.t('collection.noAssignedSongs'));
+        break;
+    }
+    switch (earning.kind) {
+      case 'locked':
         view.detailStatusLabel.setText(this.i18n.t('collection.status'));
         view.detailStatus.setText(this.i18n.t('collection.locked'));
         setTextColor(view.detailStatus, COLORS.textMuted);
-      } else {
+        view.detailRule.forEach((object) => object.setVisible(false));
+        return;
+      case 'earned':
         view.detailStatusLabel.setText(this.i18n.t('collection.earned'));
-        view.detailStatus.setText(formatDate(status.earnedAtMs));
+        view.detailStatus.setText(formatDate(earning.earnedAtMs));
         setTextColor(view.detailStatus, FEATURED_COLOR);
-      }
-      view.detailRule.forEach((object) => object.setVisible(isFocusedEarned));
-    }
-    if (
-      isFocusChanged ||
-      isEarnedChanged ||
-      before.profile.featuredAchievement !== profile.featuredAchievement
-    ) {
-      const isFeatured = profile.featuredAchievement === id;
-      setCelestialLoopActive(view.featuredHalo, isFeatured);
-      view.detailFeatured.setVisible(isFeatured);
-      const featuredAction = getFeaturedAction(state);
-      view.equipButton.setVisible(featuredAction === 'equip');
-      view.unequipButton.setVisible(featuredAction === 'unequip');
-    }
-    if (before === null || before.featuredSave !== state.featuredSave) {
-      view.detailFailure
-        .setText(this.i18n.t('profile.featuredSaveFailed'))
-        .setVisible(state.featuredSave === 'failed');
+        view.detailRule.forEach((object) => object.setVisible(true));
+        return;
     }
   }
 
   private requireGrid(
     view: ProfileView,
-    set: AchievementSet,
+    state: LoadedProfileState,
     controller: ProfileController,
   ): SetGridView {
+    const { set } = state.collection;
     const existing = view.grids.get(set);
     if (existing !== undefined) {
       return existing;
     }
-    const rows = getCollectionRows(set);
+    const rows = getCollectionRows(state.profile.achievements, set);
     const groupTitles = rows.map((row, rowIndex) => ({
-      category: requireDefined(row[0], 'Collection row is empty').category,
       row,
       text: this.add.text(
         LEFT_X_PX,
@@ -1276,7 +1396,8 @@ export class ProfileScene extends Phaser.Scene {
       ),
     }));
     const cells = rows.flatMap((row, rowIndex) =>
-      row.map(({ id }, columnIndex) => {
+      row.map((definition, columnIndex) => {
+        const { id } = definition;
         const xPx = LEFT_X_PX + GRID_EMBLEM_SIZE_PX / 2 + GRID_CELL_PX * columnIndex;
         const yPx =
           GRID_TOP_Y_PX +
@@ -1286,7 +1407,7 @@ export class ProfileScene extends Phaser.Scene {
         const image = this.add.image(
           xPx,
           yPx,
-          getAchievementEmblemTexture(this, id, GRID_EMBLEM_SIZE_PX),
+          getAchievementEmblemTexture(this, state.profile.catalog, definition, GRID_EMBLEM_SIZE_PX),
         );
         image
           .setInteractive({ cursor: HOVER_CURSOR })
@@ -1299,7 +1420,7 @@ export class ProfileScene extends Phaser.Scene {
           })
           .setOrigin(1, 1);
         return {
-          id,
+          definition,
           image,
           newLabel,
         };
@@ -1313,46 +1434,35 @@ export class ProfileScene extends Phaser.Scene {
       groupTitles,
       cells,
     };
+    view.collection.add(grid.container);
     view.grids.set(set, grid);
     return grid;
   }
 
-  private describeCondition({ rule }: AchievementDefinition): string {
+  private getRowTitle(catalog: AchievementCatalog, definition: AchievementDefinition): string {
+    return definition.category === 'album'
+      ? getAlbumName(catalog, definition.rule.album)
+      : this.i18n.t(`achievements.categories.${definition.category}`);
+  }
+
+  private describeCondition(catalog: AchievementCatalog, { rule }: AchievementDefinition): string {
     switch (rule.kind) {
       case 'plays':
-        return rule.target === 1
-          ? this.i18n.t('achievements.conditions.playsOne')
-          : this.i18n.t('achievements.conditions.plays', { n: rule.target });
       case 'songs':
-        return rule.target === 1
-          ? this.i18n.t('achievements.conditions.songsOne')
-          : this.i18n.t('achievements.conditions.songs', { n: rule.target });
-      case 'charts': {
-        const mark = this.i18n.t(`achievements.marks.${rule.mark}`);
-        if (rule.difficulty === 'expert') {
-          return rule.target === 1
-            ? this.i18n.t('achievements.conditions.expertChartsOne', { mark })
-            : this.i18n.t('achievements.conditions.expertCharts', {
-                n: rule.target,
-                mark,
-              });
-        }
-        return rule.target === 1
-          ? this.i18n.t('achievements.conditions.chartsOne', { mark })
-          : this.i18n.t('achievements.conditions.charts', {
-              n: rule.target,
-              mark,
-            });
-      }
-      case 'masteries': {
-        const mark = this.i18n.t(`achievements.marks.${rule.mark}`);
-        return rule.target === 1
-          ? this.i18n.t('achievements.conditions.masteriesOne', { mark })
-          : this.i18n.t('achievements.conditions.masteries', {
-              n: rule.target,
-              mark,
-            });
-      }
+      case 'zodiacCompletions':
+        return this.describeCount(rule.kind, rule.target);
+      case 'charts':
+        return this.describeCount(
+          rule.difficulty === 'expert' ? 'expertCharts' : 'charts',
+          rule.target,
+          this.i18n.t(`achievements.marks.${rule.mark}`),
+        );
+      case 'songMarks':
+        return this.describeCount(
+          'songMarks',
+          rule.target,
+          this.i18n.t(`achievements.marks.${rule.mark}`),
+        );
       case 'zodiacVisits':
         return this.i18n.t('achievements.conditions.zodiacVisits', {
           n: rule.target,
@@ -1363,10 +1473,25 @@ export class ProfileScene extends Phaser.Scene {
           zodiac: this.i18n.t(`achievements.zodiacs.${rule.zodiac}`),
           mark: this.i18n.t(`achievements.marks.${rule.mark}`),
         });
-      case 'zodiacCompletions':
-        return rule.target === 1
-          ? this.i18n.t('achievements.conditions.zodiacCompletionsOne')
-          : this.i18n.t('achievements.conditions.zodiacCompletions', { n: rule.target });
+      case 'album':
+        return this.i18n.t('achievements.conditions.album', {
+          album: getAlbumName(catalog, rule.album),
+          mark: this.i18n.t(`achievements.marks.${rule.mark}`),
+        });
     }
+  }
+
+  /** 목표가 1이면 "첫 ~"처럼 횟수 없이 읽는 문구를 따로 쓴다. */
+  private describeCount(
+    key: 'plays' | 'songs' | 'charts' | 'expertCharts' | 'songMarks' | 'zodiacCompletions',
+    target: number,
+    mark?: string,
+  ): string {
+    return target === 1
+      ? this.i18n.t(`achievements.conditions.${key}One`, { mark })
+      : this.i18n.t(`achievements.conditions.${key}`, {
+          n: target,
+          mark,
+        });
   }
 }

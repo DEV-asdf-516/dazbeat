@@ -11,17 +11,29 @@ import type {
 } from '../../../src/data/songs.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
-import type { SongSelectRestore } from '../../../src/game/sceneRoutes.js';
-import { SongFeed } from '../../../src/game/SongFeed.js';
+import type { SongSelectRestore } from '../../../src/game/app/sceneRoutes.js';
+import { SongFeed } from '../../../src/game/app/SongFeed.js';
 import { SongSelectController } from '../../../src/game/songSelect/SongSelectController.js';
-import type { SongSelectView } from '../../../src/game/songSelect/SongSelectController.js';
-import { getSongPage } from '../../../src/game/songSelect/songSelectState.js';
-import type { SongSelectState } from '../../../src/game/songSelect/songSelectState.js';
+import { getSongPage } from '../../../src/game/songSelect/state/songSelectState.js';
+import type { SongSelectView } from '../../../src/game/songSelect/state/songSelectState.js';
+import type { ChartRecords } from '../../../src/storage/chartRecords.js';
 
 const PAGE_SIZE = 2;
 const ROWS_PER_PAGE = 3;
 const CATALOG_SIZE = 6;
 const RELEASED_ON = '2026-05-01';
+const WHEEL_STEP_PX = 100;
+const RECORDS: ChartRecords = new Map([
+  [
+    'song-000/4k/easy',
+    {
+      score: 900000,
+      accuracy: 0.95,
+      maxCombo: 120,
+      cleared: true,
+    },
+  ],
+]);
 
 function makeSong(
   index: number,
@@ -99,13 +111,11 @@ async function settle(
   kind: 'resolve' | 'reject' = 'resolve',
   batch?: SongBatch,
 ) {
-  if (call === undefined) {
-    throw new Error('Missing call');
-  }
+  const pending = requireDefined(call, 'Missing call');
   if (kind === 'resolve') {
-    call.resolve(batch);
+    pending.resolve(batch);
   } else {
-    call.reject();
+    pending.reject();
   }
   await Promise.resolve();
   await Promise.resolve();
@@ -191,7 +201,7 @@ function createHarness(
     totalCount: songs.length,
   });
   const created: SongFeed[] = [];
-  const renders: { view: SongSelectView; previous: SongSelectState | null }[] = [];
+  const renders: { view: SongSelectView; previous: SongSelectView | null }[] = [];
   const plays: { chart: ChartRef; restore: SongSelectRestore }[] = [];
   const settings: SongSelectRestore[] = [];
   let focusSounds = 0;
@@ -211,7 +221,7 @@ function createHarness(
         preview: preview.deps,
       },
       {
-        render: (view, previous) =>
+        render: (previous, view) =>
           renders.push({
             view,
             previous,
@@ -229,6 +239,8 @@ function createHarness(
       ROWS_PER_PAGE,
       laneCount,
       restore,
+      RECORDS,
+      WHEEL_STEP_PX,
     );
     return controller;
   };
@@ -245,17 +257,10 @@ function createHarness(
       return focusSounds;
     },
     get controller(): SongSelectController {
-      if (controller === undefined) {
-        throw new Error('Not opened');
-      }
-      return controller;
+      return requireDefined(controller, 'Not opened');
     },
     get view(): SongSelectView {
-      const view = renders.at(-1)?.view;
-      if (view === undefined) {
-        throw new Error('Nothing rendered');
-      }
-      return view;
+      return requireDefined(renders.at(-1)?.view, 'Nothing rendered');
     },
   };
 }
@@ -530,7 +535,7 @@ describe('SongSelectController selection', () => {
     harness.controller.selectRow(1);
 
     expect(selectedId(harness.view)).toBe('song-004');
-    expect(harness.renders.at(-1)?.previous?.current).toMatchObject({ index: 3 });
+    expect(harness.renders.at(-1)?.previous?.state.current).toMatchObject({ index: 3 });
   });
 
   it('plays only a playable selection', async () => {
@@ -654,7 +659,7 @@ describe('SongSelectController hover', () => {
       kind: 'filter',
       filter: 'cover',
     });
-    expect(harness.renders.at(-1)?.previous?.hover).toBeNull();
+    expect(harness.renders.at(-1)?.previous?.state.hover).toBeNull();
 
     harness.controller.hover({
       kind: 'row',
@@ -665,7 +670,7 @@ describe('SongSelectController hover', () => {
       kind: 'row',
       slot: 1,
     });
-    expect(harness.renders.at(-1)?.previous?.hover).toEqual({
+    expect(harness.renders.at(-1)?.previous?.state.hover).toEqual({
       kind: 'filter',
       filter: 'cover',
     });
@@ -789,7 +794,7 @@ describe('SongSelectController random song', () => {
 
     expect(selectedId(harness.view)).toBe('song-003');
     const picked = harness.renders.find(({ view }) => selectedId(view) === 'song-003');
-    expect(picked?.previous?.current).toMatchObject({ index: 1 });
+    expect(picked?.previous?.state.current).toMatchObject({ index: 1 });
     expect(harness.plays).toHaveLength(0);
   });
 
@@ -1207,7 +1212,7 @@ describe('SongSelectController preview loop', () => {
     expect(player.playsSec).toEqual([5, 5, 5]);
   });
 
-  it('replays a song shorter than 20 seconds at its game end', async () => {
+  it('replays a song shorter than 20 seconds after the full 20 second span', async () => {
     const short = previewSongs.map((song) => ({
       ...song,
       gameEndMs: 11000,
@@ -1218,11 +1223,32 @@ describe('SongSelectController preview loop', () => {
     harness.preview.clock.nowMs = 0;
     player.handlers.onStateChange('playing');
 
-    tickAt(harness, 5999);
+    tickAt(harness, 6000);
+    tickAt(harness, 19999);
     expect(player.playsSec).toEqual([5]);
 
-    tickAt(harness, 6000);
+    tickAt(harness, 20000);
     expect(player.playsSec).toEqual([5, 5]);
+  });
+
+  it('plays from the preview start for 20 seconds past the game end', async () => {
+    const chorus = previewSongs.map((song) => ({
+      ...song,
+      previewStartMs: 50000,
+    }));
+    const harness = createHarness(chorus);
+    harness.open();
+    const player = await readyPreview(harness, 400);
+    harness.preview.clock.nowMs = 0;
+    player.handlers.onStateChange('playing');
+    expect(player.playsSec).toEqual([50]);
+
+    tickAt(harness, 10000);
+    tickAt(harness, 19999);
+    expect(player.playsSec).toEqual([50]);
+
+    tickAt(harness, 20000);
+    expect(player.playsSec).toEqual([50, 50]);
   });
 
   it('does not count time while buffering', async () => {
@@ -1366,6 +1392,26 @@ describe('SongSelectController preview close', () => {
     expect(player.playsSec).toEqual([]);
   });
 
+  it('ignores pointer, controls and wheel input after close', () => {
+    const harness = openHarness(songs);
+    const renderCount = harness.renders.length;
+
+    harness.controller.close();
+    harness.controller.pointerOver('settings');
+    harness.controller.pointerDown('settings');
+    harness.controller.pointerUp('settings');
+    harness.controller.hover({
+      kind: 'row',
+      slot: 1,
+    });
+    harness.controller.openControls();
+    harness.controller.handleControlsKey(ESCAPE_KEY);
+    harness.controller.scrollByWheel(1000, 0);
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(harness.settings).toHaveLength(0);
+  });
+
   it('plays the restored song 200ms after reopening', async () => {
     const harness = createHarness(previewSongs);
     harness.open();
@@ -1435,5 +1481,163 @@ describe('SongSelectController preview failures', () => {
     harness.controller.moveSong(-1);
     tickAt(harness, 5400);
     expect(harness.preview.loads).toHaveLength(2);
+  });
+});
+
+describe('SongSelectController view', () => {
+  it('passes the records it was given in every view', () => {
+    const harness = openHarness(songs);
+    harness.controller.moveSong(1);
+
+    expect(harness.renders.every(({ view }) => view.records === RECORDS)).toBe(true);
+  });
+
+  it('passes the previously rendered view', () => {
+    const harness = openHarness(songs);
+    const first = harness.view;
+
+    harness.controller.moveSong(1);
+
+    expect(harness.renders.at(-1)?.previous).toBe(first);
+  });
+});
+
+describe('SongSelectController wheel', () => {
+  it('moves one song with a focus sound for a wheel of one step', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.scrollByWheel(WHEEL_STEP_PX, 0);
+
+    expect(selectedId(harness.view)).toBe('song-001');
+    expect(harness.focusSounds).toBe(1);
+  });
+
+  it('ignores a wheel smaller than the start ratio', () => {
+    const harness = openHarness(songs);
+    const renderCount = harness.renders.length;
+
+    harness.controller.scrollByWheel(20, 0);
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(harness.focusSounds).toBe(0);
+  });
+
+  it('accumulates wheels within the gesture gap', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.scrollByWheel(20, 0);
+    harness.controller.scrollByWheel(10, 100);
+
+    expect(selectedId(harness.view)).toBe('song-001');
+  });
+});
+
+const H_KEY = {
+  code: 'KeyH',
+  repeat: false,
+};
+const ESCAPE_KEY = {
+  code: 'Escape',
+  repeat: false,
+};
+const DOWN_KEY = {
+  code: 'ArrowDown',
+  repeat: false,
+};
+
+describe('SongSelectController controls', () => {
+  it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
+    const harness = openHarness(songs);
+
+    expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
+    expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
+    expect(harness.view.isControlsOpen).toBe(true);
+    expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
+    expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
+    expect(harness.view.isControlsOpen).toBe(false);
+    harness.controller.openControls();
+    expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
+    expect(harness.view.isControlsOpen).toBe(false);
+  });
+
+  it('ignores wheels while the controls are open', () => {
+    const harness = openHarness(songs);
+    harness.controller.openControls();
+    const renderCount = harness.renders.length;
+
+    harness.controller.scrollByWheel(WHEEL_STEP_PX, 0);
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(selectedId(harness.view)).toBe('song-000');
+  });
+});
+
+describe('SongSelectController button pointer', () => {
+  it('opens the settings once for over, down and up on SETTINGS', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.pointerOver('settings');
+    harness.controller.pointerDown('settings');
+    harness.controller.pointerUp('settings');
+    harness.controller.pointerUp('settings');
+
+    expect(harness.settings).toHaveLength(1);
+  });
+
+  it('does not open the settings for an up that was pressed elsewhere', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.pointerOver('settings');
+    harness.controller.pointerUp('settings');
+
+    expect(harness.settings).toHaveLength(0);
+  });
+
+  it('releases the press when the pointer leaves the button', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.pointerOver('settings');
+    harness.controller.pointerDown('settings');
+    harness.controller.pointerOut('settings');
+    harness.controller.pointerOver('settings');
+    harness.controller.pointerUp('settings');
+
+    expect(harness.settings).toHaveLength(0);
+  });
+
+  it('ignores a press on the close button while the controls are closed', () => {
+    const harness = openHarness(songs);
+    const renderCount = harness.renders.length;
+
+    harness.controller.pointerDown('controlsClose');
+
+    expect(harness.renders).toHaveLength(renderCount);
+  });
+
+  it('opens with the entry and closes with the close button and the backdrop', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.pointerDown('controlsEntry');
+    harness.controller.pointerUp('controlsEntry');
+    expect(harness.view.isControlsOpen).toBe(true);
+
+    harness.controller.pointerDown('controlsClose');
+    harness.controller.pointerUp('controlsClose');
+    expect(harness.view.isControlsOpen).toBe(false);
+
+    harness.controller.openControls();
+    harness.controller.pointerDown('controlsBackdrop');
+    harness.controller.pointerUp('controlsBackdrop');
+    expect(harness.view.isControlsOpen).toBe(false);
+  });
+
+  it('releases the hover of the close button when the controls close', () => {
+    const harness = openHarness(songs);
+    harness.controller.openControls();
+    harness.controller.pointerOver('controlsClose');
+
+    harness.controller.handleControlsKey(ESCAPE_KEY);
+
+    expect(harness.view.state.hover).toBeNull();
   });
 });

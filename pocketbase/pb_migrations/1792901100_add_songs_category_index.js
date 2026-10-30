@@ -1,5 +1,5 @@
 /// <reference path="../pb_data/types.d.ts" />
-// The song list of a category, its total and its keyset continuation read this index in list order.
+// 카테고리의 곡 목록, 그 총개수, keyset 이어 읽기가 목록 순서대로 이 인덱스를 읽는다.
 const INDEX_NAME = 'idx_songs_category_released_on_id';
 
 migrate(

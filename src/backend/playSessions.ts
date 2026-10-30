@@ -2,6 +2,7 @@ import { ClientResponseError } from 'pocketbase';
 import type PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { findAchievement } from '../data/achievements.js';
+import type { AchievementCatalog } from '../data/achievements.js';
 import type { PreparedChart, VerifiedPlay } from '../data/playSession.js';
 import type { PlaySubmission } from '../data/playSubmission.js';
 import type { ChartRef } from '../data/songs.js';
@@ -36,26 +37,28 @@ class PlaySessionError extends Error {
 const issuedSession = z.object({ sessionId: z.string() });
 
 // 서버가 먼저 배포되지 않았으면 newAchievements 가 없다. 알림은 선택 기능이라 모르는 ID 는 빼고 결과는 그대로 받는다.
-const verifiedPlay = z
-  .object({
-    score: z.number(),
-    accuracy: z.number(),
-    maxCombo: z.number(),
-    cleared: z.boolean(),
-    bestScore: z.number(),
-    newAchievements: z.array(z.string()).default([]),
-  })
-  .transform(({ newAchievements, ...play }) => ({
-    ...play,
-    newAchievements: newAchievements.flatMap((id) => {
-      const achievement = findAchievement(id);
-      if (achievement === undefined) {
-        console.warn('Ignoring unknown achievement in play result', id);
-        return [];
-      }
-      return [achievement.id];
-    }),
-  }));
+function verifiedPlaySchema(catalog: AchievementCatalog) {
+  return z
+    .object({
+      score: z.number(),
+      accuracy: z.number(),
+      maxCombo: z.number(),
+      cleared: z.boolean(),
+      bestScore: z.number(),
+      newAchievements: z.array(z.string()).default([]),
+    })
+    .transform(({ newAchievements, ...play }) => ({
+      ...play,
+      newAchievements: newAchievements.flatMap((id) => {
+        const achievement = findAchievement(catalog, id);
+        if (achievement === undefined) {
+          console.warn('Ignoring unknown achievement in play result', id);
+          return [];
+        }
+        return [achievement];
+      }),
+    }));
+}
 
 function toPlaySessionError(error: unknown): unknown {
   if (!(error instanceof ClientResponseError)) {
@@ -119,6 +122,7 @@ export async function preparePlay(
 
 export async function submitPlay(
   pb: PocketBase,
+  catalog: AchievementCatalog,
   sessionId: string,
   submission: PlaySubmission,
 ): Promise<VerifiedPlay> {
@@ -132,7 +136,7 @@ export async function submitPlay(
         events: submission.events,
       },
     },
-    verifiedPlay,
+    verifiedPlaySchema(catalog),
     toPlaySessionError,
   );
 }

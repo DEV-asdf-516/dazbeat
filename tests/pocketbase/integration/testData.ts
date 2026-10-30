@@ -36,25 +36,52 @@ export function createSong(
   superuser: PocketBase,
   key: string,
   gameEndMs = 5_000,
-  song: { title?: string; category?: string; releasedOn?: string; constellation?: string } = {},
+  song: {
+    title?: string;
+    category?: string;
+    releasedOn?: string;
+    constellation?: string;
+    album?: string;
+    isPublished?: boolean;
+    previewStartMs?: number;
+  } = {},
 ): Promise<RecordModel> {
   const form = new FormData();
-  const fields: Record<string, string | number> = {
+  const fields: Record<string, string | number | boolean> = {
     key,
     title: song.title ?? `Song ${key}`,
     category: song.category ?? 'original',
     youtubeVideoId: `video-${key}`,
     accentColor: 0x123456,
     constellation: song.constellation ?? 'gemini',
+    album: song.album ?? '',
     releasedOn: song.releasedOn ?? '2026-01-01',
     gameStartMs: 0,
     gameEndMs,
+    previewStartMs: song.previewStartMs ?? 0,
+    isPublished: song.isPublished ?? true,
   };
   for (const [name, value] of Object.entries(fields)) {
     form.append(name, String(value));
   }
   form.append('jacket', new Blob([PNG_BYTES], { type: 'image/png' }), `${key}.png`);
   return superuser.collection('songs').create(form);
+}
+
+export async function findAlbumId(superuser: PocketBase, key: string): Promise<string> {
+  return (
+    await superuser.collection('albums').getFirstListItem(superuser.filter('key = {:key}', { key }))
+  ).id;
+}
+
+/** The ids the profile answers: active definitions in sortOrder and key order. */
+export async function readActiveAchievementKeys(superuser: PocketBase): Promise<string[]> {
+  return (
+    await superuser.collection('achievements').getFullList({
+      filter: 'retired = false',
+      sort: 'sortOrder,key',
+    })
+  ).map((record) => String(record['key']));
 }
 
 export function fakeChartData(

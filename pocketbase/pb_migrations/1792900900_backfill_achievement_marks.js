@@ -1,6 +1,6 @@
 /// <reference path="../pb_data/types.d.ts" />
-// Migrations are snapshots and cannot import src/rhythm, so the rules proven by a stored best score
-// are copied here: S accuracy from RANK_THRESHOLDS, FULL COMBO and ALL PERFECT from score.ts.
+// 마이그레이션은 스냅샷이라 src/rhythm 을 import 할 수 없어, 저장된 최고 점수가 증명하는 규칙을
+// 여기 복사한다. S 정확도는 RANK_THRESHOLDS, FULL COMBO 와 ALL PERFECT 는 score.ts 에서 가져왔다.
 const S_MIN_ACCURACY = 0.95;
 
 function getProvenMarks(score) {
@@ -22,8 +22,7 @@ function getProvenMarks(score) {
   return marks;
 }
 
-// Builds an equality filter with bound params, like where() in src/pbQuery.ts, which a migration
-// cannot import.
+// 바인딩 파라미터로 같음 필터를 만든다. 마이그레이션이 import 할 수 없는 src/pbQuery.ts 의 where() 와 같다.
 function equalsFilter(fields) {
   return {
     expression: Object.keys(fields)
@@ -41,7 +40,7 @@ migrate(
   (app) => {
     const chartsCollection = app.findCollectionByNameOrId('charts');
     const charts = arrayOf(new Record(chartsCollection));
-    // The chart data column is large, so only the columns a mark needs are read.
+    // 채보 data 열은 크므로 mark 에 필요한 열만 읽는다.
     app
       .recordQuery(chartsCollection)
       .select('charts.id', 'charts.song', 'charts.difficulty')
@@ -52,7 +51,7 @@ migrate(
     });
 
     const marksCollection = app.findCollectionByNameOrId('achievement_marks');
-    // Existing evidence keys are read once so duplicates are decided in memory, not per mark.
+    // 기존 증거 키를 한 번만 읽어 중복을 mark 마다 조회하지 않고 메모리에서 판정한다.
     const existingMarks = arrayOf(new Record(marksCollection));
     app
       .recordQuery(marksCollection)
@@ -84,7 +83,7 @@ migrate(
           kind,
           chart: chart.id,
           chartRevision: score.getString('chartRevision'),
-          // The constellation at the time of the play is unknown, so a backfilled mark has none.
+          // 플레이 당시 별자리는 알 수 없어 소급한 mark 에는 별자리가 없다.
           constellation: '',
         };
         const evidenceKey = getEvidenceKey(key);

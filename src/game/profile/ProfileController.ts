@@ -2,18 +2,23 @@ import type { AchievementId, AchievementSet } from '../../data/achievements.js';
 import type { Nickname } from '../../data/nickname.js';
 import { ProfileRequestError } from '../../data/profile.js';
 import type { NicknameChangeFailure, Profile } from '../../data/profile.js';
-import type { MenuAction } from '../ui/menuInput.js';
+import { readControlsKey } from '../app/controlsGuide.js';
+import type { MenuAction } from '../ui/view/input/menuInput.js';
 import {
   changeNicknameInput,
   clearHover,
+  createProfileScreen,
   failFeaturedSave,
   failNicknameEdit,
   focusAchievement,
   goBack,
   hasMovedFocus,
+  hoverProfileButton,
   isEditingNickname,
   loadedState,
   moveFocus,
+  pressProfileButton,
+  releaseProfileButton,
   saveFeatured,
   saveNickname,
   selectFocused,
@@ -23,15 +28,20 @@ import {
   startFeaturedSave,
   submitNicknameInput,
   switchSet,
-} from './profileState.js';
+  unhoverProfileButton,
+  withControlsOpen,
+  withPage,
+} from './state/profileState.js';
 import type {
   FocusDirection,
   LoadedProfileState,
-  ProfileHover,
+  ProfileButton,
+  ProfileScreenState,
   ProfileState,
+  ProfileTarget,
   SummaryFocus,
   SummaryTab,
-} from './profileState.js';
+} from './state/profileState.js';
 
 export interface ProfileDeps {
   isSignedIn(): boolean;
@@ -43,7 +53,7 @@ export interface ProfileDeps {
 }
 
 export interface ProfileScreen {
-  render(state: ProfileState, previous: ProfileState | null): void;
+  render(previous: ProfileScreenState | null, next: ProfileScreenState): void;
   playFocusSound(): void;
   leaveToMain(): void;
 }
@@ -63,9 +73,13 @@ function toNicknameFailure(error: unknown): NicknameChangeFailure {
   return 'failed';
 }
 
+const GUEST_PAGE: ProfileState = { kind: 'guest' };
+const LOADING_PAGE: ProfileState = { kind: 'loading' };
+
 // 시작 전에는 그린 것이 없어 첫 render 의 직전 state 가 없다.
-// 닫힌 뒤에는 입력과 늦은 결과를 받지 않고, 들고 있던 프로필도 놓는다.
-type ControllerState = { readonly kind: 'unstarted' } | ProfileState | { readonly kind: 'closed' };
+// 닫힌 뒤에는 입력과 늦은 결과를 받지 않는다.
+type ControllerState =
+  { readonly kind: 'unstarted' } | ProfileScreenState | { readonly kind: 'closed' };
 
 export class ProfileController {
   private state: ControllerState = { kind: 'unstarted' };
@@ -81,18 +95,21 @@ export class ProfileController {
 
   // 씬의 render 가 controller 를 참조하므로 생성자가 아니라 생성 뒤에 시작한다.
   start(): void {
-    if (this.state.kind === 'closed') {
+    if (!('kind' in this.state) || this.state.kind !== 'unstarted') {
       return;
     }
-    if (!this.deps.isSignedIn()) {
-      this.setState({ kind: 'guest' });
-      return;
+    const isSignedIn = this.deps.isSignedIn();
+    const first = createProfileScreen(isSignedIn ? LOADING_PAGE : GUEST_PAGE);
+    this.state = first;
+    this.screen.render(null, first);
+    if (isSignedIn) {
+      this.load();
     }
-    this.load();
   }
 
   retry(): void {
-    if (this.state.kind === 'failed') {
+    if (this.page?.kind === 'failed') {
+      this.setPage(LOADING_PAGE);
       this.load();
     }
   }
@@ -103,12 +120,12 @@ export class ProfileController {
 
   /** 키 이동과 클릭은 같은 포커스 이동이라 포커스가 바뀔 때 같은 효과음을 낸다. */
   private moveFocusFromUser(transition: (state: LoadedProfileState) => LoadedProfileState): void {
-    const before = this.state;
-    if (before.kind !== 'loaded') {
+    const before = this.page;
+    if (before?.kind !== 'loaded') {
       return;
     }
     const after = transition(before);
-    this.setState(after);
+    this.setPage(after);
     if (hasMovedFocus(before, after)) {
       this.screen.playFocusSound();
     }
@@ -126,12 +143,49 @@ export class ProfileController {
     this.updateLoaded((state) => selectSet(state, set));
   }
 
-  hover(target: ProfileHover): void {
-    this.updateLoaded((state) => setHover(state, target));
+  hover(target: ProfileTarget): void {
+    this.apply((screen) => setHover(screen, target));
   }
 
-  unhover(target: ProfileHover): void {
-    this.updateLoaded((state) => clearHover(state, target));
+  unhover(target: ProfileTarget): void {
+    this.apply((screen) => clearHover(screen, target));
+  }
+
+  pointerOver(button: ProfileButton): void {
+    this.apply((screen) => hoverProfileButton(screen, button));
+  }
+
+  pointerOut(button: ProfileButton): void {
+    this.apply((screen) => unhoverProfileButton(screen, button));
+  }
+
+  pointerDown(button: ProfileButton): void {
+    this.apply((screen) => pressProfileButton(screen, button));
+  }
+
+  pointerUp(button: ProfileButton): void {
+    const previous = this.state;
+    this.apply((screen) => releaseProfileButton(screen, button));
+    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
+    if (this.state === previous) {
+      return;
+    }
+    switch (button) {
+      case 'equip':
+      case 'unequip':
+        this.select();
+        return;
+      case 'back':
+        this.back();
+        return;
+      case 'controlsEntry':
+        this.openControls();
+        return;
+      case 'controlsClose':
+      case 'controlsBackdrop':
+        this.closeControls();
+        return;
+    }
   }
 
   focusAchievement(id: AchievementId): void {
@@ -139,8 +193,8 @@ export class ProfileController {
   }
 
   select(target?: SummaryFocus): void {
-    const state = this.state;
-    if (state.kind !== 'loaded') {
+    const state = this.page;
+    if (state?.kind !== 'loaded') {
       return;
     }
     const selection = selectFocused(state, target);
@@ -148,7 +202,7 @@ export class ProfileController {
       case 'none':
         return;
       case 'state':
-        this.setState(selection.state);
+        this.setPage(selection.state);
         return;
       case 'saveFeatured':
         this.saveFeatured(state, selection.id);
@@ -157,8 +211,8 @@ export class ProfileController {
   }
 
   changeNicknameInput(input: string): void {
-    const state = this.state;
-    if (state.kind !== 'loaded') {
+    const state = this.page;
+    if (state?.kind !== 'loaded') {
       return;
     }
     const change = changeNicknameInput(state, input);
@@ -167,7 +221,7 @@ export class ProfileController {
     }
     const token = {};
     this.nicknameCheckToken = token;
-    this.setState(change.state);
+    this.setPage(change.state);
     if (change.kind === 'check') {
       void this.checkNickname(change.nickname, token).catch((error: unknown) => {
         console.warn('Failed to check nickname availability', error);
@@ -177,8 +231,8 @@ export class ProfileController {
 
   /** 닉네임 편집 중이면 Enter 와 Esc 만 처리하고, 친 글자가 단축키로 읽히지 않게 나머지 키도 삼킨다. */
   captureNicknameKey(action: MenuAction | null, input: string): boolean {
-    const state = this.state;
-    if (state.kind !== 'loaded' || !isEditingNickname(state)) {
+    const state = this.page;
+    if (state?.kind !== 'loaded' || !isEditingNickname(state)) {
       return false;
     }
     if (action === 'confirm') {
@@ -191,11 +245,8 @@ export class ProfileController {
 
   private submitNickname(state: LoadedProfileState, input: string): void {
     const submission = submitNicknameInput(state, input);
-    if (submission.kind === 'none') {
-      return;
-    }
     this.nicknameCheckToken = null;
-    this.setState(submission.state);
+    this.setPage(submission.state);
     if (submission.kind !== 'save') {
       return;
     }
@@ -215,18 +266,44 @@ export class ProfileController {
     );
   }
 
+  openControls(): void {
+    this.apply((screen) => withControlsOpen(screen, true));
+  }
+
+  closeControls(): void {
+    this.apply((screen) => withControlsOpen(screen, false));
+  }
+
+  handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    if ('kind' in this.state) {
+      return false;
+    }
+    switch (readControlsKey(this.state.isControlsOpen, event)) {
+      case 'open':
+        this.openControls();
+        return true;
+      case 'close':
+        this.closeControls();
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
+    }
+  }
+
   back(): void {
-    const state = this.state;
-    if (state.kind === 'unstarted' || state.kind === 'closed') {
+    const page = this.page;
+    if (page === null) {
       return;
     }
-    const action = goBack(state);
+    const action = goBack(page);
     if (action.kind === 'leave') {
       this.screen.leaveToMain();
       return;
     }
     this.nicknameCheckToken = null;
-    this.setState(action.state);
+    this.setPage(action.state);
   }
 
   close(): void {
@@ -240,11 +317,10 @@ export class ProfileController {
   private load(): void {
     const token = {};
     this.loadToken = token;
-    this.setState({ kind: 'loading' });
     void this.deps.loadProfile().then(
       (profile) => {
         if (this.loadToken === token) {
-          this.setState(loadedState(profile));
+          this.setPage(loadedState(profile));
         }
       },
       (error: unknown) => {
@@ -252,9 +328,9 @@ export class ProfileController {
           return;
         }
         // 인증 만료는 다시 로그인해야 하므로 게스트 안내로 보낸다.
-        this.setState(
+        this.setPage(
           error instanceof ProfileRequestError && error.kind === 'unauthorized'
-            ? { kind: 'guest' }
+            ? GUEST_PAGE
             : { kind: 'failed' },
         );
       },
@@ -275,7 +351,7 @@ export class ProfileController {
   private saveFeatured(state: LoadedProfileState, id: AchievementId | null): void {
     const token = {};
     this.featuredToken = token;
-    this.setState(startFeaturedSave(state));
+    this.setPage(startFeaturedSave(state));
     void this.deps.setFeaturedAchievement(id).then(
       (saved) => {
         if (this.featuredToken === token) {
@@ -290,21 +366,31 @@ export class ProfileController {
     );
   }
 
+  private get page(): ProfileState | null {
+    return 'kind' in this.state ? null : this.state.page;
+  }
+
   private updateLoaded(transition: (state: LoadedProfileState) => LoadedProfileState): void {
-    if (this.state.kind === 'loaded') {
-      this.setState(transition(this.state));
+    const page = this.page;
+    if (page?.kind === 'loaded') {
+      this.setPage(transition(page));
     }
   }
 
-  private setState(next: ProfileState): void {
+  private setPage(page: ProfileState): void {
+    this.apply((screen) => withPage(screen, page));
+  }
+
+  private apply(transition: (screen: ProfileScreenState) => ProfileScreenState): void {
+    if ('kind' in this.state) {
+      return;
+    }
     const previous = this.state;
+    const next = transition(previous);
     if (next === previous) {
       return;
     }
     this.state = next;
-    this.screen.render(
-      next,
-      previous.kind === 'unstarted' || previous.kind === 'closed' ? null : previous,
-    );
+    this.screen.render(previous, next);
   }
 }

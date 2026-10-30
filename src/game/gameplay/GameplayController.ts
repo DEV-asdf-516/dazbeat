@@ -7,14 +7,14 @@ import type {
   YouTubePlayer,
   YouTubePlayerHandlers,
 } from '../../audio/YouTubePlayer.js';
-import type { AchievementId } from '../../data/achievements.js';
+import type { NamedAchievementDefinition } from '../../data/achievements.js';
 import type { PreparedChart, VerifiedPlay } from '../../data/playSession.js';
 import type { PlaySubmission } from '../../data/playSubmission.js';
 import type { ChartRef } from '../../data/songs.js';
-import { clamp, cycleItem } from '../../range.js';
+import { cycleItem, getProgress } from '../../range.js';
 import { GameplaySession } from '../../rhythm/GameplaySession.js';
 import { JUDGMENT_WINDOWS, getJudgmentEventCount } from '../../rhythm/judgment.js';
-import { getGameFraction, getPlaybackStartMs } from '../../rhythm/playTiming.js';
+import { getPlaybackStartMs } from '../../rhythm/playTiming.js';
 import type {
   Chart,
   GameplayResult,
@@ -25,7 +25,7 @@ import type {
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { MV_MODES } from '../../storage/settings.js';
 import type { MvMode, Settings } from '../../storage/settings.js';
-import type { GameplaySceneData, ResultSceneData } from '../sceneRoutes.js';
+import type { GameplaySceneData, ResultSceneData } from '../app/sceneRoutes.js';
 import {
   addPressedLane,
   getErrorKeyAction,
@@ -34,12 +34,23 @@ import {
   getPlayingKeyAction,
   getReadyKeyAction,
   readGameplayKey,
-} from './gameplayInput.js';
-import type { CommonKeyAction, PlayingKeyAction, PressedLanes } from './gameplayInput.js';
-import { getPlayingStatus } from './gameplayStatus.js';
-import type { GameplayStatus } from './gameplayStatus.js';
-import { getRunEnding } from './runEnding.js';
-import { WorldActivation } from './worldActivation.js';
+} from './state/gameplayInput.js';
+import type { CommonKeyAction, PlayingKeyAction, PressedLanes } from './state/gameplayInput.js';
+import { advanceEnteredNotes } from './state/gameplayHud.js';
+import type { QuitConfirmReason } from './state/quitConfirm.js';
+import {
+  INITIAL_GAMEPLAY_BUTTONS,
+  getPlayingStatus,
+  hoverGameplayButton,
+  isMvVisibleIn,
+  pressGameplayButton,
+  releaseGameplayButton,
+  unhoverGameplayButton,
+  withQuitConfirmOpen,
+} from './state/gameplayStatus.js';
+import type { GameplayButton, GameplayButtons, GameplayStatus } from './state/gameplayStatus.js';
+import { getRunEnding } from './state/runEnding.js';
+import { WorldActivation } from './state/worldActivation.js';
 
 export interface RankedPlay {
   submit(sessionId: string, submission: PlaySubmission): Promise<VerifiedPlay>;
@@ -67,11 +78,13 @@ export interface GameplayFrame {
   readonly state: GameplayState;
   readonly progress: number;
   readonly activation: { readonly level: number; readonly reachedFull: boolean };
+  readonly enteredNoteCount: number;
 }
 
 export interface PlayScreen {
   readonly approachMs: number;
-  drawFrame(frame: GameplayFrame): void;
+  drawFrame(previous: GameplayFrame | null, next: GameplayFrame): void;
+  hasNoteEntered(noteTimeMs: number, songTimeMs: number): boolean;
   pressLane(lane: Lane): void;
   showJudgments(events: readonly JudgmentEvent[]): void;
   hideIntro(): void;
@@ -80,10 +93,9 @@ export interface PlayScreen {
   playClear(onDone: () => void): void;
 }
 
-export type QuitConfirmReason = 'userPaused' | 'resyncFailed';
-
 export interface GameplayScreen {
-  showStatus(status: GameplayStatus): void;
+  showStatus(previous: GameplayStatus | null, next: GameplayStatus): void;
+  renderButtons(previous: GameplayButtons | null, next: GameplayButtons): void;
   showMvMode(mode: MvMode): void;
   setMvVisible(isVisible: boolean): void;
   showLoadError(error: GameplayLoadError): void;
@@ -122,8 +134,8 @@ interface PlayRun extends PreparedRun {
   readonly playScreen: PlayScreen;
   status: PlaybackStatus;
   pressedLanes: PressedLanes;
-  isQuitConfirmOpen: boolean;
   isIntroVisible: boolean;
+  lastFrame: GameplayFrame | null;
 }
 
 type GameplayPhase =
@@ -150,16 +162,20 @@ const PLAYBACK_FAILURE_ERRORS = {
 export class GameplayController {
   private phase: GameplayPhase = { kind: 'loading' };
   private player: GameplayPlayer | null = null;
+  private shownStatus: GameplayStatus | null = null;
+  private buttons = INITIAL_GAMEPLAY_BUTTONS;
 
   constructor(
     private readonly deps: GameplayDeps,
     private readonly screen: GameplayScreen,
     private readonly route: GameplaySceneData,
     private settings: Settings,
-  ) {}
+  ) {
+    this.screen.renderButtons(null, this.buttons);
+  }
 
   async start(): Promise<void> {
-    this.screen.showStatus({ kind: 'loading' });
+    this.showStatus({ kind: 'loading' });
     const loading: GameplayPhase = { kind: 'loading' };
     this.phase = loading;
 
@@ -204,7 +220,8 @@ export class GameplayController {
               player,
             },
           };
-          this.screen.showStatus({ kind: 'awaitingStart' });
+          this.showStatus({ kind: 'awaitingStart' });
+          this.screen.setMvVisible(true);
         },
         onStateChange: (state) => {
           const { phase } = this;
@@ -286,7 +303,7 @@ export class GameplayController {
       case 'playing':
         this.applyPlayingKeyAction(
           phase.run,
-          getPlayingKeyAction(phase.run.isQuitConfirmOpen, phase.run.status, key, isRepeat),
+          getPlayingKeyAction(this.buttons.isQuitConfirmOpen, phase.run.status, key, isRepeat),
         );
         return;
     }
@@ -328,12 +345,42 @@ export class GameplayController {
 
   closeQuitConfirm(): void {
     const { phase } = this;
-    if (phase.kind !== 'playing' || !phase.run.isQuitConfirmOpen) {
+    if (phase.kind !== 'playing' || !this.buttons.isQuitConfirmOpen) {
       return;
     }
-    phase.run.isQuitConfirmOpen = false;
+    this.applyButtons((buttons) => withQuitConfirmOpen(buttons, false));
     this.screen.closeQuitConfirm();
     phase.run.playback.resume();
+  }
+
+  pointerOver(button: GameplayButton): void {
+    this.applyButtons((buttons) => hoverGameplayButton(buttons, button));
+  }
+
+  pointerOut(button: GameplayButton): void {
+    this.applyButtons((buttons) => unhoverGameplayButton(buttons, button));
+  }
+
+  pointerDown(button: GameplayButton): void {
+    this.applyButtons((buttons) => pressGameplayButton(buttons, button));
+  }
+
+  pointerUp(button: GameplayButton): void {
+    const previous = this.buttons;
+    this.applyButtons((buttons) => releaseGameplayButton(buttons, button));
+    // 눌린 그 버튼이었을 때만 눌림이 풀려 값이 바뀐다.
+    if (this.buttons === previous) {
+      return;
+    }
+    switch (button) {
+      case 'back':
+      case 'quitAccept':
+        this.leave();
+        return;
+      case 'quitCancel':
+        this.closeQuitConfirm();
+        return;
+    }
   }
 
   leave(): void {
@@ -350,8 +397,27 @@ export class GameplayController {
     this.player = null;
   }
 
+  private applyButtons(transition: (buttons: GameplayButtons) => GameplayButtons): void {
+    if (this.phase.kind === 'closed') {
+      return;
+    }
+    const previous = this.buttons;
+    const next = transition(previous);
+    if (next === previous) {
+      return;
+    }
+    this.buttons = next;
+    this.screen.renderButtons(previous, next);
+  }
+
+  private showStatus(status: GameplayStatus): void {
+    this.screen.showStatus(this.shownStatus, status);
+    this.shownStatus = status;
+  }
+
   private fail(error: GameplayLoadError, cause: unknown): void {
     console.error(LOAD_ERROR_LOGS[error.kind], cause);
+    this.applyButtons((buttons) => withQuitConfirmOpen(buttons, false));
     this.phase = { kind: 'error' };
     this.screen.showLoadError(error);
   }
@@ -375,7 +441,7 @@ export class GameplayController {
       playbackStartMs: getPlaybackStartMs(song.gameStartMs),
       preloadEndMs: song.gameEndMs,
     });
-    this.screen.showStatus({ kind: 'loading' });
+    this.showStatus({ kind: 'loading' });
     this.screen.setMvVisible(false);
     this.phase = {
       kind: 'starting',
@@ -421,7 +487,7 @@ export class GameplayController {
           if (phase.kind !== 'playing') {
             return;
           }
-          phase.run.isQuitConfirmOpen = true;
+          this.applyButtons((buttons) => withQuitConfirmOpen(buttons, true));
           this.screen.openQuitConfirm('resyncFailed');
         },
       },
@@ -434,7 +500,7 @@ export class GameplayController {
       songStartMs: 0,
     });
     const { status } = playback;
-    this.screen.showStatus(getPlayingStatus(status));
+    this.showStatus(getPlayingStatus(status));
     this.phase = {
       kind: 'playing',
       run: {
@@ -446,8 +512,8 @@ export class GameplayController {
         playScreen,
         status,
         pressedLanes: new Set(),
-        isQuitConfirmOpen: false,
         isIntroVisible: true,
+        lastFrame: null,
       },
     };
   }
@@ -455,7 +521,7 @@ export class GameplayController {
   private applyPlayingKeyAction(run: PlayRun, action: PlayingKeyAction): void {
     switch (action.kind) {
       case 'openQuitConfirm':
-        run.isQuitConfirmOpen = true;
+        this.applyButtons((buttons) => withQuitConfirmOpen(buttons, true));
         run.playback.pause();
         this.screen.openQuitConfirm('userPaused');
         return;
@@ -485,13 +551,21 @@ export class GameplayController {
     }
     const state = run.session.getState();
     const activation = run.activation.advance(state.combo, songTimeMs);
-    run.playScreen.drawFrame({
+    const frame: GameplayFrame = {
       session: run.session,
       songTimeMs,
       state,
-      progress: clamp(getGameFraction(song.gameStartMs, song.gameEndMs, songTimeMs), 0, 1),
+      progress: getProgress(songTimeMs, song.gameStartMs, song.gameEndMs),
       activation,
-    });
+      enteredNoteCount: advanceEnteredNotes(
+        run.chart.notes,
+        run.lastFrame?.enteredNoteCount ?? 0,
+        songTimeMs,
+        (noteTimeMs, atSongTimeMs) => run.playScreen.hasNoteEntered(noteTimeMs, atSongTimeMs),
+      ),
+    };
+    run.playScreen.drawFrame(run.lastFrame, frame);
+    run.lastFrame = frame;
     if (run.isIntroVisible && run.clock.getPlaybackMs() >= song.gameStartMs) {
       run.isIntroVisible = false;
       run.playScreen.hideIntro();
@@ -514,12 +588,12 @@ export class GameplayController {
   }
 
   private showPlaybackStatus(run: PlayRun, status: PlaybackStatus): void {
-    const isRunning = status.kind === 'running';
-    const wasRunning = run.status.kind === 'running';
+    const isMvVisible = isMvVisibleIn(status);
+    const wasMvVisible = isMvVisibleIn(run.status);
     run.status = status;
-    this.screen.showStatus(getPlayingStatus(status));
-    if (isRunning !== wasRunning) {
-      this.screen.setMvVisible(isRunning);
+    this.showStatus(getPlayingStatus(status));
+    if (isMvVisible !== wasMvVisible) {
+      this.screen.setMvVisible(isMvVisible);
     }
   }
 
@@ -533,6 +607,8 @@ export class GameplayController {
     }
     const onDone = this.enterEnding(run, progress);
     run.playback.pause();
+    // 실패 연출은 열린 확인 창을 숨긴다.
+    this.applyButtons((buttons) => withQuitConfirmOpen(buttons, false));
     run.playScreen.playFailure(onDone);
     return true;
   }
@@ -550,7 +626,7 @@ export class GameplayController {
 
   private finishRun(run: PlayRun, result: GameplayResult): void {
     const { song, laneCount, difficulty, chartId, mode } = this.route;
-    let newAchievements: Promise<readonly AchievementId[]> = Promise.resolve([]);
+    let newAchievements: Promise<readonly NamedAchievementDefinition[]> = Promise.resolve([]);
     if (run.mode.kind === 'standard' && result.outcome === 'finished') {
       try {
         this.deps.save.saveResult(song.id, laneCount, difficulty, result);
