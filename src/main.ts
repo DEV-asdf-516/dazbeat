@@ -32,7 +32,7 @@ import { CreditsScene } from './game/credits/CreditsScene.js';
 import { GameplayScene } from './game/gameplay/GameplayScene.js';
 import type { RankedPlay } from './game/gameplay/GameplayController.js';
 import { MainScene } from './game/main/MainScene.js';
-import type { ProfileDeps } from './game/profile/ProfileController.js';
+import type { ProfilePorts } from './game/profile/ProfileController.js';
 import { ProfileScene } from './game/profile/ProfileScene.js';
 import { ResultScene } from './game/result/ResultScene.js';
 import { SettingsScene } from './game/settings/SettingsScene.js';
@@ -145,7 +145,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
     const rankedPlay: RankedPlay = {
       submit: (sessionId, submission) => submitPlay(pb, achievements, sessionId, submission),
     };
-    const profileDeps: ProfileDeps = {
+    const profilePorts: ProfilePorts = {
       isSignedIn: () => getCurrentUser(pb) !== null,
       loadProfile: () => loadProfile(pb),
       changeNickname: (nickname) => changeNickname(pb, nickname),
@@ -172,7 +172,7 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
         new CreditsScene(save, catalog, i18n, celestial),
         new SongSelectScene(save, mvLayer, feeds, i18n, celestial),
         new SettingsScene(save, i18n, celestial),
-        new ProfileScene(save, i18n, celestial, profileDeps),
+        new ProfileScene(save, i18n, celestial, profilePorts),
         new GameplayScene(
           save,
           mvLayer,

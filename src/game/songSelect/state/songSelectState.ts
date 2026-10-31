@@ -23,12 +23,11 @@ import {
   getControlsCloseView,
   isControlsButtonEnabled,
   isControlsEntryHovered,
-  releaseControlsHover,
 } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
 import type { CelestialStaticId } from '../../celestial/state/celestialCatalog.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
-import type { TabAppearance } from '../../ui/view/widgets/TextTabs.js';
+import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 import { requireDefined } from '../../../invariant.js';
 import { clamp } from '../../../range.js';
 import { isShallowEqual } from '../../../shallowEqual.js';
@@ -62,6 +61,7 @@ export interface SongSelectState {
   readonly laneCount: LaneCount;
   readonly current: SongSelection;
   readonly hover: SongSelectHover | null;
+  readonly isControlsOpen: boolean;
 }
 
 export type SongRowAppearance = 'selected' | 'hovered' | 'idle';
@@ -84,7 +84,6 @@ export interface SongSelectView {
   /** 아직 받지 않은 곡까지 포함한 목록 전체 곡 수. 페이지 수 표시에 쓴다. */
   readonly songCount: number;
   readonly records: ChartRecords;
-  readonly isControlsOpen: boolean;
 }
 
 type SongSelectTarget = Pick<SongSelectRestore, 'index' | 'songId' | 'difficulty'>;
@@ -102,6 +101,7 @@ export function createSongSelectState(
       laneCount,
       current: selectAt(songs, laneCount, 0, null),
       hover: null,
+      isControlsOpen: false,
     };
   }
   const found = songs.findIndex((song) => song.id === target.songId);
@@ -116,6 +116,7 @@ export function createSongSelectState(
       target.difficulty,
     ),
     hover: null,
+    isControlsOpen: false,
   };
 }
 
@@ -447,6 +448,7 @@ export function withFilter(
     laneCount: state.laneCount,
     current: selectAt(songs, state.laneCount, 0, getSelectedDifficulty(state.current)),
     hover: state.hover,
+    isControlsOpen: state.isControlsOpen,
   };
 }
 
@@ -522,10 +524,6 @@ function withHover(state: SongSelectState, hover: SongSelectHover | null): SongS
       };
 }
 
-export function releaseControlsButtons(state: SongSelectState): SongSelectState {
-  return withHover(state, releaseControlsHover(state.hover));
-}
-
 export function hoverSongSelectButton(
   state: SongSelectState,
   button: SongSelectButton,
@@ -543,14 +541,13 @@ export function unhoverSongSelectButton(
 export function pressSongSelectButton(
   state: SongSelectState,
   button: SongSelectButton,
-  isControlsOpen: boolean,
 ): SongSelectState {
   return withHover(
     state,
     pressButton(
       state.hover,
       button,
-      button === 'settings' || isControlsButtonEnabled(button, isControlsOpen),
+      button === 'settings' || isControlsButtonEnabled(button, state.isControlsOpen),
     ),
   );
 }
@@ -567,11 +564,26 @@ export function getSettingsButtonView(view: SongSelectView): ButtonView {
 }
 
 export function getSongSelectControlsCloseView(view: SongSelectView): ButtonView {
-  return getControlsCloseView(view.state.hover, view.isControlsOpen);
+  return getControlsCloseView(view.state.hover, view.state.isControlsOpen);
 }
 
 export function isSongSelectControlsEntryHovered(view: SongSelectView): boolean {
   return isControlsEntryHovered(view.state.hover);
+}
+
+export type SongSelectShortcut = 'openSettings' | 'selectRandomSong';
+
+export function readSongSelectShortcut(
+  event: Pick<KeyboardEvent, 'code' | 'repeat'>,
+): SongSelectShortcut | null {
+  switch (event.code) {
+    case 'Tab':
+      return 'openSettings';
+    case 'KeyR':
+      return event.repeat ? null : 'selectRandomSong';
+    default:
+      return null;
+  }
 }
 
 export function isOnLastLoadedPage(state: SongSelectState, rowsPerPage: number): boolean {
@@ -705,7 +717,7 @@ const readLoadingMoreSlot: SongSelectReader = ({ view, rowsPerPage }) => {
 const readRandomAppearance: SongSelectReader = ({ view }) =>
   getActionAppearance(view.state, 'random');
 const readPlayAppearance: SongSelectReader = ({ view }) => getActionAppearance(view.state, 'play');
-const readControlsOpen: SongSelectReader = ({ view }) => view.isControlsOpen;
+const readControlsOpen: SongSelectReader = ({ view }) => view.state.isControlsOpen;
 const readSettingsHovered: SongSelectReader = ({ view }) =>
   isButtonHovered(view.state.hover, 'settings');
 const readSettingsPressed: SongSelectReader = ({ view }) =>

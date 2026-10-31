@@ -4,12 +4,15 @@ import { ACHIEVEMENT_SETS, findAchievement } from '../../../data/achievements.js
 import type {
   AchievementDefinition,
   AchievementId,
+  AchievementMark,
   AchievementSet,
   NamedAchievementDefinition,
 } from '../../../data/achievements.js';
 import { parseNickname } from '../../../data/nickname.js';
 import type { Nickname } from '../../../data/nickname.js';
+import { ProfileRequestError } from '../../../data/profile.js';
 import type { AchievementStatus, NicknameChangeFailure, Profile } from '../../../data/profile.js';
+import type { Zodiac } from '../../../data/songs.js';
 import { requireDefined } from '../../../invariant.js';
 import { clamp, cycleItem, stepItem } from '../../../range.js';
 import { isShallowEqual } from '../../../shallowEqual.js';
@@ -27,10 +30,9 @@ import {
   getControlsCloseView,
   isControlsButtonEnabled,
   isControlsEntryHovered,
-  releaseControlsHover,
 } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
-import type { TabAppearance } from '../../ui/view/widgets/TextTabs.js';
+import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 
 type ProfilePage = 'summary' | 'collection';
 
@@ -566,20 +568,6 @@ export function withPage(screen: ProfileScreenState, page: ProfileState): Profil
   };
 }
 
-export function withControlsOpen(
-  screen: ProfileScreenState,
-  isControlsOpen: boolean,
-): ProfileScreenState {
-  if (screen.isControlsOpen === isControlsOpen) {
-    return screen;
-  }
-  return {
-    ...screen,
-    isControlsOpen,
-    hover: isControlsOpen ? screen.hover : releaseControlsHover(screen.hover),
-  };
-}
-
 export function setHover(screen: ProfileScreenState, target: ProfileTarget): ProfileScreenState {
   return isSameHover(screen.hover, target) || !isShownHover(screen.page, target)
     ? screen
@@ -681,6 +669,25 @@ export function cancelNicknameEdit(state: LoadedProfileState): LoadedProfileStat
         ...state,
         nickname: IDLE_NICKNAME,
       };
+}
+
+export function toNicknameFailure(error: unknown): NicknameChangeFailure {
+  if (error instanceof ProfileRequestError) {
+    if (error.kind === 'invalidNickname') {
+      return 'invalid';
+    }
+    if (error.kind === 'nicknameTaken') {
+      return 'taken';
+    }
+  }
+  return 'failed';
+}
+
+export function toLoadFailurePage(error: unknown): ProfileState {
+  // 인증 만료는 다시 로그인해야 하므로 게스트 안내로 보낸다.
+  return error instanceof ProfileRequestError && error.kind === 'unauthorized'
+    ? { kind: 'guest' }
+    : { kind: 'failed' };
 }
 
 export function failNicknameEdit(
@@ -917,14 +924,99 @@ export function getChangedRegions(
   };
 }
 
+type EarnedProgress = { readonly earned: number; readonly total: number };
+
 export function getEarnedProgress(
   state: LoadedProfileState,
   definitions: readonly AchievementDefinition[],
-): { readonly earned: number; readonly total: number } {
+): EarnedProgress {
   return {
     earned: definitions.filter(({ id }) => isEarned(state, id)).length,
     total: definitions.length,
   };
+}
+
+export function getEarnedSummary(state: LoadedProfileState): {
+  readonly all: EarnedProgress;
+  readonly bySet: Readonly<Record<AchievementSet, EarnedProgress>>;
+} {
+  const definitions = state.profile.achievements.map(({ definition }) => definition);
+  const getSetProgress = (set: AchievementSet): EarnedProgress =>
+    getEarnedProgress(
+      state,
+      definitions.filter((definition) => definition.set === set),
+    );
+  return {
+    all: getEarnedProgress(state, definitions),
+    bySet: {
+      rhythm: getSetProgress('rhythm'),
+      zodiac: getSetProgress('zodiac'),
+      discography: getSetProgress('discography'),
+    },
+  };
+}
+
+type CountConditionKey =
+  'plays' | 'songs' | 'charts' | 'expertCharts' | 'songMarks' | 'zodiacCompletions';
+
+export type AchievementCondition =
+  | {
+      readonly kind: 'count';
+      readonly key: CountConditionKey | `${CountConditionKey}One`;
+      readonly target: number;
+      readonly mark: AchievementMark | null;
+    }
+  | { readonly kind: 'zodiacVisits'; readonly target: number; readonly mark: AchievementMark }
+  | { readonly kind: 'zodiacComplete'; readonly zodiac: Zodiac; readonly mark: AchievementMark }
+  | { readonly kind: 'album'; readonly album: string; readonly mark: AchievementMark };
+
+/** 목표가 1이면 "첫 ~"처럼 횟수 없이 읽는 문구를 따로 쓴다. */
+function countCondition(
+  key: CountConditionKey,
+  target: number,
+  mark: AchievementMark | null,
+): AchievementCondition {
+  return {
+    kind: 'count',
+    key: target === 1 ? `${key}One` : key,
+    target,
+    mark,
+  };
+}
+
+export function getAchievementCondition({ rule }: AchievementDefinition): AchievementCondition {
+  switch (rule.kind) {
+    case 'plays':
+    case 'songs':
+    case 'zodiacCompletions':
+      return countCondition(rule.kind, rule.target, null);
+    case 'charts':
+      return countCondition(
+        rule.difficulty === 'expert' ? 'expertCharts' : 'charts',
+        rule.target,
+        rule.mark,
+      );
+    case 'songMarks':
+      return countCondition('songMarks', rule.target, rule.mark);
+    case 'zodiacVisits':
+      return {
+        kind: 'zodiacVisits',
+        target: rule.target,
+        mark: rule.mark,
+      };
+    case 'zodiacComplete':
+      return {
+        kind: 'zodiacComplete',
+        zodiac: rule.zodiac,
+        mark: rule.mark,
+      };
+    case 'album':
+      return {
+        kind: 'album',
+        album: rule.album,
+        mark: rule.mark,
+      };
+  }
 }
 
 export function getFocusedEarning(

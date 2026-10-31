@@ -15,6 +15,7 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
+import { readMenuAction } from '../../ui/state/menuAction.js';
 import { isDraftDirty, restoreNotes } from './chartDraft.js';
 import type { ChartDraft } from './chartDraft.js';
 import { cancelGesture, NO_GESTURE } from './chartGesture.js';
@@ -454,6 +455,29 @@ export function getSelectionPanel(state: ChartEditorState): {
     titleKey: selected === null ? 'chartEditor.noSelection' : 'chartEditor.selectionSection',
     noteCount: draft === null ? null : draft.notes.length,
   };
+}
+
+export type EditorKeyCommand =
+  'undo' | 'confirmPending' | 'togglePlayback' | 'deleteSelected' | 'back';
+
+export function readEditorKey(
+  event: Pick<KeyboardEvent, 'code' | 'repeat' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
+): EditorKeyCommand | null {
+  const action = readMenuAction(event);
+  if (event.code === 'KeyZ' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
+    return 'undo';
+  }
+  if (action === 'confirm') {
+    return 'confirmPending';
+  }
+  if (event.code === 'Space') {
+    // 누르고 있는 동안의 반복 입력으로 재생과 일시정지가 번갈아 바뀌지 않게 한다.
+    return event.repeat ? null : 'togglePlayback';
+  }
+  if (event.code === 'Delete' || event.code === 'Backspace') {
+    return 'deleteSelected';
+  }
+  return action === 'back' ? 'back' : null;
 }
 
 export function getPlayButtonLabel(state: ChartEditorState): 'PLAY' | 'PAUSE' {

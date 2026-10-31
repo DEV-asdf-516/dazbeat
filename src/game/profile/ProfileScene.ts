@@ -30,8 +30,8 @@ import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmble
 import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
 import { Button } from '../ui/view/widgets/Button.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
-import { readMenuAction } from '../ui/view/input/menuInput.js';
-import type { MenuAction } from '../ui/view/input/menuInput.js';
+import { readMenuAction } from '../ui/state/menuAction.js';
+import type { MenuAction } from '../ui/state/menuAction.js';
 import { HOVER_CURSOR } from '../ui/view/input/cursor.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { addHairline } from '../ui/view/textures/hairline.js';
@@ -46,7 +46,6 @@ import {
   CELESTIAL_COLORS,
   COLORS,
   LIST_ROW,
-  MOTION,
   RADIUS,
   SCREEN_LAYOUT,
   STATUS_COLORS,
@@ -55,16 +54,19 @@ import {
   setTextWeight,
   textStyle,
 } from '../ui/view/theme.js';
+import { MOTION } from '../ui/state/motion.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
 import type { TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import { ProfileController } from './ProfileController.js';
-import type { ProfileDeps } from './ProfileController.js';
+import type { ProfilePorts } from './ProfileController.js';
 import {
+  getAchievementCondition,
   getCellLook,
   getChangedRegions,
   getChoiceAppearance,
   getCollectionRows,
   getEarnedProgress,
+  getEarnedSummary,
   getFeaturedAction,
   getFeaturedIdentity,
   getFocusedEarning,
@@ -413,7 +415,7 @@ export class ProfileScene extends Phaser.Scene {
     private readonly save: LocalSave,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
-    private readonly deps: ProfileDeps,
+    private readonly ports: ProfilePorts,
   ) {
     super(SCENE_KEYS.profile);
   }
@@ -473,7 +475,7 @@ export class ProfileScene extends Phaser.Scene {
       unhover: (hover) => controller.unhover(hover),
       pointer,
     });
-    const controller = new ProfileController(this.deps, {
+    const controller = new ProfileController(this.ports, {
       render: (previous, next) => this.render(view, chrome, backButton, next, previous, controller),
       playFocusSound: () => soundEffects.play('menuFocus'),
       leaveToMain: () => {
@@ -1128,17 +1130,10 @@ export class ProfileScene extends Phaser.Scene {
             `${profile.stats[field]}`,
           );
         });
-        const visible = profile.achievements.map(({ definition }) => definition);
-        view.earnedRow.value.setText(formatEarned(getEarnedProgress(state, visible)));
+        const earned = getEarnedSummary(state);
+        view.earnedRow.value.setText(formatEarned(earned.all));
         view.setRows.forEach(({ set, count }) => {
-          count.setText(
-            formatEarned(
-              getEarnedProgress(
-                state,
-                visible.filter((definition) => definition.set === set),
-              ),
-            ),
-          );
+          count.setText(formatEarned(earned.bySet[set]));
         });
         return;
       }
@@ -1445,53 +1440,35 @@ export class ProfileScene extends Phaser.Scene {
       : this.i18n.t(`achievements.categories.${definition.category}`);
   }
 
-  private describeCondition(catalog: AchievementCatalog, { rule }: AchievementDefinition): string {
-    switch (rule.kind) {
-      case 'plays':
-      case 'songs':
-      case 'zodiacCompletions':
-        return this.describeCount(rule.kind, rule.target);
-      case 'charts':
-        return this.describeCount(
-          rule.difficulty === 'expert' ? 'expertCharts' : 'charts',
-          rule.target,
-          this.i18n.t(`achievements.marks.${rule.mark}`),
-        );
-      case 'songMarks':
-        return this.describeCount(
-          'songMarks',
-          rule.target,
-          this.i18n.t(`achievements.marks.${rule.mark}`),
-        );
+  private describeCondition(
+    catalog: AchievementCatalog,
+    definition: AchievementDefinition,
+  ): string {
+    const condition = getAchievementCondition(definition);
+    switch (condition.kind) {
+      case 'count':
+        return this.i18n.t(`achievements.conditions.${condition.key}`, {
+          n: condition.target,
+          mark:
+            condition.mark === null
+              ? undefined
+              : this.i18n.t(`achievements.marks.${condition.mark}`),
+        });
       case 'zodiacVisits':
         return this.i18n.t('achievements.conditions.zodiacVisits', {
-          n: rule.target,
-          mark: this.i18n.t(`achievements.marks.${rule.mark}`),
+          n: condition.target,
+          mark: this.i18n.t(`achievements.marks.${condition.mark}`),
         });
       case 'zodiacComplete':
         return this.i18n.t('achievements.conditions.zodiacComplete', {
-          zodiac: this.i18n.t(`achievements.zodiacs.${rule.zodiac}`),
-          mark: this.i18n.t(`achievements.marks.${rule.mark}`),
+          zodiac: this.i18n.t(`achievements.zodiacs.${condition.zodiac}`),
+          mark: this.i18n.t(`achievements.marks.${condition.mark}`),
         });
       case 'album':
         return this.i18n.t('achievements.conditions.album', {
-          album: getAlbumName(catalog, rule.album),
-          mark: this.i18n.t(`achievements.marks.${rule.mark}`),
+          album: getAlbumName(catalog, condition.album),
+          mark: this.i18n.t(`achievements.marks.${condition.mark}`),
         });
     }
-  }
-
-  /** 목표가 1이면 "첫 ~"처럼 횟수 없이 읽는 문구를 따로 쓴다. */
-  private describeCount(
-    key: 'plays' | 'songs' | 'charts' | 'expertCharts' | 'songMarks' | 'zodiacCompletions',
-    target: number,
-    mark?: string,
-  ): string {
-    return target === 1
-      ? this.i18n.t(`achievements.conditions.${key}One`, { mark })
-      : this.i18n.t(`achievements.conditions.${key}`, {
-          n: target,
-          mark,
-        });
   }
 }

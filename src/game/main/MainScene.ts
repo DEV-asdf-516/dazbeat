@@ -48,13 +48,13 @@ import { LOADING_STAR_ID, LoadingStar } from '../ui/view/widgets/LoadingStar.js'
 import {
   CARD_PANEL,
   COLORS,
-  MOTION,
   RADIUS,
   SCREEN_LAYOUT,
   TYPE_SCALE,
   textStyle,
   typeStyle,
 } from '../ui/view/theme.js';
+import { MOTION } from '../ui/state/motion.js';
 
 const LOGO_Y_PX = 300;
 const PLAY_SPACING_AFTER_PX = 120;

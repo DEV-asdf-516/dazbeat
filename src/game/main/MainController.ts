@@ -8,7 +8,7 @@ import {
   startSignIn,
 } from '../app/accountState.js';
 import type { AccountAuth, AccountState } from '../app/accountState.js';
-import { readControlsKey } from '../app/controlsGuide.js';
+import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
 import {
   createMainState,
   hoverMainButton,
@@ -18,7 +18,6 @@ import {
   releaseMainButton,
   unhoverMainButton,
   withAccount,
-  withControlsOpen,
 } from './state/mainMenu.js';
 import type { MainButton, MainFocus, MainState } from './state/mainMenu.js';
 

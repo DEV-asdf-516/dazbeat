@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AuthUser } from '../../../../src/data/account.js';
 import { parseNickname } from '../../../../src/data/nickname.js';
 import type { AccountState } from '../../../../src/game/app/accountState.js';
+import { withControlsOpen } from '../../../../src/game/app/controlsGuide.js';
 import {
   createMainState,
   getChangedRegions,
@@ -9,7 +10,6 @@ import {
   moveMainFocus,
   pressMainButton,
   withAccount,
-  withControlsOpen,
 } from '../../../../src/game/main/state/mainMenu.js';
 import { requireDefined } from '../../../../src/invariant.js';
 

@@ -5,7 +5,8 @@ import type { StarlightBand } from '../state/starlightBand.js';
 import { ensureCrescentTexture, ensureStarlightFillTexture } from './gameplayTextures.js';
 import { HUD_LABEL, HUD_SHADOW_COLOR, addHudText, withHudOutline } from './hudObjects.js';
 import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
-import { COLORS, GAMEPLAY_DEPTH, MOTION, STATUS_COLORS, typeStyle } from '../../ui/view/theme.js';
+import { COLORS, GAMEPLAY_DEPTH, STATUS_COLORS, typeStyle } from '../../ui/view/theme.js';
+import { MOTION } from '../../ui/state/motion.js';
 
 const WIDTH_PX = 256;
 const FILL_HEIGHT_PX = 6;

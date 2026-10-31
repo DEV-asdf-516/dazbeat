@@ -3,7 +3,7 @@ import type { SongCategory } from '../../../data/songs.js';
 import { HOVER_CURSOR } from '../../ui/view/input/cursor.js';
 import { setFittedText } from '../../ui/view/widgets/fitText.js';
 import { ScrollBar } from '../../ui/view/widgets/ScrollBar.js';
-import type { ScrollBarScroll } from '../../ui/view/widgets/ScrollBar.js';
+import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 import {
   CATEGORY_COLORS,
   CELESTIAL_COLORS,

@@ -12,8 +12,9 @@ import type { ButtonView } from '../../state/buttonPointer.js';
 import type { ControlsButton, ControlsGroup } from '../../../app/controlsGuide.js';
 import { ControlsOverlay, addControlsEntry } from './ControlsOverlay.js';
 import type { ButtonPointer } from '../input/hoverTarget.js';
-import { handleEachEventOnce, readMenuAction, requireKeyboard } from '../input/menuInput.js';
-import type { MenuAction } from '../input/menuInput.js';
+import { handleEachEventOnce, requireKeyboard } from '../input/menuInput.js';
+import { readMenuAction } from '../../state/menuAction.js';
+import type { MenuAction } from '../../state/menuAction.js';
 import { renderTextEntry } from './textEntry.js';
 import { SCREEN_LAYOUT } from '../theme.js';
 

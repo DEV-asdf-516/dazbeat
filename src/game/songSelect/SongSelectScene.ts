@@ -16,7 +16,7 @@ import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import type { SongFeeds } from '../app/SongFeed.js';
 import type { ChartRecord } from '../../storage/chartRecords.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { DEFAULT_SETTINGS } from '../../storage/settings.js';
+import { DEFAULT_SETTINGS, getMusicVolume } from '../../storage/settings.js';
 import {
   SONG_ROW_NODE_IDS,
   SONG_SELECT_ACTIONS,
@@ -38,15 +38,16 @@ import {
   getSongSelectControlsCloseView,
   isSongSelectControlsEntryHovered,
   openSongSelect,
+  readSongSelectShortcut,
 } from './state/songSelectState.js';
 import { SongSelectController } from './SongSelectController.js';
 import type { SongSelectScreen } from './SongSelectController.js';
 import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
 import type { Difficulty } from '../../rhythm/types.js';
-import { SongSelectJackets } from './state/SongSelectJackets.js';
+import { SongSelectJackets } from './view/SongSelectJackets.js';
 import { getZodiacSign, strokeZodiacLine } from '../celestial/view/zodiacSign.js';
 import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/state/zodiacFigures.js';
-import type { JacketTextures } from './state/SongSelectJackets.js';
+import type { JacketTextures } from './view/SongSelectJackets.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
 import type {
@@ -79,7 +80,7 @@ import {
 import { setFittedText } from '../ui/view/widgets/fitText.js';
 import { ensureLightTextures } from '../ui/view/textures/lightTextures.js';
 import { requireKeyboard } from '../ui/view/input/menuInput.js';
-import type { MenuAction } from '../ui/view/input/menuInput.js';
+import type { MenuAction } from '../ui/state/menuAction.js';
 import { bindHoverTarget, pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
@@ -92,7 +93,6 @@ import {
   CELESTIAL_COLORS,
   COLORS,
   LIST_ROW,
-  MOTION,
   RADIUS,
   SCREEN_LAYOUT,
   TYPE_SCALE,
@@ -102,6 +102,7 @@ import {
   textStyle,
   typeStyle,
 } from '../ui/view/theme.js';
+import { MOTION } from '../ui/state/motion.js';
 import { requireDefined } from '../../invariant.js';
 
 const FILTER_GAP_PX = 48;
@@ -544,7 +545,7 @@ export class SongSelectScene extends Phaser.Scene {
             create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
           },
           now: () => performance.now(),
-          volume: settings.masterVolume * settings.musicVolume,
+          volume: getMusicVolume(settings),
         },
       },
       screen,
@@ -764,16 +765,14 @@ export class SongSelectScene extends Phaser.Scene {
       case null:
         break;
     }
-    switch (event.code) {
-      case 'Tab':
+    switch (readSongSelectShortcut(event)) {
+      case 'openSettings':
         controller.openSettings();
         return;
-      case 'KeyR':
-        if (!event.repeat) {
-          controller.selectRandomSong();
-        }
+      case 'selectRandomSong':
+        controller.selectRandomSong();
         return;
-      default:
+      case null:
         return;
     }
   }
@@ -891,7 +890,7 @@ export class SongSelectScene extends Phaser.Scene {
         return;
       case 'controls':
         view.chrome.renderControls(
-          next.isControlsOpen
+          next.state.isControlsOpen
             ? getControlsGuide(
                 this.i18n.t('controls', { returnObjects: true }),
                 this.save.loadSettings(),

@@ -10,10 +10,10 @@ import type { ChartRef } from '../../data/songs.js';
 import { requireDefined } from '../../invariant.js';
 import { calculateAccuracy } from '../../rhythm/accuracy.js';
 import { getLanes } from '../../rhythm/lanes.js';
+import { getNoteTimeAtY } from '../../rhythm/notePosition.js';
 import type { Chart, Judgment, JudgmentEvent } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { MvMode } from '../../storage/settings.js';
-import { secToMs } from '../../time.js';
 import {
   ENDING_FX_IDS,
   ENDING_IMAGES,
@@ -22,13 +22,7 @@ import {
   playFullComboFx,
 } from './view/endingFx.js';
 import { GameplayController } from './GameplayController.js';
-import type {
-  GameplayFrame,
-  GameplayLoadError,
-  GameplayScreen,
-  PlayScreen,
-  RankedPlay,
-} from './GameplayController.js';
+import type { GameplayScreen, PlayScreen, RankedPlay } from './GameplayController.js';
 import {
   getChangedButtonRegions,
   getChangedStatusRegions,
@@ -41,6 +35,7 @@ import type {
   GameplayButton,
   GameplayButtonRegion,
   GameplayButtons,
+  GameplayLoadError,
   GameplayStatus,
   GameplayStatusMessage,
   GameplayStatusRegion,
@@ -92,7 +87,7 @@ import { StarlightGauge } from './view/StarlightGauge.js';
 import { IntroStarChart, getIntroStarChartUses } from './view/IntroStarChart.js';
 import { getComboTier } from './state/comboTier.js';
 import { getChangedHudRegions, getEnteredNoteRange } from './state/gameplayHud.js';
-import type { HudRegion } from './state/gameplayHud.js';
+import type { GameplayFrame, HudRegion } from './state/gameplayHud.js';
 import { getStarlightBand, isBreathingBand } from './state/starlightBand.js';
 import type { ComboTier } from './state/comboTier.js';
 import { fillTrapezoid } from './view/trapezoidFill.js';
@@ -101,10 +96,10 @@ import {
   COLORS,
   GAMEPLAY_DEPTH,
   JUDGMENT_COLORS,
-  MOTION,
   setTextColor,
   textStyle,
 } from '../ui/view/theme.js';
+import { MOTION } from '../ui/state/motion.js';
 
 // 판정·콤보는 플레이필드 가운데에, 안내·종료 문구는 화면 가운데에 놓는다.
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
@@ -621,6 +616,7 @@ export class GameplayScene extends Phaser.Scene {
           create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
         },
         now: () => performance.now(),
+        frameNow: () => this.game.loop.now,
       },
       screen,
       data,
@@ -763,7 +759,7 @@ export class GameplayScene extends Phaser.Scene {
     });
     setComboTint([view.comboText, view.comboLabel], getComboTier(0));
     return {
-      approachMs: secToMs(view.playfield.judgeLineYPx / scrollSpeedPxPerSecond),
+      approachMs: getNoteTimeAtY(0, 0, view.playfield.judgeLineYPx, scrollSpeedPxPerSecond),
       drawFrame: (previous, next) => {
         view.laneFx.setActivation(next.activation.level);
         if (next.activation.reachedFull) {

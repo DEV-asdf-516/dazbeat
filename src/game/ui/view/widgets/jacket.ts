@@ -4,7 +4,8 @@ import { requireDefined } from '../../../../invariant.js';
 import { getCenteredSquare } from '../../state/jacketCrop.js';
 import { queueImageLoads } from '../textures/imageLoad.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
-import { COLORS, MOTION, RADIUS } from '../theme.js';
+import { COLORS, RADIUS } from '../theme.js';
+import { MOTION } from '../../state/motion.js';
 
 const SQUARE_FRAME = 'square';
 const PLACEHOLDER_GLOW_ALPHA = 0.3;

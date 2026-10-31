@@ -19,8 +19,13 @@ export class YouTubeTimeSource {
   }
 
   get currentTime(): number {
+    return this.getTimeAt(this.now());
+  }
+
+  // 그리기는 화면에 보일 프레임 시각으로 읽는다. 그 시각은 시계가 흐르기 시작한 시각보다 이를 수 있다.
+  getTimeAt(atMs: number): number {
     return this.clock.kind === 'flowing'
-      ? this.clock.fromSec + msToSec(this.now() - this.clock.fromAtMs)
+      ? this.clock.fromSec + msToSec(Math.max(0, atMs - this.clock.fromAtMs))
       : this.clock.sec;
   }
 

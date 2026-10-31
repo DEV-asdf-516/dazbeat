@@ -16,10 +16,9 @@ import {
   getControlsCloseView,
   isControlsButtonEnabled,
   isControlsEntryHovered,
-  releaseControlsHover,
 } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
-import type { ScrollBarScroll } from '../../ui/view/widgets/ScrollBar.js';
+import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 
 export interface CreditEntry {
   readonly title: string;
@@ -118,17 +117,6 @@ export function getCreditScroll(state: CreditsState, grid: CreditsGrid): ScrollB
     firstIndex: state.topRow,
     visibleCount: grid.visibleRowCount,
     totalCount,
-  };
-}
-
-export function withControlsOpen(state: CreditsState, isControlsOpen: boolean): CreditsState {
-  if (state.isControlsOpen === isControlsOpen) {
-    return state;
-  }
-  return {
-    ...state,
-    isControlsOpen,
-    hover: isControlsOpen ? state.hover : releaseControlsHover(state.hover),
   };
 }
 

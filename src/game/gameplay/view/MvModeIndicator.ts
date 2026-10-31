@@ -7,13 +7,8 @@ import {
   createKeyCap,
   placeKeyCap,
 } from '../../ui/view/widgets/keyHintView.js';
-import {
-  CELESTIAL_COLORS,
-  COLORS,
-  GAMEPLAY_DEPTH,
-  MOTION,
-  textStyle,
-} from '../../ui/view/theme.js';
+import { CELESTIAL_COLORS, COLORS, GAMEPLAY_DEPTH, textStyle } from '../../ui/view/theme.js';
+import { MOTION } from '../../ui/state/motion.js';
 
 // 조작 안내(ControlsOverlay)가 MV 전환 키를 부르는 이름과 같다.
 const KEY_LABEL = 'Tab';

@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { NamedAchievementDefinition } from '../../../../src/data/achievements.js';
+import type {
+  AchievementDefinition,
+  AchievementRule,
+  NamedAchievementDefinition,
+} from '../../../../src/data/achievements.js';
 import { parseNickname } from '../../../../src/data/nickname.js';
 import type { Profile } from '../../../../src/data/profile.js';
+import { withControlsOpen } from '../../../../src/game/app/controlsGuide.js';
 import {
   createProfileScreen,
   focusAchievement,
+  getAchievementCondition,
   getChangedRegions,
   getEarnedProgress,
+  getEarnedSummary,
   getFeaturedAction,
   getFeaturedIdentity,
   getFocusedEarning,
@@ -18,7 +25,6 @@ import {
   selectFocused,
   selectSummaryTab,
   setHover,
-  withControlsOpen,
   withPage,
 } from '../../../../src/game/profile/state/profileState.js';
 import type {
@@ -232,6 +238,205 @@ describe('getEarnedProgress', () => {
     expect(getEarnedProgress(SUMMARY, [FIRST_FINISH, PLAY_3])).toEqual({
       earned: 1,
       total: 2,
+    });
+  });
+});
+
+describe('getEarnedSummary', () => {
+  it('counts the earned achievements in all and in each set', () => {
+    const zodiacStep: NamedAchievementDefinition = {
+      ...playsOf('ZODIAC_STEP', 1),
+      set: 'zodiac',
+    };
+    const state = loadedState(
+      createProfile({
+        achievements: [
+          ...createProfile().achievements,
+          {
+            definition: zodiacStep,
+            earnedAtMs: EARNED_AT_MS,
+            current: 1,
+            target: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(getEarnedSummary(state)).toEqual({
+      all: {
+        earned: 2,
+        total: 3,
+      },
+      bySet: {
+        rhythm: {
+          earned: 1,
+          total: 2,
+        },
+        zodiac: {
+          earned: 1,
+          total: 1,
+        },
+        discography: {
+          earned: 0,
+          total: 0,
+        },
+      },
+    });
+  });
+});
+
+describe('getAchievementCondition', () => {
+  function conditionOf(rule: AchievementRule): ReturnType<typeof getAchievementCondition> {
+    const definition: AchievementDefinition =
+      rule.kind === 'album'
+        ? {
+            id: 'TEST',
+            set: 'discography',
+            isRetired: false,
+            category: 'album',
+            rule,
+          }
+        : {
+            id: 'TEST',
+            set: 'rhythm',
+            isRetired: false,
+            category: 'play',
+            rule,
+          };
+    return getAchievementCondition(definition);
+  }
+
+  it('reads plays without a mark and uses the single phrase for a target of 1', () => {
+    expect(
+      conditionOf({
+        kind: 'plays',
+        target: 1,
+      }),
+    ).toEqual({
+      kind: 'count',
+      key: 'playsOne',
+      target: 1,
+      mark: null,
+    });
+    expect(
+      conditionOf({
+        kind: 'plays',
+        target: 5,
+      }),
+    ).toEqual({
+      kind: 'count',
+      key: 'plays',
+      target: 5,
+      mark: null,
+    });
+  });
+
+  it('leaves the clear mark of songs out of the phrase', () => {
+    expect(
+      conditionOf({
+        kind: 'songs',
+        mark: 'clear',
+        target: 10,
+      }),
+    ).toEqual({
+      kind: 'count',
+      key: 'songs',
+      target: 10,
+      mark: null,
+    });
+  });
+
+  it('reads expert charts and charts with their mark', () => {
+    expect(
+      conditionOf({
+        kind: 'charts',
+        mark: 'fc',
+        target: 3,
+        difficulty: 'expert',
+      }),
+    ).toEqual({
+      kind: 'count',
+      key: 'expertCharts',
+      target: 3,
+      mark: 'fc',
+    });
+    expect(
+      conditionOf({
+        kind: 'charts',
+        mark: 's',
+        target: 1,
+        difficulty: null,
+      }),
+    ).toEqual({
+      kind: 'count',
+      key: 'chartsOne',
+      target: 1,
+      mark: 's',
+    });
+  });
+
+  it('reads song marks with their mark', () => {
+    expect(
+      conditionOf({
+        kind: 'songMarks',
+        mark: 'ap',
+        target: 4,
+      }),
+    ).toEqual({
+      kind: 'count',
+      key: 'songMarks',
+      target: 4,
+      mark: 'ap',
+    });
+  });
+
+  it('reads zodiac visits, zodiac completion and albums with their own values', () => {
+    expect(
+      conditionOf({
+        kind: 'zodiacVisits',
+        mark: 'clear',
+        target: 6,
+      }),
+    ).toEqual({
+      kind: 'zodiacVisits',
+      target: 6,
+      mark: 'clear',
+    });
+    expect(
+      conditionOf({
+        kind: 'zodiacComplete',
+        mark: 's',
+        zodiac: 'leo',
+      }),
+    ).toEqual({
+      kind: 'zodiacComplete',
+      zodiac: 'leo',
+      mark: 's',
+    });
+    expect(
+      conditionOf({
+        kind: 'album',
+        album: 'album-1',
+        mark: 'fc',
+      }),
+    ).toEqual({
+      kind: 'album',
+      album: 'album-1',
+      mark: 'fc',
+    });
+  });
+
+  it('uses the single phrase for one zodiac completion', () => {
+    expect(
+      conditionOf({
+        kind: 'zodiacCompletions',
+        target: 1,
+      }),
+    ).toEqual({
+      kind: 'count',
+      key: 'zodiacCompletionsOne',
+      target: 1,
+      mark: null,
     });
   });
 });

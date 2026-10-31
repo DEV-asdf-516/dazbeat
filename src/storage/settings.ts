@@ -56,6 +56,14 @@ export const SETTINGS_LIMITS = {
   },
 } as const;
 
+export function getMusicVolume(settings: Pick<Settings, 'masterVolume' | 'musicVolume'>): number {
+  return settings.masterVolume * settings.musicVolume;
+}
+
+export function getEffectVolume(settings: Pick<Settings, 'masterVolume' | 'effectVolume'>): number {
+  return settings.masterVolume * settings.effectVolume;
+}
+
 interface Range {
   min: number;
   max: number;

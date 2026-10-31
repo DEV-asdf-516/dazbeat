@@ -1,9 +1,18 @@
 import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
-import type { Note } from '../../../rhythm/types.js';
+import type { GameplaySession } from '../../../rhythm/GameplaySession.js';
+import type { GameplayState, Note } from '../../../rhythm/types.js';
 import { getComboTier } from './comboTier.js';
-import type { GameplayFrame } from '../GameplayController.js';
 import { getStarlightBand, isStarlightDrop } from './starlightBand.js';
+
+export interface GameplayFrame {
+  readonly session: GameplaySession;
+  readonly songTimeMs: number;
+  readonly state: GameplayState;
+  readonly progress: number;
+  readonly activation: { readonly level: number; readonly reachedFull: boolean };
+  readonly enteredNoteCount: number;
+}
 
 export type HudRegion =
   | 'combo'

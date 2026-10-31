@@ -10,6 +10,7 @@ import type {
   SongQuery,
 } from '../../../src/data/songs.js';
 import { requireDefined } from '../../../src/invariant.js';
+import { isShallowEqual } from '../../../src/shallowEqual.js';
 import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
 import type { SongSelectRestore } from '../../../src/game/app/sceneRoutes.js';
 import { SongFeed } from '../../../src/game/app/SongFeed.js';
@@ -149,7 +150,7 @@ function createPreview(volume: number) {
     players,
     clock,
     control,
-    deps: {
+    ports: {
       players: {
         loadApi: () =>
           new Promise<void>((resolve, reject) => {
@@ -212,13 +213,16 @@ function createHarness(
         feeds: {
           catalog,
           create: (query) => {
+            if (isShallowEqual(query, ALL_SONGS_QUERY)) {
+              return catalog;
+            }
             const feed = new SongFeed(query, server.loadBatch);
             created.push(feed);
             return feed;
           },
         },
         random,
-        preview: preview.deps,
+        preview: preview.ports,
       },
       {
         render: (previous, view) =>
@@ -1551,13 +1555,13 @@ describe('SongSelectController controls', () => {
 
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(harness.view.isControlsOpen).toBe(true);
+    expect(harness.view.state.isControlsOpen).toBe(true);
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(harness.view.isControlsOpen).toBe(false);
+    expect(harness.view.state.isControlsOpen).toBe(false);
     harness.controller.openControls();
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
-    expect(harness.view.isControlsOpen).toBe(false);
+    expect(harness.view.state.isControlsOpen).toBe(false);
   });
 
   it('ignores wheels while the controls are open', () => {
@@ -1619,16 +1623,16 @@ describe('SongSelectController button pointer', () => {
 
     harness.controller.pointerDown('controlsEntry');
     harness.controller.pointerUp('controlsEntry');
-    expect(harness.view.isControlsOpen).toBe(true);
+    expect(harness.view.state.isControlsOpen).toBe(true);
 
     harness.controller.pointerDown('controlsClose');
     harness.controller.pointerUp('controlsClose');
-    expect(harness.view.isControlsOpen).toBe(false);
+    expect(harness.view.state.isControlsOpen).toBe(false);
 
     harness.controller.openControls();
     harness.controller.pointerDown('controlsBackdrop');
     harness.controller.pointerUp('controlsBackdrop');
-    expect(harness.view.isControlsOpen).toBe(false);
+    expect(harness.view.state.isControlsOpen).toBe(false);
   });
 
   it('releases the hover of the close button when the controls close', () => {

@@ -58,14 +58,8 @@ import {
 } from '../ui/view/textures/lightTextures.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
-import {
-  COLORS,
-  JUDGMENT_COLORS,
-  MOTION,
-  SCREEN_LAYOUT,
-  TYPE_SCALE,
-  textStyle,
-} from '../ui/view/theme.js';
+import { COLORS, JUDGMENT_COLORS, SCREEN_LAYOUT, TYPE_SCALE, textStyle } from '../ui/view/theme.js';
+import { MOTION } from '../ui/state/motion.js';
 
 interface ResultView {
   readonly chrome: MenuSceneChrome;

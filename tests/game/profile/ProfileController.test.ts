@@ -10,7 +10,7 @@ import type { Nickname } from '../../../src/data/nickname.js';
 import { ProfileRequestError } from '../../../src/data/profile.js';
 import type { Profile, ProfileRequestErrorKind } from '../../../src/data/profile.js';
 import { ProfileController } from '../../../src/game/profile/ProfileController.js';
-import type { ProfileDeps } from '../../../src/game/profile/ProfileController.js';
+import type { ProfilePorts } from '../../../src/game/profile/ProfileController.js';
 import type { ProfileHover, ProfileState } from '../../../src/game/profile/state/profileState.js';
 import { requireDefined } from '../../../src/invariant.js';
 
@@ -185,7 +185,7 @@ function createHarness(isSignedIn = true): Harness {
   const featured: Harness['featured'] = [];
   let leaves = 0;
   let focusSounds = 0;
-  const deps: ProfileDeps = {
+  const ports: ProfilePorts = {
     isSignedIn: () => isSignedIn,
     loadProfile: () => {
       const load = pending<Profile>();
@@ -225,7 +225,7 @@ function createHarness(isSignedIn = true): Harness {
       return response.promise;
     },
   };
-  const controller = new ProfileController(deps, {
+  const controller = new ProfileController(ports, {
     render: (previousState, next) => {
       rendered.push(next.page);
       previous.push(previousState?.page ?? null);

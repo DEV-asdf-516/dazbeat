@@ -1,18 +1,9 @@
 import type Phaser from 'phaser';
+import type { ScrollBarScroll } from '../../state/scrollBarScroll.js';
 import { CELESTIAL_COLORS } from '../theme.js';
 
 const SCROLLBAR_WIDTH_PX = 3;
 const SCROLLBAR_TRACK_ALPHA = 0.3;
-
-export type ScrollBarScroll =
-  | { readonly kind: 'hidden' }
-  | { readonly kind: 'track' }
-  | {
-      readonly kind: 'thumb';
-      readonly firstIndex: number;
-      readonly visibleCount: number;
-      readonly totalCount: number;
-    };
 
 export class ScrollBar {
   readonly objects: readonly [Phaser.GameObjects.Rectangle, Phaser.GameObjects.Rectangle];

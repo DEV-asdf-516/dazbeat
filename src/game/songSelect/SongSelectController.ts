@@ -9,7 +9,7 @@ import type { ChartRecords } from '../../storage/chartRecords.js';
 import type { SongFeed, SongFeeds } from '../app/SongFeed.js';
 import type { SongSelectRestore } from '../app/sceneRoutes.js';
 import { IDLE_WHEEL, readWheelRows } from '../ui/state/wheelRows.js';
-import { readControlsKey } from '../app/controlsGuide.js';
+import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
 import {
   canSelectRandomSong,
   clearHover,
@@ -24,7 +24,6 @@ import {
   moveSong,
   openSongSelect,
   pressSongSelectButton,
-  releaseControlsButtons,
   releaseHover,
   releaseSongSelectButton,
   selectDifficulty,
@@ -55,7 +54,6 @@ interface ControllerState {
   readonly state: SongSelectState;
   readonly notice: SongSelectNotice | null;
   readonly isLoadingMore: boolean;
-  readonly isControlsOpen: boolean;
   readonly unsubscribe: () => void;
 }
 
@@ -69,16 +67,16 @@ export interface PreviewPlayerFactory {
   create(videoId: string, handlers: YouTubePlayerHandlers): PreviewPlayer;
 }
 
-export interface SongPreviewDeps {
+export interface SongPreviewPorts {
   readonly players: PreviewPlayerFactory;
   readonly now: () => number;
   readonly volume: number;
 }
 
-export interface SongSelectDeps {
+export interface SongSelectPorts {
   readonly feeds: SongFeeds;
   readonly random: () => number;
-  readonly preview: SongPreviewDeps;
+  readonly preview: SongPreviewPorts;
 }
 
 type PreviewState =
@@ -106,7 +104,7 @@ export class SongSelectController {
   private shownView: SongSelectView | null = null;
 
   constructor(
-    private readonly deps: SongSelectDeps,
+    private readonly ports: SongSelectPorts,
     private readonly screen: SongSelectScreen,
     private readonly rowsPerPage: number,
     laneCount: LaneCount,
@@ -114,8 +112,8 @@ export class SongSelectController {
     private readonly records: ChartRecords,
     private readonly wheelStepPx: number,
   ) {
-    const { feed, state } = openSongSelect(deps.feeds.catalog, laneCount, restore);
-    const first = this.attach(feed, state, false);
+    const { feed, state } = openSongSelect(ports.feeds.catalog, laneCount, restore);
+    const first = this.attach(feed, state);
     this.current = first;
     this.render(first);
     if (restore === undefined) {
@@ -136,7 +134,7 @@ export class SongSelectController {
 
   scrollByWheel(deltaYPx: number, atMs: number): void {
     const current = this.open;
-    if (current === null || current.isControlsOpen) {
+    if (current === null || current.state.isControlsOpen) {
       return;
     }
     const read = readWheelRows(this.wheel, deltaYPx, atMs, this.wheelStepPx);
@@ -193,19 +191,12 @@ export class SongSelectController {
     const previous = current.state;
     this.randomRequest = null;
     current.unsubscribe();
-    const feed =
-      filter === 'all'
-        ? this.deps.feeds.catalog
-        : this.deps.feeds.create({
-            category: filter,
-            title: '',
-          });
+    const feed = this.ports.feeds.create({
+      category: filter,
+      title: '',
+    });
     this.commit(
-      this.attach(
-        feed,
-        releaseHover(withFilter(previous, filter, feed.songs), this.rowsPerPage),
-        current.isControlsOpen,
-      ),
+      this.attach(feed, releaseHover(withFilter(previous, filter, feed.songs), this.rowsPerPage)),
     );
     this.requestMoreFromUser();
   }
@@ -223,7 +214,7 @@ export class SongSelectController {
     if (current === null) {
       return false;
     }
-    switch (readControlsKey(current.isControlsOpen, event)) {
+    switch (readControlsKey(current.state.isControlsOpen, event)) {
       case 'open':
         this.openControls();
         return true;
@@ -254,10 +245,7 @@ export class SongSelectController {
   }
 
   pointerDown(button: SongSelectButton): void {
-    const current = this.open;
-    if (current !== null) {
-      this.apply((state) => pressSongSelectButton(state, button, current.isControlsOpen));
-    }
+    this.apply((state) => pressSongSelectButton(state, button));
   }
 
   pointerUp(button: SongSelectButton): void {
@@ -317,7 +305,7 @@ export class SongSelectController {
     const { previewState } = this;
     switch (previewState.kind) {
       case 'waiting':
-        if (this.deps.preview.now() - previewState.focusedAtMs >= PREVIEW_DELAY_MS) {
+        if (this.ports.preview.now() - previewState.focusedAtMs >= PREVIEW_DELAY_MS) {
           void this.startPreview(previewState.song);
         }
         return;
@@ -343,18 +331,17 @@ export class SongSelectController {
 
   // 다 받기 전에 실패했으면 받아 둔 곡에서 고르고, 실패 알림이 다시 받기를 안내한다.
   private pickRandomSong(): void {
-    if (this.apply((state) => selectRandomSong(state, this.deps.random))) {
+    if (this.apply((state) => selectRandomSong(state, this.ports.random))) {
       this.requestMoreFromUser();
     }
   }
 
-  private attach(feed: SongFeed, state: SongSelectState, isControlsOpen: boolean): ControllerState {
+  private attach(feed: SongFeed, state: SongSelectState): ControllerState {
     return {
       feed,
       state,
       notice: getSongSelectNotice(state.songs.length, feed.status),
       isLoadingMore: isLoadingMoreSongs(state.songs.length, feed.status),
-      isControlsOpen,
       unsubscribe: feed.subscribe(() => this.handleFeedChange()),
     };
   }
@@ -413,15 +400,7 @@ export class SongSelectController {
   }
 
   private setControlsOpen(isControlsOpen: boolean): void {
-    const current = this.open;
-    if (current === null || isControlsOpen === current.isControlsOpen) {
-      return;
-    }
-    this.commit({
-      ...current,
-      isControlsOpen,
-      state: isControlsOpen ? current.state : releaseControlsButtons(current.state),
-    });
+    this.apply((state) => withControlsOpen(state, isControlsOpen));
   }
 
   private get open(): ControllerState | null {
@@ -436,14 +415,13 @@ export class SongSelectController {
   }
 
   private render(current: ControllerState): void {
-    const { feed, state, notice, isLoadingMore, isControlsOpen } = current;
+    const { feed, state, notice, isLoadingMore } = current;
     const next: SongSelectView = {
       state,
       notice,
       isLoadingMore,
       songCount: feed.songCount,
       records: this.records,
-      isControlsOpen,
     };
     this.screen.render(this.shownView, next);
     this.shownView = next;
@@ -465,7 +443,7 @@ export class SongSelectController {
         : {
             kind: 'waiting',
             song,
-            focusedAtMs: this.deps.preview.now(),
+            focusedAtMs: this.ports.preview.now(),
           };
   }
 
@@ -475,7 +453,7 @@ export class SongSelectController {
       song,
     };
     this.previewState = loading;
-    const { players, now, volume } = this.deps.preview;
+    const { players, now, volume } = this.ports.preview;
     let player: PreviewPlayer;
     const getLoop = (): PreviewLoop | null => {
       const { previewState } = this;

@@ -1,4 +1,4 @@
-import { RhythmClock } from '../../../audio/RhythmClock.js';
+import type { RhythmClock } from '../../../audio/RhythmClock.js';
 import type { YouTubePlayerState } from '../../../audio/YouTubePlayer.js';
 import type { Song } from '../../../data/songs.js';
 import { getPlayStartMs, toEditTimeMs, toVideoSec } from './editorTimeline.js';
@@ -13,10 +13,9 @@ export interface Playhead {
   readonly transport: Transport;
 }
 
-export interface PlaybackPlayer {
-  play(fromSec: number): { readonly currentTime: number } | null;
-  pause(): void;
-}
+export type PlaybackToggle =
+  | { readonly kind: 'pause'; readonly playhead: Playhead }
+  | { readonly kind: 'play'; readonly startMs: number; readonly fromSec: number };
 
 const PAUSED: Transport = { kind: 'paused' };
 
@@ -27,31 +26,30 @@ export function createPlayhead(currentTimeMs: number): Playhead {
   };
 }
 
-export function togglePlayback(
-  playhead: Playhead,
-  song: Song,
-  offsetMs: number,
-  player: PlaybackPlayer,
-): Playhead {
+export function togglePlayback(playhead: Playhead, song: Song, offsetMs: number): PlaybackToggle {
   if (playhead.transport.kind !== 'paused') {
     return {
-      ...playhead,
-      transport: PAUSED,
+      kind: 'pause',
+      playhead: {
+        ...playhead,
+        transport: PAUSED,
+      },
     };
   }
   const startMs = getPlayStartMs(playhead.currentTimeMs, song);
-  const timeSource = player.play(toVideoSec(startMs, offsetMs));
-  if (timeSource === null) {
-    return playhead;
-  }
+  return {
+    kind: 'play',
+    startMs,
+    fromSec: toVideoSec(startMs, offsetMs),
+  };
+}
+
+export function startPlayback(startMs: number, clock: RhythmClock): Playhead {
   return {
     currentTimeMs: startMs,
     transport: {
       kind: 'starting',
-      clock: new RhythmClock(timeSource, 0, offsetMs, {
-        audioStartTimeSec: 0,
-        songStartMs: 0,
-      }),
+      clock,
     },
   };
 }
@@ -94,12 +92,7 @@ export function followPlayerState(playhead: Playhead, playerState: YouTubePlayer
   return playhead;
 }
 
-export function advancePlayback(playhead: Playhead, song: Song): Playhead {
-  const { transport } = playhead;
-  if (transport.kind !== 'playing') {
-    return playhead;
-  }
-  const playbackMs = transport.clock.getTimeMs();
+export function advancePlayback(playhead: Playhead, song: Song, playbackMs: number): Playhead {
   if (playbackMs >= song.gameEndMs) {
     return {
       currentTimeMs: song.gameEndMs,

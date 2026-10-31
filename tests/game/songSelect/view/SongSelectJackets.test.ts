@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Song } from '../../../../src/data/songs.js';
-import { SongSelectJackets } from '../../../../src/game/songSelect/state/SongSelectJackets.js';
-import type { JacketTextures } from '../../../../src/game/songSelect/state/SongSelectJackets.js';
+import { SongSelectJackets } from '../../../../src/game/songSelect/view/SongSelectJackets.js';
+import type { JacketTextures } from '../../../../src/game/songSelect/view/SongSelectJackets.js';
 import type { JacketRange } from '../../../../src/game/songSelect/state/songSelectState.js';
 import { requireDefined } from '../../../../src/invariant.js';
 

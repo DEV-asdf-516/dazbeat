@@ -45,7 +45,7 @@
 
 Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src/main.ts`에서 주입받는다.
 
-- 화면 폴더(`main/`, `songSelect/`, `gameplay/`, `result/`, `settings/`, `credits/`, `editor/`, `profile/`): 바로 아래에 씬과 Controller만, 그리는 것(위젯·텍스처·연출·테마)은 `view/`, Phaser 없는 판단·계산(상태 모듈·레이아웃·appearance)은 `state/`. `state/`는 phaser를 import하지 않는다.
+- 화면 폴더(`main/`, `songSelect/`, `gameplay/`, `result/`, `settings/`, `credits/`, `editor/`, `profile/`): 바로 아래에 씬과 Controller만, 그리는 것(위젯·텍스처·연출·테마)과 그 자원 수명은 `view/`, Phaser 없는 판단·계산(상태 전이·정책·입력 해석·표시 데이터 집계·레이아웃·appearance)은 `state/`. `state/`는 Phaser·DOM·I/O를 쓰지 않고(주입된 I/O 객체의 메서드 호출, 실행 객체의 수명 관리 포함) Controller·씬·`view/`를 런타임 import하지 않는다. 스스로 시간을 진행하는 도메인 객체(`GameplaySession` 등)는 I/O가 아니다. 여러 층이 함께 쓰는 상태·표현 타입과 순수 입력 해석은 그 값을 만드는 `state/`·`ui/state/`가 소유하고, 타입 전용 역참조는 소유가 뒤집혔거나 순환일 때만 옮긴다.
 - 공용: 씬 설정·경로·계정 같은 앱 공통은 `app/`, 천체는 `celestial/{view,state}/`, 그 밖은 `ui/state/`·`ui/view/{widgets,textures,input}/`. 다른 화면도 쓰게 되면 공용으로 옮기고, 이미 있는 공용 위젯(`ui/view/widgets/LoadingStar` 등)은 복사하지 않고 쓴다.
 
 ### 2.5 `pocketbase/`
@@ -63,11 +63,12 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 - 번역은 씬에서만 하고 위젯은 번역된 문자열을 받는다. 대문자 영어 게임 키워드(`PLAY`, `FULL COMBO`)는 번역하지 않는다.
 - 클릭은 pointer up에서 실행한다. pointer down은 드래그·탐색 제스처에만.
 - Phaser는 씬 인스턴스를 재사용한다. 상태는 `create`에서 다시 설정하고, 외부 리스너는 SHUTDOWN에서 해제하며 `close()`로 늦은 결과를 버린다.
-- 판단은 `state/` 순수 모듈만 한다. 값 둘 이상 조합, `kind` 묶어 비교, 입력·I/O 결과(키 조합·상태·오류) 해석, 게임·업무 규칙, 부수효과를 할지 정하기가 판단이다. Controller·씬·위젯은 그 결과를 쓰기만 한다.
-- Controller: 화면 state를 단독 소유한다(단계가 있으면 phase union, 열림·닫힘뿐이면 생성자에서 열어 객체 수명으로). 순서와 부수효과 실행만 엮고, state가 바뀌면 직전·다음 state를 Screen에 넘긴다. I/O·시계는 deps, 표시·이동은 씬이 구현한 Screen interface로 주입받는다.
+- 판단은 `state/` 순수 함수만 한다. 판단은 의미를 정하는 일이다: 상태 전이, 게임·업무 규칙, 입력·I/O 결과(키 조합·상태·오류)의 의미, 여러 값을 묶은 조건의 의미, 표시 데이터 집계. 수명·늦은 결과·중복 요청 확인, 부수효과 실행, 받은 값으로 표현 고르기는 판단이 아니다. 조건문 유무나 줄 수가 아니라 규칙의 소유와 변경 이유로 가르고, 단순 비교를 옮기려고 래퍼 함수를 만들지 않는다.
+- Controller: 화면 state를 단독 소유한다(단계가 있으면 phase union, 열림·닫힘뿐이면 생성자에서 열어 객체 수명으로). state가 정한 대로 부수효과를 순서대로 실행하고 외부 결과를 반영하며(늦은 결과·중복 요청·종료 확인 포함), 결과 종류별 작업을 잇는 `switch`와 자원 상태 `if`를 둘 수 있다. state가 바뀌면 직전·다음 state를 Screen에 넘긴다. I/O·시계는 Controller가 정의한 Ports interface, 표시·이동은 씬이 구현한 Screen interface로 주입받는다.
 - 화면 state: 값 하나이고 상태 모듈의 전이 함수로만 바뀐다. 포인터 상태는 그 안의 hover union 하나, 버튼 눌림은 그 항목에 둔다. 숨기거나 닫는 전이에서 그 대상의 hover를 푼다.
-- 씬: Phaser 객체와 입력·update 위임만. 그리기는 상태 모듈이 돌려준 값으로 `switch`하기, 표에서 찾기, 값 하나를 속성 하나에 옮기기뿐이다. 직전 state는 상태 모듈 함수에 넘기기만 한다.
-- 위젯: 그릴 값만 받아 그리기만 하고 필드는 Phaser 객체와 생성 옵션만. hover·포커스·눌림·선택 상태나 직전 값 캐시를 두지 않고, 포인터 이벤트는 컨트롤러에 전하기만 한다.
+- 씬: Phaser 객체, 입력·update 위임, 그리기. 그리기는 받은 값으로 표현 고르기(`switch`·`Record<Union, X>`), 값 하나로 정하는 가시성, 좌표·크기·알파·클리핑 계산, 애니메이션과 리소스 수명이다. 도메인 집계·검증·업무 규칙은 하지 않는다. 직전 state는 상태 모듈 함수에 넘기기만 한다.
+- 위젯: 그릴 값만 받아 씬과 같은 범위로 그린다. 필드는 Phaser·DOM 객체, 생성 옵션, 트윈·텍스처·애니메이션 캐시이고 Phaser 객체의 현재 상태는 읽어도 된다. hover·포커스·눌림·선택 같은 화면 state 값이나 직전 state 캐시는 두지 않고, 포인터 이벤트는 컨트롤러에 전하기만 한다. 필드의 readonly·타입·이름이나 대입 위치만으로 위반을 판정하지 않는다.
+- 여러 화면에 반복되는 UI(조작 안내 팝업 등)는 같은 규칙만 공용 순수 함수로 두고, 그 결과를 화면 메서드에 잇는 `switch`는 화면마다 둔다.
 
 ## 4. PocketBase 서버 (`pocketbase/`)
 
@@ -169,7 +170,7 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 ## 7. 검증
 
 - 명령: `npm test`(관련 테스트 `npm test -- tests/<folder>/<file>.test.ts`), `npm run typecheck`, `npm run lint`, `npm run format:check`.
-- 2장의 의존 방향과 기계적으로 판별되는 규칙은 `eslint.config.mjs`가 검사하며, 이 문서의 해당 규칙을 바꾸면 함께 고친다.
+- `eslint.config.mjs`는 2장의 의존 방향(`state/` → Controller·씬·`view/` 런타임 import 포함)과 정확히 판별되는 그리기 규칙(Phaser 파일의 변경 비교 함수 직접 사용, `state/` 타입 객체 필드 쓰기, 위젯의 `state/` 타입 가변 필드)만 검사한다. 이 문서의 해당 규칙을 바꾸면 함께 고치고, 판별할 수 없는 책임 판단은 리뷰로 본다.
 - Vitest는 단발 실행. 피처의 unit targeted_test에 구체적인 테스트 경로를 명시한다.
 - 테스트 skip·passWithNoTests·린트/타입 설정 완화로 게이트를 우회하지 않고, 테스트 없는 상태를 성공으로 치지 않는다.
 - 테스트는 `tests/<src 하위 폴더>/<파일명>.test.ts`로 src 구조를 따르고, 흐름을 소유한 단위(Controller·Session·화면 상태 모듈·I/O·lifecycle 클래스·backend·서버)의 외부 관찰 가능한 동작을 검증한다. 순수 함수·헬퍼는 단독 테스트하지 않고 경계값도 그 흐름을 거쳐 검증한다. 프레임워크 렌더링은 테스트하지 않는다.

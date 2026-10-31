@@ -1,4 +1,4 @@
-import { readControlsKey } from '../app/controlsGuide.js';
+import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
 import type { SongFeed } from '../app/SongFeed.js';
 import { IDLE_WHEEL, readWheelRows } from '../ui/state/wheelRows.js';
 import {
@@ -8,7 +8,6 @@ import {
   releaseCreditsButton,
   scrollCredits,
   unhoverCreditsButton,
-  withControlsOpen,
   withCreditSongs,
 } from './state/creditsState.js';
 import type { CreditsButton, CreditsGrid, CreditsState } from './state/creditsState.js';

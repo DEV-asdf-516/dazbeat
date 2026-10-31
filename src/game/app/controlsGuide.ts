@@ -3,7 +3,7 @@ import type { ButtonView } from '../ui/state/buttonPointer.js';
 import type { Messages } from '../../i18n/messages/ko.js';
 import type { Settings } from '../../storage/settings.js';
 import { formatKeyCode } from '../ui/state/format.js';
-import { readMenuAction } from '../ui/view/input/menuInput.js';
+import { readMenuAction } from '../ui/state/menuAction.js';
 
 export type ControlsKeyAction = 'open' | 'close' | 'block' | 'pass';
 
@@ -46,10 +46,19 @@ export function isControlsButtonEnabled(button: ControlsButton, isOpen: boolean)
 }
 
 // Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 팝업을 닫을 때 그 안 버튼의 hover 를 푼다.
-export function releaseControlsHover<H extends { readonly kind: string } | null>(
-  hover: H,
-): H | null {
-  return unhoverButton(unhoverButton(hover, 'controlsClose'), 'controlsBackdrop');
+export function withControlsOpen<
+  S extends { readonly isControlsOpen: boolean; readonly hover: { readonly kind: string } | null },
+>(state: S, isControlsOpen: boolean): S {
+  if (state.isControlsOpen === isControlsOpen) {
+    return state;
+  }
+  return {
+    ...state,
+    isControlsOpen,
+    hover: isControlsOpen
+      ? state.hover
+      : unhoverButton(unhoverButton(state.hover, 'controlsClose'), 'controlsBackdrop'),
+  };
 }
 
 export function getControlsCloseView(

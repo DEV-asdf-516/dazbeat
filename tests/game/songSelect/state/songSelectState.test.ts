@@ -3,6 +3,7 @@ import type { Song } from '../../../../src/data/songs.js';
 import type { Difficulty } from '../../../../src/rhythm/types.js';
 import { recordKey } from '../../../../src/storage/chartRecords.js';
 import type { ChartRecord, ChartRecords } from '../../../../src/storage/chartRecords.js';
+import { withControlsOpen } from '../../../../src/game/app/controlsGuide.js';
 import {
   canSelectRandomSong,
   createSongSelectState,
@@ -26,6 +27,7 @@ import {
   isOnLastLoadedPage,
   moveDifficulty,
   moveSong,
+  readSongSelectShortcut,
   selectDifficulty,
   selectRandomSong,
   selectSong,
@@ -117,7 +119,6 @@ function viewOf(
     isLoadingMore: false,
     songCount: state.songs.length,
     records: NO_RECORDS,
-    isControlsOpen: false,
     ...overrides,
   };
 }
@@ -1054,7 +1055,7 @@ describe('getChangedRegions', () => {
   });
 
   it('redraws only the controls when only the controls open', () => {
-    expect(getChangedRegions(viewOf(state), viewOf(state, { isControlsOpen: true }), 3)).toEqual([
+    expect(getChangedRegions(viewOf(state), viewOf(withControlsOpen(state, true)), 3)).toEqual([
       'controls',
       'controlsClose',
     ]);
@@ -1065,11 +1066,7 @@ describe('getChangedRegions', () => {
 
     expect(getChangedRegions(viewOf(state), viewOf(hovered), 3)).toEqual(['settingsButton']);
     expect(
-      getChangedRegions(
-        viewOf(hovered),
-        viewOf(pressSongSelectButton(hovered, 'settings', false)),
-        3,
-      ),
+      getChangedRegions(viewOf(hovered), viewOf(pressSongSelectButton(hovered, 'settings')), 3),
     ).toEqual(['settingsButton']);
     expect(
       getChangedRegions(
@@ -1205,5 +1202,25 @@ describe('getShiftedRowSlots', () => {
     expect(getShiftedRowSlots(viewOf(state), viewOf(selectDifficulty(state, 'hard')), 3)).toEqual(
       [],
     );
+  });
+});
+
+describe('readSongSelectShortcut', () => {
+  const key = (code: string, repeat = false) => ({
+    code,
+    repeat,
+  });
+
+  it('selects a random song on R but not on a repeat', () => {
+    expect(readSongSelectShortcut(key('KeyR'))).toBe('selectRandomSong');
+    expect(readSongSelectShortcut(key('KeyR', true))).toBeNull();
+  });
+
+  it('opens settings on Tab', () => {
+    expect(readSongSelectShortcut(key('Tab'))).toBe('openSettings');
+  });
+
+  it('ignores other keys', () => {
+    expect(readSongSelectShortcut(key('KeyX'))).toBeNull();
   });
 });

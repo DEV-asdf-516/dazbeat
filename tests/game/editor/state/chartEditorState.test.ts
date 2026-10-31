@@ -26,6 +26,7 @@ import {
   getSelection,
   getSelectionPanel,
   hasUnsavedChanges,
+  readEditorKey,
   withDraft,
 } from '../../../../src/game/editor/state/chartEditorState.js';
 import type {
@@ -577,5 +578,56 @@ describe('buttons', () => {
     expect(getChangedRegions(hovered, pressEditorButton(hovered, 'nextSong'))).toEqual([
       'nextSongButton',
     ]);
+  });
+});
+
+describe('readEditorKey', () => {
+  const key = (
+    code: string,
+    modifiers: Partial<Pick<KeyboardEvent, 'repeat' | 'ctrlKey' | 'metaKey' | 'shiftKey'>> = {},
+  ) => ({
+    code,
+    repeat: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...modifiers,
+  });
+
+  it('undoes on Ctrl+Z or Meta+Z but not with Shift', () => {
+    expect(readEditorKey(key('KeyZ', { ctrlKey: true }))).toBe('undo');
+    expect(readEditorKey(key('KeyZ', { metaKey: true }))).toBe('undo');
+    expect(
+      readEditorKey(
+        key('KeyZ', {
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('confirms the pending action on Enter but not on a repeat', () => {
+    expect(readEditorKey(key('Enter'))).toBe('confirmPending');
+    expect(readEditorKey(key('Enter', { repeat: true }))).toBeNull();
+  });
+
+  it('toggles playback on Space but not on a repeat', () => {
+    expect(readEditorKey(key('Space'))).toBe('togglePlayback');
+    expect(readEditorKey(key('Space', { repeat: true }))).toBeNull();
+  });
+
+  it('deletes the selected note on Delete or Backspace', () => {
+    expect(readEditorKey(key('Delete'))).toBe('deleteSelected');
+    expect(readEditorKey(key('Backspace'))).toBe('deleteSelected');
+  });
+
+  it('goes back on Escape but not on a repeat', () => {
+    expect(readEditorKey(key('Escape'))).toBe('back');
+    expect(readEditorKey(key('Escape', { repeat: true }))).toBeNull();
+  });
+
+  it('ignores other keys', () => {
+    expect(readEditorKey(key('KeyX'))).toBeNull();
   });
 });

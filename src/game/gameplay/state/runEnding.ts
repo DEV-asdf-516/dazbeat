@@ -1,5 +1,22 @@
 import { isFullCombo } from '../../../rhythm/score.js';
-import type { GameplayProgress, GameplayResult } from '../../../rhythm/types.js';
+import type {
+  FinishedGameplayResult,
+  GameplayProgress,
+  GameplayResult,
+} from '../../../rhythm/types.js';
+
+export type RunMode =
+  // 비로그인·발급 실패면 그 판은 랭킹 없이 진행한다.
+  | { readonly kind: 'standard'; readonly rankedSessionId: string | null }
+  | { readonly kind: 'practice' };
+
+export type RunRecord =
+  | { readonly kind: 'none' }
+  | {
+      readonly kind: 'save';
+      readonly result: FinishedGameplayResult;
+      readonly rankedSessionId: string | null;
+    };
 
 export type RunEnding =
   | { readonly kind: 'continue' }
@@ -18,4 +35,15 @@ export function getRunEnding(
     kind: isFullCombo(progress.counts) ? 'fullCombo' : 'result',
     result: progress,
   };
+}
+
+export function getRunRecord(mode: RunMode, result: GameplayResult): RunRecord {
+  if (mode.kind === 'standard' && result.outcome === 'finished') {
+    return {
+      kind: 'save',
+      result,
+      rankedSessionId: mode.rankedSessionId,
+    };
+  }
+  return { kind: 'none' };
 }
