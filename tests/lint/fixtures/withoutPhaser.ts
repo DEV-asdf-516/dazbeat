@@ -1,4 +1,5 @@
 import { isShallowEqual } from '../../../src/shallowEqual.js';
+import type { ScreenState } from './state/screenState.js';
 
 export const comparison = isShallowEqual;
 
@@ -12,6 +13,7 @@ export function readPreviousField(previous: Look | null, next: Look): number {
 
 export class CountBadge {
   count = 0;
+  shown: ScreenState | null = null;
 }
 
 interface RowView {
@@ -20,6 +22,10 @@ interface RowView {
 
 export function writeRowLabel(row: RowView): void {
   row.label = 'label';
+}
+
+export function writeState(state: ScreenState): void {
+  state.count = 1;
 }
 
 export function countCalls(): () => number {

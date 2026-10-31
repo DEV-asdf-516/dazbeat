@@ -58,6 +58,15 @@ describe('YouTubeTimeSource', () => {
     },
   );
 
+  it('reads a given time and never before the flow started', () => {
+    const { fake, source } = setup();
+    source.hold(10);
+    source.handleStateChange('playing');
+
+    expect(source.getTimeAt(fake.nowMs + 250)).toBeCloseTo(10.25, 9);
+    expect(source.getTimeAt(fake.nowMs - 16)).toBe(10);
+  });
+
   it('keeps flowing after the video ends', () => {
     const { fake, source } = setup();
     source.hold(10);

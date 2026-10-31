@@ -11,7 +11,8 @@ import type { LaneEffectId } from '../state/judgmentEffects.js';
 import { addCelestialSprite, playCelestialOnce } from '../../celestial/view/celestialSprites.js';
 import { ensureJudgeLineTexture } from './gameplayTextures.js';
 import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
-import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../../ui/view/theme.js';
+import { COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
+import { MOTION } from '../../ui/state/motion.js';
 
 // 상시 halo 가 노트보다 먼저 보이지 않게 낮게 둔다.
 const JUDGE_CORE_HEIGHT_PX = 3;

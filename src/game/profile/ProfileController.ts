@@ -1,9 +1,8 @@
 import type { AchievementId, AchievementSet } from '../../data/achievements.js';
 import type { Nickname } from '../../data/nickname.js';
-import { ProfileRequestError } from '../../data/profile.js';
-import type { NicknameChangeFailure, Profile } from '../../data/profile.js';
-import { readControlsKey } from '../app/controlsGuide.js';
-import type { MenuAction } from '../ui/view/input/menuInput.js';
+import type { Profile } from '../../data/profile.js';
+import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
+import type { MenuAction } from '../ui/state/menuAction.js';
 import {
   changeNicknameInput,
   clearHover,
@@ -28,8 +27,9 @@ import {
   startFeaturedSave,
   submitNicknameInput,
   switchSet,
+  toLoadFailurePage,
+  toNicknameFailure,
   unhoverProfileButton,
-  withControlsOpen,
   withPage,
 } from './state/profileState.js';
 import type {
@@ -43,7 +43,7 @@ import type {
   SummaryTab,
 } from './state/profileState.js';
 
-export interface ProfileDeps {
+export interface ProfilePorts {
   isSignedIn(): boolean;
   loadProfile(): Promise<Profile>;
   changeNickname(nickname: Nickname): Promise<Nickname>;
@@ -61,18 +61,6 @@ export interface ProfileScreen {
 // 타이핑이 멈춘 뒤에만 물어 글자마다 요청하지 않는다.
 const NICKNAME_CHECK_DELAY_MS = 300;
 
-function toNicknameFailure(error: unknown): NicknameChangeFailure {
-  if (error instanceof ProfileRequestError) {
-    if (error.kind === 'invalidNickname') {
-      return 'invalid';
-    }
-    if (error.kind === 'nicknameTaken') {
-      return 'taken';
-    }
-  }
-  return 'failed';
-}
-
 const GUEST_PAGE: ProfileState = { kind: 'guest' };
 const LOADING_PAGE: ProfileState = { kind: 'loading' };
 
@@ -89,7 +77,7 @@ export class ProfileController {
   private featuredToken: object | null = null;
 
   constructor(
-    private readonly deps: ProfileDeps,
+    private readonly ports: ProfilePorts,
     private readonly screen: ProfileScreen,
   ) {}
 
@@ -98,7 +86,7 @@ export class ProfileController {
     if (!('kind' in this.state) || this.state.kind !== 'unstarted') {
       return;
     }
-    const isSignedIn = this.deps.isSignedIn();
+    const isSignedIn = this.ports.isSignedIn();
     const first = createProfileScreen(isSignedIn ? LOADING_PAGE : GUEST_PAGE);
     this.state = first;
     this.screen.render(null, first);
@@ -252,7 +240,7 @@ export class ProfileController {
     }
     const token = {};
     this.nicknameToken = token;
-    void this.deps.changeNickname(submission.nickname).then(
+    void this.ports.changeNickname(submission.nickname).then(
       (saved) => {
         if (this.nicknameToken === token) {
           this.updateLoaded((current) => saveNickname(current, saved));
@@ -317,7 +305,7 @@ export class ProfileController {
   private load(): void {
     const token = {};
     this.loadToken = token;
-    void this.deps.loadProfile().then(
+    void this.ports.loadProfile().then(
       (profile) => {
         if (this.loadToken === token) {
           this.setPage(loadedState(profile));
@@ -327,22 +315,17 @@ export class ProfileController {
         if (this.loadToken !== token) {
           return;
         }
-        // 인증 만료는 다시 로그인해야 하므로 게스트 안내로 보낸다.
-        this.setPage(
-          error instanceof ProfileRequestError && error.kind === 'unauthorized'
-            ? GUEST_PAGE
-            : { kind: 'failed' },
-        );
+        this.setPage(toLoadFailurePage(error));
       },
     );
   }
 
   private async checkNickname(nickname: Nickname, token: object): Promise<void> {
-    await this.deps.wait(NICKNAME_CHECK_DELAY_MS);
+    await this.ports.wait(NICKNAME_CHECK_DELAY_MS);
     if (this.nicknameCheckToken !== token) {
       return;
     }
-    const isAvailable = await this.deps.isNicknameAvailable(nickname);
+    const isAvailable = await this.ports.isNicknameAvailable(nickname);
     if (this.nicknameCheckToken === token && !isAvailable) {
       this.updateLoaded((current) => failNicknameEdit(current, 'taken'));
     }
@@ -352,7 +335,7 @@ export class ProfileController {
     const token = {};
     this.featuredToken = token;
     this.setPage(startFeaturedSave(state));
-    void this.deps.setFeaturedAchievement(id).then(
+    void this.ports.setFeaturedAchievement(id).then(
       (saved) => {
         if (this.featuredToken === token) {
           this.updateLoaded((current) => saveFeatured(current, saved));

@@ -6,6 +6,7 @@ import { getLanes } from '../../rhythm/lanes.js';
 import { getNoteTimeAtY, getNoteY } from '../../rhythm/notePosition.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
+import { getMusicVolume } from '../../storage/settings.js';
 import { canCurrentUserOpenChartEditor } from '../app/accountState.js';
 import type { AccountAuth } from '../app/accountState.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
@@ -29,6 +30,7 @@ import {
   getSession,
   getToolMotion,
   hasUnsavedChanges,
+  readEditorKey,
 } from './state/chartEditorState.js';
 import type {
   ChartEditorState,
@@ -76,11 +78,7 @@ import { setFittedText } from '../ui/view/widgets/fitText.js';
 import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
 import { NoticeText, type Notice } from '../ui/view/widgets/NoticeText.js';
 import { addKeyHintColumn } from '../ui/view/widgets/keyHintView.js';
-import {
-  handleEachEventOnce,
-  readMenuAction,
-  requireKeyboard,
-} from '../ui/view/input/menuInput.js';
+import { handleEachEventOnce, requireKeyboard } from '../ui/view/input/menuInput.js';
 import {
   CELESTIAL_COLORS,
   GAMEPLAY_DEPTH,
@@ -278,7 +276,8 @@ export class ChartEditorScene extends Phaser.Scene {
           create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
         },
         now: () => performance.now(),
-        volume: settings.masterVolume * settings.musicVolume,
+        frameNow: () => this.game.loop.now,
+        volume: getMusicVolume(settings),
       },
       {
         leave: (focusedSongId) =>
@@ -535,6 +534,12 @@ export class ChartEditorScene extends Phaser.Scene {
     };
     this.createTimeline(editor);
     this.createSeekBar(editor);
+    // 영상은 입력을 받지 않는 캔버스 아래 DOM 이라, 그 위 캔버스 자리에서 클릭을 받아 Space 와 같게 재생한다.
+    this.add
+      .zone(LAYOUT.video.leftPx, LAYOUT.video.topPx, LAYOUT.video.widthPx, LAYOUT.video.heightPx)
+      .setOrigin(0, 0)
+      .setInteractive({ cursor: HOVER_CURSOR })
+      .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => editor.togglePlayback());
     addKeyHintColumn(
       this,
       this.i18n.t('chartEditor.hint'),
@@ -1195,20 +1200,24 @@ export class ChartEditorScene extends Phaser.Scene {
   }
 
   private handleKey(editor: ChartEditorController, event: KeyboardEvent): void {
-    const action = readMenuAction(event);
-    if (event.code === 'KeyZ' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
-      editor.undo();
-    } else if (action === 'confirm') {
-      editor.confirmPending();
-    } else if (event.code === 'Space') {
-      // 누르고 있는 동안의 반복 입력으로 재생과 일시정지가 번갈아 바뀌지 않게 한다.
-      if (!event.repeat) {
+    switch (readEditorKey(event)) {
+      case 'undo':
+        editor.undo();
+        return;
+      case 'confirmPending':
+        editor.confirmPending();
+        return;
+      case 'togglePlayback':
         editor.togglePlayback();
-      }
-    } else if (event.code === 'Delete' || event.code === 'Backspace') {
-      editor.deleteSelected();
-    } else if (action === 'back') {
-      editor.back();
+        return;
+      case 'deleteSelected':
+        editor.deleteSelected();
+        return;
+      case 'back':
+        editor.back();
+        return;
+      case null:
+        return;
     }
   }
 }

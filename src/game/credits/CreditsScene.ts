@@ -16,7 +16,7 @@ import { setFittedText } from '../ui/view/widgets/fitText.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
-import type { MenuAction } from '../ui/view/input/menuInput.js';
+import type { MenuAction } from '../ui/state/menuAction.js';
 import { ScrollBar } from '../ui/view/widgets/ScrollBar.js';
 import { COLORS, SCREEN_LAYOUT, textStyle } from '../ui/view/theme.js';
 import { CreditsController } from './CreditsController.js';

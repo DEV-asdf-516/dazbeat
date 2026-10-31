@@ -1,7 +1,7 @@
 import type { NamedAchievementDefinition } from '../../data/achievements.js';
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
-import { readControlsKey } from '../app/controlsGuide.js';
+import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
 import type { SceneRequest } from '../app/sceneRoutes.js';
 import {
   createResultState,
@@ -20,7 +20,6 @@ import {
   unhoverDifficulty,
   unhoverResultButton,
   unhoverToastClose,
-  withControlsOpen,
 } from './state/resultState.js';
 import type { ResultButton, ResultExit, ResultMenuItem, ResultState } from './state/resultState.js';
 

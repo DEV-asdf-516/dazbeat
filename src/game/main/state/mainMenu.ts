@@ -17,7 +17,6 @@ import {
   getControlsCloseView,
   isControlsButtonEnabled,
   isControlsEntryHovered,
-  releaseControlsHover,
 } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
 
@@ -99,17 +98,6 @@ function releaseHiddenHover(state: MainState, account: AccountState): MainState[
           state.hover,
         );
   return account.kind === 'signedIn' ? menuHover : unhoverButton(menuHover, 'profile');
-}
-
-export function withControlsOpen(state: MainState, isControlsOpen: boolean): MainState {
-  if (state.isControlsOpen === isControlsOpen) {
-    return state;
-  }
-  return {
-    ...state,
-    isControlsOpen,
-    hover: isControlsOpen ? state.hover : releaseControlsHover(state.hover),
-  };
 }
 
 function isMainButtonEnabled(state: MainState, button: MainButton): boolean {

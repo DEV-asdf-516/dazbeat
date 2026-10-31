@@ -5,14 +5,12 @@ import type { PreparedChart, VerifiedPlay } from '../../../src/data/playSession.
 import type { PlaySubmission } from '../../../src/data/playSubmission.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { GameplayController } from '../../../src/game/gameplay/GameplayController.js';
+import type { GameplayFrame } from '../../../src/game/gameplay/state/gameplayHud.js';
 import type {
   GameplayButtons,
+  GameplayLoadError,
   GameplayStatus,
 } from '../../../src/game/gameplay/state/gameplayStatus.js';
-import type {
-  GameplayFrame,
-  GameplayLoadError,
-} from '../../../src/game/gameplay/GameplayController.js';
 import type {
   GameplaySceneData,
   PlayMode,
@@ -283,6 +281,7 @@ function createHarness(
         },
       },
       now: () => harness.nowMs,
+      frameNow: () => harness.nowMs,
     },
     {
       showStatus: (previous, next) => {

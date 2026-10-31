@@ -4,15 +4,8 @@ import type { ButtonAppearance, ButtonView } from '../../state/buttonPointer.js'
 import { bindPointer, setContainerHitArea } from '../input/hoverTarget.js';
 import type { PointerActions } from '../input/hoverTarget.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
-import {
-  COLORS,
-  CELESTIAL_COLORS,
-  MOTION,
-  RADIUS,
-  TYPE_SCALE,
-  setTextColor,
-  typeStyle,
-} from '../theme.js';
+import { COLORS, CELESTIAL_COLORS, RADIUS, TYPE_SCALE, setTextColor, typeStyle } from '../theme.js';
+import { MOTION } from '../../state/motion.js';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'quiet';
 

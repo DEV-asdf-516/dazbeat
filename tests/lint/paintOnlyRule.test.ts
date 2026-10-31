@@ -28,7 +28,7 @@ describe('dazbeat/paint-only', () => {
           line,
         })),
       ).toEqual(
-        [2, 3, 13, 16, 21, 26, 27, 31, 43, 44, 53, 54, 60, 70, 72, 77, 82].map((line) => ({
+        [2, 3, 9, 12, 13, 14, 15, 16, 18, 22, 26].map((line) => ({
           ruleId: 'dazbeat/paint-only',
           line,
         })),
@@ -38,7 +38,7 @@ describe('dazbeat/paint-only', () => {
   );
 
   it(
-    'allows previous state arguments, Phaser fields, scene setup and library object writes',
+    'allows previous values, widget caches, scene handlers and writes to objects outside state',
     async () => {
       const result = await lintFixture('allowed.ts');
 

@@ -1,7 +1,7 @@
 import type { Judgment, JudgmentEvent } from '../../../rhythm/types.js';
 import type { CelestialAtlasId } from '../../celestial/state/celestialCatalog.js';
 import type { SoundEffect } from '../../ui/view/soundEffects.js';
-import { MOTION } from '../../ui/view/theme.js';
+import { MOTION } from '../../ui/state/motion.js';
 
 export const LANE_EFFECT_IDS = [
   'R32',

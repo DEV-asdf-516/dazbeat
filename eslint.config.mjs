@@ -1,7 +1,6 @@
 import { dirname, posix, relative, resolve } from 'node:path';
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
-import ts from 'typescript';
 import tseslint from 'typescript-eslint';
 
 const ROOT = import.meta.dirname;
@@ -57,6 +56,16 @@ function getImportViolation(fromPath, targetPath, isTypeOnly) {
   }
   if (from.startsWith('game/') && target.startsWith('game/') && from !== target) {
     return 'screen folders must not import each other';
+  }
+  const isGameState = fromPath.startsWith('src/game/') && fromPath.split('/').includes('state');
+  if (isGameState && !isTypeOnly && targetPath.startsWith('src/game/')) {
+    const segments = targetPath.split('/');
+    if (
+      segments.includes('view') ||
+      (segments.length === 4 && SCREEN_FOLDERS.includes(segments[2]))
+    ) {
+      return 'state modules must not import Controllers, Scenes or view modules at runtime';
+    }
   }
   if (from === 'audio' && target === 'i18n') {
     return 'audio returns values and game translates them';
@@ -134,27 +143,9 @@ const importBoundaries = {
   },
 };
 
-// conventions.md 3.2 의 씬·위젯 그리기 규칙. Phaser 를 import 하는 파일은 받은 값을 칠하기만 하고
-// 직전 값을 비교하거나 담아 두지 않는다.
-const PREVIOUS_NAME = /^(previous|prev|before)($|[A-Z])/;
-const ITERATION_METHODS = new Set([
-  'map',
-  'forEach',
-  'filter',
-  'reduce',
-  'some',
-  'every',
-  'find',
-  'findIndex',
-  'flatMap',
-]);
+// conventions.md 3장의 씬·위젯 규칙. Phaser 를 import 하는 파일은 화면 state 를 비교하거나 따로 갖거나
+// 고치지 않고, state 모듈이 비교해 돌려준 값으로 그리기만 한다.
 const COMPARISON_NAMES = new Set(['isShallowEqual', 'filterChangedRegions']);
-const SCENE_SETUP_METHODS = new Set(['init', 'create', 'constructor']);
-const FUNCTION_TYPES = new Set([
-  'FunctionDeclaration',
-  'FunctionExpression',
-  'ArrowFunctionExpression',
-]);
 
 function isPhaserScene(node) {
   const { superClass } = node;
@@ -167,90 +158,20 @@ function isPhaserScene(node) {
   );
 }
 
-function isPhaserTypeName(typeName) {
-  return typeName.type === 'TSQualifiedName'
-    ? isPhaserTypeName(typeName.left)
-    : typeName.type === 'Identifier' && typeName.name === 'Phaser';
-}
-
-function isPhaserObjectType(type) {
-  switch (type.type) {
-    case 'TSTypeReference':
-      return type.typeName.type === 'TSQualifiedName' && isPhaserTypeName(type.typeName);
-    case 'TSArrayType':
-      return isPhaserObjectType(type.elementType);
-    case 'TSTypeOperator':
-      return type.operator === 'readonly' && isPhaserObjectType(type.typeAnnotation);
-    case 'TSUnionType':
-      return type.types.every(
-        (member) => member.type === 'TSNullKeyword' || isPhaserObjectType(member),
-      );
-    default:
-      return false;
-  }
-}
-
-function isIterationCallback(fn) {
-  const { parent } = fn;
-  return (
-    parent.type === 'CallExpression' &&
-    parent.arguments.includes(fn) &&
-    parent.callee.type === 'MemberExpression' &&
-    parent.callee.property.type === 'Identifier' &&
-    ITERATION_METHODS.has(parent.callee.property.name)
-  );
-}
-
-function getEnclosingMethodName(node) {
-  for (let current = node.parent; current; current = current.parent) {
-    if (current.type === 'MethodDefinition') {
-      return current.key.type === 'Identifier' ? current.key.name : null;
-    }
-    // 필드에 담긴 함수는 만들어질 때가 아니라 나중에 불려 실행되므로 필드 초기화가 아니다.
-    if (FUNCTION_TYPES.has(current.type) && current.parent.type === 'PropertyDefinition') {
-      return null;
-    }
-    if (current.type === 'PropertyDefinition') {
-      return 'constructor';
-    }
-  }
-  return null;
-}
-
-function isExitSceneCall(node) {
-  return (
-    node.type === 'CallExpression' &&
-    node.callee.type === 'Identifier' &&
-    node.callee.name === 'exitScene'
-  );
-}
-
 function getDeclarationFileNames(symbol) {
   return (symbol?.getDeclarations() ?? []).map((declaration) =>
     declaration.getSourceFile().fileName.split('\\').join('/'),
   );
 }
 
-function isPhaserFile(fileName) {
-  return fileName.includes('/node_modules/phaser/');
-}
-
-// Phaser 객체와 DOM 객체의 필드는 그 라이브러리가 읽는 표시 값이라 써도 된다.
-// DOM 은 ImageData.data 처럼 기본 배열 타입에 별칭(ImageDataArray)을 붙여 선언하므로 별칭을 먼저 본다.
-function isLibraryObjectType(type) {
-  const fileNames = getDeclarationFileNames(type.aliasSymbol ?? type.getSymbol());
-  return (
-    fileNames.length > 0 &&
-    fileNames.every(
-      (fileName) => isPhaserFile(fileName) || /\/lib\.dom(\.\w+)*\.d\.ts$/.test(fileName),
-    )
+// state 폴더가 선언한 타입의 값은 화면 state 다. union 은 구성원 중 하나라도 그러면 화면 state 다.
+function isStateType(type) {
+  const members = type.isUnion() ? type.types : [type];
+  return members.some((member) =>
+    getDeclarationFileNames(member.aliasSymbol ?? member.getSymbol()).some(
+      (fileName) => fileName.includes('/state/') && !fileName.includes('/node_modules/'),
+    ),
   );
-}
-
-// 메시 꼭짓점 배열처럼 Phaser 가 선언한 속성으로 얻은 값은 타입이 기본 배열이어도 그 Phaser 객체의 렌더 데이터다.
-function isPhaserProperty(symbol) {
-  const fileNames = getDeclarationFileNames(symbol);
-  return fileNames.length > 0 && fileNames.every(isPhaserFile);
 }
 
 const paintOnly = {
@@ -269,76 +190,25 @@ const paintOnly = {
     const services = sourceCode.parserServices;
     const checker = services.program.getTypeChecker();
     const getType = (node) => checker.getTypeAtLocation(services.esTreeNodeToTSNodeMap.get(node));
-    const isPhaserPropertyValue = (object) => {
-      if (object.type === 'MemberExpression') {
-        return isPhaserProperty(
-          checker.getSymbolAtLocation(services.esTreeNodeToTSNodeMap.get(object.property)),
-        );
-      }
-      if (object.type !== 'Identifier') {
-        return false;
-      }
-      const definition = sourceCode
-        .getScope(object)
-        .references.find((reference) => reference.identifier === object)?.resolved?.defs[0];
-      if (
-        definition?.type !== 'Variable' ||
-        definition.node.id.type !== 'ObjectPattern' ||
-        definition.node.init === null
-      ) {
-        return false;
-      }
-      const property = definition.node.id.properties.find(
-        (candidate) => candidate.type === 'Property' && candidate.value === definition.name,
-      );
-      return (
-        property !== undefined &&
-        !property.computed &&
-        property.key.type === 'Identifier' &&
-        isPhaserProperty(getType(definition.node.init).getProperty(property.key.name))
-      );
-    };
-    const isWritableObject = (object) => {
-      if (isPhaserPropertyValue(object)) {
-        return true;
-      }
-      const type = getType(object);
-      const members = type.isUnion() ? type.types : [type];
-      return members.every(
-        (member) =>
-          (member.getFlags() & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
-          isLibraryObjectType(member),
-      );
-    };
-    const checkTarget = (node, target, value) => {
+    const checkTarget = (node, target) => {
       if (target.type !== 'MemberExpression') {
         return;
       }
-      if (target.object.type === 'ThisExpression') {
-        const scene = sourceCode
-          .getAncestors(node)
-          .findLast((ancestor) => ancestor.type === 'ClassBody')?.parent;
-        if (
-          scene !== undefined &&
-          isPhaserScene(scene) &&
-          !SCENE_SETUP_METHODS.has(getEnclosingMethodName(node)) &&
-          (value === null || !isExitSceneCall(value))
-        ) {
+      for (let object = target.object; ; object = object.object) {
+        if (isStateType(getType(object))) {
           context.report({
             node,
-            message: 'Scenes assign their fields only in init, create or the constructor.',
+            message:
+              'Do not write fields of screen state; return a new state from the state module.',
           });
+          return;
         }
-        return;
-      }
-      if (!isWritableObject(target.object)) {
-        context.report({
-          node,
-          message: 'Do not write fields of view or state objects; draw from the state instead.',
-        });
+        if (object.type !== 'MemberExpression') {
+          return;
+        }
       }
     };
-    const checkField = (node, isReadonly, typeAnnotation) => {
+    const checkField = (node, isReadonly, typed) => {
       const classBody = sourceCode
         .getAncestors(node)
         .findLast((ancestor) => ancestor.type === 'ClassBody');
@@ -346,14 +216,13 @@ const paintOnly = {
         classBody === undefined ||
         isPhaserScene(classBody.parent) ||
         isReadonly ||
-        (typeAnnotation !== undefined && isPhaserObjectType(typeAnnotation))
+        !isStateType(getType(typed))
       ) {
         return;
       }
       context.report({
         node,
-        message:
-          'Widget fields must be readonly or Phaser objects; keep state in the screen state.',
+        message: 'Widgets must not keep screen state values; draw from the values passed in.',
       });
     };
     const reportComparison = (node, name) => {
@@ -384,65 +253,15 @@ const paintOnly = {
           }
         }
       },
-      PropertyDefinition: (node) =>
-        checkField(node, node.readonly === true, node.typeAnnotation?.typeAnnotation),
-      TSParameterProperty: (node) => {
-        const parameter =
-          node.parameter.type === 'AssignmentPattern' ? node.parameter.left : node.parameter;
-        checkField(node, node.readonly, parameter.typeAnnotation?.typeAnnotation);
-      },
-      AssignmentExpression: (node) =>
-        checkTarget(node, node.left, node.operator === '=' ? node.right : null),
-      UpdateExpression: (node) => checkTarget(node, node.argument, null),
-      'Program:exit': () => {
-        for (const scope of sourceCode.scopeManager.scopes) {
-          for (const reference of scope.references) {
-            const { identifier } = reference;
-            if (!reference.isValueReference || !PREVIOUS_NAME.test(identifier.name)) {
-              continue;
-            }
-            const { parent } = identifier;
-            const isDeclaration = parent.type === 'VariableDeclarator' && parent.id === identifier;
-            const isArgument =
-              (parent.type === 'CallExpression' || parent.type === 'NewExpression') &&
-              parent.arguments.includes(identifier);
-            if (!isDeclaration && !isArgument) {
-              context.report({
-                node: identifier,
-                message:
-                  'Pass the previous state only as a call argument to a state module function.',
-              });
-            }
-          }
-          for (const variable of scope.variables) {
-            const definition = variable.defs[0];
-            const declaringBlock = variable.scope.variableScope.block;
-            if (
-              definition?.type !== 'Variable' ||
-              definition.parent.kind !== 'let' ||
-              !FUNCTION_TYPES.has(declaringBlock.type)
-            ) {
-              continue;
-            }
-            for (const reference of variable.references) {
-              if (!reference.isWrite() || reference.init === true) {
-                continue;
-              }
-              let fnScope = reference.from.variableScope;
-              while (fnScope.block !== declaringBlock && isIterationCallback(fnScope.block)) {
-                fnScope = fnScope.upper.variableScope;
-              }
-              if (fnScope.block !== declaringBlock) {
-                context.report({
-                  node: reference.identifier,
-                  message:
-                    'Do not reassign an outer let from an inner function; keep the value in the screen state.',
-                });
-              }
-            }
-          }
-        }
-      },
+      PropertyDefinition: (node) => checkField(node, node.readonly === true, node.key),
+      TSParameterProperty: (node) =>
+        checkField(
+          node,
+          node.readonly,
+          node.parameter.type === 'AssignmentPattern' ? node.parameter.left : node.parameter,
+        ),
+      AssignmentExpression: (node) => checkTarget(node, node.left),
+      UpdateExpression: (node) => checkTarget(node, node.argument),
     };
   },
 };

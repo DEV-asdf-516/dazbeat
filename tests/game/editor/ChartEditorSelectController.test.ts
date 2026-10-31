@@ -15,6 +15,7 @@ import type {
 import { SongFeed } from '../../../src/game/app/SongFeed.js';
 import type { ChartEditorSelectSceneData } from '../../../src/game/app/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
+import { isShallowEqual } from '../../../src/shallowEqual.js';
 
 const PAGE_SIZE = 6;
 const VISIBLE_ROW_COUNT = 4;
@@ -112,6 +113,9 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
       {
         catalog: feed,
         create: (query) => {
+          if (isShallowEqual(query, ALL_SONGS_QUERY)) {
+            return feed;
+          }
           const next = new SongFeed(query, server.loadBatch);
           created.push(next);
           return next;

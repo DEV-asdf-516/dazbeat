@@ -1,8 +1,8 @@
 import type { Language } from '../../i18n/language.js';
-import { readControlsKey } from '../app/controlsGuide.js';
+import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { Settings } from '../../storage/settings.js';
-import type { MenuAction } from '../ui/view/input/menuInput.js';
+import type { MenuAction } from '../ui/state/menuAction.js';
 import type { SettingsRow } from './state/settingsAdjust.js';
 import {
   adjustRow,
@@ -24,7 +24,6 @@ import {
   startWaiting,
   unhoverRow,
   unhoverSettingsButton,
-  withControlsOpen,
   withDisplayedLanguage,
 } from './state/settingsEditorState.js';
 import type {
@@ -39,7 +38,7 @@ export interface SettingsScreen {
   leave(): void;
 }
 
-export interface SettingsDeps {
+export interface SettingsPorts {
   readonly save: Pick<LocalSave, 'saveSettings'>;
   readonly changeLanguage: (language: Language) => Promise<unknown>;
 }
@@ -53,7 +52,7 @@ export class SettingsController {
   private state: ControllerState;
 
   constructor(
-    private readonly deps: SettingsDeps,
+    private readonly ports: SettingsPorts,
     private readonly screen: SettingsScreen,
     rows: readonly SettingsRow[],
     settings: Settings,
@@ -234,14 +233,14 @@ export class SettingsController {
     switch (effect.kind) {
       case 'save':
         try {
-          this.deps.save.saveSettings(effect.settings);
+          this.ports.save.saveSettings(effect.settings);
         } catch (error) {
           console.error('Failed to save settings', error);
         }
         return;
       case 'changeLanguage': {
         const { language } = effect;
-        this.deps.changeLanguage(language).then(
+        this.ports.changeLanguage(language).then(
           () => this.apply((state) => withDisplayedLanguage(state, language)),
           (error: unknown) => console.error('Failed to change language', error),
         );

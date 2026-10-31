@@ -19,12 +19,11 @@ import {
   getControlsCloseView,
   isControlsButtonEnabled,
   isControlsEntryHovered,
-  releaseControlsHover,
 } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
 import type { PlayMode, SceneRequest, SongSelectRestore } from '../../app/sceneRoutes.js';
-import type { TabAppearance } from '../../ui/view/widgets/TextTabs.js';
+import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 
 export type ResultMenuItem = 'retry' | 'songSelect';
 
@@ -170,17 +169,6 @@ export function moveResultFocus(state: ResultState, delta: 1 | -1): ResultState 
 
 export function isResultFocused(state: ResultState, item: ResultMenuItem): boolean {
   return state.focus === item;
-}
-
-export function withControlsOpen(state: ResultState, isControlsOpen: boolean): ResultState {
-  if (state.isControlsOpen === isControlsOpen) {
-    return state;
-  }
-  return {
-    ...state,
-    isControlsOpen,
-    hover: isControlsOpen ? state.hover : releaseControlsHover(state.hover),
-  };
 }
 
 function isResultButtonEnabled(state: ResultState, button: ResultButton): boolean {

@@ -1,6 +1,7 @@
 import { DIFFICULTIES } from '../../../data/songs.js';
 import type { Difficulty } from '../../../rhythm/types.js';
-import type { TabAppearance, TextTabItem } from '../view/widgets/TextTabs.js';
+import type { TextTabItem } from '../view/widgets/TextTabs.js';
+import type { TabAppearance } from './tabAppearance.js';
 
 export const DIFFICULTY_TAB_ITEMS: readonly TextTabItem<Difficulty>[] = DIFFICULTIES.map(
   (difficulty) => ({

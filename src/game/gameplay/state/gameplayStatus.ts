@@ -14,7 +14,12 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import type { GameplayLoadError } from '../GameplayController.js';
+
+export type GameplayLoadError =
+  | { readonly kind: 'chartLoadFailed' }
+  | { readonly kind: 'playerLoadFailed' }
+  | { readonly kind: 'videoError'; readonly errorKind: YouTubeErrorKind; readonly code: number }
+  | { readonly kind: 'playbackStartFailed' };
 
 export type GameplayStatus =
   | { readonly kind: 'loading' }

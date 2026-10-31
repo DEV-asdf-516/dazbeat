@@ -16,7 +16,8 @@ import {
 import type { PlayfieldLayout, Trapezoid } from '../state/playfieldLayout.js';
 import { fillTrapezoid } from './trapezoidFill.js';
 import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
-import { COLORS, GAMEPLAY_DEPTH, MOTION } from '../../ui/view/theme.js';
+import { COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
+import { MOTION } from '../../ui/state/motion.js';
 
 const HOLD_RIBBON_PENDING_ALPHA = 0.9;
 // 면은 어둡고 옅게 물려 캡과 판정선보다 뒤로 물러나 보이게 하고, 가장자리만 차가운 은빛 선으로 남긴다.

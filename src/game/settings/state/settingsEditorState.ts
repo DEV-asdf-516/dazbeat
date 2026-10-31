@@ -23,10 +23,9 @@ import {
   getControlsCloseView,
   isControlsButtonEnabled,
   isControlsEntryHovered,
-  releaseControlsHover,
 } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
-import { readMenuAction } from '../../ui/view/input/menuInput.js';
+import { readMenuAction } from '../../ui/state/menuAction.js';
 import { readKeyCapture } from './keyCapture.js';
 import { formatRowValue } from './settingsRowView.js';
 
@@ -174,20 +173,6 @@ export function pointRowButton(
     case 'step':
       return adjustRow(state, rowButton.index, rowButton.direction);
   }
-}
-
-export function withControlsOpen(
-  state: SettingsEditorState,
-  isControlsOpen: boolean,
-): SettingsEditorState {
-  if (state.isControlsOpen === isControlsOpen) {
-    return state;
-  }
-  return {
-    ...state,
-    isControlsOpen,
-    hover: isControlsOpen ? state.hover : releaseControlsHover(state.hover),
-  };
 }
 
 export function moveFocus(state: SettingsEditorState, delta: 1 | -1): SettingsEditorState {

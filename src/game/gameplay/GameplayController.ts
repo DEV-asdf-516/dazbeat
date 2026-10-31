@@ -2,11 +2,7 @@ import { LeadInPlayback, getPreRollStartMs } from '../../audio/LeadInPlayback.js
 import type { PlaybackFailure, PlaybackStatus } from '../../audio/LeadInPlayback.js';
 import { RhythmClock } from '../../audio/RhythmClock.js';
 import { VideoPreload } from '../../audio/VideoPreload.js';
-import type {
-  YouTubeErrorKind,
-  YouTubePlayer,
-  YouTubePlayerHandlers,
-} from '../../audio/YouTubePlayer.js';
+import type { YouTubePlayer, YouTubePlayerHandlers } from '../../audio/YouTubePlayer.js';
 import type { NamedAchievementDefinition } from '../../data/achievements.js';
 import type { PreparedChart, VerifiedPlay } from '../../data/playSession.js';
 import type { PlaySubmission } from '../../data/playSubmission.js';
@@ -15,15 +11,9 @@ import { cycleItem, getProgress } from '../../range.js';
 import { GameplaySession } from '../../rhythm/GameplaySession.js';
 import { JUDGMENT_WINDOWS, getJudgmentEventCount } from '../../rhythm/judgment.js';
 import { getPlaybackStartMs } from '../../rhythm/playTiming.js';
-import type {
-  Chart,
-  GameplayResult,
-  GameplayState,
-  JudgmentEvent,
-  Lane,
-} from '../../rhythm/types.js';
+import type { Chart, GameplayResult, JudgmentEvent, Lane } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { MV_MODES } from '../../storage/settings.js';
+import { MV_MODES, getMusicVolume } from '../../storage/settings.js';
 import type { MvMode, Settings } from '../../storage/settings.js';
 import type { GameplaySceneData, ResultSceneData } from '../app/sceneRoutes.js';
 import {
@@ -37,6 +27,7 @@ import {
 } from './state/gameplayInput.js';
 import type { CommonKeyAction, PlayingKeyAction, PressedLanes } from './state/gameplayInput.js';
 import { advanceEnteredNotes } from './state/gameplayHud.js';
+import type { GameplayFrame } from './state/gameplayHud.js';
 import type { QuitConfirmReason } from './state/quitConfirm.js';
 import {
   INITIAL_GAMEPLAY_BUTTONS,
@@ -48,8 +39,14 @@ import {
   unhoverGameplayButton,
   withQuitConfirmOpen,
 } from './state/gameplayStatus.js';
-import type { GameplayButton, GameplayButtons, GameplayStatus } from './state/gameplayStatus.js';
-import { getRunEnding } from './state/runEnding.js';
+import type {
+  GameplayButton,
+  GameplayButtons,
+  GameplayLoadError,
+  GameplayStatus,
+} from './state/gameplayStatus.js';
+import { getRunEnding, getRunRecord } from './state/runEnding.js';
+import type { RunMode } from './state/runEnding.js';
 import { WorldActivation } from './state/worldActivation.js';
 
 export interface RankedPlay {
@@ -64,21 +61,6 @@ export type GameplayPlayer = Pick<
 export interface GameplayPlayerFactory {
   loadApi(): Promise<void>;
   create(videoId: string, handlers: YouTubePlayerHandlers): GameplayPlayer;
-}
-
-export type GameplayLoadError =
-  | { readonly kind: 'chartLoadFailed' }
-  | { readonly kind: 'playerLoadFailed' }
-  | { readonly kind: 'videoError'; readonly errorKind: YouTubeErrorKind; readonly code: number }
-  | { readonly kind: 'playbackStartFailed' };
-
-export interface GameplayFrame {
-  readonly session: GameplaySession;
-  readonly songTimeMs: number;
-  readonly state: GameplayState;
-  readonly progress: number;
-  readonly activation: { readonly level: number; readonly reachedFull: boolean };
-  readonly enteredNoteCount: number;
 }
 
 export interface PlayScreen {
@@ -106,19 +88,16 @@ export interface GameplayScreen {
   backToSongSelect(): void;
 }
 
-export interface GameplayDeps {
+export interface GameplayPorts {
   readonly save: Pick<LocalSave, 'saveSettings' | 'saveResult'>;
   readonly prepareChart: (ref: ChartRef) => Promise<PreparedChart>;
   readonly loadPracticeChart: (ref: ChartRef) => Promise<Chart>;
   readonly rankedPlay: RankedPlay;
   readonly players: GameplayPlayerFactory;
   readonly now: () => number;
+  // 콜백이 늦게 불린 프레임도 화면에는 제때 보이므로, 노트는 그 프레임의 시각으로 그린다.
+  readonly frameNow: () => number;
 }
-
-type RunMode =
-  // 비로그인·발급 실패면 그 판은 랭킹 없이 진행한다.
-  | { readonly kind: 'standard'; readonly rankedSessionId: string | null }
-  | { readonly kind: 'practice' };
 
 interface PreparedRun {
   readonly chart: Chart;
@@ -130,6 +109,7 @@ interface PlayRun extends PreparedRun {
   readonly playback: LeadInPlayback;
   readonly session: GameplaySession;
   readonly clock: RhythmClock;
+  readonly frameClock: RhythmClock;
   readonly activation: WorldActivation;
   readonly playScreen: PlayScreen;
   status: PlaybackStatus;
@@ -166,7 +146,7 @@ export class GameplayController {
   private buttons = INITIAL_GAMEPLAY_BUTTONS;
 
   constructor(
-    private readonly deps: GameplayDeps,
+    private readonly ports: GameplayPorts,
     private readonly screen: GameplayScreen,
     private readonly route: GameplaySceneData,
     private settings: Settings,
@@ -185,14 +165,14 @@ export class GameplayController {
     let player: GameplayPlayer;
     try {
       if (this.route.mode === 'standard') {
-        const prepared = await this.deps.prepareChart(this.route);
+        const prepared = await this.ports.prepareChart(this.route);
         chart = prepared.chart;
         mode = {
           kind: 'standard',
           rankedSessionId: prepared.rankedSessionId,
         };
       } else {
-        chart = await this.deps.loadPracticeChart(this.route);
+        chart = await this.ports.loadPracticeChart(this.route);
         mode = { kind: 'practice' };
       }
 
@@ -201,17 +181,17 @@ export class GameplayController {
       }
 
       failure = { kind: 'playerLoadFailed' };
-      await this.deps.players.loadApi();
+      await this.ports.players.loadApi();
       if (this.phase !== loading) {
         return;
       }
 
-      player = this.deps.players.create(this.route.song.youtubeVideoId, {
+      player = this.ports.players.create(this.route.song.youtubeVideoId, {
         onReady: () => {
           if (this.phase !== loading) {
             return;
           }
-          player.setVolume(this.settings.masterVolume * this.settings.musicVolume);
+          player.setVolume(getMusicVolume(this.settings));
           this.phase = {
             kind: 'ready',
             run: {
@@ -437,7 +417,7 @@ export class GameplayController {
 
   private requestStart(run: PreparedRun): void {
     const { song } = this.route;
-    const preload = new VideoPreload(run.player, this.deps.now, {
+    const preload = new VideoPreload(run.player, this.ports.now, {
       playbackStartMs: getPlaybackStartMs(song.gameStartMs),
       preloadEndMs: song.gameEndMs,
     });
@@ -462,11 +442,11 @@ export class GameplayController {
     const playbackStartMs = getPlaybackStartMs(this.route.song.gameStartMs);
     const playback = new LeadInPlayback(
       run.player,
-      this.deps.now,
+      this.ports.now,
       {
         playbackStartMs,
         preRollStartMs: getPreRollStartMs(playbackStartMs, noteEntryMs),
-        volume: this.settings.masterVolume * this.settings.musicVolume,
+        volume: getMusicVolume(this.settings),
       },
       {
         onStatusChange: (status) => {
@@ -495,10 +475,27 @@ export class GameplayController {
     const session = new GameplaySession(chart, JUDGMENT_WINDOWS, {
       canFail: run.mode.kind === 'standard',
     });
-    const clock = new RhythmClock(playback, this.settings.inputOffsetMs, chart.offsetMs, {
+    const clockStart = {
       audioStartTimeSec: 0,
       songStartMs: 0,
-    });
+    };
+    const clock = new RhythmClock(
+      playback,
+      this.settings.inputOffsetMs,
+      chart.offsetMs,
+      clockStart,
+    );
+    const { frameNow } = this.ports;
+    const frameClock = new RhythmClock(
+      {
+        get currentTime() {
+          return playback.getTimeAt(frameNow());
+        },
+      },
+      this.settings.inputOffsetMs,
+      chart.offsetMs,
+      clockStart,
+    );
     const { status } = playback;
     this.showStatus(getPlayingStatus(status));
     this.phase = {
@@ -508,6 +505,7 @@ export class GameplayController {
         playback,
         session,
         clock,
+        frameClock,
         activation: new WorldActivation(getJudgmentEventCount(chart.notes), clock.getTimeMs()),
         playScreen,
         status,
@@ -545,7 +543,7 @@ export class GameplayController {
     if (this.phase.kind !== 'playing') {
       return;
     }
-    const songTimeMs = run.clock.getTimeMs();
+    const songTimeMs = run.frameClock.getTimeMs();
     if (this.applyJudgments(run, run.session.update(songTimeMs))) {
       return;
     }
@@ -566,12 +564,12 @@ export class GameplayController {
     };
     run.playScreen.drawFrame(run.lastFrame, frame);
     run.lastFrame = frame;
-    if (run.isIntroVisible && run.clock.getPlaybackMs() >= song.gameStartMs) {
+    if (run.isIntroVisible && run.frameClock.getPlaybackMs() >= song.gameStartMs) {
       run.isIntroVisible = false;
       run.playScreen.hideIntro();
     }
     const ending = getRunEnding(
-      run.clock.getPlaybackMs(),
+      run.frameClock.getPlaybackMs(),
       song.gameEndMs,
       run.session.getProgress(),
     );
@@ -627,15 +625,16 @@ export class GameplayController {
   private finishRun(run: PlayRun, result: GameplayResult): void {
     const { song, laneCount, difficulty, chartId, mode } = this.route;
     let newAchievements: Promise<readonly NamedAchievementDefinition[]> = Promise.resolve([]);
-    if (run.mode.kind === 'standard' && result.outcome === 'finished') {
+    const record = getRunRecord(run.mode, result);
+    if (record.kind === 'save') {
       try {
-        this.deps.save.saveResult(song.id, laneCount, difficulty, result);
+        this.ports.save.saveResult(song.id, laneCount, difficulty, record.result);
       } catch (error) {
         console.error('Failed to save result', error);
       }
-      const { rankedSessionId } = run.mode;
+      const { rankedSessionId } = record;
       if (rankedSessionId !== null) {
-        newAchievements = this.deps.rankedPlay
+        newAchievements = this.ports.rankedPlay
           .submit(rankedSessionId, {
             inputOffsetMs: this.settings.inputOffsetMs,
             events: run.session.getInputs(),
@@ -665,7 +664,7 @@ export class GameplayController {
       mvMode: next,
     };
     try {
-      this.deps.save.saveSettings(this.settings);
+      this.ports.save.saveSettings(this.settings);
     } catch (error) {
       console.error('Failed to save settings', error);
     }

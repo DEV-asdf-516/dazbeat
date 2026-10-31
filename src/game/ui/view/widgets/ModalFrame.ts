@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../../../app/config.js';
 import { bindPointer } from '../input/hoverTarget.js';
 import type { PointerActions } from '../input/hoverTarget.js';
-import { CELESTIAL_COLORS, MODAL, MOTION } from '../theme.js';
+import { CELESTIAL_COLORS, MODAL } from '../theme.js';
+import { MOTION } from '../../state/motion.js';
 
 export class ModalFrame {
   readonly container: Phaser.GameObjects.Container;

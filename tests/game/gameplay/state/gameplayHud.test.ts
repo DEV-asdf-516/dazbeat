@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { GameplayFrame } from '../../../../src/game/gameplay/GameplayController.js';
 import {
   advanceEnteredNotes,
   getChangedHudRegions,
   getEnteredNoteRange,
 } from '../../../../src/game/gameplay/state/gameplayHud.js';
+import type { GameplayFrame } from '../../../../src/game/gameplay/state/gameplayHud.js';
 import { GameplaySession } from '../../../../src/rhythm/GameplaySession.js';
 import { JUDGMENT_WINDOWS } from '../../../../src/rhythm/judgment.js';
 import type { Chart, GameplayState, Note } from '../../../../src/rhythm/types.js';

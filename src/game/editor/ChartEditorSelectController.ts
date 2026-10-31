@@ -1,4 +1,4 @@
-import { ALL_SONGS_QUERY, SONG_FILTERS } from '../../data/songs.js';
+import { SONG_FILTERS } from '../../data/songs.js';
 import type { SongFilter, SongQuery } from '../../data/songs.js';
 import { cycleItem } from '../../range.js';
 import { isShallowEqual } from '../../shallowEqual.js';
@@ -236,13 +236,7 @@ export class ChartEditorSelectController {
       return;
     }
     current.unsubscribe();
-    this.commit(
-      this.attach(
-        isShallowEqual(query, ALL_SONGS_QUERY) ? this.feeds.catalog : this.feeds.create(query),
-        null,
-        current.list.hover,
-      ),
-    );
+    this.commit(this.attach(this.feeds.create(query), null, current.list.hover));
     this.requestMoreAtListEnd();
   }
 

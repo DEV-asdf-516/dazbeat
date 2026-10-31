@@ -222,11 +222,6 @@ export function textStyle(
     : style;
 }
 
-export const MOTION = {
-  fastMs: 140,
-  mediumMs: 420,
-} as const;
-
 export const MODAL = {
   // 플레이 HUD·노트(GAMEPLAY_DEPTH)와 에디터 timeline 위에 그려 팝업 아래 입력을 막는다.
   depth: 100,

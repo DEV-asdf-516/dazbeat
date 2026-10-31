@@ -3,8 +3,7 @@ import { requireDefined } from '../../../../invariant.js';
 import { DEFAULT_CURSOR, DISABLED_CURSOR, HOVER_CURSOR } from '../input/cursor.js';
 import { bindHoverTarget } from '../input/hoverTarget.js';
 import { COLORS, addTextUnderline, setTextColor, setTextWeight, typeStyle } from '../theme.js';
-
-export type TabAppearance = 'disabled' | 'selected' | 'emphasized' | 'normal';
+import type { TabAppearance } from '../../state/tabAppearance.js';
 
 export interface TextTabItem<T extends string> {
   readonly key: T;

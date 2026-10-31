@@ -1,5 +1,5 @@
 import type { Song } from '../../../data/songs.js';
-import type { JacketRange } from './songSelectState.js';
+import type { JacketRange } from '../state/songSelectState.js';
 
 export interface JacketTextures {
   loadedSongIds(): readonly string[];

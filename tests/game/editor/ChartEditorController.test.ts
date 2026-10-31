@@ -101,6 +101,8 @@ interface Harness {
   songs: readonly Song[];
   isCreateThrowing: boolean;
   nowMs: number;
+  // 화면에 보일 프레임 시각이 벽시계보다 이른 만큼.
+  frameLagMs: number;
   // 영상이 재생을 알린 때의 영상 위치와 벽시계 시각.
   flowStart: { readonly sec: number; readonly atMs: number };
   pauseCount: number;
@@ -119,6 +121,7 @@ function createHarness(): Harness {
     songs: [song, otherSong],
     isCreateThrowing: false,
     nowMs: 0,
+    frameLagMs: 0,
     flowStart: {
       sec: 0,
       atMs: 0,
@@ -195,6 +198,7 @@ function createHarness(): Harness {
         },
       },
       now: () => harness.nowMs,
+      frameNow: () => harness.nowMs - harness.frameLagMs,
       volume: VOLUME,
     },
     {
@@ -1466,6 +1470,19 @@ describe('playback', () => {
     moveVideoTo(harness, 4);
     harness.editor.advancePlayback();
     expect(harness.editor.state.playhead.currentTimeMs).toBe(4000);
+  });
+
+  it('follows the frame time rather than the wall clock', async () => {
+    const harness = await openLoaded();
+    harness.editor.seek(3000);
+    harness.editor.togglePlayback();
+    reportPlayerState(harness, 'playing');
+    moveVideoTo(harness, 4);
+    harness.frameLagMs = 16;
+
+    harness.editor.advancePlayback();
+
+    expect(harness.editor.state.playhead.currentTimeMs).toBe(3984);
   });
 
   it('rewinds to gameStartMs when starting at gameEndMs', async () => {

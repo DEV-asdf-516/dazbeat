@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { requireDefined } from '../../../invariant.js';
+import { getEffectVolume } from '../../../storage/settings.js';
 import type { Settings } from '../../../storage/settings.js';
 import { warnOnLoadError } from './textures/loadWarning.js';
 
@@ -70,7 +71,7 @@ export class SoundEffects {
         .map(({ key }) => key)
         .filter((key) => scene.cache.audio.exists(key)),
     );
-    this.volume = settings.masterVolume * settings.effectVolume * SOUND_EFFECT_GAIN;
+    this.volume = getEffectVolume(settings) * SOUND_EFFECT_GAIN;
   }
 
   play(effect: SoundEffect): void {

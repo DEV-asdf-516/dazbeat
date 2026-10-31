@@ -12,9 +12,9 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import type { ScrollBarScroll } from '../../ui/view/widgets/ScrollBar.js';
+import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 import type { SongFeedStatus } from '../../app/SongFeed.js';
-import { readMenuAction } from '../../ui/view/input/menuInput.js';
+import { readMenuAction } from '../../ui/state/menuAction.js';
 
 const IME_PROCESS_KEY_CODE = 229;
 

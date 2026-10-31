@@ -3,6 +3,7 @@ import type {
   YouTubePlayerHandlers,
   YouTubePlayerState,
 } from '../../audio/YouTubePlayer.js';
+import { RhythmClock } from '../../audio/RhythmClock.js';
 import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
 import { InvalidChartError, parseChart } from '../../data/chartSchema.js';
 import type { ChartRef, Song } from '../../data/songs.js';
@@ -57,10 +58,16 @@ import {
   followPlayerState,
   pausePlayback,
   seekPlayback,
+  startPlayback,
   togglePlayback,
 } from './state/chartPlayback.js';
-import type { PlaybackPlayer, Playhead } from './state/chartPlayback.js';
+import type { Playhead } from './state/chartPlayback.js';
 import { getOpeningTimeMs } from './state/editorTimeline.js';
+
+interface PlaybackPlayer {
+  play(fromSec: number): Pick<YouTubeTimeSource, 'getTimeAt'> | null;
+  pause(): void;
+}
 
 export interface ChartCatalog {
   loadChart(ref: ChartRef): Promise<Chart>;
@@ -82,12 +89,13 @@ export type EditorVideoPlayer = Pick<
   'requestPlay' | 'pause' | 'setVolume' | 'destroy'
 >;
 
-export interface EditorPlayerDeps {
+export interface EditorPlayerPorts {
   readonly players: {
     loadApi(): Promise<void>;
     create(videoId: string, handlers: YouTubePlayerHandlers): EditorVideoPlayer;
   };
   readonly now: () => number;
+  readonly frameNow: () => number;
   readonly volume: number;
 }
 
@@ -147,7 +155,7 @@ export class ChartEditorController {
   constructor(
     private readonly catalog: ChartCatalog,
     private readonly list: EditList,
-    private readonly deps: EditorPlayerDeps,
+    private readonly ports: EditorPlayerPorts,
     private readonly screen: EditorScreen,
     private readonly timing: EditorTiming,
   ) {}
@@ -441,10 +449,34 @@ export class ChartEditorController {
 
   togglePlayback(): void {
     const session = this.getEditableSession();
-    if (session !== null) {
-      const { song, offsetMs } = session.draft;
-      this.setPlayhead(togglePlayback(this.current.playhead, song, offsetMs, this.player));
+    if (session === null) {
+      return;
     }
+    const { song, offsetMs } = session.draft;
+    const toggle = togglePlayback(this.current.playhead, song, offsetMs);
+    if (toggle.kind === 'pause') {
+      this.setPlayhead(toggle.playhead);
+      return;
+    }
+    const timeSource = this.player.play(toggle.fromSec);
+    if (timeSource === null) {
+      return;
+    }
+    const { frameNow } = this.ports;
+    const clock = new RhythmClock(
+      {
+        get currentTime() {
+          return timeSource.getTimeAt(frameNow());
+        },
+      },
+      0,
+      offsetMs,
+      {
+        audioStartTimeSec: 0,
+        songStartMs: 0,
+      },
+    );
+    this.setPlayhead(startPlayback(toggle.startMs, clock));
   }
 
   private handlePlayerState(playerState: YouTubePlayerState): void {
@@ -462,8 +494,11 @@ export class ChartEditorController {
 
   advancePlayback(): void {
     const selection = getSelection(this.current);
-    if (selection !== null) {
-      this.setPlayhead(advancePlayback(this.current.playhead, selection.song));
+    const { playhead } = this.current;
+    if (selection !== null && playhead.transport.kind === 'playing') {
+      this.setPlayhead(
+        advancePlayback(playhead, selection.song, playhead.transport.clock.getTimeMs()),
+      );
     }
   }
 
@@ -601,7 +636,7 @@ export class ChartEditorController {
   }
 
   private async createPlayer(song: Song, token: object): Promise<void> {
-    const { players, now, volume } = this.deps;
+    const { players, now, volume } = this.ports;
     try {
       await players.loadApi();
       if (this.playerToken !== token) {

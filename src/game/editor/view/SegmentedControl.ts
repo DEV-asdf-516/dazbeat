@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { HOVER_CURSOR } from '../../ui/view/input/cursor.js';
-import { CELESTIAL_COLORS, MOTION, RADIUS, setTextColor, typeStyle } from '../../ui/view/theme.js';
+import { CELESTIAL_COLORS, RADIUS, setTextColor, typeStyle } from '../../ui/view/theme.js';
+import { MOTION } from '../../ui/state/motion.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 import { requireDefined } from '../../../invariant.js';
 import type { SegmentAppearance } from '../state/segmentAppearance.js';
