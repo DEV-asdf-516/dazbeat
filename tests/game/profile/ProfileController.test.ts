@@ -168,6 +168,7 @@ interface Harness {
   }[];
   leaveCount(): number;
   focusSoundCount(): number;
+  readonly featuredSounds: (AchievementId | null)[];
   last(): ProfileState;
   hover(): ProfileHover | null;
   loaded(): Extract<ProfileState, { kind: 'loaded' }>;
@@ -185,6 +186,7 @@ function createHarness(isSignedIn = true): Harness {
   const featured: Harness['featured'] = [];
   let leaves = 0;
   let focusSounds = 0;
+  const featuredSounds: Harness['featuredSounds'] = [];
   const ports: ProfilePorts = {
     isSignedIn: () => isSignedIn,
     loadProfile: () => {
@@ -235,6 +237,9 @@ function createHarness(isSignedIn = true): Harness {
     playFocusSound: () => {
       focusSounds += 1;
     },
+    playFeaturedSound: (featuredId) => {
+      featuredSounds.push(featuredId);
+    },
     leaveToMain: () => {
       leaves += 1;
     },
@@ -255,6 +260,7 @@ function createHarness(isSignedIn = true): Harness {
     featured,
     leaveCount: () => leaves,
     focusSoundCount: () => focusSounds,
+    featuredSounds,
     last,
     hover: () => requireDefined(hovers.at(-1), 'nothing rendered'),
     loaded: () => {
@@ -873,12 +879,14 @@ describe('ProfileController featured achievement', () => {
     harness.controller.select();
     expect(harness.loaded().featuredSave).toBe('saving');
     expect(harness.featured.map(({ id }) => id)).toEqual(['FIRST_CLEAR']);
+    expect(harness.featuredSounds).toEqual([]);
 
     harness.featured[0]?.response.resolve(FIRST_CLEAR.id);
     await flush();
 
     expect(harness.loaded().featuredSave).toBe('idle');
     expect(harness.loaded().profile.featuredAchievement).toBe(FIRST_CLEAR);
+    expect(harness.featuredSounds).toEqual(['FIRST_CLEAR']);
   });
 
   it('unequips the featured achievement when it is selected again', async () => {
@@ -891,6 +899,7 @@ describe('ProfileController featured achievement', () => {
     await flush();
 
     expect(harness.loaded().profile.featuredAchievement).toBeNull();
+    expect(harness.featuredSounds).toEqual([null]);
   });
 
   it('does not request for a locked achievement', async () => {
@@ -911,6 +920,7 @@ describe('ProfileController featured achievement', () => {
 
     expect(harness.loaded().featuredSave).toBe('failed');
     expect(harness.loaded().profile.featuredAchievement).toBeNull();
+    expect(harness.featuredSounds).toEqual([]);
   });
 
   it('ignores selections while a featured save is pending', async () => {

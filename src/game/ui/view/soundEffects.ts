@@ -4,7 +4,8 @@ import { getEffectVolume } from '../../../storage/settings.js';
 import type { Settings } from '../../../storage/settings.js';
 import { warnOnLoadError } from './textures/loadWarning.js';
 
-export type SoundEffect = 'lanePress' | 'judgeGood' | 'judgeBad' | 'judgeMiss' | 'menuFocus';
+export type SoundEffect =
+  'lanePress' | 'judgeGood' | 'judgeBad' | 'judgeMiss' | 'menuFocus' | 'equip' | 'unequip';
 
 type SoundEffectGroup = 'lane' | 'judgment' | 'menu';
 
@@ -32,6 +33,16 @@ const SOUND_EFFECTS: Record<SoundEffect, { key: string; url: string; group: Soun
   menuFocus: {
     key: 'sfx-menu-focus',
     url: '/assets/audio/sfx/menu-focus.wav',
+    group: 'menu',
+  },
+  equip: {
+    key: 'sfx-equip',
+    url: '/assets/audio/sfx/equip.wav',
+    group: 'menu',
+  },
+  unequip: {
+    key: 'sfx-unequip',
+    url: '/assets/audio/sfx/unequip.wav',
     group: 'menu',
   },
 };
