@@ -1,9 +1,11 @@
-import type { NamedAchievementDefinition } from '../../data/achievements.js';
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
-import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
-import type { SceneRequest } from '../app/sceneRoutes.js';
+import { withControlsOpen } from '../app/controlsGuide.js';
+import type { ResultRanking, SceneRequest } from '../app/sceneRoutes.js';
 import {
+  applyMenuInput,
+  applyRankingSubmission,
+  closeRankingNotice,
   createResultState,
   dismissToast,
   getResultExitRequest,
@@ -12,7 +14,8 @@ import {
   hoverToastClose,
   moveResultFocus,
   pressResultButton,
-  queueAchievements,
+  pressResultMenu,
+  readResultControlsKey,
   releaseResultButton,
   removeToast,
   selectRetryDifficulty,
@@ -31,7 +34,7 @@ export interface ResultScreen {
 
 type Transition = (state: ResultState) => ResultState;
 
-// 닫힌 뒤에는 입력과 늦은 업적 목록·알림 타이머를 받지 않는다.
+// 닫힌 뒤에는 입력과 늦은 제출 결과·알림 타이머를 받지 않는다.
 type ControllerState = ResultState | { readonly kind: 'closed' };
 
 export class ResultController {
@@ -41,18 +44,17 @@ export class ResultController {
     private readonly screen: ResultScreen,
     retryChart: ChartRef,
     private readonly exit: ResultExit,
-    newAchievements: Promise<readonly NamedAchievementDefinition[]>,
+    ranking: ResultRanking,
   ) {
-    const first = createResultState(retryChart);
+    const first = createResultState(retryChart, ranking);
     this.state = first;
     this.screen.render(null, first);
-    // 제출 실패는 GameplayController 가 빈 목록으로 바꿔 두므로 이 Promise 는 거절되지 않는다.
-    void newAchievements.then((achievements) => {
-      if (achievements.length === 0) {
-        return;
-      }
-      this.apply((state) => queueAchievements(state, achievements));
-    });
+    if (ranking.kind === 'submitted') {
+      // 제출 예외는 GameplayController 가 unknown 으로 바꿔 두므로 이 Promise 는 거절되지 않는다.
+      void ranking.submission.then((submission) =>
+        this.apply((state) => applyRankingSubmission(state, submission)),
+      );
+    }
   }
 
   hoverDifficulty(difficulty: Difficulty): void {
@@ -64,18 +66,18 @@ export class ResultController {
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.apply((state) => selectRetryDifficulty(state, difficulty));
+    this.applyMenu((state) => selectRetryDifficulty(state, difficulty));
   }
 
   stepDifficulty(delta: 1 | -1): void {
-    this.apply((state) => stepRetryChart(state, delta));
+    this.applyMenu((state) => stepRetryChart(state, delta));
   }
 
   moveFocus(delta: 1 | -1): void {
     if ('kind' in this.state) {
       return;
     }
-    const next = moveResultFocus(this.state, delta);
+    const next = applyMenuInput(this.state, (state) => moveResultFocus(state, delta));
     if (next === this.state) {
       return;
     }
@@ -84,7 +86,7 @@ export class ResultController {
   }
 
   openControls(): void {
-    this.apply((state) => withControlsOpen(state, true));
+    this.applyMenu((state) => withControlsOpen(state, true));
   }
 
   closeControls(): void {
@@ -122,6 +124,9 @@ export class ResultController {
       case 'controlsBackdrop':
         this.closeControls();
         return;
+      case 'noticeClose':
+        this.apply(closeRankingNotice);
+        return;
     }
   }
 
@@ -129,7 +134,7 @@ export class ResultController {
     if ('kind' in this.state) {
       return false;
     }
-    switch (readControlsKey(this.state.isControlsOpen, event)) {
+    switch (readResultControlsKey(this.state, event)) {
       case 'open':
         this.openControls();
         return true;
@@ -154,13 +159,6 @@ export class ResultController {
     this.activate('songSelect');
   }
 
-  activate(item: ResultMenuItem): void {
-    if ('kind' in this.state) {
-      return;
-    }
-    this.screen.leave(getResultExitRequest(this.state, item, this.exit));
-  }
-
   hoverToastClose(toastId: number): void {
     this.apply((state) => hoverToastClose(state, toastId));
   }
@@ -179,6 +177,25 @@ export class ResultController {
 
   close(): void {
     this.state = { kind: 'closed' };
+  }
+
+  private activate(item: ResultMenuItem): void {
+    if ('kind' in this.state) {
+      return;
+    }
+    const outcome = pressResultMenu(this.state, item);
+    switch (outcome.kind) {
+      case 'stay':
+        this.apply(() => outcome.state);
+        return;
+      case 'leave':
+        this.screen.leave(getResultExitRequest(this.state, outcome.item, this.exit));
+        return;
+    }
+  }
+
+  private applyMenu(transition: Transition): void {
+    this.apply((state) => applyMenuInput(state, transition));
   }
 
   private apply(transition: Transition): void {

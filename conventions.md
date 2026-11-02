@@ -45,7 +45,7 @@
 
 Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src/main.ts`에서 주입받는다.
 
-- 화면 폴더(`main/`, `songSelect/`, `gameplay/`, `result/`, `settings/`, `credits/`, `editor/`, `profile/`): 바로 아래에 씬과 Controller만, 그리는 것(위젯·텍스처·연출·테마)과 그 자원 수명은 `view/`, Phaser 없는 판단·계산(상태 전이·정책·입력 해석·표시 데이터 집계·레이아웃·appearance)은 `state/`. `state/`는 Phaser·DOM·I/O를 쓰지 않고(주입된 I/O 객체의 메서드 호출, 실행 객체의 수명 관리 포함) Controller·씬·`view/`를 런타임 import하지 않는다. 스스로 시간을 진행하는 도메인 객체(`GameplaySession` 등)는 I/O가 아니다. 여러 층이 함께 쓰는 상태·표현 타입과 순수 입력 해석은 그 값을 만드는 `state/`·`ui/state/`가 소유하고, 타입 전용 역참조는 소유가 뒤집혔거나 순환일 때만 옮긴다.
+- 화면 폴더(`main/`, `songSelect/`, `gameplay/`, `result/`, `settings/`, `credits/`, `editor/`, `profile/`, `boot/`): 바로 아래에 씬과 Controller만, 그리는 것(위젯·텍스처·연출·테마)과 그 자원 수명은 `view/`, Phaser 없는 판단·계산(상태 전이·정책·입력 해석·표시 데이터 집계·레이아웃·appearance)은 `state/`. `state/`는 Phaser·DOM·I/O를 쓰지 않고(주입된 I/O 객체의 메서드 호출, 실행 객체의 수명 관리 포함) Controller·씬·`view/`를 런타임 import하지 않는다. 스스로 시간을 진행하는 도메인 객체(`GameplaySession` 등)는 I/O가 아니다. 여러 층이 함께 쓰는 상태·표현 타입과 순수 입력 해석은 그 값을 만드는 `state/`·`ui/state/`가 소유하고, 타입 전용 역참조는 소유가 뒤집혔거나 순환일 때만 옮긴다.
 - 공용: 씬 설정·경로·계정 같은 앱 공통은 `app/`, 천체는 `celestial/{view,state}/`, 그 밖은 `ui/state/`·`ui/view/{widgets,textures,input}/`. 다른 화면도 쓰게 되면 공용으로 옮기고, 이미 있는 공용 위젯(`ui/view/widgets/LoadingStar` 등)은 복사하지 않고 쓴다.
 
 ### 2.5 `pocketbase/`
@@ -63,7 +63,7 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 - 번역은 씬에서만 하고 위젯은 번역된 문자열을 받는다. 대문자 영어 게임 키워드(`PLAY`, `FULL COMBO`)는 번역하지 않는다.
 - 클릭은 pointer up에서 실행한다. pointer down은 드래그·탐색 제스처에만.
 - Phaser는 씬 인스턴스를 재사용한다. 상태는 `create`에서 다시 설정하고, 외부 리스너는 SHUTDOWN에서 해제하며 `close()`로 늦은 결과를 버린다.
-- 판단은 `state/` 순수 함수만 한다. 판단은 의미를 정하는 일이다: 상태 전이, 게임·업무 규칙, 입력·I/O 결과(키 조합·상태·오류)의 의미, 여러 값을 묶은 조건의 의미, 표시 데이터 집계. 수명·늦은 결과·중복 요청 확인, 부수효과 실행, 받은 값으로 표현 고르기는 판단이 아니다. 조건문 유무나 줄 수가 아니라 규칙의 소유와 변경 이유로 가르고, 단순 비교를 옮기려고 래퍼 함수를 만들지 않는다.
+- 판단은 `state/` 순수 함수만 한다. 판단은 의미를 정하는 일이다: 상태 전이, 게임·업무 규칙, 입력·I/O 결과(키 조합·상태·오류)의 의미(팝업이 열린 동안 막거나 다른 동작으로 바꾸는 입력 포함), 여러 값을 묶은 조건의 의미, 표시 데이터 집계. Controller 수명(닫힘)·늦은 결과·중복 요청 확인, 부수효과 실행, 받은 값으로 표현 고르기는 판단이 아니다. 조건문 유무나 줄 수가 아니라 규칙의 소유와 변경 이유로 가르고, 단순 비교를 옮기려고 래퍼 함수를 만들지 않는다.
 - Controller: 화면 state를 단독 소유한다(단계가 있으면 phase union, 열림·닫힘뿐이면 생성자에서 열어 객체 수명으로). state가 정한 대로 부수효과를 순서대로 실행하고 외부 결과를 반영하며(늦은 결과·중복 요청·종료 확인 포함), 결과 종류별 작업을 잇는 `switch`와 자원 상태 `if`를 둘 수 있다. state가 바뀌면 직전·다음 state를 Screen에 넘긴다. I/O·시계는 Controller가 정의한 Ports interface, 표시·이동은 씬이 구현한 Screen interface로 주입받는다.
 - 화면 state: 값 하나이고 상태 모듈의 전이 함수로만 바뀐다. 포인터 상태는 그 안의 hover union 하나, 버튼 눌림은 그 항목에 둔다. 숨기거나 닫는 전이에서 그 대상의 hover를 푼다.
 - 씬: Phaser 객체, 입력·update 위임, 그리기. 그리기는 받은 값으로 표현 고르기(`switch`·`Record<Union, X>`), 값 하나로 정하는 가시성, 좌표·크기·알파·클리핑 계산, 애니메이션과 리소스 수명이다. 도메인 집계·검증·업무 규칙은 하지 않는다. 직전 state는 상태 모듈 함수에 넘기기만 한다.

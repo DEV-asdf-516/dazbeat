@@ -1,6 +1,7 @@
 import type { InvalidChartError } from '../../../data/chartSchema.js';
 import type { Song } from '../../../data/songs.js';
 import type { Chart, Difficulty, Lane, LaneCount, Note } from '../../../rhythm/types.js';
+import { isShallowEqual } from '../../../shallowEqual.js';
 
 /** `selected` 는 `notes` 안 노트 객체 자체다. */
 export interface ChartDraft {
@@ -12,11 +13,13 @@ export interface ChartDraft {
   readonly notes: readonly Note[];
   readonly selected: Note | null;
   readonly savedNotes: readonly Note[];
+  /** 저장할 때 서버에 알리는 불러온 채보의 revision. 서버에 없는 새 채보면 null 이다. */
+  readonly baseRevision: string | null;
 }
 
 export const MIN_HOLD_DURATION_MS = 1;
 
-export function createDraft(song: Song, chart: Chart): ChartDraft {
+export function createDraft(song: Song, chart: Chart, revision: string): ChartDraft {
   const notes = [...chart.notes].sort(compareNotes);
   return {
     song,
@@ -26,6 +29,7 @@ export function createDraft(song: Song, chart: Chart): ChartDraft {
     notes,
     selected: null,
     savedNotes: notes,
+    baseRevision: revision,
   };
 }
 
@@ -43,6 +47,7 @@ export function createEmptyDraft(
     notes,
     selected: null,
     savedNotes: notes,
+    baseRevision: null,
   };
 }
 
@@ -166,15 +171,15 @@ export function completeSave(
   current: ChartDraft,
   savedNotes: readonly Note[],
   song: Song,
+  revision: string,
 ): ChartDraft {
-  if (current.song === song && current.savedNotes === savedNotes) {
-    return current;
-  }
-  return {
+  const next = {
     ...current,
     song,
     savedNotes,
+    baseRevision: revision,
   };
+  return isShallowEqual(current, next) ? current : next;
 }
 
 export function restoreNotes(current: ChartDraft, before: ChartDraft): ChartDraft {

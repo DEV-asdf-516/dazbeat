@@ -12,7 +12,7 @@ onRecordUpdate((e) => {
 }, 'songs');
 
 routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
-  const { parseSongSearchInput, SongSearchRejectedError, SONG_SEARCH_REJECTIONS } = require(
+  const { parseSongSearchInput, InvalidSongSearchError, SONG_SEARCH_REJECTIONS } = require(
     `${__hooks}/lib/song/dto.cjs`,
   );
   const { buildSongSearchQuery, readSongSearchPage } = require(
@@ -38,7 +38,7 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
       }),
     );
   } catch (error) {
-    if (error instanceof SongSearchRejectedError) {
+    if (error instanceof InvalidSongSearchError) {
       return fail(SONG_SEARCH_REJECTIONS[error.code].status, error.code, error.message);
     }
     throw error;

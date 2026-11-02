@@ -25,6 +25,7 @@ import type { ChartRef, SongBatch, SongScope } from './data/songs.js';
 import type { AccountAuth } from './game/app/accountState.js';
 import { loadCelestialCatalog } from './game/celestial/state/celestialCatalog.js';
 import { createGameConfig } from './game/app/config.js';
+import { BootErrorScene } from './game/boot/BootErrorScene.js';
 import { ChartEditorScene } from './game/editor/ChartEditorScene.js';
 import { ChartEditorSelectScene } from './game/editor/ChartEditorSelectScene.js';
 import type { ChartCatalog } from './game/editor/ChartEditorController.js';
@@ -95,6 +96,12 @@ async function fetchJson(url: string): Promise<unknown> {
   return body;
 }
 
+function startGame(scenes: Phaser.Scene[]): void {
+  const game = new Phaser.Game(createGameConfig(scenes));
+  game.events.once(Phaser.Core.Events.READY, () => bindPressedCursor(game.canvas));
+  redrawTextsWhenFontsLoad(game);
+}
+
 const mvLayer = document.getElementById('mv-layer');
 if (mvLayer === null) {
   throw new Error('Missing #mv-layer element');
@@ -115,7 +122,8 @@ i18n.on('languageChanged', (language) => {
   document.documentElement.lang = language;
 });
 await preloadUiFonts();
-await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
+const celestialLoad = loadCelestialCatalog(fetchJson);
+await Promise.all([loadSongCatalog(), celestialLoad]).then(
   async ([{ pb, loadPublishedBatch, loadAllBatch, firstBatch, achievements }, celestial]) => {
     await preloadCjkFonts(
       JSON.stringify([
@@ -157,42 +165,55 @@ await Promise.all([loadSongCatalog(), loadCelestialCatalog(fetchJson)]).then(
       setFeaturedAchievement: (id) => setFeaturedAchievement(pb, id),
     };
     const editorCharts: ChartCatalog = {
-      loadChart: async (ref) => (await loadChart(pb, ref)).chart,
-      saveChart: async (song, chart) => {
-        const { chartId, loaded } = await saveChart(pb, song, chart);
+      loadChart: (ref) => loadChart(pb, ref),
+      saveChart: async (song, chart, baseRevision) => {
+        const result = await saveChart(pb, song, chart, baseRevision);
+        if (result.kind === 'conflict') {
+          return result;
+        }
+        const { chartId, loaded } = result;
         charts.put(chartId, loaded);
         feeds.applySavedChart(song.id, chart.laneCount, chart.difficulty, chartId);
         editorFeeds.applySavedChart(song.id, chart.laneCount, chart.difficulty, chartId);
-        return chartId;
+        return {
+          kind: 'saved',
+          chartId,
+          revision: loaded.revision,
+        };
       },
     };
-    const game = new Phaser.Game(
-      createGameConfig([
-        new MainScene(save, i18n, auth, celestial, achievements),
-        new CreditsScene(save, catalog, i18n, celestial),
-        new SongSelectScene(save, mvLayer, feeds, i18n, celestial),
-        new SettingsScene(save, i18n, celestial),
-        new ProfileScene(save, i18n, celestial, profilePorts),
-        new GameplayScene(
-          save,
-          mvLayer,
-          prepareChart,
-          loadPracticeChart,
-          i18n,
-          celestial,
-          rankedPlay,
-        ),
-        new ResultScene(save, i18n, celestial, achievements),
-        new ChartEditorSelectScene(editorFeeds, auth, i18n, celestial),
-        new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
-      ]),
-    );
-    game.events.once(Phaser.Core.Events.READY, () => bindPressedCursor(game.canvas));
-    redrawTextsWhenFontsLoad(game);
+    startGame([
+      new MainScene(save, i18n, auth, celestial, achievements),
+      new CreditsScene(save, catalog, i18n, celestial),
+      new SongSelectScene(save, mvLayer, feeds, i18n, celestial),
+      new SettingsScene(save, i18n, celestial),
+      new ProfileScene(save, i18n, celestial, profilePorts),
+      new GameplayScene(
+        save,
+        mvLayer,
+        prepareChart,
+        loadPracticeChart,
+        i18n,
+        celestial,
+        rankedPlay,
+      ),
+      new ResultScene(save, i18n, celestial, achievements),
+      new ChartEditorSelectScene(editorFeeds, auth, i18n, celestial),
+      new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
+    ]);
   },
-  (error: unknown) => {
+  async (error: unknown) => {
     console.error('Failed to start game', error);
-    gameElement.textContent = i18n.t('boot.loadFailed');
-    gameElement.classList.add('boot-error');
+    // 실패 화면도 천체 배경을 그리므로, 천체 목록까지 못 받았을 때만 글자로 알린다.
+    await celestialLoad.then(
+      async (celestial) => {
+        await preloadCjkFonts(i18n.t('boot.loadFailed') + i18n.t('boot.checkConnection'));
+        startGame([new BootErrorScene(i18n, celestial, { retry: () => window.location.reload() })]);
+      },
+      () => {
+        gameElement.textContent = `${i18n.t('boot.loadFailed')} ${i18n.t('boot.checkConnection')}`;
+        gameElement.classList.add('boot-error');
+      },
+    );
   },
 );

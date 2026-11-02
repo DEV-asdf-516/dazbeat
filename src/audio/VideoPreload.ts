@@ -15,11 +15,16 @@ type Stage =
 // 받아 둔 끝이 이만큼 늘지 않으면 더 기다려도 받아지지 않는다고 보고 시작한다.
 const PRELOAD_IDLE_MS = 2000;
 const PRELOAD_MAX_MS = 10000;
+// 자동 재생이 막히거나 영상이 멈추면 playing·paused 가 오지 않아, 기다리지 않고 시작 실패로 끝낸다.
+const WARM_MAX_MS = 10000;
+
+export type PreloadTick = 'waiting' | 'ready' | 'timedOut';
 
 export class VideoPreload {
   private readonly player: Pick<YouTubePlayer, 'pause' | 'getBufferedEndSec'>;
   private readonly now: () => number;
   private readonly preloadEndMs: number;
+  private readonly warmDeadlineMs: number;
   private stage: Stage = { kind: 'warming' };
 
   constructor(
@@ -33,6 +38,7 @@ export class VideoPreload {
     this.player = player;
     this.now = now;
     this.preloadEndMs = plan.preloadEndMs;
+    this.warmDeadlineMs = now() + WARM_MAX_MS;
     // 예열로 영상을 미리 불러 두되, 실제 재생 요청 전까지 소리는 내지 않는다.
     player.setVolume(0);
     player.requestPlay(getVideoStartSec(plan.playbackStartMs));
@@ -49,6 +55,10 @@ export class VideoPreload {
       case 'warmPausing':
         if (state === 'paused') {
           const nowMs = this.now();
+          // 기한 뒤에 온 paused 는 단계를 넘기지 않고 다음 tick 이 timedOut 으로 끝내게 둔다.
+          if (nowMs >= this.warmDeadlineMs) {
+            return;
+          }
           this.stage = {
             kind: 'preloading',
             startedAtMs: nowMs,
@@ -62,12 +72,12 @@ export class VideoPreload {
     }
   }
 
-  tick(): boolean {
+  tick(): PreloadTick {
     const { stage } = this;
-    if (stage.kind !== 'preloading') {
-      return false;
-    }
     const nowMs = this.now();
+    if (stage.kind !== 'preloading') {
+      return nowMs >= this.warmDeadlineMs ? 'timedOut' : 'waiting';
+    }
     const bufferedEndSec = this.player.getBufferedEndSec();
     const current =
       bufferedEndSec > stage.bufferedEndSec
@@ -78,10 +88,10 @@ export class VideoPreload {
           }
         : stage;
     this.stage = current;
-    return (
-      current.bufferedEndSec >= msToSec(this.preloadEndMs) ||
+    return current.bufferedEndSec >= msToSec(this.preloadEndMs) ||
       nowMs - current.grewAtMs >= PRELOAD_IDLE_MS ||
       nowMs - current.startedAtMs >= PRELOAD_MAX_MS
-    );
+      ? 'ready'
+      : 'waiting';
   }
 }

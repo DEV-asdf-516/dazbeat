@@ -1,3 +1,4 @@
+import type { RankingSession } from '../../../data/playSession.js';
 import { isFullCombo } from '../../../rhythm/score.js';
 import type {
   FinishedGameplayResult,
@@ -6,16 +7,14 @@ import type {
 } from '../../../rhythm/types.js';
 
 export type RunMode =
-  // 비로그인·발급 실패면 그 판은 랭킹 없이 진행한다.
-  | { readonly kind: 'standard'; readonly rankedSessionId: string | null }
-  | { readonly kind: 'practice' };
+  { readonly kind: 'standard'; readonly ranking: RankingSession } | { readonly kind: 'practice' };
 
 export type RunRecord =
   | { readonly kind: 'none' }
   | {
       readonly kind: 'save';
       readonly result: FinishedGameplayResult;
-      readonly rankedSessionId: string | null;
+      readonly ranking: RankingSession;
     };
 
 export type RunEnding =
@@ -42,7 +41,7 @@ export function getRunRecord(mode: RunMode, result: GameplayResult): RunRecord {
     return {
       kind: 'save',
       result,
-      rankedSessionId: mode.rankedSessionId,
+      ranking: mode.ranking,
     };
   }
   return { kind: 'none' };

@@ -34,7 +34,7 @@ import type {
   EditorPlayerStatus,
   EditPhase,
   EditorSession,
-  SaveResult,
+  SaveProgress,
 } from '../../../../src/game/editor/state/chartEditorState.js';
 import { createPlayhead } from '../../../../src/game/editor/state/chartPlayback.js';
 import { requireDefined } from '../../../../src/invariant.js';
@@ -66,21 +66,28 @@ const SELECTION = {
 } as const;
 
 function makeDraft(notes: readonly Note[]): ChartDraft {
-  return createDraft(song, {
-    songId: 'test-song',
-    difficulty: 'normal',
-    laneCount: 4,
-    offsetMs: 0,
-    notes,
-  });
+  return createDraft(
+    song,
+    {
+      songId: 'test-song',
+      difficulty: 'normal',
+      laneCount: 4,
+      offsetMs: 0,
+      notes,
+    },
+    'r0',
+  );
 }
 
-function makeSession(draft: ChartDraft, saveResult: SaveResult = { kind: 'idle' }): EditorSession {
+function makeSession(
+  draft: ChartDraft,
+  saveProgress: SaveProgress = { kind: 'idle' },
+): EditorSession {
   return {
     id: {},
     draft,
     gesture: { kind: 'none' },
-    saveResult,
+    saveProgress,
     undoStack: [],
   };
 }
@@ -145,13 +152,17 @@ describe('getSelection', () => {
     };
     const saved = editing(
       makeSession(
-        createDraft(savedSong, {
-          songId: 'test-song',
-          difficulty: 'normal',
-          laneCount: 6,
-          offsetMs: 0,
-          notes: [TAP],
-        }),
+        createDraft(
+          savedSong,
+          {
+            songId: 'test-song',
+            difficulty: 'normal',
+            laneCount: 6,
+            offsetMs: 0,
+            notes: [TAP],
+          },
+          'r0',
+        ),
       ),
     );
 
@@ -167,34 +178,18 @@ describe('getSelection', () => {
 });
 
 describe('getEditorStatus', () => {
-  it('follows the phase, then the save result, then unsaved changes', () => {
-    const draft = makeDraft([TAP]);
-
+  it('follows the phase, then unsaved changes whether or not a save is in progress', () => {
     expect(getEditorStatus(empty)).toEqual({ kind: 'noSongs' });
     expect(getEditorStatus(loading)).toEqual({ kind: 'loading' });
     expect(getEditorStatus(loadFailed)).toEqual({ kind: 'loadFailed' });
-    expect(getEditorStatus(editing(makeSession(draft, { kind: 'saving' })))).toEqual({
-      kind: 'saving',
-    });
-    expect(getEditorStatus(editing(makeSession(draft, { kind: 'saved' })))).toEqual({
-      kind: 'saved',
-    });
-    expect(getEditorStatus(editing(makeSession(draft, { kind: 'failed' })))).toEqual({
-      kind: 'saveFailed',
-    });
     expect(
       getEditorStatus(
-        editing(
-          makeSession(draft, {
-            kind: 'invalid',
-            reason: 'bad',
-          }),
-        ),
+        editing({
+          ...dirtySession,
+          saveProgress: { kind: 'saving' },
+        }),
       ),
-    ).toEqual({
-      kind: 'invalid',
-      reason: 'bad',
-    });
+    ).toEqual({ kind: 'unsaved' });
     expect(getEditorStatus(dirty)).toEqual({ kind: 'unsaved' });
     expect(getEditorStatus(clean)).toEqual({ kind: 'none' });
   });
@@ -208,7 +203,7 @@ describe('panel and button state', () => {
       canSave(
         editing({
           ...dirtySession,
-          saveResult: { kind: 'saving' },
+          saveProgress: { kind: 'saving' },
         }),
       ),
     ).toBe(false);
@@ -248,47 +243,17 @@ describe('getEditorDecorations', () => {
 });
 
 describe('withDraft', () => {
-  it('returns saved, failed and invalid results to idle when notes change', () => {
-    const draft = makeDraft([TAP]);
-    const edited = addNote(draft, {
-      type: 'tap',
-      timeMs: 3000,
-      lane: 1,
-    });
-    const results: SaveResult[] = [
-      { kind: 'saved' },
-      { kind: 'failed' },
-      {
-        kind: 'invalid',
-        reason: 'bad',
-      },
-    ];
-
-    for (const saveResult of results) {
-      expect(withDraft(makeSession(draft, saveResult), edited).saveResult).toEqual({
-        kind: 'idle',
-      });
-    }
-  });
-
-  it('keeps saving while notes change and keeps the result when only the selection changes', () => {
+  it('keeps saving while notes change and the same session for the same draft', () => {
     const draft = makeDraft([TAP]);
     const saving = makeSession(draft, { kind: 'saving' });
-    const invalid = makeSession(draft, {
-      kind: 'invalid',
-      reason: 'bad',
-    });
     const edited = addNote(draft, {
       type: 'tap',
       timeMs: 3000,
       lane: 1,
     });
 
-    expect(withDraft(saving, edited).saveResult).toEqual({ kind: 'saving' });
-    expect(withDraft(invalid, selectNote(draft, draft.notes[0] ?? null)).saveResult).toBe(
-      invalid.saveResult,
-    );
-    expect(withDraft(invalid, draft)).toBe(invalid);
+    expect(withDraft(saving, edited).saveProgress).toEqual({ kind: 'saving' });
+    expect(withDraft(saving, draft)).toBe(saving);
   });
 });
 
@@ -374,8 +339,7 @@ describe('getChangedRegions', () => {
         dirty,
         editing({
           ...dirtySession,
-          draft: completeSave(dirtySession.draft, dirtySession.draft.notes, savedSong),
-          saveResult: { kind: 'saved' },
+          draft: completeSave(dirtySession.draft, dirtySession.draft.notes, savedSong, 'r1'),
         }),
       ),
     ).toEqual(['selection', 'status', 'playhead', 'seekMarks', 'notes', 'saveButton']);

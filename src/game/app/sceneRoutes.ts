@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import type { NamedAchievementDefinition } from '../../data/achievements.js';
+import type { RankingSubmission } from '../../data/playSession.js';
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty, GameplayResult } from '../../rhythm/types.js';
 import { requestSceneExit } from './sceneExit.js';
@@ -16,6 +16,7 @@ export const SCENE_KEYS = {
   profile: 'Profile',
   chartEditorSelect: 'ChartEditorSelect',
   chartEditor: 'ChartEditor',
+  bootError: 'BootError',
 } as const;
 
 export type PlayMode = 'standard' | 'practice';
@@ -37,10 +38,16 @@ export interface GameplaySceneData extends ChartRef {
   readonly restore?: SongSelectRestore;
 }
 
+/** submitted 의 submission 은 거절되지 않는다. 제출이 예외로 끝나면 unknown 이 된다. */
+export type ResultRanking =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'issueFailed' }
+  | { readonly kind: 'submitted'; readonly submission: Promise<RankingSubmission> };
+
 export interface ResultSceneData extends ChartRef {
   readonly mode: PlayMode;
   result: GameplayResult;
-  readonly newAchievements: Promise<readonly NamedAchievementDefinition[]>;
+  readonly ranking: ResultRanking;
   readonly restore?: SongSelectRestore;
 }
 

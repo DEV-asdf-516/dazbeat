@@ -2,7 +2,7 @@ import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SESSION_GRACE_MS } from '../../../pocketbase/lib/session/service/issue.js';
-import { PLAY_SESSIONS, SCORES } from '../../../src/pbCollections.js';
+import { PLAY_RESULTS, PLAY_SESSIONS, SCORES } from '../../../src/pbCollections.js';
 import { where } from '../../../src/pbQuery.js';
 import { JUDGMENT_WINDOWS } from '../../../src/rhythm/judgment.js';
 import { getPlayDurationMs } from '../../../src/rhythm/playTiming.js';
@@ -18,6 +18,8 @@ const SONG_KEY = 'ranked';
 const MUTABLE_SONG_KEY = 'mutable';
 const UNPUBLISHED_SONG_KEY = 'unpublished';
 const WITHDRAWN_SONG_KEY = 'withdrawn';
+const SHORTENED_SONG_KEY = 'shortened';
+const REASSIGNED_SONG_KEY = 'reassigned';
 const GAME_END_MS = 5_000;
 // Longer than the minimum elapsed time (0.9 × play duration) of a 5 s song.
 const ELAPSED_PLAY_MS = 10_000;
@@ -147,6 +149,16 @@ const staleIssueChart = chartOf(MUTABLE_SONG_KEY, 'hard', tapChart.notes);
 const unpublishedChart = chartOf(UNPUBLISHED_SONG_KEY, 'easy', tapChart.notes);
 // 플레이 중 비공개로 바꾸는 곡이라 다른 테스트와 나눠 둔다.
 const withdrawnChart = chartOf(WITHDRAWN_SONG_KEY, 'easy', tapChart.notes);
+// 플레이 중 곡이 짧아지면 마지막 노트가 새 gameEndMs 를 넘는다.
+const shortenedChart = chartOf(SHORTENED_SONG_KEY, 'easy', [
+  ...tapChart.notes,
+  {
+    type: 'tap',
+    timeMs: 3_000,
+    lane: 0,
+  },
+]);
+const reassignedChart = chartOf(REASSIGNED_SONG_KEY, 'easy', tapChart.notes);
 
 // One tap per lane, the last lane included, on the same song and difficulty as tapChart.
 const wideLaneCharts = ([5, 6] as const).map((laneCount) =>
@@ -343,6 +355,13 @@ beforeAll(async () => {
     withdrawnChart,
     await createChart(editor.client, withdrawnSong.id, withdrawnChart.difficulty, withdrawnChart),
   );
+  for (const chart of [shortenedChart, reassignedChart]) {
+    const chartSong = await createSong(server.superuser, chart.songId, GAME_END_MS);
+    chartRecords.set(
+      chart,
+      await createChart(editor.client, chartSong.id, chart.difficulty, chart),
+    );
+  }
 });
 
 afterAll(async () => {
@@ -790,9 +809,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     );
 
     const sessionId = await startRankedPlay(player, snapshotPassingChart);
-    const changed = await editor.client
-      .collection('charts')
-      .update(record.id, { data: changedChart });
+    const changed = await editor.client.collection('charts').update(record.id, {
+      data: changedChart,
+      baseRevision: String(record['revision']),
+    });
     const response = await submitResult(player.client, sessionId, {
       inputOffsetMs: 0,
       events: play.inputs,
@@ -845,6 +865,82 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     });
   });
 
+  it('verifies a play on the issued song timing after the song was shortened', async () => {
+    const player = await newPlayer();
+    const record = recordOf(shortenedChart);
+    const play = simulateClientPlay(
+      shortenedChart,
+      perfectTapInputs(shortenedChart),
+      FRAME_TIMES_MS,
+    );
+    const { outcome, ...expected } = play.result;
+    expect(outcome).toBe('finished');
+
+    const sessionId = await startRankedPlay(player, shortenedChart);
+    await server.superuser.collection('songs').update(String(record['song']), { gameEndMs: 2_500 });
+    const response = await submitResult(player.client, sessionId, {
+      inputOffsetMs: 0,
+      events: play.inputs,
+    });
+
+    expect(response).toEqual({
+      ...expected,
+      bestScore: expected.score,
+      newAchievements: ANY_ACHIEVEMENTS,
+    });
+    const [stored, ...others] = await findScores(player.id, shortenedChart);
+    expect(others).toEqual([]);
+    expect(stored).toMatchObject({
+      ...expected,
+      chartRevision: revisionOf(record),
+    });
+  });
+
+  it('verifies a play on the issued difficulty and records it on the current one', async () => {
+    const player = await newPlayer();
+    const record = recordOf(reassignedChart);
+    const play = simulateClientPlay(reassignedChart, tapPerfectInputs, FRAME_TIMES_MS);
+    const { outcome, ...expected } = play.result;
+    expect(outcome).toBe('finished');
+
+    const sessionId = await startRankedPlay(player, reassignedChart);
+    const changed = await editor.client.collection('charts').update(record.id, {
+      difficulty: 'hard',
+      data: {
+        ...reassignedChart,
+        difficulty: 'hard',
+      },
+      baseRevision: revisionOf(record),
+    });
+    const response = await submitResult(player.client, sessionId, {
+      inputOffsetMs: 0,
+      events: play.inputs,
+    });
+
+    expect(response).toEqual({
+      ...expected,
+      bestScore: expected.score,
+      newAchievements: ANY_ACHIEVEMENTS,
+    });
+    const [stored, ...others] = await findScores(player.id, reassignedChart);
+    expect(others).toEqual([]);
+    expect(stored).toMatchObject({
+      ...expected,
+      chartRevision: revisionOf(changed),
+    });
+    const filter = where(PLAY_RESULTS, [{ session: sessionId }]);
+    const results = await server.superuser.collection(PLAY_RESULTS.name).getFullList({
+      filter: server.superuser.filter(filter.expression, filter.params),
+    });
+    expect(results).toEqual([
+      expect.objectContaining({
+        chart: record.id,
+        difficulty: 'hard',
+        laneCount: 4,
+      }),
+    ]);
+  });
+
   it('rejects a play that only finishes on the changed chart', async () => {
     const player = await newPlayer();
     const record = recordOf(snapshotFailingChart);
@@ -860,7 +956,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     );
 
     const sessionId = await startRankedPlay(player, snapshotFailingChart);
-    await editor.client.collection('charts').update(record.id, { data: changedChart });
+    await editor.client.collection('charts').update(record.id, {
+      data: changedChart,
+      baseRevision: String(record['revision']),
+    });
 
     await expectRejection(
       submitResult(player.client, sessionId, {
@@ -881,6 +980,7 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
         ...staleIssueChart,
         offsetMs: 10,
       },
+      baseRevision: String(before['revision']),
     });
 
     await expectRejection(issueSession(player.client, sessionBodyOf(before)), 409, 'chart_changed');

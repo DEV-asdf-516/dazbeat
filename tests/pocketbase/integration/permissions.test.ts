@@ -194,6 +194,11 @@ beforeAll(async () => {
     chartData,
     issuedAt: new Date(nowMs).toISOString(),
     expiresAt: new Date(nowMs + 60_000).toISOString(),
+    songKey: 'perm',
+    gameStartMs: 0,
+    gameEndMs: 5_000,
+    difficulty: 'easy',
+    laneCount: 4,
   });
   playSessionQuota = await superuser.collection('play_session_quotas').create({
     user: user.id,
@@ -363,7 +368,10 @@ describe('chart writes', () => {
       CREATE_RULE_FAILED,
     );
     await expectStatus(
-      pb.collection('charts').update(chart.id, { data: fakeChartData('perm', 'easy', 1_500) }),
+      pb.collection('charts').update(chart.id, {
+        data: fakeChartData('perm', 'easy', 1_500),
+        baseRevision: String(chart['revision']),
+      }),
       UPDATE_RULE_FAILED,
     );
     const charts = await server.superuser.collection('charts').getFullList();
@@ -383,7 +391,10 @@ describe('chart writes', () => {
     );
     expect(created['difficulty']).toBe('expert');
     const data = fakeChartData('perm', 'easy', 1_500);
-    const updated = await editor.client.collection('charts').update(chart.id, { data });
+    const updated = await editor.client.collection('charts').update(chart.id, {
+      data,
+      baseRevision: String(chart['revision']),
+    });
     expect(updated['data']).toEqual(data);
   });
 });

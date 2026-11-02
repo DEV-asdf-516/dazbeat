@@ -2,7 +2,8 @@ import type { Messages } from './ko.js';
 
 export const ja: Messages = {
   boot: {
-    loadFailed: 'ゲームデータを読み込めませんでした。しばらくしてから再読み込みしてください。',
+    loadFailed: 'ゲームデータを読み込めませんでした。',
+    checkConnection: '接続状態を確認してから、もう一度お試しください。',
   },
   main: {
     account: {
@@ -93,10 +94,11 @@ export const ja: Messages = {
     clearTitle: 'ノートをすべて削除しますか？',
     clearConfirm: 'ノート{{noteCount}}個が消えます。\n保存するまでサーバーには反映されません。',
     noSelection: '選択中のノートなし',
-    saving: '保存中',
-    saved: '保存しました',
-    saveFailed: '保存に失敗しました',
-    invalidChart: '譜面の検証に失敗しました: {{reason}}',
+    saveFailedTitle: '保存失敗',
+    saveFailedBody: 'サーバーに保存できませんでした。しばらくしてからもう一度保存してください。',
+    saveConflictBody:
+      '別の場所で新しい版が保存されています。\n譜面を開き直すと最新の版を読み込みます。',
+    invalidChartBody: '譜面の検証に失敗しました: {{reason}}',
     noteCount: 'ノート{{count}}個',
     laneSection: 'レーン数',
     toolSection: '入力ツール',
@@ -146,12 +148,25 @@ export const ja: Messages = {
     progress: '進行',
     currentSongs: '現在の収録曲',
     noAssignedSongs: '割り当てられた曲なし',
-    locked: '未獲得',
-    status: '状態',
     earned: '獲得',
     featured: '装備中',
     setFeatured: '装備',
     unsetFeatured: '装備解除',
+  },
+  rankingNotice: {
+    issueFailed: {
+      title: 'ランキングに記録されませんでした',
+      body: 'プレイ開始時にランキングセッションを開始できなかったため、今回の記録は反映されません。',
+    },
+    rejected: {
+      title: 'ランキングに記録されませんでした',
+      body: '今回の記録はサーバーに受け付けられませんでした。',
+    },
+    unknown: {
+      title: '記録の保存を確認できませんでした',
+      body: 'サーバーから応答がなく、今回の記録が保存されたか分かりません。',
+    },
+    close: 'OK',
   },
   achievements: {
     unlocked: '実績解除',

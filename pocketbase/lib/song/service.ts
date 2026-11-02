@@ -1,14 +1,51 @@
+import { InvalidChartError, parseChart } from '../../../src/data/chartSchema.js';
 import { parseJson } from '../../../src/json.js';
-import { isRecord } from '../../../src/typeGuards.js';
+import type { DbApp, JsvmRuntime } from '../jsvm.js';
+import { InvalidChartSaveError } from './dto.js';
+import type { ChartRecord } from './dto.js';
+import { readChartRevision, readChartSong } from './repository.js';
 
-export class InvalidChartRecordError extends Error {
-  override readonly name = 'InvalidChartRecordError';
+export function checkChartRecord(
+  runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'>,
+  app: DbApp,
+  record: ChartRecord,
+): void {
+  const song = readChartSong(runtime, app, record.song);
+  if (song === undefined) {
+    throw new InvalidChartSaveError('invalid_chart', 'The chart song does not exist.');
+  }
+  try {
+    parseChart(
+      parseJson(record.data),
+      {
+        id: song.key,
+        gameStartMs: song.gameStartMs,
+        gameEndMs: song.gameEndMs,
+      },
+      record.difficulty,
+      record.laneCount,
+    );
+  } catch (error) {
+    if (error instanceof InvalidChartError) {
+      throw new InvalidChartSaveError('invalid_chart', error.message);
+    }
+    throw error;
+  }
 }
 
-// data 와 레코드 laneCount 가 다르면 클라이언트와 결과 검증이 서로 다른 레인 수로 채보를 읽는다.
-export function checkChartLaneCount(data: string, laneCount: number): void {
-  const chart = parseJson(data);
-  if (!isRecord(chart) || chart.laneCount !== laneCount) {
-    throw new InvalidChartRecordError('Chart data laneCount does not match the record laneCount.');
-  }
+export type ChartRevisionDecision =
+  { readonly kind: 'current' } | { readonly kind: 'conflict'; readonly message: string };
+
+export function decideChartRevision(
+  runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'>,
+  tx: DbApp,
+  chartId: string,
+  baseRevision: string,
+): ChartRevisionDecision {
+  return readChartRevision(runtime, tx, chartId) === baseRevision
+    ? { kind: 'current' }
+    : {
+        kind: 'conflict',
+        message: 'The chart was saved by someone else since it was loaded.',
+      };
 }

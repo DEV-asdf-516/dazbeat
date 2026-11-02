@@ -59,7 +59,7 @@ import { getGridTimesMs } from './state/editorTimeline.js';
 import { describeSelection, formatEditorTime } from './state/selectionInfo.js';
 import type { Button } from '../ui/view/widgets/Button.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
-import type { ConfirmTone } from '../ui/view/widgets/ConfirmDialog.js';
+import type { ConfirmDialogContent } from '../ui/view/widgets/ConfirmDialog.js';
 import { DRAG_CURSOR, HOVER_CURSOR } from '../ui/view/input/cursor.js';
 import {
   addCelestialSprite,
@@ -192,34 +192,6 @@ const SEEK_THUMB_RADIUS_PX = 7;
 const SEEK_HIT_HEIGHT_PX = 32;
 const SEEK_MARK_HEIGHT_PX = 12;
 const SEEK_MARK_ALPHA = 0.45;
-const CONFIRM_LABELS: Record<
-  PendingAction['kind'],
-  {
-    titleKey: 'chartEditor.discardTitle' | 'chartEditor.clearTitle';
-    bodyKey: 'chartEditor.discardConfirm' | 'chartEditor.clearConfirm';
-    accept: string;
-    acceptTone: ConfirmTone;
-  }
-> = {
-  select: {
-    titleKey: 'chartEditor.discardTitle',
-    bodyKey: 'chartEditor.discardConfirm',
-    accept: 'DISCARD',
-    acceptTone: 'default',
-  },
-  leave: {
-    titleKey: 'chartEditor.discardTitle',
-    bodyKey: 'chartEditor.discardConfirm',
-    accept: 'DISCARD',
-    acceptTone: 'default',
-  },
-  clearNotes: {
-    titleKey: 'chartEditor.clearTitle',
-    bodyKey: 'chartEditor.clearConfirm',
-    accept: 'CLEAR',
-    acceptTone: 'danger',
-  },
-};
 const TOOLS_CONTENT_LEFT_PX = LAYOUT.tools.leftPx + LAYOUT.tools.paddingPx;
 const TOOLS_CONTENT_RIGHT_PX = LAYOUT.tools.leftPx + LAYOUT.tools.widthPx - LAYOUT.tools.paddingPx;
 const TOOLS_ITEM_GAP_PX = 8;
@@ -996,14 +968,53 @@ export class ChartEditorScene extends Phaser.Scene {
       view.confirm.render(null);
       return;
     }
-    const labels = CONFIRM_LABELS[pending.kind];
-    view.confirm.render({
-      title: this.i18n.t(labels.titleKey),
-      body: this.i18n.t(labels.bodyKey, { noteCount: getNotes(state).length }),
-      cancelLabel: 'CANCEL',
-      acceptLabel: labels.accept,
-      acceptTone: labels.acceptTone,
-    });
+    view.confirm.render(this.getConfirmContent(pending, getNotes(state).length));
+  }
+
+  private getConfirmContent(pending: PendingAction, noteCount: number): ConfirmDialogContent {
+    switch (pending.kind) {
+      case 'select':
+      case 'leave':
+        return {
+          title: this.i18n.t('chartEditor.discardTitle'),
+          body: this.i18n.t('chartEditor.discardConfirm'),
+          cancelLabel: 'CANCEL',
+          acceptLabel: 'DISCARD',
+          acceptTone: 'default',
+        };
+      case 'clearNotes':
+        return {
+          title: this.i18n.t('chartEditor.clearTitle'),
+          body: this.i18n.t('chartEditor.clearConfirm', { noteCount }),
+          cancelLabel: 'CANCEL',
+          acceptLabel: 'CLEAR',
+          acceptTone: 'danger',
+        };
+      case 'saveFailed':
+        return {
+          title: this.i18n.t('chartEditor.saveFailedTitle'),
+          body: this.i18n.t('chartEditor.saveFailedBody'),
+          cancelLabel: null,
+          acceptLabel: 'OK',
+          acceptTone: 'default',
+        };
+      case 'saveConflict':
+        return {
+          title: this.i18n.t('chartEditor.saveFailedTitle'),
+          body: this.i18n.t('chartEditor.saveConflictBody'),
+          cancelLabel: null,
+          acceptLabel: 'OK',
+          acceptTone: 'default',
+        };
+      case 'invalidChart':
+        return {
+          title: this.i18n.t('chartEditor.saveFailedTitle'),
+          body: this.i18n.t('chartEditor.invalidChartBody', { reason: pending.reason }),
+          cancelLabel: null,
+          acceptLabel: 'OK',
+          acceptTone: 'default',
+        };
+    }
   }
 
   private renderPanel(view: EditorView, state: ChartEditorState): void {
@@ -1046,26 +1057,6 @@ export class ChartEditorScene extends Phaser.Scene {
         return {
           kind: 'text',
           text: this.i18n.t('chartEditor.chartLoadFailed'),
-        };
-      case 'saving':
-        return {
-          kind: 'text',
-          text: this.i18n.t('chartEditor.saving'),
-        };
-      case 'saved':
-        return {
-          kind: 'text',
-          text: this.i18n.t('chartEditor.saved'),
-        };
-      case 'saveFailed':
-        return {
-          kind: 'text',
-          text: this.i18n.t('chartEditor.saveFailed'),
-        };
-      case 'invalid':
-        return {
-          kind: 'text',
-          text: this.i18n.t('chartEditor.invalidChart', { reason: status.reason }),
         };
       // 미저장은 문장 대신 SAVE 의 점으로 알린다.
       case 'unsaved':

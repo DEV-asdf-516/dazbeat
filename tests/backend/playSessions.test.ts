@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChartCache } from '../../src/backend/ChartCache.js';
 import { preparePlay, submitPlay } from '../../src/backend/playSessions.js';
 import type { AchievementCatalog } from '../../src/data/achievements.js';
+import type { VerifiedPlay } from '../../src/data/playSession.js';
 import type { PlaySubmission } from '../../src/data/playSubmission.js';
 import type { ChartRef, Song } from '../../src/data/songs.js';
 import { requireDefined } from '../../src/invariant.js';
@@ -135,13 +136,12 @@ function signedInClient(): PocketBase {
   return pb;
 }
 
-async function captureError(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise;
-  } catch (error) {
-    return error;
+async function submitSaved(): Promise<VerifiedPlay> {
+  const result = await submitPlay(signedInClient(), CATALOG, 'session1', submission);
+  if (result.kind !== 'saved') {
+    throw new Error(`expected a saved play, got ${result.kind}`);
   }
-  throw new Error('expected rejection');
+  return result.play;
 }
 
 afterEach(() => {
@@ -177,12 +177,7 @@ describe('submitPlay', () => {
       newAchievements: ['FIRST_FINISH', 'FIRST_CLEAR'],
     });
 
-    const { newAchievements, ...play } = await submitPlay(
-      signedInClient(),
-      CATALOG,
-      'session1',
-      submission,
-    );
+    const { newAchievements, ...play } = await submitSaved();
 
     expect(play).toEqual({
       score: 1000000,
@@ -201,7 +196,7 @@ describe('submitPlay', () => {
       newAchievements: ['FIRST_FINISH', 'COMBO_100', 'PLAY_3'],
     });
 
-    const play = await submitPlay(signedInClient(), CATALOG, 'session1', submission);
+    const play = await submitSaved();
 
     expect(play.newAchievements.map(({ id }) => id)).toEqual(['FIRST_FINISH', 'PLAY_3']);
     expect(play.score).toBe(1000000);
@@ -211,7 +206,7 @@ describe('submitPlay', () => {
   it('resolves no new achievements when the response has no newAchievements field', async () => {
     respondWith(200, verifiedResponse);
 
-    const play = await submitPlay(signedInClient(), CATALOG, 'session1', submission);
+    const play = await submitSaved();
 
     expect(play.newAchievements).toEqual([]);
   });
@@ -239,53 +234,75 @@ describe('submitPlay', () => {
     [422, 'too_short'],
     [400, 'invalid_events'],
     [409, 'chart_changed'],
-  ])('rejects HTTP %i with the server error code %s', async (status, code) => {
+  ])('resolves HTTP %i with the server error code %s as rejected', async (status, code) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     respondWith(status, {
       status,
       code,
       message: 'Rejected.',
     });
 
-    const error = await captureError(submitPlay(signedInClient(), CATALOG, 'session1', submission));
-
-    expect(error).toMatchObject({
-      name: 'PlaySessionError',
-      status,
-      code,
+    await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).resolves.toEqual({
+      kind: 'rejected',
     });
+    expect(warn.mock.calls).toEqual([
+      [
+        'Failed to submit ranked play',
+        expect.objectContaining({
+          name: 'PlaySessionError',
+          status,
+          code,
+        }),
+      ],
+    ]);
   });
 
   it.each([
     [401, 'unauthorized'],
     [413, 'payload_too_large'],
     [429, 'rate_limited'],
+    [500, 'http_500'],
     [503, 'http_503'],
-  ])('rejects HTTP %i without a code as %s', async (status, code) => {
+  ])('resolves HTTP %i without a code as rejected with %s', async (status, code) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     respondWith(status, {
       status,
       message: 'Rejected.',
       data: {},
     });
 
-    const error = await captureError(submitPlay(signedInClient(), CATALOG, 'session1', submission));
-
-    expect(error).toMatchObject({
-      name: 'PlaySessionError',
-      status,
-      code,
+    await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).resolves.toEqual({
+      kind: 'rejected',
     });
+    expect(warn.mock.calls).toEqual([
+      [
+        'Failed to submit ranked play',
+        expect.objectContaining({
+          name: 'PlaySessionError',
+          status,
+          code,
+        }),
+      ],
+    ]);
   });
 
-  it('rejects a network failure as status 0 network', async () => {
+  it('resolves a network failure as unknown', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     stubFetch(() => Promise.reject(new TypeError('Failed to fetch')));
 
-    const error = await captureError(submitPlay(signedInClient(), CATALOG, 'session1', submission));
-
-    expect(error).toMatchObject({
-      name: 'PlaySessionError',
-      status: 0,
-      code: 'network',
+    await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).resolves.toEqual({
+      kind: 'unknown',
     });
+    expect(warn.mock.calls).toEqual([
+      [
+        'Failed to submit ranked play',
+        expect.objectContaining({
+          name: 'PlaySessionError',
+          status: 0,
+          code: 'network',
+        }),
+      ],
+    ]);
   });
 });
 
@@ -364,11 +381,17 @@ describe('preparePlay', () => {
 
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(1000),
-      rankedSessionId: 'session1',
+      ranking: {
+        kind: 'issued',
+        sessionId: 'session1',
+      },
     });
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(1000),
-      rankedSessionId: 'session2',
+      ranking: {
+        kind: 'issued',
+        sessionId: 'session2',
+      },
     });
     const issueBody = {
       chartId: 'chart_normal',
@@ -409,7 +432,10 @@ describe('preparePlay', () => {
 
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(1000),
-      rankedSessionId: 'session1',
+      ranking: {
+        kind: 'issued',
+        sessionId: 'session1',
+      },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const request = getRequest(fetchMock, 1);
@@ -422,7 +448,7 @@ describe('preparePlay', () => {
     });
   });
 
-  it('resolves the chart without a session when the response has no string sessionId', async () => {
+  it('resolves a failed issue when the response has no string sessionId', async () => {
     stubRoutes({
       [CHART_PATH]: [
         json(200, {
@@ -436,11 +462,11 @@ describe('preparePlay', () => {
 
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(1000),
-      rankedSessionId: null,
+      ranking: { kind: 'issueFailed' },
     });
   });
 
-  it('requests only the chart and resolves a null session when signed out', async () => {
+  it('requests only the chart and resolves a signed-out ranking when signed out', async () => {
     const fetchMock = stubRoutes({
       [CHART_PATH]: [
         json(200, {
@@ -453,7 +479,7 @@ describe('preparePlay', () => {
 
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(1000),
-      rankedSessionId: null,
+      ranking: { kind: 'signedOut' },
     });
     expect(requests(fetchMock).map((request) => request.path)).toEqual([CHART_PATH]);
   });
@@ -480,11 +506,17 @@ describe('preparePlay', () => {
 
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(2000),
-      rankedSessionId: 'session1',
+      ranking: {
+        kind: 'issued',
+        sessionId: 'session1',
+      },
     });
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(2000),
-      rankedSessionId: 'session2',
+      ranking: {
+        kind: 'issued',
+        sessionId: 'session2',
+      },
     });
     expect(requests(fetchMock)).toEqual([
       {
@@ -532,7 +564,7 @@ describe('preparePlay', () => {
     ],
     ['a network failure', () => new TypeError('Failed to fetch')],
   ])(
-    'resolves the new chart without a session when the reissue fails with %s',
+    'resolves the new chart with a failed issue when the reissue fails with %s',
     async (_, failure) => {
       const fetchMock = stubRoutes({
         [CHART_PATH]: [
@@ -551,7 +583,7 @@ describe('preparePlay', () => {
 
       await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
         chart: chartData(2000),
-        rankedSessionId: null,
+        ranking: { kind: 'issueFailed' },
       });
       expect(requests(fetchMock).map((request) => request.path)).toEqual([
         CHART_PATH,
@@ -599,7 +631,7 @@ describe('preparePlay', () => {
     ],
     ['a network failure', () => new TypeError('Failed to fetch')],
   ])(
-    'resolves the first chart without a session or reload when issuing fails with %s',
+    'resolves the first chart with a failed issue and no reload when issuing fails with %s',
     async (_, failure) => {
       const fetchMock = stubRoutes({
         [CHART_PATH]: [
@@ -614,7 +646,7 @@ describe('preparePlay', () => {
 
       await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
         chart: chartData(1000),
-        rankedSessionId: null,
+        ranking: { kind: 'issueFailed' },
       });
       expect(requests(fetchMock).map((request) => request.path)).toEqual([
         CHART_PATH,

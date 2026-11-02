@@ -52,19 +52,19 @@ function chartOf(difficulty: ChartRef['difficulty'], chartId: string): ChartRef 
 
 describe('selectRetryDifficulty', () => {
   it('keeps the same state for the selected difficulty', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'));
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
     expect(selectRetryDifficulty(state, 'easy')).toBe(state);
   });
 
   it('keeps the same state for a difficulty without a chart', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'));
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
     expect(selectRetryDifficulty(state, 'normal')).toBe(state);
   });
 
   it('switches to the chart of another difficulty', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'));
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
     expect(selectRetryDifficulty(state, 'hard').retryChart).toEqual(chartOf('hard', 'hard.json'));
   });
@@ -72,7 +72,7 @@ describe('selectRetryDifficulty', () => {
 
 describe('stepRetryChart', () => {
   it('moves to the next and previous difficulty with a chart', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'));
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
     const next = stepRetryChart(state, 1);
 
     expect(next.retryChart).toEqual(chartOf('hard', 'hard.json'));
@@ -80,8 +80,8 @@ describe('stepRetryChart', () => {
   });
 
   it('keeps the same state at either end', () => {
-    const first = createResultState(chartOf('easy', 'easy.json'));
-    const last = createResultState(chartOf('expert', 'expert.json'));
+    const first = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+    const last = createResultState(chartOf('expert', 'expert.json'), { kind: 'none' });
 
     expect(stepRetryChart(first, -1)).toBe(first);
     expect(stepRetryChart(last, 1)).toBe(last);
@@ -90,7 +90,7 @@ describe('stepRetryChart', () => {
 
 describe('getRetryTabAppearance', () => {
   it('reads selection, chart availability and hover', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'));
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
     expect(getRetryTabAppearance(state, 'easy')).toBe('selected');
     expect(getRetryTabAppearance(state, 'normal')).toBe('disabled');
@@ -102,13 +102,19 @@ describe('getRetryTabAppearance', () => {
 
 describe('hover', () => {
   it('keeps the same state when hovering the hovered difficulty again', () => {
-    const hovered = hoverDifficulty(createResultState(chartOf('easy', 'easy.json')), 'hard');
+    const hovered = hoverDifficulty(
+      createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }),
+      'hard',
+    );
 
     expect(hoverDifficulty(hovered, 'hard')).toBe(hovered);
   });
 
   it('clears hover only for the hovered difficulty', () => {
-    const hovered = hoverDifficulty(createResultState(chartOf('easy', 'easy.json')), 'hard');
+    const hovered = hoverDifficulty(
+      createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }),
+      'hard',
+    );
 
     expect(unhoverDifficulty(hovered, 'expert')).toBe(hovered);
     expect(unhoverDifficulty(hovered, 'hard').hover).toBeNull();
@@ -136,7 +142,7 @@ const FIRST_FINISH = achievementOf('FIRST_FINISH');
 const FIRST_CLEAR = achievementOf('FIRST_CLEAR');
 
 describe('getChangedRegions', () => {
-  const state = createResultState(chartOf('easy', 'easy.json'));
+  const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
   it('redraws only the controls when only the controls open', () => {
     expect(
@@ -157,6 +163,8 @@ describe('getChangedRegions', () => {
       'controls',
       'controlsEntry',
       'controlsClose',
+      'rankingNotice',
+      'rankingNoticeButtons',
       'menuFocusMotion',
     ]);
   });
@@ -195,7 +203,7 @@ describe('getChangedRegions', () => {
 });
 
 describe('getToastChanges', () => {
-  const state = createResultState(chartOf('easy', 'easy.json'));
+  const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
   it('reports entered toasts and moved older toasts', () => {
     const one = queueAchievements(state, [FIRST_FINISH]);

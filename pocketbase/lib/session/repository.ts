@@ -9,7 +9,7 @@ import {
 import { where } from '../../../src/pbQuery.js';
 import { column, columnAs, columns } from '../../../src/pbSql.js';
 import { LANE_COUNTS } from '../../../src/rhythm/lanes.js';
-import type { FinishedGameplayResult } from '../../../src/rhythm/types.js';
+import type { Difficulty, FinishedGameplayResult, LaneCount } from '../../../src/rhythm/types.js';
 import { parseOneOf, selectRows } from '../jsvm.js';
 import type { DbApp, JsvmApp, JsvmRecord, JsvmRuntime } from '../jsvm.js';
 import type { SessionQuota } from './dto.js';
@@ -24,6 +24,8 @@ export function readSessionChart(runtime: QueryRuntime, app: DbApp, chartId: str
       id: 'text',
       revision: 'text',
       data: 'text',
+      difficulty: 'text',
+      laneCount: 'int',
       songKey: 'text',
       gameStartMs: 'float',
       gameEndMs: 'float',
@@ -31,7 +33,7 @@ export function readSessionChart(runtime: QueryRuntime, app: DbApp, chartId: str
     app
       .db()
       .select(
-        ...columns(CHARTS, ['id', 'revision', 'data']),
+        ...columns(CHARTS, ['id', 'revision', 'data', 'difficulty', 'laneCount']),
         columnAs(SONGS, 'key', 'songKey'),
         ...columns(SONGS, ['gameStartMs', 'gameEndMs']),
       )
@@ -46,7 +48,13 @@ export function readSessionChart(runtime: QueryRuntime, app: DbApp, chartId: str
       )
       .limit(1),
   );
-  return chart;
+  return chart === undefined
+    ? undefined
+    : {
+        ...chart,
+        difficulty: parseOneOf(DIFFICULTIES, 'Unknown difficulty', chart.difficulty),
+        laneCount: parseOneOf(LANE_COUNTS, 'Unknown lane count', chart.laneCount),
+      };
 }
 
 export function readOwnSession(
@@ -63,24 +71,36 @@ export function readOwnSession(
       chartRevision: 'text',
       issuedAt: 'text',
       expiresAt: 'text',
-      chart: 'text',
-      difficulty: 'text',
-      laneCount: 'int',
-      song: 'text',
       songKey: 'text',
       gameStartMs: 'float',
       gameEndMs: 'float',
+      difficulty: 'text',
+      laneCount: 'int',
+      chart: 'text',
+      song: 'text',
       constellation: 'text',
+      currentDifficulty: 'text',
+      currentLaneCount: 'int',
     },
     tx
       .db()
       .select(
-        ...columns(PLAY_SESSIONS, ['chartData', 'chartRevision', 'issuedAt', 'expiresAt']),
+        ...columns(PLAY_SESSIONS, [
+          'chartData',
+          'chartRevision',
+          'issuedAt',
+          'expiresAt',
+          'songKey',
+          'gameStartMs',
+          'gameEndMs',
+          'difficulty',
+          'laneCount',
+        ]),
         columnAs(CHARTS, 'id', 'chart'),
-        ...columns(CHARTS, ['difficulty', 'laneCount']),
+        columnAs(CHARTS, 'difficulty', 'currentDifficulty'),
+        columnAs(CHARTS, 'laneCount', 'currentLaneCount'),
         columnAs(SONGS, 'id', 'song'),
-        columnAs(SONGS, 'key', 'songKey'),
-        ...columns(SONGS, ['gameStartMs', 'gameEndMs', 'constellation']),
+        column(SONGS, 'constellation'),
       )
       .from(PLAY_SESSIONS.name)
       .innerJoin(
@@ -96,14 +116,30 @@ export function readOwnSession(
       )
       .limit(1),
   );
-  return row === undefined
-    ? undefined
-    : {
-        ...row,
-        difficulty: parseOneOf(DIFFICULTIES, 'Unknown difficulty', row.difficulty),
-        laneCount: parseOneOf(LANE_COUNTS, 'Unknown lane count', row.laneCount),
-        constellation: parseOneOf(ZODIACS, 'Unknown constellation', row.constellation),
-      };
+  if (row === undefined) {
+    return undefined;
+  }
+  // 검증은 발급 때 고정한 값으로, 랭킹·업적 귀속은 제출 시점의 채보·곡 값으로 한다.
+  return {
+    verification: {
+      chartData: row.chartData,
+      chartRevision: row.chartRevision,
+      issuedAt: row.issuedAt,
+      expiresAt: row.expiresAt,
+      songKey: row.songKey,
+      gameStartMs: row.gameStartMs,
+      gameEndMs: row.gameEndMs,
+      difficulty: parseOneOf(DIFFICULTIES, 'Unknown difficulty', row.difficulty),
+      laneCount: parseOneOf(LANE_COUNTS, 'Unknown lane count', row.laneCount),
+    },
+    current: {
+      chart: row.chart,
+      song: row.song,
+      constellation: parseOneOf(ZODIACS, 'Unknown constellation', row.constellation),
+      difficulty: parseOneOf(DIFFICULTIES, 'Unknown difficulty', row.currentDifficulty),
+      laneCount: parseOneOf(LANE_COUNTS, 'Unknown lane count', row.currentLaneCount),
+    },
+  };
 }
 
 export function readCurrentChart(runtime: QueryRuntime, tx: DbApp, chartId: string) {
@@ -180,7 +216,16 @@ export function savePlaySession(
   tx: JsvmApp,
   session: {
     readonly userId: string;
-    readonly chart: { readonly id: string; readonly revision: string; readonly data: string };
+    readonly chart: {
+      readonly id: string;
+      readonly revision: string;
+      readonly data: string;
+      readonly songKey: string;
+      readonly gameStartMs: number;
+      readonly gameEndMs: number;
+      readonly difficulty: Difficulty;
+      readonly laneCount: LaneCount;
+    };
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
   },
@@ -194,6 +239,11 @@ export function savePlaySession(
   record.set('chartData', session.chart.data);
   record.set('issuedAt', new Date(session.issuedAtMs).toISOString());
   record.set('expiresAt', new Date(session.expiresAtMs).toISOString());
+  record.set('songKey', session.chart.songKey);
+  record.set('gameStartMs', session.chart.gameStartMs);
+  record.set('gameEndMs', session.chart.gameEndMs);
+  record.set('difficulty', session.chart.difficulty);
+  record.set('laneCount', session.chart.laneCount);
   tx.save(record);
   return record.id;
 }

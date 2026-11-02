@@ -30,6 +30,7 @@ pb_data/
 # design work & capture output (not shipped)
 design/
 screenshots/
+audio-check/
 public/assets/**/*.recipe.json
 public/assets/**/*.compose-report.json
 

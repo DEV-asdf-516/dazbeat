@@ -1,7 +1,9 @@
+import { ClientResponseError } from 'pocketbase';
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { parseChart } from '../data/chartSchema.js';
 import type { ChartRef, Song } from '../data/songs.js';
+import { HTTP_STATUS } from '../httpStatus.js';
 import { CHARTS, SONGS } from '../pbCollections.js';
 import { select, where } from '../pbQuery.js';
 import type { Chart, Difficulty, LaneCount } from '../rhythm/types.js';
@@ -13,10 +15,9 @@ export interface LoadedChart {
   revision: string;
 }
 
-export interface SavedChart {
-  chartId: string;
-  loaded: LoadedChart;
-}
+export type SaveChartResult =
+  | { readonly kind: 'saved'; readonly chartId: string; readonly loaded: LoadedChart }
+  | { readonly kind: 'conflict' };
 
 function toLoadedChart(
   record: RecordModel,
@@ -38,14 +39,34 @@ export async function loadChart(pb: PocketBase, ref: ChartRef): Promise<LoadedCh
   return toLoadedChart(record, ref.song, ref.difficulty, ref.laneCount);
 }
 
-export async function saveChart(pb: PocketBase, song: Song, chart: Chart): Promise<SavedChart> {
+export async function saveChart(
+  pb: PocketBase,
+  song: Song,
+  chart: Chart,
+  baseRevision: string | null,
+): Promise<SaveChartResult> {
   const chartId = song.chartIds[chart.laneCount]?.[chart.difficulty];
   if (chartId !== undefined) {
-    const updated = await pb.collection('charts').update(chartId, { data: chart });
-    return {
-      chartId,
-      loaded: toLoadedChart(updated, song, chart.difficulty, chart.laneCount),
-    };
+    if (baseRevision === null) {
+      throw new Error('Updating a saved chart requires the revision it was loaded with.');
+    }
+    try {
+      const updated = await pb.collection('charts').update(chartId, {
+        data: chart,
+        baseRevision,
+      });
+      return {
+        kind: 'saved',
+        chartId,
+        loaded: toLoadedChart(updated, song, chart.difficulty, chart.laneCount),
+      };
+    } catch (error) {
+      // 다른 곳에서 먼저 저장해 기준 revision 이 낡았다.
+      if (error instanceof ClientResponseError && error.status === HTTP_STATUS.conflict) {
+        return { kind: 'conflict' };
+      }
+      throw error;
+    }
   }
   const songFilter = where(SONGS, [{ key: song.id }]);
   const songRecord = await pb
@@ -58,6 +79,7 @@ export async function saveChart(pb: PocketBase, song: Song, chart: Chart): Promi
     data: chart,
   });
   return {
+    kind: 'saved',
     chartId: readRecordField(created, 'charts', 'id', isString),
     loaded: toLoadedChart(created, song, chart.difficulty, chart.laneCount),
   };

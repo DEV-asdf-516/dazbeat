@@ -5,7 +5,11 @@ import type {
 } from '../../../src/audio/YouTubePlayer.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { ChartEditorController } from '../../../src/game/editor/ChartEditorController.js';
-import type { ChartCatalog, EditList } from '../../../src/game/editor/ChartEditorController.js';
+import type {
+  ChartCatalog,
+  ChartSaveOutcome,
+  EditList,
+} from '../../../src/game/editor/ChartEditorController.js';
 import { isDraftDirty } from '../../../src/game/editor/state/chartDraft.js';
 import type { ChartDraft } from '../../../src/game/editor/state/chartDraft.js';
 import {
@@ -52,6 +56,12 @@ const savedSong: Song = {
 };
 
 const SAVED_CHART_ID = 'chart_saved';
+const LOADED_REVISION = 'revision-loaded';
+const SAVED: ChartSaveOutcome = {
+  kind: 'saved',
+  chartId: SAVED_CHART_ID,
+  revision: 'revision-saved',
+};
 
 const otherSong: Song = {
   ...song,
@@ -89,7 +99,11 @@ interface Harness {
   readonly apiLoads: Pending<void>[];
   readonly players: FakePlayer[];
   readonly loads: (Pending<Chart> & { readonly ref: ChartRef })[];
-  readonly saves: (Pending<string> & { readonly song: Song; readonly chart: Chart })[];
+  readonly saves: (Pending<ChartSaveOutcome> & {
+    readonly song: Song;
+    readonly chart: Chart;
+    readonly baseRevision: string | null;
+  })[];
   readonly applied: {
     songId: string;
     laneCount: LaneCount;
@@ -99,6 +113,8 @@ interface Harness {
   readonly leftWith: (string | null)[];
   readonly requestedSec: number[];
   songs: readonly Song[];
+  // 다음으로 끝나는 채보 로드가 돌려줄 revision.
+  loadRevision: string;
   isCreateThrowing: boolean;
   nowMs: number;
   // 화면에 보일 프레임 시각이 벽시계보다 이른 만큼.
@@ -119,6 +135,7 @@ function createHarness(): Harness {
     leftWith: [],
     requestedSec: [],
     songs: [song, otherSong],
+    loadRevision: LOADED_REVISION,
     isCreateThrowing: false,
     nowMs: 0,
     frameLagMs: 0,
@@ -131,18 +148,22 @@ function createHarness(): Harness {
   };
   const catalog: ChartCatalog = {
     loadChart: (ref) =>
-      new Promise((resolve, reject) =>
+      new Promise<Chart>((resolve, reject) =>
         harness.loads.push({
           ref,
           resolve,
           reject,
         }),
-      ),
-    saveChart: (target, chart) =>
+      ).then((chart) => ({
+        chart,
+        revision: harness.loadRevision,
+      })),
+    saveChart: (target, chart, baseRevision) =>
       new Promise((resolve, reject) =>
         harness.saves.push({
           song: target,
           chart,
+          baseRevision,
           resolve,
           reject,
         }),
@@ -434,7 +455,7 @@ describe('opening a chart', () => {
     const session = requireSession(harness.editor.state);
     expect(session.id).not.toBe(previous.id);
     expect(session.gesture).toEqual({ kind: 'none' });
-    expect(session.saveResult).toEqual({ kind: 'idle' });
+    expect(session.saveProgress).toEqual({ kind: 'idle' });
     expect(harness.editor.state.playhead).toEqual({
       currentTimeMs: 4000,
       transport: { kind: 'paused' },
@@ -461,7 +482,7 @@ describe('opening a chart', () => {
     const renderCount = harness.renderCount;
 
     lastLoad(harness).resolve(makeChart([]));
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
 
     expect(harness.editor.state.phase).toEqual({ kind: 'empty' });
@@ -767,9 +788,9 @@ describe('the open confirm dialog', () => {
     expect(getTransport(harness.editor.state)).toEqual({ kind: 'paused' });
     expect(harness.pauseCount).toBe(1);
 
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
-    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'none' });
     expect(getPending(harness.editor.state)).toEqual({ kind: 'leave' });
   });
 
@@ -791,7 +812,7 @@ describe('the open confirm dialog', () => {
     addTap(harness, 5000, 1);
     harness.editor.back();
 
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
     expect(canSave(harness.editor.state)).toBe(false);
     harness.editor.cancelPending();
@@ -1084,7 +1105,7 @@ describe('saving', () => {
     await harness.editor.save();
 
     expect(harness.saves).toEqual([]);
-    expect(getEditorStatus(harness.editor.state)).toMatchObject({ kind: 'invalid' });
+    expect(getPending(harness.editor.state)).toMatchObject({ kind: 'invalidChart' });
     expect(getDraft(harness).selected).toBe(getNotes(harness.editor.state)[1]);
     expect(harness.editor.state.playhead).toEqual({
       currentTimeMs: 3000,
@@ -1098,8 +1119,8 @@ describe('saving', () => {
 
     await harness.editor.save();
 
-    expect(getEditorStatus(harness.editor.state)).toEqual({
-      kind: 'invalid',
+    expect(getPending(harness.editor.state)).toEqual({
+      kind: 'invalidChart',
       reason: 'Invalid chart: chart.notes must not be empty',
     });
   });
@@ -1121,7 +1142,7 @@ describe('saving', () => {
       offsetMs: 0,
       notes,
     });
-    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saving' });
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
     expect(canSave(harness.editor.state)).toBe(false);
   });
 
@@ -1130,10 +1151,10 @@ describe('saving', () => {
     addTap(harness, 3000);
     void harness.editor.save();
 
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
 
-    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'none' });
     expect(harness.applied).toEqual([
       {
         songId: song.id,
@@ -1152,14 +1173,14 @@ describe('saving', () => {
     addTap(harness, 3000);
     void harness.editor.save();
     addTap(harness, 5000);
-    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saving' });
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
     const edited = getNotes(harness.editor.state);
 
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
 
     expect(getNotes(harness.editor.state)).toBe(edited);
-    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
     expect(hasUnsavedChanges(harness.editor.state)).toBe(true);
     expect(canSave(harness.editor.state)).toBe(true);
   });
@@ -1175,7 +1196,7 @@ describe('saving', () => {
       timeMs: 6000,
     });
 
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
     expect(hasUnsavedChanges(harness.editor.state)).toBe(true);
     harness.editor.pointerUp(6000);
@@ -1200,7 +1221,7 @@ describe('saving', () => {
       difficulty: 'hard',
     });
 
-    first.resolve(SAVED_CHART_ID);
+    first.resolve(SAVED);
     await flush();
     expect(harness.editor.state).toBe(reselected);
 
@@ -1215,7 +1236,7 @@ describe('saving', () => {
     expect(harness.editor.state).toBe(loading);
   });
 
-  it('marks a failed save and allows saving again', async () => {
+  it('opens a failure notice and allows saving again once it closes', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
     void harness.editor.save();
@@ -1223,28 +1244,125 @@ describe('saving', () => {
     lastSave(harness).reject(new Error('network'));
     await flush();
 
-    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saveFailed' });
+    expect(getPending(harness.editor.state)).toEqual({ kind: 'saveFailed' });
+    expect(canSave(harness.editor.state)).toBe(false);
+    harness.editor.confirmPending();
+    expect(getPending(harness.editor.state)).toBeNull();
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
     expect(canSave(harness.editor.state)).toBe(true);
   });
 
-  it('returns saved, failed and invalid results to the unsaved status on a notes edit', async () => {
-    const saved = await openLoaded();
-    addTap(saved, 3000);
-    void saved.editor.save();
-    lastSave(saved).resolve(SAVED_CHART_ID);
-    const failed = await openLoaded();
-    addTap(failed, 3000);
-    void failed.editor.save();
-    lastSave(failed).reject(new Error('network'));
-    const invalid = await openLoaded();
-    await invalid.editor.save();
+  it('closes a save notice with back without leaving', async () => {
+    const harness = await openLoaded();
+    await harness.editor.save();
+
+    harness.editor.back();
+
+    expect(getPending(harness.editor.state)).toBeNull();
+    expect(harness.leftWith).toEqual([]);
+  });
+
+  it('replaces an open confirm dialog with the failure notice', async () => {
+    const harness = await openLoaded();
+    addTap(harness, 3000);
+    void harness.editor.save();
+    harness.editor.back();
+    expect(getPending(harness.editor.state)).toEqual({ kind: 'leave' });
+
+    lastSave(harness).reject(new Error('network'));
     await flush();
 
-    for (const harness of [saved, failed, invalid]) {
-      expect(getEditorStatus(harness.editor.state).kind).not.toBe('unsaved');
-      addTap(harness, 5000, 1);
-      expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
-    }
+    expect(getPending(harness.editor.state)).toEqual({ kind: 'saveFailed' });
+  });
+
+  it('saves a loaded chart against its revision and the next save against the saved revision', async () => {
+    const harness = await openLoaded();
+    addTap(harness, 3000);
+    void harness.editor.save();
+    expect(lastSave(harness).baseRevision).toBe(LOADED_REVISION);
+
+    lastSave(harness).resolve(SAVED);
+    await flush();
+    addTap(harness, 5000);
+    void harness.editor.save();
+
+    expect(harness.saves).toHaveLength(2);
+    expect(lastSave(harness).baseRevision).toBe(SAVED.revision);
+  });
+
+  it('saves a new chart without a revision and the next save against the created revision', async () => {
+    const harness = createHarness();
+    harness.editor.select(song, 4, 'hard');
+    await readyPlayer(harness);
+    addTap(harness, 3000);
+    void harness.editor.save();
+    expect(lastSave(harness).baseRevision).toBeNull();
+
+    lastSave(harness).resolve(SAVED);
+    await flush();
+    addTap(harness, 5000);
+    void harness.editor.save();
+
+    expect(lastSave(harness).song).toBe(savedSong);
+    expect(lastSave(harness).baseRevision).toBe(SAVED.revision);
+  });
+
+  it('keeps the draft and its revision on a conflict and saves against the same revision again', async () => {
+    const harness = await openLoaded();
+    addTap(harness, 3000);
+    void harness.editor.save();
+    const before = getDraft(harness);
+
+    lastSave(harness).resolve({ kind: 'conflict' });
+    await flush();
+
+    expect(getPending(harness.editor.state)).toEqual({ kind: 'saveConflict' });
+    harness.editor.confirmPending();
+    const draft = getDraft(harness);
+    expect(draft.notes).toBe(before.notes);
+    expect(draft.savedNotes).toBe(before.savedNotes);
+    expect(draft.baseRevision).toBe(LOADED_REVISION);
+    expect(harness.applied).toEqual([]);
+    expect(canSave(harness.editor.state)).toBe(true);
+
+    addTap(harness, 5000, 1);
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
+    void harness.editor.save();
+    expect(harness.saves).toHaveLength(2);
+    expect(lastSave(harness).baseRevision).toBe(LOADED_REVISION);
+  });
+
+  it('saves against the reloaded revision after a conflict and reopening the chart', async () => {
+    const harness = await openLoaded();
+    addTap(harness, 3000);
+    void harness.editor.save();
+    lastSave(harness).resolve({ kind: 'conflict' });
+    await flush();
+    harness.editor.confirmPending();
+
+    harness.editor.select(song, 4, 'hard');
+    harness.editor.confirmPending();
+    harness.editor.select(song, 4, 'normal');
+    harness.loadRevision = 'revision-latest';
+    lastLoad(harness).resolve(makeChart([TAP_AT_2000]));
+    await flush();
+    expect(getNotes(harness.editor.state)).toEqual([TAP_AT_2000]);
+    addTap(harness, 5000);
+    void harness.editor.save();
+
+    expect(lastSave(harness).baseRevision).toBe('revision-latest');
+  });
+
+  it('shows no status after a save and unsaved after the next edit', async () => {
+    const harness = await openLoaded();
+    addTap(harness, 3000);
+    void harness.editor.save();
+    lastSave(harness).resolve(SAVED);
+    await flush();
+
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'none' });
+    addTap(harness, 5000, 1);
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
   });
 });
 
@@ -1392,7 +1510,7 @@ describe('lane counts', () => {
         },
       ],
     });
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
 
     expect(harness.applied).toEqual([
@@ -1403,7 +1521,7 @@ describe('lane counts', () => {
         chartId: SAVED_CHART_ID,
       },
     ]);
-    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'saved' });
+    expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'none' });
   });
 
   it('marks a 4K chart with a note on lane 4 invalid', async () => {
@@ -1413,7 +1531,7 @@ describe('lane counts', () => {
     await harness.editor.save();
 
     expect(harness.saves).toEqual([]);
-    expect(getEditorStatus(harness.editor.state)).toMatchObject({ kind: 'invalid' });
+    expect(getPending(harness.editor.state)).toMatchObject({ kind: 'invalidChart' });
   });
 
   it('keeps a late save away from the draft of another lane count but lists it as saved', async () => {
@@ -1424,7 +1542,7 @@ describe('lane counts', () => {
     harness.editor.confirmPending();
     const switched = harness.editor.state;
 
-    lastSave(harness).resolve(SAVED_CHART_ID);
+    lastSave(harness).resolve(SAVED);
     await flush();
 
     expect(harness.editor.state).toBe(switched);

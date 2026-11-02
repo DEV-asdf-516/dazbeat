@@ -272,7 +272,7 @@ const DETAIL_FEATURED_Y_PX = 444;
 const DETAIL_NAME_Y_PX = 476;
 const DETAIL_CONDITION_Y_PX = 536;
 const DETAIL_PROGRESS_Y_PX = 610;
-const DETAIL_STATUS_Y_PX = 652;
+const DETAIL_EARNED_Y_PX = 652;
 const DETAIL_RULE_Y_PX = 744;
 const DETAIL_BUTTON_TOP_Y_PX = 768;
 const DETAIL_BUTTON_HEIGHT_PX = 64;
@@ -347,8 +347,8 @@ interface ProfileView {
   detailCondition: Phaser.GameObjects.Text;
   detailProgressLabel: Phaser.GameObjects.Text;
   detailProgressValue: Phaser.GameObjects.Text;
-  detailStatusLabel: Phaser.GameObjects.Text;
-  detailStatus: Phaser.GameObjects.Text;
+  detailEarnedLabel: Phaser.GameObjects.Text;
+  detailEarnedDate: Phaser.GameObjects.Text;
   featuredHalo: Phaser.GameObjects.Sprite;
   detailFeatured: Phaser.GameObjects.Text;
   detailRule: readonly (Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible)[];
@@ -830,17 +830,17 @@ export class ProfileScene extends Phaser.Scene {
       'secondary',
       COLORS.textPrimary,
     ).setOrigin(1, 0);
-    const detailStatusLabel = text(
+    const detailEarnedLabel = text(
       DETAIL_X_PX,
-      DETAIL_STATUS_Y_PX,
+      DETAIL_EARNED_Y_PX,
       'secondary',
       COLORS.textSecondary,
-    );
-    const detailStatus = text(
+    ).setText(this.i18n.t('collection.earned'));
+    const detailEarnedDate = text(
       DETAIL_X_PX + DETAIL_WIDTH_PX,
-      DETAIL_STATUS_Y_PX,
+      DETAIL_EARNED_Y_PX,
       'secondary',
-      COLORS.textMuted,
+      FEATURED_COLOR,
     ).setOrigin(1, 0);
     const featuredHalo = addCelestialSprite(
       this,
@@ -896,8 +896,8 @@ export class ProfileScene extends Phaser.Scene {
       detailCondition,
       detailProgressLabel,
       detailProgressValue,
-      detailStatusLabel,
-      detailStatus,
+      detailEarnedLabel,
+      detailEarnedDate,
       detailFeatured,
       ...detailRule,
       equipButton,
@@ -957,8 +957,8 @@ export class ProfileScene extends Phaser.Scene {
       detailCondition,
       detailProgressLabel,
       detailProgressValue,
-      detailStatusLabel,
-      detailStatus,
+      detailEarnedLabel,
+      detailEarnedDate,
       detailFeatured,
       detailRule,
       equipButton,
@@ -1330,19 +1330,12 @@ export class ProfileScene extends Phaser.Scene {
         view.detailProgressValue.setText(this.i18n.t('collection.noAssignedSongs'));
         break;
     }
-    switch (earning.kind) {
-      case 'locked':
-        view.detailStatusLabel.setText(this.i18n.t('collection.status'));
-        view.detailStatus.setText(this.i18n.t('collection.locked'));
-        setTextColor(view.detailStatus, COLORS.textMuted);
-        view.detailRule.forEach((object) => object.setVisible(false));
-        return;
-      case 'earned':
-        view.detailStatusLabel.setText(this.i18n.t('collection.earned'));
-        view.detailStatus.setText(formatDate(earning.earnedAtMs));
-        setTextColor(view.detailStatus, FEATURED_COLOR);
-        view.detailRule.forEach((object) => object.setVisible(true));
-        return;
+    const earned = earning.kind === 'earned';
+    view.detailEarnedLabel.setVisible(earned);
+    view.detailEarnedDate.setVisible(earned);
+    view.detailRule.forEach((object) => object.setVisible(earned));
+    if (earning.kind === 'earned') {
+      view.detailEarnedDate.setText(formatDate(earning.earnedAtMs));
     }
   }
 

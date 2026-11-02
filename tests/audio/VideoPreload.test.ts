@@ -59,13 +59,47 @@ describe('VideoPreload', () => {
     it('does not complete before the warm-up pauses', () => {
       const { fake, preload } = setup(1000);
       fake.bufferedEndSec = 60;
-      fake.nowMs += 20000;
-      expect(preload.tick()).toBe(false);
+      fake.nowMs += 4000;
+      expect(preload.tick()).toBe('waiting');
       preload.handleStateChange('playing');
-      fake.nowMs += 20000;
-      expect(preload.tick()).toBe(false);
+      fake.nowMs += 4000;
+      expect(preload.tick()).toBe('waiting');
       preload.handleStateChange('paused');
-      expect(preload.tick()).toBe(true);
+      expect(preload.tick()).toBe('ready');
+    });
+
+    it('times out 10000ms after it started when playing never comes', () => {
+      const { fake, preload } = setup(1000);
+      fake.nowMs += 9999;
+      expect(preload.tick()).toBe('waiting');
+      fake.nowMs += 1;
+      expect(preload.tick()).toBe('timedOut');
+    });
+
+    it('times out 10000ms after it started when paused never comes after playing', () => {
+      const { fake, preload } = setup(1000);
+      fake.nowMs += 5000;
+      preload.handleStateChange('playing');
+      fake.nowMs += 4999;
+      expect(preload.tick()).toBe('waiting');
+      fake.nowMs += 1;
+      expect(preload.tick()).toBe('timedOut');
+    });
+
+    it('times out when paused arrives at the deadline before the next tick', () => {
+      const { fake, preload } = setup(1000);
+      fake.bufferedEndSec = 60;
+      preload.handleStateChange('playing');
+      fake.nowMs += 9999;
+      preload.handleStateChange('paused');
+      expect(preload.tick()).toBe('ready');
+
+      const late = setup(1000);
+      late.fake.bufferedEndSec = 60;
+      late.preload.handleStateChange('playing');
+      late.fake.nowMs += 10000;
+      late.preload.handleStateChange('paused');
+      expect(late.preload.tick()).toBe('timedOut');
     });
   });
 
@@ -73,28 +107,28 @@ describe('VideoPreload', () => {
     it('completes once the buffered end reaches the preload end', () => {
       const { fake, preload } = setupPreloading();
       fake.bufferedEndSec = 59.999;
-      expect(preload.tick()).toBe(false);
+      expect(preload.tick()).toBe('waiting');
       fake.bufferedEndSec = 60;
-      expect(preload.tick()).toBe(true);
+      expect(preload.tick()).toBe('ready');
     });
 
     it('completes after the buffered end stays put for 2000ms', () => {
       const { fake, preload } = setupPreloading();
       fake.nowMs += 1999;
-      expect(preload.tick()).toBe(false);
+      expect(preload.tick()).toBe('waiting');
       fake.nowMs += 1;
-      expect(preload.tick()).toBe(true);
+      expect(preload.tick()).toBe('ready');
     });
 
     it('measures the idle time from the last growth of the buffered end', () => {
       const { fake, preload } = setupPreloading();
       fake.nowMs += 1500;
       fake.bufferedEndSec = 10;
-      expect(preload.tick()).toBe(false);
+      expect(preload.tick()).toBe('waiting');
       fake.nowMs += 1999;
-      expect(preload.tick()).toBe(false);
+      expect(preload.tick()).toBe('waiting');
       fake.nowMs += 1;
-      expect(preload.tick()).toBe(true);
+      expect(preload.tick()).toBe('ready');
     });
 
     it('completes after 10000ms even while the buffered end keeps growing', () => {
@@ -102,20 +136,20 @@ describe('VideoPreload', () => {
       for (let elapsedMs = 1000; elapsedMs < 10000; elapsedMs += 1000) {
         fake.nowMs += 1000;
         fake.bufferedEndSec += 1;
-        expect(preload.tick()).toBe(false);
+        expect(preload.tick()).toBe('waiting');
       }
       fake.nowMs += 999;
       fake.bufferedEndSec += 1;
-      expect(preload.tick()).toBe(false);
+      expect(preload.tick()).toBe('waiting');
       fake.nowMs += 1;
       fake.bufferedEndSec += 1;
-      expect(preload.tick()).toBe(true);
+      expect(preload.tick()).toBe('ready');
     });
 
     it('completes without calling the player', () => {
       const { fake, preload } = setupPreloading();
       fake.bufferedEndSec = 60;
-      expect(preload.tick()).toBe(true);
+      expect(preload.tick()).toBe('ready');
       expect(fake.calls).toEqual([]);
     });
 
@@ -126,7 +160,7 @@ describe('VideoPreload', () => {
         fake.nowMs += 500;
         preload.handleStateChange(state);
         expect(fake.calls).toEqual([]);
-        expect(preload.tick()).toBe(false);
+        expect(preload.tick()).toBe('waiting');
       },
     );
   });

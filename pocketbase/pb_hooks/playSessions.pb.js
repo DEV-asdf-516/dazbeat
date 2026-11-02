@@ -4,7 +4,7 @@ routerAdd(
   'POST',
   '/api/dazbeat/play-sessions',
   (e) => {
-    const { parseSessionRequest, SessionRejectedError, SESSION_REJECTIONS } = require(
+    const { parseSessionRequest, InvalidSessionRequestError, SESSION_REJECTIONS } = require(
       `${__hooks}/lib/session/dto.cjs`,
     );
     const { loadSessionChart, issuePlaySession } = require(
@@ -15,19 +15,23 @@ routerAdd(
     const reject = (code) =>
       fail(SESSION_REJECTIONS[code].status, code, SESSION_REJECTIONS[code].message);
 
-    let chart;
+    let load;
     try {
-      chart = loadSessionChart(
+      load = loadSessionChart(
         { Record, DynamicModel, arrayOf, dbx: $dbx },
         e.app,
         parseSessionRequest(e.requestInfo().body),
       );
     } catch (error) {
-      if (error instanceof SessionRejectedError) {
+      if (error instanceof InvalidSessionRequestError) {
         return reject(error.code);
       }
       throw error;
     }
+    if (load.kind === 'changed') {
+      return reject('chart_changed');
+    }
+    const { chart } = load;
 
     const issue = issuePlaySession(
       { Record, DynamicModel, arrayOf, dbx: $dbx },
@@ -53,7 +57,7 @@ routerAdd(
   '/api/dazbeat/play-sessions/{sessionId}/result',
   (e) => {
     const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
-    const { PLAY_REJECTION_RESPONSES, SessionRejectedError, SESSION_REJECTIONS } = require(
+    const { PLAY_REJECTION_RESPONSES, InvalidSessionRequestError, SESSION_REJECTIONS } = require(
       `${__hooks}/lib/session/dto.cjs`,
     );
     const { verifyPlay } = require(`${__hooks}/lib/session/service/verify.cjs`);
@@ -69,22 +73,24 @@ routerAdd(
     const runtime = { Record, DynamicModel, arrayOf, dbx: $dbx };
     try {
       const played = consumePlaySession(runtime, e.app, sessionId, userId);
+      // 검증은 발급 때 고정한 값으로만 한다. 그 뒤 곡·채보가 바뀌어도 발급한 판의 기준은 그대로다.
+      const snapshot = played.verification;
       const verification = verifyPlay({
         song: {
-          key: played.songKey,
-          gameStartMs: played.gameStartMs,
-          gameEndMs: played.gameEndMs,
+          key: snapshot.songKey,
+          gameStartMs: snapshot.gameStartMs,
+          gameEndMs: snapshot.gameEndMs,
         },
-        difficulty: played.difficulty,
-        laneCount: played.laneCount,
+        difficulty: snapshot.difficulty,
+        laneCount: snapshot.laneCount,
         chart: {
-          revision: $security.sha256(played.chartData),
-          data: JSON.parse(played.chartData),
+          revision: $security.sha256(snapshot.chartData),
+          data: JSON.parse(snapshot.chartData),
         },
         session: {
-          chartRevision: played.chartRevision,
-          issuedAtMs: new DateTime(played.issuedAt).time().unixMilli(),
-          expiresAtMs: new DateTime(played.expiresAt).time().unixMilli(),
+          chartRevision: snapshot.chartRevision,
+          issuedAtMs: new DateTime(snapshot.issuedAt).time().unixMilli(),
+          expiresAtMs: new DateTime(snapshot.expiresAt).time().unixMilli(),
         },
         submission: e.requestInfo().body,
         nowMs: Date.now(),
@@ -113,7 +119,7 @@ routerAdd(
         newAchievements,
       });
     } catch (error) {
-      if (error instanceof SessionRejectedError) {
+      if (error instanceof InvalidSessionRequestError) {
         return reject(error.code);
       }
       throw error;
