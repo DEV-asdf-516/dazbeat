@@ -271,7 +271,6 @@ const DETAIL_EMBLEM_SIZE_PX = 200;
 const DETAIL_EMBLEM_CENTER_Y_PX = 330;
 // 선택 후광 그림의 고리가 엠블럼 틀 바로 바깥을 돌게 하는 크기.
 const DETAIL_FEATURED_HALO_SIZE_PX = 264;
-const DETAIL_FEATURED_Y_PX = 444;
 const DETAIL_NAME_Y_PX = 476;
 const DETAIL_CONDITION_Y_PX = 536;
 const DETAIL_PROGRESS_Y_PX = 610;
@@ -353,7 +352,6 @@ interface ProfileView {
   detailEarnedLabel: Phaser.GameObjects.Text;
   detailEarnedDate: Phaser.GameObjects.Text;
   featuredHalo: Phaser.GameObjects.Sprite;
-  detailFeatured: Phaser.GameObjects.Text;
   detailRule: readonly (Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible)[];
   equipButton: Button;
   unequipButton: Button;
@@ -475,6 +473,8 @@ export class ProfileScene extends Phaser.Scene {
     const controller = new ProfileController(this.ports, {
       render: (previous, next) => this.render(view, chrome, backButton, next, previous, controller),
       playFocusSound: () => soundEffects.play('menuFocus'),
+      playFeaturedSound: (featuredId) =>
+        soundEffects.play(featuredId === null ? 'unequip' : 'equip'),
       leaveToMain: () => {
         this.exit = exitScene(this, this.exit, {
           key: 'main',
@@ -852,13 +852,6 @@ export class ProfileScene extends Phaser.Scene {
       DETAIL_X_PX + DETAIL_WIDTH_PX / 2,
       DETAIL_EMBLEM_CENTER_Y_PX,
     ).setDisplaySize(DETAIL_FEATURED_HALO_SIZE_PX, DETAIL_FEATURED_HALO_SIZE_PX);
-    const detailFeatured = text(
-      DETAIL_X_PX,
-      DETAIL_FEATURED_Y_PX,
-      'meta',
-      FEATURED_COLOR,
-      ROW_LABEL_WEIGHT,
-    ).setText(this.i18n.t('collection.featured'));
     const detailRule = [
       addHairline(this, DETAIL_X_PX, DETAIL_RULE_Y_PX, DETAIL_X_PX + DETAIL_WIDTH_PX),
       addCelestialSprite(
@@ -902,7 +895,6 @@ export class ProfileScene extends Phaser.Scene {
       detailProgressValue,
       detailEarnedLabel,
       detailEarnedDate,
-      detailFeatured,
       ...detailRule,
       equipButton,
       unequipButton,
@@ -963,7 +955,6 @@ export class ProfileScene extends Phaser.Scene {
       detailProgressValue,
       detailEarnedLabel,
       detailEarnedDate,
-      detailFeatured,
       detailRule,
       equipButton,
       unequipButton,
@@ -1294,7 +1285,6 @@ export class ProfileScene extends Phaser.Scene {
       case 'featured': {
         const isFeatured = isFocusedFeatured(state);
         setCelestialLoopActive(view.featuredHalo, isFeatured);
-        view.detailFeatured.setVisible(isFeatured);
         const featuredAction = getFeaturedAction(state);
         view.equipButton.setVisible(featuredAction === 'equip');
         view.unequipButton.setVisible(featuredAction === 'unequip');

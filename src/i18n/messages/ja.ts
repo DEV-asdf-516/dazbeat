@@ -149,7 +149,6 @@ export const ja: Messages = {
     currentSongs: '現在の収録曲',
     noAssignedSongs: '割り当てられた曲なし',
     earned: '獲得',
-    featured: '装備中',
     setFeatured: '装備',
     unsetFeatured: '装備解除',
   },

@@ -147,7 +147,6 @@ export const ko = {
     currentSongs: '현재 수록곡 기준',
     noAssignedSongs: '배정된 곡 없음',
     earned: '획득',
-    featured: '장착 중',
     setFeatured: '장착',
     unsetFeatured: '장착 해제',
   },

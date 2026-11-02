@@ -55,6 +55,7 @@ export interface ProfilePorts {
 export interface ProfileScreen {
   render(previous: ProfileScreenState | null, next: ProfileScreenState): void;
   playFocusSound(): void;
+  playFeaturedSound(featuredId: AchievementId | null): void;
   leaveToMain(): void;
 }
 
@@ -339,6 +340,7 @@ export class ProfileController {
       (saved) => {
         if (this.featuredToken === token) {
           this.updateLoaded((current) => saveFeatured(current, saved));
+          this.screen.playFeaturedSound(saved);
         }
       },
       () => {

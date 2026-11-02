@@ -149,7 +149,6 @@ export const en: Messages = {
     currentSongs: 'Current songs',
     noAssignedSongs: 'No songs assigned',
     earned: 'Earned',
-    featured: 'EQUIPPED',
     setFeatured: 'Equip',
     unsetFeatured: 'Unequip',
   },
