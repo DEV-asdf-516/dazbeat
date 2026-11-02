@@ -33,7 +33,8 @@ export const ko = {
   },
   settings: {
     title: 'SETTINGS',
-    waitingKey: '레인 {{lane}} 키를 누르세요 (Esc 취소)',
+    waitingKey: '레인 {{lane}} 키를 누르세요',
+    waitingCancel: '취소',
     resetTitle: '설정을 초기화할까요?',
     resetConfirm: '언어를 제외한 모든 설정이 기본값으로 돌아갑니다.',
     groups: {

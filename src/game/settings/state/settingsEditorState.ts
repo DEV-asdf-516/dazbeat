@@ -93,10 +93,13 @@ export function isRowShown(row: SettingsRow, settings: Settings): boolean {
   return row.kind !== 'key' || row.lane < settings.laneMode;
 }
 
-export type SettingsRowAppearance = 'emphasized' | 'normal';
+export type SettingsRowAppearance = 'selected' | 'emphasized' | 'normal';
 
 export function getRowAppearance(state: SettingsEditorState, index: number): SettingsRowAppearance {
-  return index === state.rowIndex || index === getHoveredRowIndex(state) ? 'emphasized' : 'normal';
+  if (index === state.rowIndex) {
+    return 'selected';
+  }
+  return index === getHoveredRowIndex(state) ? 'emphasized' : 'normal';
 }
 
 export function focusRow(state: SettingsEditorState, index: number): SettingsEditorState {
@@ -409,7 +412,7 @@ export function canAdjustRow(
 }
 
 export function getKeyBoxView(state: SettingsEditorState, index: number): ButtonView {
-  return getButtonView(state.hover, getKeyBoxButton(index), true, false);
+  return getButtonView(state.hover, getKeyBoxButton(index), true, index === state.rowIndex);
 }
 
 export function getStepView(
@@ -421,7 +424,7 @@ export function getStepView(
     state.hover,
     getStepButton(index, direction),
     canAdjustRow(state, index, direction),
-    false,
+    index === state.rowIndex,
   );
 }
 
@@ -457,7 +460,7 @@ export type SettingsRegion =
   | 'groups'
   | 'rowLabels'
   | 'rowControls'
-  | 'focusStar'
+  | 'selectedHalo'
   | 'waitingText'
   | 'controlsEntry'
   | 'resetDialog'
@@ -498,14 +501,14 @@ const REGION_SOURCES: Readonly<Record<SettingsRegion, readonly SettingsReader[]>
   groups: [readDisplayedLanguage],
   rowLabels: [readSettings, readRowIndex, readHoveredRowIndex, readDisplayedLanguage],
   rowControls: [readSettings, readDisplayedLanguage, readMode],
-  focusStar: [readRowIndex],
+  selectedHalo: [readRowIndex],
   waitingText: [readMode, readDisplayedLanguage],
   controlsEntry: [readMode, readEntryHovered],
   // 열림이 바뀔 때만 골라져야 확인 창 페이드가 열고 닫을 때만 돈다. 문구는 칠할 때의 언어로 번역한다.
   resetDialog: [readIsConfirmingReset],
   controls: [readControlsOpen],
-  // 조정 버튼의 활성은 설정과 표시 언어로 정해진다.
-  rowButtons: [readRowButtonHover, readSettings, readDisplayedLanguage],
+  // 조정 버튼의 활성은 설정과 표시 언어로, 테두리는 포커스 행으로 정해진다.
+  rowButtons: [readRowButtonHover, readSettings, readDisplayedLanguage, readRowIndex],
   backButton: [readBackHovered, readBackPressed],
   resetEntry: [readResetEntryHovered],
   resetButtons: [
