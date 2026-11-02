@@ -243,9 +243,9 @@ describe('readSettingsKey', () => {
 });
 
 describe('getRowAppearance', () => {
-  it('emphasizes the focused and hovered rows only', () => {
+  it('selects the focused row and emphasizes the hovered row only', () => {
     const state = hoverRow(focusRow(initial(), 1), 2);
-    expect(getRowAppearance(state, 1)).toBe('emphasized');
+    expect(getRowAppearance(state, 1)).toBe('selected');
     expect(getRowAppearance(state, 2)).toBe('emphasized');
     expect(getRowAppearance(state, 0)).toBe('normal');
   });
@@ -528,7 +528,7 @@ describe('getChangedRegions', () => {
       'groups',
       'rowLabels',
       'rowControls',
-      'focusStar',
+      'selectedHalo',
       'waitingText',
       'controlsEntry',
       'resetDialog',
@@ -566,7 +566,7 @@ describe('getChangedRegions', () => {
     expect(getChangedRegions(state, adjustRow(state, 0, -1))).toEqual([
       'rowLabels',
       'rowControls',
-      'focusStar',
+      'selectedHalo',
       'rowButtons',
     ]);
   });
