@@ -55,6 +55,7 @@ export interface ProfilePorts {
 export interface ProfileScreen {
   render(previous: ProfileScreenState | null, next: ProfileScreenState): void;
   playFocusSound(): void;
+  playCloseSound(): void;
   playFeaturedSound(featuredId: AchievementId | null): void;
   leaveToMain(): void;
 }
@@ -261,6 +262,7 @@ export class ProfileController {
 
   closeControls(): void {
     this.apply((screen) => withControlsOpen(screen, false));
+    this.screen.playCloseSound();
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {

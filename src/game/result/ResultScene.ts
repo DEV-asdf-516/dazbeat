@@ -393,7 +393,7 @@ export class ResultScene extends Phaser.Scene {
         scene: this,
         catalog: this.catalog,
         label: this.i18n.t('achievements.unlocked'),
-        onClose: (id) => controller.dismissToast(id),
+        onClose: (id) => controller.closeToast(id),
         onHover: (id) => controller.hoverToastClose(id),
         onUnhover: (id) => controller.unhoverToastClose(id),
         onExpire: (id) => controller.dismissToast(id),
@@ -413,6 +413,7 @@ export class ResultScene extends Phaser.Scene {
           }
         },
         playFocusSound: () => soundEffects.play('menuFocus'),
+        playCloseSound: () => soundEffects.play('close'),
         leave: (request) => {
           this.exit = exitScene(this, this.exit, request);
         },

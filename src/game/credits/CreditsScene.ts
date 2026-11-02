@@ -18,6 +18,7 @@ import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import { ScrollBar } from '../ui/view/widgets/ScrollBar.js';
+import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { COLORS, SCREEN_LAYOUT, textStyle } from '../ui/view/theme.js';
 import { CreditsController } from './CreditsController.js';
 import {
@@ -79,6 +80,7 @@ export class CreditsScene extends Phaser.Scene {
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'secondary'),
     ]);
+    queueSoundEffects(this);
   }
 
   create(): void {
@@ -125,6 +127,7 @@ export class CreditsScene extends Phaser.Scene {
     };
 
     chrome.start(title.getBounds());
+    const soundEffects = new SoundEffects(this, this.save.loadSettings());
     const controller = new CreditsController(
       this.catalog,
       {
@@ -133,6 +136,7 @@ export class CreditsScene extends Phaser.Scene {
             this.renderRegion(view, next, region);
           }
         },
+        playCloseSound: () => soundEffects.play('close'),
         leave: () => {
           this.exit = exitScene(this, this.exit, {
             key: 'main',

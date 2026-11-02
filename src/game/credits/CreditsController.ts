@@ -14,6 +14,7 @@ import type { CreditsButton, CreditsGrid, CreditsState } from './state/creditsSt
 
 export interface CreditsScreen {
   render(previous: CreditsState | null, next: CreditsState): void;
+  playCloseSound(): void;
   leave(): void;
 }
 
@@ -62,6 +63,7 @@ export class CreditsController {
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
+    this.screen.playCloseSound();
   }
 
   pointerOver(button: CreditsButton): void {

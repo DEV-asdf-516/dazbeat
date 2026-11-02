@@ -474,6 +474,7 @@ export class ProfileScene extends Phaser.Scene {
     const controller = new ProfileController(this.ports, {
       render: (previous, next) => this.render(view, chrome, backButton, next, previous, controller),
       playFocusSound: () => soundEffects.play('menuFocus'),
+      playCloseSound: () => soundEffects.play('close'),
       playFeaturedSound: (featuredId) =>
         soundEffects.play(featuredId === null ? 'unequip' : 'equip'),
       leaveToMain: () => {

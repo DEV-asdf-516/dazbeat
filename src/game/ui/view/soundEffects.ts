@@ -5,7 +5,14 @@ import type { Settings } from '../../../storage/settings.js';
 import { warnOnLoadError } from './textures/loadWarning.js';
 
 export type SoundEffect =
-  'lanePress' | 'judgeGood' | 'judgeBad' | 'judgeMiss' | 'menuFocus' | 'equip' | 'unequip';
+  | 'lanePress'
+  | 'judgeGood'
+  | 'judgeBad'
+  | 'judgeMiss'
+  | 'menuFocus'
+  | 'equip'
+  | 'unequip'
+  | 'close';
 
 type SoundEffectGroup = 'lane' | 'judgment' | 'menu';
 
@@ -43,6 +50,11 @@ const SOUND_EFFECTS: Record<SoundEffect, { key: string; url: string; group: Soun
   unequip: {
     key: 'sfx-unequip',
     url: '/assets/audio/sfx/unequip.wav',
+    group: 'menu',
+  },
+  close: {
+    key: 'sfx-close',
+    url: '/assets/audio/sfx/close.wav',
     group: 'menu',
   },
 };

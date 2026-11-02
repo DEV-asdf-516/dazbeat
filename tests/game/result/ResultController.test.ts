@@ -107,6 +107,7 @@ function createHarness(
           previous,
           next,
         }),
+      playCloseSound: () => undefined,
       playFocusSound: () => {
         focusSoundCount += 1;
       },

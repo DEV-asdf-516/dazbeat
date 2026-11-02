@@ -66,6 +66,7 @@ function createHarness(initialSongs: readonly Song[]): Harness {
           previous,
           next,
         }),
+      playCloseSound: () => undefined,
       leave: () => {
         leaveCount += 1;
       },

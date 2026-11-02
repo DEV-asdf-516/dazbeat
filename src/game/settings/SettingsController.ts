@@ -35,6 +35,7 @@ import type {
 export interface SettingsScreen {
   render(previous: SettingsEditorState | null, next: SettingsEditorState): void;
   playFocusSound(settings: Settings): void;
+  playCloseSound(settings: Settings): void;
   setMusicVolume(settings: Settings): void;
   leave(): void;
 }
@@ -103,6 +104,7 @@ export class SettingsController {
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
+    this.screen.playCloseSound(this.settings);
   }
 
   pointerOver(button: SettingsButton): void {

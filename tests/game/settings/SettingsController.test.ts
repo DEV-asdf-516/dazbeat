@@ -118,6 +118,7 @@ function createHarness(): Harness {
           previous,
           next,
         }),
+      playCloseSound: () => undefined,
       playFocusSound: (settings) =>
         events.push({
           kind: 'focusSound',
