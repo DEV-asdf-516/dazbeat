@@ -24,6 +24,7 @@ export interface SongListState {
   readonly focusedIndex: number;
   readonly topIndex: number;
   readonly hover: ChartEditorSelectHover | null;
+  readonly isLoadMoreFailureCancelled: boolean;
 }
 
 export interface SongListRow {
@@ -41,7 +42,7 @@ export type SongListNotice =
 
 export type SongListStatus = 'loadingMore' | 'loadMoreFailed';
 
-export type EditorSelectButton = 'back' | 'retry';
+export type EditorSelectButton = 'back' | 'retry' | 'failureCancel' | 'failureRetry';
 
 export type ChartEditorSelectHover =
   { readonly kind: 'filter'; readonly category: SongFilter } | ButtonHover<EditorSelectButton>;
@@ -55,6 +56,7 @@ export interface ChartEditorSelectView {
   readonly notice: SongListNotice | null;
   readonly status: SongListStatus | null;
   readonly canRetry: boolean;
+  readonly isLoadMoreFailureOpen: boolean;
 }
 
 export type SongListCommand =
@@ -63,6 +65,7 @@ export type SongListCommand =
   | { readonly kind: 'edit' }
   | { readonly kind: 'leave' }
   | { readonly kind: 'retry' }
+  | { readonly kind: 'cancelLoadMoreFailure' }
   | { readonly kind: 'focusSearch' }
   | { readonly kind: 'search' }
   | { readonly kind: 'blurSearch' };
@@ -87,6 +90,7 @@ export function createSongList(
       getMaxTopIndex(songs.length, visibleRowCount),
     ),
     hover,
+    isLoadMoreFailureCancelled: false,
   };
 }
 
@@ -217,12 +221,39 @@ export function getSongListStatus(
   }
 }
 
+export function isLoadMoreFailureOpen(list: SongListState, status: SongListStatus | null): boolean {
+  return status === 'loadMoreFailed' && !list.isLoadMoreFailureCancelled;
+}
+
+// 다시 받을 때는 취소를 풀어, 그러다 또 실패하면 팝업이 다시 뜨게 한다.
+export function setLoadMoreFailureCancelled(
+  list: SongListState,
+  isCancelled: boolean,
+): SongListState {
+  const unhovered = withoutFailureHover(list);
+  return unhovered.isLoadMoreFailureCancelled === isCancelled
+    ? unhovered
+    : {
+        ...unhovered,
+        isLoadMoreFailureCancelled: isCancelled,
+      };
+}
+
+// Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 팝업을 숨기는 전이에서 그 버튼 hover 를 푼다.
+function withoutFailureHover(list: SongListState): SongListState {
+  return withHover(list, unhoverButton(unhoverButton(list.hover, 'failureCancel'), 'failureRetry'));
+}
+
 export type SongListKey = Pick<KeyboardEvent, 'code' | 'repeat' | 'isComposing' | 'keyCode'>;
 
 export function readSongListCommand(
   key: SongListKey,
   isSearchFocused: boolean,
+  isFailureOpen: boolean,
 ): SongListCommand | null {
+  if (isFailureOpen) {
+    return readLoadMoreFailureCommand(key);
+  }
   if (isSearchFocused) {
     return readSearchCommand(key);
   }
@@ -260,6 +291,21 @@ export function readSongListCommand(
     case 'left':
     case 'right':
     case null:
+      return null;
+  }
+}
+
+/** 실패 팝업이 열린 동안에는 그 팝업의 다시 시도와 취소만 받는다. */
+function readLoadMoreFailureCommand(key: SongListKey): SongListCommand | null {
+  if (key.code === 'KeyR') {
+    return { kind: 'retry' };
+  }
+  switch (readMenuAction(key)) {
+    case 'confirm':
+      return { kind: 'retry' };
+    case 'back':
+      return { kind: 'cancelLoadMoreFailure' };
+    default:
       return null;
   }
 }
@@ -386,7 +432,14 @@ export function isEditorSelectButtonEnabled(
   button: EditorSelectButton,
   canRetry: boolean,
 ): boolean {
-  return button === 'back' || canRetry;
+  switch (button) {
+    case 'back':
+    case 'failureCancel':
+      return true;
+    case 'retry':
+    case 'failureRetry':
+      return canRetry;
+  }
 }
 
 export function getEditorSelectButtonView(
@@ -414,7 +467,9 @@ export type EditorSelectRegion =
   | 'notice'
   | 'status'
   | 'backButton'
-  | 'retryButton';
+  | 'retryButton'
+  | 'loadMoreFailure'
+  | 'loadMoreFailureButtons';
 
 type SelectReader = StateReader<ChartEditorSelectView>;
 
@@ -433,6 +488,13 @@ const readBackHovered: SelectReader = (view) => isButtonHovered(view.hover, 'bac
 const readBackPressed: SelectReader = (view) => isButtonPressed(view.hover, 'back');
 const readRetryHovered: SelectReader = (view) => isButtonHovered(view.hover, 'retry');
 const readRetryPressed: SelectReader = (view) => isButtonPressed(view.hover, 'retry');
+const readIsFailureOpen: SelectReader = (view) => view.isLoadMoreFailureOpen;
+const readFailureCancelHovered: SelectReader = (view) =>
+  isButtonHovered(view.hover, 'failureCancel');
+const readFailureCancelPressed: SelectReader = (view) =>
+  isButtonPressed(view.hover, 'failureCancel');
+const readFailureRetryHovered: SelectReader = (view) => isButtonHovered(view.hover, 'failureRetry');
+const readFailureRetryPressed: SelectReader = (view) => isButtonPressed(view.hover, 'failureRetry');
 
 const REGION_SOURCES: Readonly<
   Record<Exclude<EditorSelectRegion, 'listRows'>, readonly SelectReader[]>
@@ -446,6 +508,15 @@ const REGION_SOURCES: Readonly<
   status: [readStatus],
   backButton: [readBackHovered, readBackPressed],
   retryButton: [readCanRetry, readRetryHovered, readRetryPressed],
+  loadMoreFailure: [readIsFailureOpen],
+  loadMoreFailureButtons: [
+    readIsFailureOpen,
+    readCanRetry,
+    readFailureCancelHovered,
+    readFailureCancelPressed,
+    readFailureRetryHovered,
+    readFailureRetryPressed,
+  ],
 };
 
 // 행 view 는 그릴 때마다 새로 만들어지므로 행 영역은 곡이 바뀐 행이 있는지로 고른다.

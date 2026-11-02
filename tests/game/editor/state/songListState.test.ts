@@ -41,6 +41,7 @@ function list(focusedIndex: number, topIndex: number): SongListState {
     focusedIndex,
     topIndex,
     hover: null,
+    isLoadMoreFailureCancelled: false,
   };
 }
 
@@ -72,6 +73,7 @@ describe('createSongList', () => {
       focusedIndex: 0,
       topIndex: 0,
       hover: null,
+      isLoadMoreFailureCancelled: false,
     });
     expect(moveSongListFocus(empty, 1)).toBe(empty);
     expect(scrollSongList(empty, 1)).toBe(empty);
@@ -199,6 +201,7 @@ function viewOf(
     notice: null,
     status: null,
     canRetry: false,
+    isLoadMoreFailureOpen: false,
     ...overrides,
   };
 }
@@ -300,6 +303,7 @@ describe('getListFrame', () => {
           focusedIndex: 0,
           topIndex: 0,
           hover: null,
+          isLoadMoreFailureCancelled: false,
         }),
       ),
     ).toEqual({
@@ -314,6 +318,7 @@ describe('getListFrame', () => {
           focusedIndex: 0,
           topIndex: 0,
           hover: null,
+          isLoadMoreFailureCancelled: false,
         }),
       ),
     ).toEqual({

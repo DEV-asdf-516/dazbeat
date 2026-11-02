@@ -455,6 +455,45 @@ describe('ChartEditorSelectController status', () => {
     expect(harness.view.canRetry).toBe(true);
   });
 
+  it('opens a failure popup when loading more fails, cancels it with Escape and opens it again on the next failure', async () => {
+    const harness = openLoaded();
+    harness.controller.scroll(5);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await settle(harness.server.calls[0], 'reject');
+
+    expect(harness.view.isLoadMoreFailureOpen).toBe(true);
+    expect(harness.controller.handleKey(key('ArrowUp'))).toBe(false);
+
+    expect(harness.controller.handleKey(key('Escape'))).toBe(true);
+    expect(harness.view.isLoadMoreFailureOpen).toBe(false);
+    expect(harness.view.canRetry).toBe(true);
+
+    harness.controller.retry();
+    expect(harness.view.isLoadMoreFailureOpen).toBe(false);
+    await settle(harness.server.calls[1], 'reject');
+
+    expect(harness.view.isLoadMoreFailureOpen).toBe(true);
+  });
+
+  it('retries from the failure popup with Enter or its RETRY and releases that hover when it hides', async () => {
+    const harness = openLoaded();
+    harness.controller.scroll(5);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await settle(harness.server.calls[0], 'reject');
+
+    expect(harness.controller.handleKey(key('Enter'))).toBe(true);
+    expect(harness.server.calls).toHaveLength(2);
+    await settle(harness.server.calls[1], 'reject');
+
+    harness.controller.pointerOver('failureRetry');
+    harness.controller.pointerDown('failureRetry');
+    harness.controller.pointerUp('failureRetry');
+
+    expect(harness.server.calls).toHaveLength(3);
+    expect(harness.view.isLoadMoreFailureOpen).toBe(false);
+    expect(harness.view.hover).toBeNull();
+  });
+
   it('retries a failed request through retry()', async () => {
     const harness = createHarness(songs);
     harness.open({ kind: 'fresh' });
