@@ -35,7 +35,8 @@ export const en: Messages = {
   },
   settings: {
     title: 'SETTINGS',
-    waitingKey: 'Press a key for Lane {{lane}} (Esc to cancel)',
+    waitingKey: 'Press a key for Lane {{lane}}',
+    waitingCancel: 'Cancel',
     resetTitle: 'Reset all settings?',
     resetConfirm: 'Every setting except language returns to its default.',
     groups: {

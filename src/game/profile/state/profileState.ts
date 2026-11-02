@@ -139,7 +139,7 @@ export type SummaryRegion =
   | 'summaryTab'
   | 'tabs'
   | 'summaryFocus'
-  | 'setNodes';
+  | 'setMarkers';
 
 export type CollectionRegion =
   | 'tabs'
@@ -203,7 +203,7 @@ const SUMMARY_REGION_SOURCES: Readonly<Record<SummaryRegion, readonly ProfileRea
   summaryTab: [readSummaryTab],
   tabs: [readSummaryTab, readHoveredSummaryTab],
   summaryFocus: [readSummaryFocus],
-  setNodes: [readSummaryFocus, readHoveredSetRow],
+  setMarkers: [readSummaryFocus, readHoveredSetRow],
 };
 
 const COLLECTION_REGION_SOURCES: Readonly<Record<CollectionRegion, readonly ProfileReader[]>> = {

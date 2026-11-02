@@ -15,7 +15,6 @@ import type { LocalSave } from '../../storage/LocalSave.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import {
   addCelestialSprite,
-  applyCelestialPresentation,
   queueCelestialTextures,
   setCelestialLoopActive,
 } from '../celestial/view/celestialSprites.js';
@@ -28,7 +27,7 @@ import type { SceneExit } from '../app/sceneExit.js';
 import { getAchievementName } from '../ui/state/achievementName.js';
 import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmblem.js';
 import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
-import { Button } from '../ui/view/widgets/Button.js';
+import { Button, SURFACE_BUTTON_COLORS } from '../ui/view/widgets/Button.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { readMenuAction } from '../ui/state/menuAction.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
@@ -54,8 +53,12 @@ import {
   setTextWeight,
   textStyle,
 } from '../ui/view/theme.js';
-import { MOTION } from '../ui/state/motion.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
+import {
+  ListRowMarker,
+  SelectedRowHalo,
+  slideSelectedRowContent,
+} from '../ui/view/widgets/listRowFocus.js';
 import type { TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import { ProfileController } from './ProfileController.js';
 import type { ProfilePorts } from './ProfileController.js';
@@ -219,12 +222,8 @@ const ROW_HEIGHT_PX = 90;
 const SET_ROW_WIDTH_PX = 900;
 const VALUE_RIGHT_X_PX = LEFT_X_PX + 800;
 const SET_NODE_X_PX = LEFT_X_PX - LIST_ROW.nodeOffsetXPx;
-const SET_ROW_SHIFT_PX = 12;
-const SET_FILL = {
-  ...LIST_ROW.selectedFill,
-  xPx: LEFT_X_PX - 72,
-  widthPx: SET_ROW_WIDTH_PX + 72 + 16,
-} as const;
+const SET_FILL_X_PX = LEFT_X_PX - 72;
+const SET_FILL_WIDTH_PX = SET_ROW_WIDTH_PX + 72 + 16;
 const SET_NODE_IDLE_ID = 'R15';
 const SET_NODE_HOVER_ID = 'R16';
 const SET_NODE_SELECTED_ID = 'R17';
@@ -278,11 +277,6 @@ const DETAIL_RULE_Y_PX = 744;
 const DETAIL_BUTTON_TOP_Y_PX = 768;
 const DETAIL_BUTTON_HEIGHT_PX = 64;
 // 테두리만 있으면 배경 위에서 비어 보여 키 안내 칸처럼 어두운 면을 채운다.
-const UNEQUIP_BUTTON_COLORS = {
-  fill: CELESTIAL_COLORS.surface,
-  hoverFill: CELESTIAL_COLORS.surfaceHover,
-  border: COLORS.textMuted,
-} as const;
 const DETAIL_FAILURE_GAP_PX = 16;
 const STAT_FIELDS: readonly (keyof ProfileStats)[] = [
   'playCount',
@@ -299,8 +293,7 @@ interface RowView {
 
 interface SetRowView {
   set: AchievementSet;
-  fill: Phaser.GameObjects.Rectangle;
-  node: Phaser.GameObjects.Sprite;
+  marker: ListRowMarker;
   label: Phaser.GameObjects.Text;
   count: Phaser.GameObjects.Text;
   hitArea: Phaser.GameObjects.Zone;
@@ -342,7 +335,7 @@ interface ProfileView {
   earnedRow: RowView;
   sets: Phaser.GameObjects.Container;
   setRows: readonly SetRowView[];
-  setHalo: Phaser.GameObjects.Sprite;
+  setHalo: SelectedRowHalo;
   focusStar: Phaser.GameObjects.Sprite;
   collection: Phaser.GameObjects.Container;
   tabs: TextTabs<AchievementSet>;
@@ -718,23 +711,16 @@ export class ProfileScene extends Phaser.Scene {
       );
       return {
         set,
-        fill: this.add
-          .rectangle(
-            SET_FILL.xPx,
-            topYPx + SET_FILL.insetYPx,
-            SET_FILL.widthPx,
-            ROW_HEIGHT_PX - SET_FILL.insetYPx * 2,
-            SET_FILL.color,
-            SET_FILL.alpha,
-          )
-          .setOrigin(0, 0)
-          .setRounded(RADIUS.smallPx)
-          .setVisible(false),
-        node: addCelestialSprite(
+        marker: new ListRowMarker(
           this,
+          {
+            topYPx,
+            heightPx: ROW_HEIGHT_PX,
+            nodeXPx: SET_NODE_X_PX,
+            fillXPx: SET_FILL_X_PX,
+            fillWidthPx: SET_FILL_WIDTH_PX,
+          },
           this.celestial.atlasPresentations[SET_NODE_IDLE_ID],
-          SET_NODE_X_PX,
-          centerYPx,
         ),
         label: text(LEFT_X_PX, centerYPx, 'primary', COLORS.textPrimary)
           .setOrigin(0, 0.5)
@@ -749,17 +735,16 @@ export class ProfileScene extends Phaser.Scene {
         hitArea: this.add.zone(LEFT_X_PX, topYPx, SET_ROW_WIDTH_PX, ROW_HEIGHT_PX).setOrigin(0, 0),
       };
     });
-    const setHalo = addCelestialSprite(
-      this,
-      this.celestial.atlasPresentations[SELECTED_HALO_ID],
-      SET_NODE_X_PX,
-      0,
-    );
+    const setHalo = new SelectedRowHalo(this, this.celestial.atlasPresentations[SELECTED_HALO_ID]);
     const sets = this.add.container(0, 0, [
-      ...setRows.map(({ fill }) => fill),
+      ...setRows.flatMap(({ marker, label, count, hitArea }) => [
+        ...marker.getVisuals(),
+        label,
+        count,
+        hitArea,
+      ]),
       chevrons,
-      ...setRows.flatMap(({ node, label, count, hitArea }) => [node, label, count, hitArea]),
-      setHalo,
+      setHalo.sprite,
     ]);
     const focusStar = addCelestialSprite(
       this,
@@ -889,7 +874,7 @@ export class ProfileScene extends Phaser.Scene {
     const unequipButton = new Button(this, DETAIL_X_PX, DETAIL_BUTTON_TOP_Y_PX, {
       variant: 'secondary',
       focus: 'glow',
-      colors: UNEQUIP_BUTTON_COLORS,
+      colors: SURFACE_BUTTON_COLORS,
       label: this.i18n.t('collection.unsetFeatured'),
       widthPx: DETAIL_WIDTH_PX,
       heightPx: DETAIL_BUTTON_HEIGHT_PX,
@@ -1154,20 +1139,17 @@ export class ProfileScene extends Phaser.Scene {
       case 'summaryFocus':
         this.renderSummaryFocus(view, screen);
         return;
-      case 'setNodes':
-        view.setRows.forEach(({ set, node }) =>
-          applyCelestialPresentation(
-            node,
-            this.celestial.atlasPresentations[
-              SET_NODE_IDS[
-                getChoiceAppearance(screen, {
-                  kind: 'setRow',
-                  set,
-                })
-              ]
-            ],
-          ),
-        );
+      case 'setMarkers':
+        view.setRows.forEach(({ set, marker }) => {
+          const appearance = getChoiceAppearance(screen, {
+            kind: 'setRow',
+            set,
+          });
+          marker.render({
+            node: this.celestial.atlasPresentations[SET_NODE_IDS[appearance]],
+            isSelected: appearance === 'selected',
+          });
+        });
         return;
     }
   }
@@ -1175,26 +1157,20 @@ export class ProfileScene extends Phaser.Scene {
   private renderSummaryFocus(view: ProfileView, screen: LoadedScreen): void {
     const focusKind = getSummaryFocusKind(screen.page);
     view.focusStar.setVisible(focusKind === 'nickname');
-    view.setRows.forEach(({ set, fill, label }) => {
+    let selectedMarker: ListRowMarker | null = null;
+    for (const { set, marker, label } of view.setRows) {
       const isSelected =
         getChoiceAppearance(screen, {
           kind: 'setRow',
           set,
         }) === 'selected';
-      fill.setVisible(isSelected);
       setTextWeight(label, isSelected ? TYPE_SCALE.primary.weight : ROW_LABEL_WEIGHT);
-      this.tweens.killTweensOf(label);
-      this.tweens.add({
-        targets: label,
-        x: LEFT_X_PX + (isSelected ? SET_ROW_SHIFT_PX : 0),
-        duration: MOTION.fastMs,
-        ease: 'Cubic.Out',
-      });
+      slideSelectedRowContent(this, label, LEFT_X_PX, isSelected);
       if (isSelected) {
-        view.setHalo.setY(label.y);
+        selectedMarker = marker;
       }
-    });
-    setCelestialLoopActive(view.setHalo, focusKind === 'set');
+    }
+    view.setHalo.render(focusKind === 'set' ? selectedMarker : null);
   }
 
   private renderIdentity(view: ProfileView, state: LoadedProfileState): void {

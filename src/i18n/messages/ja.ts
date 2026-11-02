@@ -35,7 +35,8 @@ export const ja: Messages = {
   },
   settings: {
     title: 'SETTINGS',
-    waitingKey: 'レーン{{lane}}のキーを押してください (Esc キャンセル)',
+    waitingKey: 'レーン{{lane}}のキーを押してください',
+    waitingCancel: 'キャンセル',
     resetTitle: '設定をリセットしますか？',
     resetConfirm: '言語以外のすべての設定が初期値に戻ります。',
     groups: {

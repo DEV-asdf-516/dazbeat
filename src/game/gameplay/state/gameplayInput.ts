@@ -11,8 +11,6 @@ export interface GameplayKey {
 export type CommonKeyAction =
   { readonly kind: 'none' } | { readonly kind: 'leave' } | { readonly kind: 'cycleMvMode' };
 
-export type ReadyKeyAction = CommonKeyAction | { readonly kind: 'start' };
-
 export type ErrorKeyAction = { readonly kind: 'none' } | { readonly kind: 'leave' };
 
 export type PlayingKeyAction =
@@ -29,19 +27,11 @@ export type LaneReleaseAction =
 const NONE = { kind: 'none' } as const;
 const LEAVE = { kind: 'leave' } as const;
 
-// starting 은 재생 요청을 이미 보냈으므로 확인을 로딩 중처럼 무시한다.
 export function getLoadingKeyAction(key: GameplayKey, isRepeat: boolean): CommonKeyAction {
   if (key.command === 'back') {
     return LEAVE;
   }
   return key.command === 'mvMode' && !isRepeat ? { kind: 'cycleMvMode' } : NONE;
-}
-
-export function getReadyKeyAction(key: GameplayKey, isRepeat: boolean): ReadyKeyAction {
-  if (key.command === 'confirm' && !isRepeat) {
-    return { kind: 'start' };
-  }
-  return getLoadingKeyAction(key, isRepeat);
 }
 
 export function getErrorKeyAction(key: GameplayKey, isRepeat: boolean): ErrorKeyAction {

@@ -126,7 +126,7 @@ describe('getChangedRegions', () => {
         'summaryTab',
         'tabs',
         'summaryFocus',
-        'setNodes',
+        'setMarkers',
       ],
       collection: [],
     });

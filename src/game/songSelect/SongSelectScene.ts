@@ -65,10 +65,8 @@ import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton
 import type { Button } from '../ui/view/widgets/Button.js';
 import {
   addCelestialSprite,
-  applyCelestialPresentation,
   playCelestialOnce,
   queueCelestialTextures,
-  setCelestialLoopActive,
 } from '../celestial/view/celestialSprites.js';
 import { formatAccuracy, formatScore } from '../ui/state/format.js';
 import {
@@ -103,6 +101,11 @@ import {
   typeStyle,
 } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
+import {
+  ListRowMarker,
+  SelectedRowHalo,
+  slideSelectedRowContent,
+} from '../ui/view/widgets/listRowFocus.js';
 import { requireDefined } from '../../invariant.js';
 
 const FILTER_GAP_PX = 48;
@@ -134,7 +137,6 @@ const THUMBNAIL_SIZE_PX = 56;
 const THUMBNAIL_TITLE_GAP_PX = 16;
 const ROW_TITLE_CATEGORY_GAP_PX = 24;
 const UNSELECTED_THUMBNAIL_ALPHA = 0.5;
-const SELECTED_ROW_OFFSET_PX = 12;
 const PAGE_X_PX = ROW_X_PX;
 const PAGE_Y_PX = 872;
 const PAGE_LINE_CENTER_Y_PX = PAGE_Y_PX + TYPE_SCALE.meta.sizePx / 2;
@@ -216,11 +218,8 @@ const ACTION_STYLES: Record<
 const WHEEL_STEP_PX = 100;
 
 const ROW_NODE_X_PX = ROW_X_PX - LIST_ROW.nodeOffsetXPx;
-const SELECTED_ROW_FILL = {
-  ...LIST_ROW.selectedFill,
-  xPx: LIST_PANEL.xPx + 8,
-  widthPx: LIST_PANEL.widthPx - 16,
-} as const;
+const SELECTED_ROW_FILL_X_PX = LIST_PANEL.xPx + 8;
+const SELECTED_ROW_FILL_WIDTH_PX = LIST_PANEL.widthPx - 16;
 const ROW_NODE_INITIAL_ID = 'R15';
 const SELECTED_HALO_ID = 'R29';
 const ORBIT_ARC_ID = 'R30';
@@ -251,13 +250,12 @@ const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
 const NAVIGATION_STAR_GAP_PX = 24;
 
 interface SongRow {
-  selectedFill: Phaser.GameObjects.Rectangle;
+  marker: ListRowMarker;
   background: Phaser.GameObjects.Rectangle;
   content: Phaser.GameObjects.Container;
   thumbnail: JacketView;
   title: Phaser.GameObjects.Text;
   category: Phaser.GameObjects.Text;
-  node: Phaser.GameObjects.Sprite;
 }
 
 interface ActionButton {
@@ -274,7 +272,7 @@ interface SongSelectWidgets {
   pageText: Phaser.GameObjects.Text;
   loadingMore: NoticeText;
   navigationStar: Phaser.GameObjects.Sprite;
-  selectedHalo: Phaser.GameObjects.Sprite;
+  selectedHalo: SelectedRowHalo;
   orbitArc: Phaser.GameObjects.Sprite;
   jacketGlint: Phaser.GameObjects.Sprite;
   jacket: JacketView;
@@ -447,7 +445,7 @@ export class SongSelectScene extends Phaser.Scene {
         this.add.text(0, 0, '', textStyle('secondary', CELESTIAL_COLORS.textNeutral)),
       ),
       navigationStar: this.addCelestial(NAVIGATION_STAR_ID, 0, 0),
-      selectedHalo: this.addCelestial(SELECTED_HALO_ID, 0, 0),
+      selectedHalo: new SelectedRowHalo(this, this.celestial.atlasPresentations[SELECTED_HALO_ID]),
       orbitArc: this.addCelestial(ORBIT_ARC_ID, ORBIT_ARC_POSITION_PX.x, ORBIT_ARC_POSITION_PX.y),
       zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
       zodiacLines: this.add.graphics(),
@@ -578,18 +576,17 @@ export class SongSelectScene extends Phaser.Scene {
     return Array.from({ length: ROWS_PER_PAGE }, (_, slot) => {
       const yPx = ROW_Y_PX + ROW_HEIGHT_PX * slot;
       const centerYPx = getRowCenterYPx(slot);
-      const selectedFill = this.add
-        .rectangle(
-          SELECTED_ROW_FILL.xPx,
-          yPx + SELECTED_ROW_FILL.insetYPx,
-          SELECTED_ROW_FILL.widthPx,
-          ROW_HEIGHT_PX - SELECTED_ROW_FILL.insetYPx * 2,
-          SELECTED_ROW_FILL.color,
-          SELECTED_ROW_FILL.alpha,
-        )
-        .setOrigin(0, 0)
-        .setRounded(RADIUS.smallPx)
-        .setVisible(false);
+      const marker = new ListRowMarker(
+        this,
+        {
+          topYPx: yPx,
+          heightPx: ROW_HEIGHT_PX,
+          nodeXPx: ROW_NODE_X_PX,
+          fillXPx: SELECTED_ROW_FILL_X_PX,
+          fillWidthPx: SELECTED_ROW_FILL_WIDTH_PX,
+        },
+        this.celestial.atlasPresentations[ROW_NODE_INITIAL_ID],
+      );
       const background = this.add
         .rectangle(ROW_X_PX, yPx, ROW_WIDTH_PX, ROW_HEIGHT_PX)
         .setOrigin(0, 0);
@@ -627,13 +624,12 @@ export class SongSelectScene extends Phaser.Scene {
       });
       const content = this.add.container(0, 0, [thumbnail, title]);
       return {
-        selectedFill,
+        marker,
         background,
         content,
         thumbnail,
         title,
         category,
-        node: this.addCelestial(ROW_NODE_INITIAL_ID, ROW_NODE_X_PX, centerYPx),
       };
     });
   }
@@ -962,15 +958,14 @@ export class SongSelectScene extends Phaser.Scene {
 
   private renderRow(view: SongSelectWidgets, slot: number, rowView: SongRowView): void {
     const row = getSongRow(view, slot);
-    const { selectedFill, background, thumbnail, title, category, node } = row;
+    const { marker, background, thumbnail, title, category } = row;
     const hasSong = rowView.kind === 'song';
     const isSelected = hasSong && rowView.appearance === 'selected';
     thumbnail.setVisible(hasSong);
-    selectedFill.setVisible(isSelected);
     title.setVisible(hasSong);
     category.setVisible(hasSong);
-    node.setVisible(hasSong);
     if (!hasSong) {
+      marker.render(null);
       background.disableInteractive(true);
       return;
     }
@@ -983,18 +978,17 @@ export class SongSelectScene extends Phaser.Scene {
     setTextWeight(title, isSelected ? TYPE_SCALE.primary.weight : UNSELECTED_WEIGHT);
     // 선택 행은 오른쪽으로 밀리므로 그만큼 빼야 선택돼도 분류와 겹치지 않는다.
     const titleMaxWidthPx =
-      category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX - SELECTED_ROW_OFFSET_PX - title.x;
+      category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX - LIST_ROW.selectedShiftPx - title.x;
     setFittedText(title, song.title, titleMaxWidthPx);
-    applyCelestialPresentation(node, this.celestial.atlasPresentations[rowView.nodeId]);
+    marker.render({
+      node: this.celestial.atlasPresentations[rowView.nodeId],
+      isSelected,
+    });
   }
 
   private renderSelectedHalo(view: SongSelectWidgets, state: SongSelectState): void {
     const { selectedSlot } = getSongPage(state, ROWS_PER_PAGE);
-    const isSelected = selectedSlot !== null;
-    if (isSelected) {
-      view.selectedHalo.setPosition(ROW_NODE_X_PX, getRowCenterYPx(selectedSlot));
-    }
-    setCelestialLoopActive(view.selectedHalo, isSelected);
+    view.selectedHalo.render(selectedSlot === null ? null : getSongRow(view, selectedSlot).marker);
   }
 
   private renderSongInfo(view: SongSelectWidgets, song: Song, record: ChartRecord | null): void {
@@ -1087,13 +1081,12 @@ export class SongSelectScene extends Phaser.Scene {
   }
 
   private shiftRow(row: SongRow, rowView: SongRowView): void {
-    this.tweens.killTweensOf(row.content);
-    this.tweens.add({
-      targets: row.content,
-      x: getRowShiftPx(rowView),
-      duration: MOTION.fastMs,
-      ease: 'Cubic.Out',
-    });
+    slideSelectedRowContent(
+      this,
+      row.content,
+      0,
+      rowView.kind === 'song' && rowView.appearance === 'selected',
+    );
   }
 }
 
@@ -1107,17 +1100,4 @@ function getSongRow(view: SongSelectWidgets, slot: number): SongRow {
 
 function getShownSongIds(view: SongSelectWidgets): string[] {
   return [...view.rows.flatMap((row) => row.thumbnail.shownSongIds), ...view.jacket.shownSongIds];
-}
-
-function getRowShiftPx(rowView: SongRowView): number {
-  if (rowView.kind === 'empty') {
-    return 0;
-  }
-  switch (rowView.appearance) {
-    case 'selected':
-      return SELECTED_ROW_OFFSET_PX;
-    case 'hovered':
-    case 'idle':
-      return 0;
-  }
 }

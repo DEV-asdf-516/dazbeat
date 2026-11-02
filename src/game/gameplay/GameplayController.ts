@@ -22,7 +22,6 @@ import {
   getLaneReleaseAction,
   getLoadingKeyAction,
   getPlayingKeyAction,
-  getReadyKeyAction,
   readGameplayKey,
 } from './state/gameplayInput.js';
 import type { CommonKeyAction, PlayingKeyAction, PressedLanes } from './state/gameplayInput.js';
@@ -120,7 +119,6 @@ interface PlayRun extends PreparedRun {
 
 type GameplayPhase =
   | { readonly kind: 'loading' }
-  | { readonly kind: 'ready'; readonly run: PreparedRun }
   | { readonly kind: 'starting'; readonly run: PreparedRun; readonly preload: VideoPreload }
   | { readonly kind: 'playing'; readonly run: PlayRun }
   | { readonly kind: 'ending' }
@@ -191,17 +189,11 @@ export class GameplayController {
           if (this.phase !== loading) {
             return;
           }
-          player.setVolume(getMusicVolume(this.settings));
-          this.phase = {
-            kind: 'ready',
-            run: {
-              chart,
-              mode,
-              player,
-            },
-          };
-          this.showStatus({ kind: 'awaitingStart' });
-          this.screen.setMvVisible(true);
+          this.requestStart({
+            chart,
+            mode,
+            player,
+          });
         },
         onStateChange: (state) => {
           const { phase } = this;
@@ -266,15 +258,6 @@ export class GameplayController {
       case 'starting':
         this.applyCommonKeyAction(getLoadingKeyAction(key, isRepeat));
         return;
-      case 'ready': {
-        const action = getReadyKeyAction(key, isRepeat);
-        if (action.kind === 'start') {
-          this.requestStart(phase.run);
-          return;
-        }
-        this.applyCommonKeyAction(action);
-        return;
-      }
       case 'error':
         this.applyCommonKeyAction(getErrorKeyAction(key, isRepeat));
         return;

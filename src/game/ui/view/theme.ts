@@ -126,10 +126,11 @@ export const RADIUS = {
   mediumPx: 8,
 } as const;
 
-// 곡 선택·프로필 목록이 같이 쓴다. 선택 별의 고리(반지름 약 20px)가 행 내용에 닿지 않게 노드를 행 왼쪽 밖에 두고,
+// 곡 선택·프로필·설정 목록이 같이 쓴다. 선택 별의 고리(반지름 약 20px)가 행 내용에 닿지 않게 노드를 행 왼쪽 밖에 두고,
 // 선택 행은 노드부터 행 끝까지 어두운 판으로 덮어 밝은 목록 유리 위에서 눌린 듯 읽히게 한다.
 export const LIST_ROW = {
   nodeOffsetXPx: 36,
+  selectedShiftPx: 12,
   selectedFill: {
     insetYPx: 2,
     color: 0x02040b,

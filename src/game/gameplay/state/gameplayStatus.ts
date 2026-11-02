@@ -23,7 +23,6 @@ export type GameplayLoadError =
 
 export type GameplayStatus =
   | { readonly kind: 'loading' }
-  | { readonly kind: 'awaitingStart' }
   | { readonly kind: 'paused' }
   | { readonly kind: 'resuming' }
   | { readonly kind: 'countdown'; readonly digit: 1 | 2 | 3 }
@@ -63,8 +62,7 @@ export type GameplayStatusMessage = 'loading' | 'resuming';
 export interface GameplayStatusView {
   readonly notice:
     | { readonly kind: 'none' }
-    | { readonly kind: 'loading'; readonly message: GameplayStatusMessage }
-    | { readonly kind: 'startPrompt' };
+    | { readonly kind: 'loading'; readonly message: GameplayStatusMessage };
   readonly countdownDigit: 1 | 2 | 3 | null;
 }
 
@@ -82,11 +80,6 @@ export function getStatusView(status: GameplayStatus): GameplayStatusView {
           kind: 'loading',
           message: status.kind,
         },
-        countdownDigit: null,
-      };
-    case 'awaitingStart':
-      return {
-        notice: { kind: 'startPrompt' },
         countdownDigit: null,
       };
     case 'countdown':

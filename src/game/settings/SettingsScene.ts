@@ -32,21 +32,40 @@ import type {
   SettingsEditorState,
   SettingsRegion,
 } from './state/settingsEditorState.js';
-import { Button } from '../ui/view/widgets/Button.js';
+import { Button, SURFACE_BUTTON_COLORS } from '../ui/view/widgets/Button.js';
 import type { SecondaryButtonColors } from '../ui/view/widgets/Button.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import { HOVER_CURSOR } from '../ui/view/input/cursor.js';
 import { bindHoverTarget, bindPointer, pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
-import { MENU_KEY_HINT_STYLE } from '../ui/view/widgets/keyHintView.js';
+import {
+  MENU_KEY_HINT_STYLE,
+  createKeyCap,
+  getKeyCapObjects,
+  placeKeyCap,
+} from '../ui/view/widgets/keyHintView.js';
+import type { KeyCap } from '../ui/view/widgets/keyHintView.js';
 import { createCanvasTexture } from '../ui/view/textures/canvasTexture.js';
 import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
-import { addCelestialSprite, queueCelestialTextures } from '../celestial/view/celestialSprites.js';
+import { queueCelestialTextures } from '../celestial/view/celestialSprites.js';
+import {
+  ListRowMarker,
+  SelectedRowHalo,
+  slideSelectedRowContent,
+} from '../ui/view/widgets/listRowFocus.js';
 import { requireKeyboard } from '../ui/view/input/menuInput.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { renderTextEntry } from '../ui/view/widgets/textEntry.js';
-import { COLORS, SCREEN_LAYOUT, setTextColor, textStyle } from '../ui/view/theme.js';
+import {
+  COLORS,
+  LIST_ROW,
+  SCREEN_LAYOUT,
+  TYPE_SCALE,
+  setTextColor,
+  setTextWeight,
+  textStyle,
+} from '../ui/view/theme.js';
 import { requireDefined } from '../../invariant.js';
 
 type SettingsGroup = 'audio' | 'input' | 'general';
@@ -63,80 +82,80 @@ const ROWS: readonly (SettingsRow & RowLayout)[] = [
     kind: 'volume',
     field: 'masterVolume',
     column: 'left',
-    yPx: 224,
+    yPx: 228,
   },
   {
     kind: 'volume',
     field: 'musicVolume',
     column: 'left',
-    yPx: 280,
+    yPx: 300,
   },
   {
     kind: 'volume',
     field: 'effectVolume',
     column: 'left',
-    yPx: 336,
+    yPx: 372,
+  },
+  {
+    kind: 'scrollSpeed',
+    column: 'left',
+    yPx: 536,
+  },
+  {
+    kind: 'mvMode',
+    column: 'left',
+    yPx: 608,
+  },
+  {
+    kind: 'language',
+    column: 'left',
+    yPx: 680,
   },
   {
     kind: 'inputOffset',
-    column: 'left',
-    yPx: 452,
+    column: 'right',
+    yPx: 228,
   },
   {
     kind: 'laneMode',
-    column: 'left',
-    yPx: 508,
+    column: 'right',
+    yPx: 300,
   },
   {
     kind: 'key',
     lane: 0,
-    column: 'left',
-    yPx: 564,
+    column: 'right',
+    yPx: 372,
   },
   {
     kind: 'key',
     lane: 1,
-    column: 'left',
-    yPx: 620,
+    column: 'right',
+    yPx: 444,
   },
   {
     kind: 'key',
     lane: 2,
-    column: 'left',
-    yPx: 676,
+    column: 'right',
+    yPx: 516,
   },
   {
     kind: 'key',
     lane: 3,
-    column: 'left',
-    yPx: 732,
+    column: 'right',
+    yPx: 588,
   },
   {
     kind: 'key',
     lane: 4,
-    column: 'left',
-    yPx: 788,
+    column: 'right',
+    yPx: 660,
   },
   {
     kind: 'key',
     lane: 5,
-    column: 'left',
-    yPx: 844,
-  },
-  {
-    kind: 'scrollSpeed',
     column: 'right',
-    yPx: 224,
-  },
-  {
-    kind: 'mvMode',
-    column: 'right',
-    yPx: 280,
-  },
-  {
-    kind: 'language',
-    column: 'right',
-    yPx: 336,
+    yPx: 732,
   },
 ];
 const GROUPS: readonly ({ group: SettingsGroup } & RowLayout)[] = [
@@ -146,12 +165,12 @@ const GROUPS: readonly ({ group: SettingsGroup } & RowLayout)[] = [
     yPx: 184,
   },
   {
-    group: 'input',
+    group: 'general',
     column: 'left',
-    yPx: 412,
+    yPx: 492,
   },
   {
-    group: 'general',
+    group: 'input',
     column: 'right',
     yPx: 184,
   },
@@ -162,27 +181,42 @@ const COLUMN_LEFT_X_PX: Readonly<Record<SettingsColumn, number>> = {
   right: SCREEN_LAYOUT.rightXPx - COLUMN_WIDTH_PX,
 };
 const GROUP_TITLE_WEIGHT = 700;
-const ROW_HEIGHT_PX = 56;
-const ROW_HIT_WIDTH_PX = 460;
-const LABEL_OFFSET_X_PX = 24;
-const CONTROL_OFFSET_Y_PX = 4;
+const ROW_HEIGHT_PX = 72;
+// 선택 띠는 그룹 제목 선에서 시작하고 열 오른쪽 끝에서 끝난다. 노드와 링(반지름 약 20px)은 띠 안에 둔다.
+const ROW_NODE_OFFSET_X_PX = 28;
+const LABEL_OFFSET_X_PX = ROW_NODE_OFFSET_X_PX + LIST_ROW.nodeOffsetXPx;
+const CONTROL_INSET_RIGHT_PX = 16;
 const STEP_SIZE_PX = 48;
 const STEP_GAP_PX = 12;
 const VALUE_WIDTH_PX = 160;
-const DECREASE_OFFSET_X_PX = 480;
-const VALUE_OFFSET_X_PX = DECREASE_OFFSET_X_PX + STEP_SIZE_PX + STEP_GAP_PX + VALUE_WIDTH_PX / 2;
-const INCREASE_OFFSET_X_PX = VALUE_OFFSET_X_PX + VALUE_WIDTH_PX / 2 + STEP_GAP_PX;
+const INCREASE_OFFSET_X_PX = COLUMN_WIDTH_PX - CONTROL_INSET_RIGHT_PX - STEP_SIZE_PX;
+const VALUE_OFFSET_X_PX = INCREASE_OFFSET_X_PX - STEP_GAP_PX - VALUE_WIDTH_PX / 2;
+const DECREASE_OFFSET_X_PX = VALUE_OFFSET_X_PX - VALUE_WIDTH_PX / 2 - STEP_GAP_PX - STEP_SIZE_PX;
 const KEY_BOX_WIDTH_PX = 120;
-const KEY_BOX_OFFSET_X_PX = COLUMN_WIDTH_PX - KEY_BOX_WIDTH_PX;
+// 키 이름이 위아래 행의 값과 같은 세로선에 오게 한다.
+const KEY_BOX_OFFSET_X_PX = VALUE_OFFSET_X_PX - KEY_BOX_WIDTH_PX / 2;
 const KEY_BOX_HEIGHT_PX = 48;
-const CHEVRON_SIZE_PX = 16;
+const CHEVRON_SIZE_PX = 14;
 // 텍스처는 2배로 그려 축소 표시해 선 끝이 매끄럽게 보이게 한다.
 const CHEVRON_TEXTURE_SCALE = 2;
-// 'primary' 글자의 '−'·'+' 획 두께에 맞춘다.
-const CHEVRON_STROKE_PX = 3;
-const CONTROL_BUTTON_COLORS: Partial<SecondaryButtonColors> = { border: COLORS.textMuted };
-const FOCUS_STAR_ID = 'R49';
-const FOCUS_STAR_GAP_PX = 24;
+// 'secondary' 글자의 '−'·'+' 획 두께에 맞춘다.
+const CHEVRON_STROKE_PX = 2.5;
+const STEP_BUTTON_COLORS: Partial<SecondaryButtonColors> = {
+  ...SURFACE_BUTTON_COLORS,
+  unframedLabel: COLORS.textMuted,
+};
+const ROW_LABEL_WEIGHT = 500;
+const ROW_EMPHASIS_WEIGHT = 600;
+const CONTROL_LABEL_TYPE = {
+  sizePx: TYPE_SCALE.secondary.sizePx,
+  weight: ROW_EMPHASIS_WEIGHT,
+} as const;
+const ROW_NODE_IDS = {
+  selected: 'R17',
+  emphasized: 'R16',
+  normal: 'R15',
+} as const;
+const SELECTED_HALO_ID = 'R29';
 
 interface StepControl {
   button: Button;
@@ -194,9 +228,10 @@ type RowControl =
   | { kind: 'step'; value: Phaser.GameObjects.Text; steps: readonly StepControl[] };
 
 interface RowView {
-  row: SettingsRow;
+  row: SettingsRow & RowLayout;
   index: number;
   hitArea: Phaser.GameObjects.Rectangle;
+  marker: ListRowMarker;
   label: Phaser.GameObjects.Text;
   control: RowControl;
 }
@@ -208,9 +243,14 @@ interface SettingsView {
   title: Phaser.GameObjects.Text;
   groups: readonly { group: SettingsGroup; text: Phaser.GameObjects.Text }[];
   rows: readonly RowView[];
-  waitingText: Phaser.GameObjects.Text;
+  waiting: {
+    container: Phaser.GameObjects.Container;
+    text: Phaser.GameObjects.Text;
+    escCap: KeyCap;
+    cancel: Phaser.GameObjects.Text;
+  };
   controlsEntry: Phaser.GameObjects.Container;
-  focusStar: Phaser.GameObjects.Sprite;
+  selectedHalo: SelectedRowHalo;
   resetDialog: ConfirmDialog;
 }
 
@@ -233,7 +273,8 @@ export class SettingsScene extends Phaser.Scene {
     queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'secondary'),
-      this.celestial.atlasPresentations[FOCUS_STAR_ID],
+      ...Object.values(ROW_NODE_IDS).map((id) => this.celestial.atlasPresentations[id]),
+      this.celestial.atlasPresentations[SELECTED_HALO_ID],
     ]);
   }
 
@@ -278,17 +319,12 @@ export class SettingsScene extends Phaser.Scene {
           COLUMN_LEFT_X_PX[column],
           yPx,
           '',
-          textStyle('secondary', COLORS.textSecondary, GROUP_TITLE_WEIGHT),
+          textStyle('primary', COLORS.textSecondary, GROUP_TITLE_WEIGHT),
         ),
       })),
       rows: ROWS.map((row, index) => this.createRow(row, index, getController, pointer)),
-      waitingText: this.add.text(
-        SCREEN_LAYOUT.leftXPx,
-        SCREEN_LAYOUT.hintYPx,
-        '',
-        textStyle('meta', COLORS.textSecondary),
-      ),
-      focusStar: addCelestialSprite(this, this.celestial.atlasPresentations[FOCUS_STAR_ID], 0, 0),
+      waiting: this.addWaitingHint(),
+      selectedHalo: new SelectedRowHalo(this, this.celestial.atlasPresentations[SELECTED_HALO_ID]),
       resetDialog: new ConfirmDialog(this, {
         cancel: pointButton(pointer, 'resetCancel'),
         accept: pointButton(pointer, 'resetAccept'),
@@ -336,6 +372,24 @@ export class SettingsScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
+  private addWaitingHint(): SettingsView['waiting'] {
+    const text = this.add.text(0, 0, '', textStyle('meta', COLORS.textSecondary)).setOrigin(0, 0.5);
+    const escCap = createKeyCap(this, 'Esc', MENU_KEY_HINT_STYLE);
+    const cancel = this.add
+      .text(0, 0, '', textStyle('meta', MENU_KEY_HINT_STYLE.labelColor))
+      .setOrigin(0, 0.5);
+    return {
+      container: this.add.container(
+        SCREEN_LAYOUT.leftXPx,
+        SCREEN_LAYOUT.hintYPx + MENU_KEY_HINT_STYLE.capHeightPx / 2,
+        [text, ...getKeyCapObjects(escCap), cancel],
+      ),
+      text,
+      escCap,
+      cancel,
+    };
+  }
+
   /** 되돌릴 수 없는 동작이라 설정 행과 떨어뜨려 화면 우하단에 CONTROLS 진입점과 같은 높이로 둔다. */
   private addResetEntry(pointer: ButtonPointer<SettingsButton>): Phaser.GameObjects.Text {
     const label = this.add
@@ -359,9 +413,19 @@ export class SettingsScene extends Phaser.Scene {
   ): RowView {
     const leftXPx = COLUMN_LEFT_X_PX[row.column];
     const centerYPx = row.yPx + ROW_HEIGHT_PX / 2;
-    const controlYPx = row.yPx + CONTROL_OFFSET_Y_PX;
+    const marker = new ListRowMarker(
+      this,
+      {
+        topYPx: row.yPx,
+        heightPx: ROW_HEIGHT_PX,
+        nodeXPx: leftXPx + ROW_NODE_OFFSET_X_PX,
+        fillXPx: leftXPx,
+        fillWidthPx: COLUMN_WIDTH_PX,
+      },
+      this.celestial.atlasPresentations[ROW_NODE_IDS.normal],
+    );
     const hitArea = this.add
-      .rectangle(leftXPx, row.yPx, ROW_HIT_WIDTH_PX, ROW_HEIGHT_PX)
+      .rectangle(leftXPx, row.yPx, COLUMN_WIDTH_PX, ROW_HEIGHT_PX)
       .setOrigin(0, 0);
     bindHoverTarget(hitArea, {
       onOver: () => getController().hoverRow(index),
@@ -369,23 +433,35 @@ export class SettingsScene extends Phaser.Scene {
       onActivate: () => getController().pointRow(index),
     });
     const label = this.add
-      .text(leftXPx + LABEL_OFFSET_X_PX, centerYPx, '', textStyle('primary', COLORS.textSecondary))
+      .text(
+        leftXPx + LABEL_OFFSET_X_PX,
+        centerYPx,
+        '',
+        textStyle('secondary', COLORS.textSecondary),
+      )
       .setOrigin(0, 0.5);
 
     if (row.kind === 'key') {
-      const keyBox = new Button(this, leftXPx + KEY_BOX_OFFSET_X_PX, controlYPx, {
-        variant: 'secondary',
-        focus: 'glow',
-        colors: CONTROL_BUTTON_COLORS,
-        label: '',
-        widthPx: KEY_BOX_WIDTH_PX,
-        heightPx: KEY_BOX_HEIGHT_PX,
-        pointer: pointButton(pointer, getKeyBoxButton(index)),
-      });
+      const keyBox = new Button(
+        this,
+        leftXPx + KEY_BOX_OFFSET_X_PX,
+        centerYPx - KEY_BOX_HEIGHT_PX / 2,
+        {
+          variant: 'secondary',
+          focus: 'frame',
+          colors: SURFACE_BUTTON_COLORS,
+          labelType: CONTROL_LABEL_TYPE,
+          label: '',
+          widthPx: KEY_BOX_WIDTH_PX,
+          heightPx: KEY_BOX_HEIGHT_PX,
+          pointer: pointButton(pointer, getKeyBoxButton(index)),
+        },
+      );
       return {
         row,
         index,
         hitArea,
+        marker,
         label,
         control: {
           kind: 'key',
@@ -395,10 +471,11 @@ export class SettingsScene extends Phaser.Scene {
     }
     const isChoice = isChoiceRow(row);
     const createStep = (xPx: number, buttonLabel: string, direction: 1 | -1): StepControl => {
-      const button = new Button(this, xPx, controlYPx, {
+      const button = new Button(this, xPx, centerYPx - STEP_SIZE_PX / 2, {
         variant: 'secondary',
-        focus: 'glow',
-        colors: CONTROL_BUTTON_COLORS,
+        focus: 'frame',
+        colors: STEP_BUTTON_COLORS,
+        labelType: CONTROL_LABEL_TYPE,
         label: buttonLabel,
         widthPx: STEP_SIZE_PX,
         heightPx: STEP_SIZE_PX,
@@ -413,12 +490,18 @@ export class SettingsScene extends Phaser.Scene {
       };
     };
     const value = this.add
-      .text(leftXPx + VALUE_OFFSET_X_PX, centerYPx, '', textStyle('primary', COLORS.textPrimary))
+      .text(
+        leftXPx + VALUE_OFFSET_X_PX,
+        centerYPx,
+        '',
+        textStyle('secondary', COLORS.textPrimary, ROW_EMPHASIS_WEIGHT),
+      )
       .setOrigin(0.5);
     return {
       row,
       index,
       hitArea,
+      marker,
       label,
       control: {
         kind: 'step',
@@ -451,24 +534,24 @@ export class SettingsScene extends Phaser.Scene {
       case 'rowControls':
         view.rows.forEach((rowView) => this.renderRowControl(rowView, state));
         return;
-      case 'focusStar': {
-        const focused = requireDefined(
-          ROWS[state.rowIndex],
-          'Invalid settings row index',
-          state.rowIndex,
-        );
-        view.focusStar.setPosition(
-          COLUMN_LEFT_X_PX[focused.column] - FOCUS_STAR_GAP_PX,
-          focused.yPx + ROW_HEIGHT_PX / 2,
+      case 'selectedHalo':
+        view.selectedHalo.render(
+          requireDefined(view.rows[state.rowIndex], 'Invalid settings row index', state.rowIndex)
+            .marker,
         );
         return;
-      }
       case 'waitingText': {
         const waitingLane = getWaitingLane(state);
-        view.waitingText.setVisible(waitingLane !== null);
-        if (waitingLane !== null) {
-          view.waitingText.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
+        const { container, text, escCap, cancel } = view.waiting;
+        container.setVisible(waitingLane !== null);
+        if (waitingLane === null) {
+          return;
         }
+        text.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
+        cancel.setText(this.i18n.t('settings.waitingCancel'));
+        const capLeftPx = text.width + MENU_KEY_HINT_STYLE.rowItemGapPx;
+        placeKeyCap(escCap, capLeftPx, 0);
+        cancel.setX(capLeftPx + escCap.cap.width + MENU_KEY_HINT_STYLE.capLabelGapPx);
         return;
       }
       case 'controlsEntry':
@@ -532,19 +615,30 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   private renderRowLabel(
-    { row, index, hitArea, label }: RowView,
+    { row, index, hitArea, marker, label }: RowView,
     state: SettingsEditorState,
   ): void {
     const isShown = isRowShownAt(state, index);
     hitArea.setVisible(isShown);
     label.setVisible(isShown);
     if (!isShown) {
+      marker.render(null);
       return;
     }
+    const appearance = getRowAppearance(state, index);
+    const isSelected = appearance === 'selected';
+    marker.render({
+      node: this.celestial.atlasPresentations[ROW_NODE_IDS[appearance]],
+      isSelected,
+    });
     label.setText(this.formatLabel(row));
-    setTextColor(
+    setTextColor(label, appearance === 'normal' ? COLORS.textSecondary : COLORS.textPrimary);
+    setTextWeight(label, isSelected ? ROW_EMPHASIS_WEIGHT : ROW_LABEL_WEIGHT);
+    slideSelectedRowContent(
+      this,
       label,
-      getRowAppearance(state, index) === 'emphasized' ? COLORS.textPrimary : COLORS.textSecondary,
+      COLUMN_LEFT_X_PX[row.column] + LABEL_OFFSET_X_PX,
+      isSelected,
     );
   }
 

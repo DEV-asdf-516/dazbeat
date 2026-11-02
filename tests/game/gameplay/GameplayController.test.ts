@@ -395,15 +395,15 @@ async function startLoaded(harness: Harness): Promise<void> {
   await flush();
 }
 
-async function startReady(harness: Harness): Promise<void> {
+// 플레이어가 준비되자마자 시작을 요청한 상태.
+async function startRequested(harness: Harness): Promise<void> {
   await startLoaded(harness);
   getHandlers(harness).onReady();
 }
 
-// ready 에서 시작 키를 눌러 예열을 지나 선버퍼링 중인 상태.
+// 시작 요청 뒤 예열을 지나 선버퍼링 중인 상태.
 async function startPreloading(harness: Harness): Promise<void> {
-  await startReady(harness);
-  harness.controller.keyDown('Enter', false);
+  await startRequested(harness);
   getHandlers(harness).onStateChange('playing');
   getHandlers(harness).onStateChange('paused');
 }
@@ -494,10 +494,10 @@ describe('GameplayController start', () => {
     expect(harness.createdPlayers.map(({ videoId }) => videoId)).toEqual([song.youtubeVideoId]);
 
     getHandlers(harness).onReady();
-    expect(harness.playerCalls).toEqual(['setVolume(0.25)']);
+    expect(harness.playerCalls).toEqual(['setVolume(0)', 'requestPlay(1)']);
     expect(harness.screenCalls.slice(-2)).toEqual([
-      ['showStatus', { kind: 'awaitingStart' }],
-      ['setMvVisible', true],
+      ['showStatus', { kind: 'loading' }],
+      ['setMvVisible', false],
     ]);
   });
 
@@ -555,7 +555,7 @@ describe('GameplayController load errors', () => {
 describe('GameplayController player errors', () => {
   it('destroys the player and shows the video error', async () => {
     const harness = createHarness();
-    await startReady(harness);
+    await startRequested(harness);
     resetCalls(harness);
 
     getHandlers(harness).onError('embeddingNotAllowed', 150);
@@ -571,7 +571,7 @@ describe('GameplayController player errors', () => {
 
   it('ignores player errors in the error phase', async () => {
     const harness = createHarness();
-    await startReady(harness);
+    await startRequested(harness);
     getHandlers(harness).onError('videoNotFound', 100);
     resetCalls(harness);
 
@@ -585,7 +585,7 @@ describe('GameplayController player errors', () => {
     'goes back to song select on %s in the error screen',
     async (code) => {
       const harness = createHarness();
-      await startReady(harness);
+      await startRequested(harness);
       getHandlers(harness).onError('videoNotFound', 100);
       resetCalls(harness);
 
@@ -686,29 +686,18 @@ describe('GameplayController late results', () => {
 });
 
 describe('GameplayController start request', () => {
-  it('requests a muted warm-up from the lead-in start, shows loading and hides the MV on Enter in ready', async () => {
+  it('requests a muted warm-up from the lead-in start, shows loading and hides the MV once the player is ready', async () => {
     const harness = createHarness();
-    await startReady(harness);
+    await startLoaded(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('Enter', false);
+    getHandlers(harness).onReady();
 
     expect(harness.playerCalls).toEqual(['setVolume(0)', 'requestPlay(1)']);
     expect(harness.screenCalls).toEqual([
       ['showStatus', { kind: 'loading' }],
       ['setMvVisible', false],
     ]);
-  });
-
-  it('ignores a repeated Enter in ready', async () => {
-    const harness = createHarness();
-    await startReady(harness);
-    resetCalls(harness);
-
-    harness.controller.keyDown('Enter', true);
-
-    expect(harness.playerCalls).toEqual([]);
-    expect(harness.screenCalls).toEqual([]);
   });
 
   it('ignores Enter while loading', async () => {
@@ -724,8 +713,7 @@ describe('GameplayController start request', () => {
 
   it('ignores Enter while starting', async () => {
     const harness = createHarness();
-    await startReady(harness);
-    harness.controller.keyDown('Enter', false);
+    await startRequested(harness);
     resetCalls(harness);
 
     harness.controller.keyDown('Enter', false);
@@ -834,9 +822,8 @@ describe('GameplayController start sequence', () => {
 
   it('ignores position reports outside the playing phase', async () => {
     const harness = createHarness();
-    await startReady(harness);
+    await startRequested(harness);
     report(harness, START_SEC);
-    harness.controller.keyDown('Enter', false);
     resetCalls(harness);
 
     reportSteadyFrom(harness, START_SEC);
@@ -904,7 +891,7 @@ describe('GameplayController MV mode', () => {
 
   it('shows the next MV mode even when saving settings throws', async () => {
     const harness = createHarness();
-    await startReady(harness);
+    await startRequested(harness);
     harness.isSaveSettingsThrowing = true;
     resetCalls(harness);
 
@@ -940,14 +927,13 @@ describe('GameplayController leaving', () => {
     expect(harness.savedSettings).toEqual([]);
   });
 
-  it('goes back to song select once on leave and ignores the start key', async () => {
+  it('goes back to song select once on leave', async () => {
     const harness = createHarness();
-    await startReady(harness);
+    await startRequested(harness);
     resetCalls(harness);
 
     harness.controller.leave();
     harness.controller.leave();
-    harness.controller.keyDown('Enter', false);
 
     expect(harness.screenCalls).toEqual([['backToSongSelect']]);
     expect(harness.playerCalls).toEqual([]);
@@ -1638,7 +1624,7 @@ describe('GameplayController frames', () => {
 describe('GameplayController status', () => {
   it('shows the first status without a previous one and then with the last shown one', async () => {
     const harness = createHarness();
-    await startReady(harness);
+    await startRequested(harness);
 
     expect(harness.statuses.slice(0, 2)).toEqual([
       {
@@ -1647,7 +1633,7 @@ describe('GameplayController status', () => {
       },
       {
         previous: { kind: 'loading' },
-        next: { kind: 'awaitingStart' },
+        next: { kind: 'loading' },
       },
     ]);
   });

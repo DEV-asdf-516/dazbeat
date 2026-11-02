@@ -20,6 +20,7 @@ export interface PrimaryButtonColors {
 
 export interface SecondaryButtonColors {
   label: number;
+  unframedLabel: number;
   disabledLabel: number;
   border: number;
   hoverBorder: number;
@@ -56,7 +57,8 @@ export type ButtonOptions = ButtonContentOptions &
       }
     | {
         variant: 'secondary';
-        focus: 'outline' | 'glow';
+        // frame: 포커스·hover·눌림일 때만 테두리를 그려, 목록의 다른 행 버튼은 글자만 남긴다.
+        focus: 'outline' | 'glow' | 'frame';
         colors?: Partial<SecondaryButtonColors>;
         labelType?: LabelType;
         borderWidthPx?: number;
@@ -84,6 +86,7 @@ const DEFAULT_COLORS: {
   },
   secondary: {
     label: COLORS.textPrimary,
+    unframedLabel: COLORS.textPrimary,
     disabledLabel: COLORS.textDisabled,
     border: COLORS.border,
     hoverBorder: COLORS.textSecondary,
@@ -100,13 +103,23 @@ const DEFAULT_COLORS: {
   },
 };
 
+// 천체 화면의 판 재료를 채운 보조 버튼. 프로필 장착 해제·설정 조정 버튼이 같이 쓴다.
+export const SURFACE_BUTTON_COLORS = {
+  fill: CELESTIAL_COLORS.surface,
+  hoverFill: CELESTIAL_COLORS.surfaceHover,
+  border: COLORS.textMuted,
+} as const satisfies Partial<SecondaryButtonColors>;
+
 type ButtonPaint =
   | { variant: 'primary'; colors: PrimaryButtonColors }
   | { variant: 'secondary'; colors: SecondaryButtonColors; borderWidthPx: number }
   | { variant: 'quiet'; colors: QuietButtonColors };
 
 type ButtonFocus =
-  { kind: 'outline'; rect: Phaser.GameObjects.Rectangle } | { kind: 'glow' } | { kind: 'slide' };
+  | { kind: 'outline'; rect: Phaser.GameObjects.Rectangle }
+  | { kind: 'glow' }
+  | { kind: 'slide' }
+  | { kind: 'frame' };
 
 export const QUIET_PADDING_PX = {
   xPx: 16,
@@ -215,12 +228,13 @@ function getPrimaryPaint(
 function getSecondaryPaint(
   colors: SecondaryButtonColors,
   appearance: ButtonAppearance,
-): { border: number; fill: number | null; label: number } {
+  isFrameShown: boolean,
+): { border: number | null; fill: number | null; label: number } {
   switch (appearance) {
     case 'disabled':
       return {
-        border: colors.disabledBorder,
-        fill: null,
+        border: isFrameShown ? colors.disabledBorder : null,
+        fill: isFrameShown ? colors.fill : null,
         label: colors.disabledLabel,
       };
     case 'pressed':
@@ -237,11 +251,17 @@ function getSecondaryPaint(
       };
     case 'focused':
     case 'idle':
-      return {
-        border: colors.border,
-        fill: colors.fill,
-        label: colors.label,
-      };
+      return isFrameShown
+        ? {
+            border: colors.border,
+            fill: colors.fill,
+            label: colors.label,
+          }
+        : {
+            border: null,
+            fill: null,
+            label: colors.unframedLabel,
+          };
   }
 }
 
@@ -327,7 +347,7 @@ export class Button extends Phaser.GameObjects.Container {
     if (this.focus.kind === 'outline') {
       this.focus.rect.setVisible(view.isFocused);
     }
-    this.paintAppearance(view.appearance);
+    this.paintAppearance(view);
     const cursor = view.appearance === 'disabled' ? DISABLED_CURSOR : HOVER_CURSOR;
     // 비활성 버튼도 입력은 받아 그 위에서 비활성 커서를 보인다. 커서가 바뀔 때만 캔버스에 옮겨야
     // 누르는 동안 캔버스에 놓인 눌림 커서(pressedCursor)를 덮어쓰지 않는다.
@@ -341,7 +361,7 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   playFocus(isFocused: boolean): this {
-    if (this.focus.kind === 'outline') {
+    if (this.focus.kind === 'outline' || this.focus.kind === 'frame') {
       return this;
     }
     const tweens = this.scene.tweens;
@@ -418,7 +438,7 @@ export class Button extends Phaser.GameObjects.Container {
     setContainerHitArea(this, this.hitArea, widthPx, heightPx);
   }
 
-  private paintAppearance(appearance: ButtonAppearance): void {
+  private paintAppearance({ appearance, isFocused }: ButtonView): void {
     const paint = this.paint;
     switch (paint.variant) {
       case 'primary': {
@@ -428,8 +448,16 @@ export class Button extends Phaser.GameObjects.Container {
         return;
       }
       case 'secondary': {
-        const { border, fill, label } = getSecondaryPaint(paint.colors, appearance);
-        this.background.setStrokeStyle(paint.borderWidthPx, border);
+        const { border, fill, label } = getSecondaryPaint(
+          paint.colors,
+          appearance,
+          this.focus.kind !== 'frame' || isFocused,
+        );
+        if (border === null) {
+          this.background.setStrokeStyle();
+        } else {
+          this.background.setStrokeStyle(paint.borderWidthPx, border);
+        }
         this.setBackgroundFill(fill);
         setTextColor(this.labelText, label);
         this.icon.setTint(label);
