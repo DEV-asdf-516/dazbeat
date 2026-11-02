@@ -13,7 +13,7 @@ import type { ProfileAchievements, StoredMark, UserAchievements } from '../dto.j
 import {
   readEarnedState,
   readAchievements,
-  readAlbumNames,
+  readAlbums,
   readPublishedSongs,
   readMarks,
   saveRecord,
@@ -155,7 +155,7 @@ export function loadProfileAchievements(
     retired: achievements.filter(({ definition }) => definition.isRetired),
     // 지워졌거나 무효가 된 대표 업적은 장착 없음으로 본다.
     featured: byKey.get(featuredKey) ?? null,
-    albumNames: readAlbumNames(runtime, app),
+    albums: readAlbums(runtime, app),
   };
 }
 

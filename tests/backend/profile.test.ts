@@ -118,7 +118,12 @@ function profileResponse(overrides: Record<string, unknown> = {}) {
     stats,
     achievements: achievementEntries(),
     retiredAchievements: [servedOf('S_20_CHARTS', 'rhythm', true)],
-    albumNames: { album1: 'Orbit' },
+    albums: {
+      album1: {
+        key: 'orbit',
+        name: 'Orbit',
+      },
+    },
     newAchievements: ['FIRST_CLEAR'],
     ...overrides,
   };
@@ -216,7 +221,17 @@ describe('loadProfile', () => {
     expect(profile.achievements[1]?.earnedAtMs).toBeNull();
     expect([...profile.newAchievements].map(({ id }) => id)).toEqual(['FIRST_CLEAR']);
     expect(profile.catalog.definitions.map(({ id }) => id)).toEqual([...ACTIVE_IDS, 'S_20_CHARTS']);
-    expect(profile.catalog.albumNames).toEqual(new Map([['album1', 'Orbit']]));
+    expect(profile.catalog.albums).toEqual(
+      new Map([
+        [
+          'album1',
+          {
+            key: 'orbit',
+            name: 'Orbit',
+          },
+        ],
+      ]),
+    );
   });
 
   it('accepts no featured achievement', async () => {

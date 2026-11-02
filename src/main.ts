@@ -131,7 +131,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
         ja,
         en,
         achievements.definitions.map(({ names }) => names),
-        [...achievements.albumNames.values()],
+        [...achievements.albums.values()].map(({ name }) => name),
       ]),
     );
     const feeds = new SharedSongFeeds(loadPublishedBatch, firstBatch);

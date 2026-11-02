@@ -29,7 +29,10 @@ import type {
 } from './state/mainMenu.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
-import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmblem.js';
+import {
+  getAchievementEmblemTexture,
+  queueAchievementEmblemLoads,
+} from '../ui/view/widgets/achievementEmblem.js';
 import { requireDefined } from '../../invariant.js';
 import { Button, QUIET_PADDING_PX } from '../ui/view/widgets/Button.js';
 import { queueCelestialTextures } from '../celestial/view/celestialSprites.js';
@@ -199,6 +202,7 @@ export class MainScene extends Phaser.Scene {
       ],
       'main scene image',
     );
+    queueAchievementEmblemLoads(this);
     queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'main'),

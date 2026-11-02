@@ -25,7 +25,10 @@ import type { SceneRequest } from '../app/sceneRoutes.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
 import { getAchievementName } from '../ui/state/achievementName.js';
-import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmblem.js';
+import {
+  getAchievementEmblemTexture,
+  queueAchievementEmblemLoads,
+} from '../ui/view/widgets/achievementEmblem.js';
 import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
 import { Button, SURFACE_BUTTON_COLORS } from '../ui/view/widgets/Button.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
@@ -392,7 +395,7 @@ function formatEarned({ earned, total }: { earned: number; total: number }): str
 }
 
 function getAlbumName(catalog: AchievementCatalog, album: string): string {
-  return requireDefined(catalog.albumNames.get(album), 'Unknown album', album);
+  return requireDefined(catalog.albums.get(album), 'Unknown album', album).name;
 }
 
 // 세트 이름은 여러 줄로 쌓인 고유 명칭이라 ALL CAPS 대신 Title Case 로 단어 모양을 살린다.
@@ -424,6 +427,7 @@ export class ProfileScene extends Phaser.Scene {
       ],
       'profile scene image',
     );
+    queueAchievementEmblemLoads(this);
     queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'songSelect'),

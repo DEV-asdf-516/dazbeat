@@ -2,7 +2,7 @@ import { ClientResponseError } from 'pocketbase';
 import type PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { ACHIEVEMENT_SETS, parseAchievementDefinition } from '../data/achievements.js';
-import type { AchievementId } from '../data/achievements.js';
+import type { AchievementId, NamedAchievementDefinition } from '../data/achievements.js';
 import { isNickname } from '../data/nickname.js';
 import type { Nickname } from '../data/nickname.js';
 import { ProfileRequestError } from '../data/profile.js';
@@ -74,12 +74,18 @@ const profileSchema = z
       }),
     ),
     retiredAchievements: z.array(servedAchievement),
-    albumNames: z.record(z.string(), z.string()),
+    albums: z.record(
+      z.string(),
+      z.object({
+        key: z.string(),
+        name: z.string(),
+      }),
+    ),
     newAchievements: z.array(z.string()),
   })
   .transform(
     (
-      { achievements, retiredAchievements, albumNames, newAchievements, ...loaded },
+      { achievements, retiredAchievements, albums, newAchievements, ...loaded },
       context,
     ): Profile => {
       // 세트 탭이 비면 화면이 그릴 업적이 없어, 프로필 실패로 다시 시도하게 한다.
@@ -93,20 +99,28 @@ const profileSchema = z
         });
         return z.NEVER;
       }
-      const statuses = achievements.map(({ earnedAt, ...status }): AchievementStatus => ({
-        ...status,
-        earnedAtMs: earnedAt,
-      }));
       const newIds = new Set(newAchievements);
+      const statuses: AchievementStatus[] = [];
+      const definitions: NamedAchievementDefinition[] = [];
+      const fresh = new Set<NamedAchievementDefinition>();
+      for (const { earnedAt, ...status } of achievements) {
+        statuses.push({
+          ...status,
+          earnedAtMs: earnedAt,
+        });
+        definitions.push(status.definition);
+        if (newIds.has(status.definition.id)) {
+          fresh.add(status.definition);
+        }
+      }
+      definitions.push(...retiredAchievements);
       return {
         ...loaded,
         achievements: statuses,
-        newAchievements: new Set(
-          statuses.flatMap(({ definition }) => (newIds.has(definition.id) ? [definition] : [])),
-        ),
+        newAchievements: fresh,
         catalog: {
-          definitions: [...statuses.map(({ definition }) => definition), ...retiredAchievements],
-          albumNames: new Map(Object.entries(albumNames)),
+          definitions,
+          albums: new Map(Object.entries(albums)),
         },
       };
     },

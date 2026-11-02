@@ -3,6 +3,7 @@ import {
   parseAchievementDefinition,
 } from '../../../src/data/achievements.js';
 import type {
+  AchievementAlbum,
   AchievementDefinition,
   AchievementFields,
   AchievementId,
@@ -87,7 +88,7 @@ export interface ProfileAchievements {
   }[];
   readonly retired: readonly StoredAchievement[];
   readonly featured: StoredAchievement | null;
-  readonly albumNames: ReadonlyMap<string, string>;
+  readonly albums: ReadonlyMap<string, AchievementAlbum>;
 }
 
 export interface StoredMark extends AchievementMarkRecord {

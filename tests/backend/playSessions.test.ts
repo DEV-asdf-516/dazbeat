@@ -48,7 +48,7 @@ const CATALOG: AchievementCatalog = {
       en: id,
     },
   })),
-  albumNames: new Map(),
+  albums: new Map(),
 };
 
 function base64Url(value: object): string {

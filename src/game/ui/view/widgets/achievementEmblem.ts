@@ -11,6 +11,7 @@ import { clamp, lerp } from '../../../../range.js';
 import { ZODIAC_FIGURES, fitZodiacFigure } from '../../../celestial/state/zodiacFigures.js';
 import { getSeriesOrdinal, getStageDotCount } from '../../state/achievementSeries.js';
 import { createCanvasTexture } from '../textures/canvasTexture.js';
+import { queueImageLoads } from '../textures/imageLoad.js';
 import { fillFourPointStar, fillStar } from '../textures/starShapes.js';
 import { CELESTIAL_COLORS, cssColor } from '../theme.js';
 
@@ -127,7 +128,69 @@ const TRAVEL_THIN_LINE_WIDTH = 1.4;
 const TRAVEL_STAR_WAIST = 0.24;
 const TRAVEL_NEEDLE_WAIST = 0.12;
 const TRAVEL_GLOW_ALPHA = 0.45;
+interface AlbumFrame {
+  readonly fileName: string;
+  // 틀마다 빈 안쪽의 가운데가 달라 기호 중심을 캔버스 비율로 따로 둔다.
+  readonly glyphX: number;
+  readonly glyphY: number;
+}
+
+// 틀이 없는 앨범(새로 추가된 앨범)은 원형 틀로 그린다.
+const ALBUM_FRAMES: Readonly<Record<string, AlbumFrame>> = {
+  remindfulOne: {
+    fileName: 'remindful-one',
+    glyphX: 0.5,
+    glyphY: 0.41,
+  },
+  remindfulTwo: {
+    fileName: 'remindful-two',
+    glyphX: 0.5,
+    glyphY: 0.48,
+  },
+  orbit: {
+    fileName: 'orbit',
+    glyphX: 0.5,
+    glyphY: 0.5,
+  },
+  newtroWave: {
+    fileName: 'newtro-wave',
+    glyphX: 0.5,
+    glyphY: 0.43,
+  },
+  nemuranaiYume: {
+    fileName: 'nemuranai-yume',
+    glyphX: 0.5,
+    glyphY: 0.475,
+  },
+  nostalzia: {
+    fileName: 'nostalzia',
+    glyphX: 0.5,
+    glyphY: 0.49,
+  },
+};
+const ALBUM_FRAME_URL_PREFIX = '/assets/ui/achievement/discography/';
+const ALBUM_GLYPH_SCALE = 0.725;
+// 원형 틀과 같은 기호 그림을 쓰려고 paintChartsSymbol 의 기호 중심을 기준으로 줄인다.
+const ALBUM_GLYPH_PIVOT: Point = [50, 45];
+// 궤도 링처럼 틀 선이 기호를 가로지르는 자리를 기호 둘레만큼 비워 기호가 선에 묻히지 않게 한다.
+const ALBUM_GLYPH_KNOCKOUT_UNITS = 2.5;
+const ALBUM_GLYPH_KNOCKOUT_STAMPS = 16;
 type Point = readonly [number, number];
+
+function albumFrameTextureKey({ fileName }: AlbumFrame): string {
+  return `achievement-album-frame:${fileName}`;
+}
+
+export function queueAchievementEmblemLoads(scene: Phaser.Scene): void {
+  queueImageLoads(
+    scene,
+    Object.values(ALBUM_FRAMES).map((frame) => ({
+      key: albumFrameTextureKey(frame),
+      url: `${ALBUM_FRAME_URL_PREFIX}${frame.fileName}.png`,
+    })),
+    'achievement album frame',
+  );
+}
 
 export function getAchievementEmblemTexture(
   scene: Phaser.Scene,
@@ -136,6 +199,13 @@ export function getAchievementEmblemTexture(
   sizePx: number,
 ): string {
   const key = `achievement-emblem:${achievement.id}:${sizePx}`;
+  const { rule } = achievement;
+  const albumFrame =
+    rule.kind === 'album'
+      ? ALBUM_FRAMES[
+          requireDefined(catalog.albums.get(rule.album), 'Unknown album', rule.album).key
+        ]
+      : undefined;
   createCanvasTexture(scene, key, sizePx, sizePx, (context) => {
     const scale = sizePx / (GRID_UNITS + 2 * EDGE_PADDING_UNITS);
     context.scale(scale, scale);
@@ -144,9 +214,56 @@ export function getAchievementEmblemTexture(
     context.fillStyle = EMBLEM_COLOR;
     context.lineCap = 'round';
     context.lineJoin = 'round';
-    paintEmblem(context, achievement, catalog.definitions);
+    if (rule.kind !== 'album' || albumFrame === undefined) {
+      paintEmblem(context, achievement, catalog.definitions);
+      return;
+    }
+    const frameKey = albumFrameTextureKey(albumFrame);
+    if (!scene.textures.exists(frameKey)) {
+      throw new Error(`Album frame is not loaded: ${frameKey}`);
+    }
+    const frameImage = scene.textures.get(frameKey).getSourceImage();
+    if (!(frameImage instanceof HTMLImageElement)) {
+      throw new Error(`Album frame is not an image: ${frameKey}`);
+    }
+    paintAlbumEmblem(context, frameImage, albumFrame, rule.mark);
   });
   return key;
+}
+
+function paintAlbumEmblem(
+  context: CanvasRenderingContext2D,
+  frameImage: HTMLImageElement,
+  { glyphX, glyphY }: AlbumFrame,
+  mark: AchievementMark,
+): void {
+  const canvasUnits = GRID_UNITS + 2 * EDGE_PADDING_UNITS;
+  // 512px 틀을 60px 목록 크기까지 크게 줄이므로 기본 보간이면 가는 선이 끊겨 보인다.
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(frameImage, -EDGE_PADDING_UNITS, -EDGE_PADDING_UNITS, canvasUnits, canvasUnits);
+  const [pivotX, pivotY] = ALBUM_GLYPH_PIVOT;
+  const paintGlyph = (offsetX: number, offsetY: number): void => {
+    context.save();
+    context.translate(
+      glyphX * canvasUnits - EDGE_PADDING_UNITS + offsetX,
+      glyphY * canvasUnits - EDGE_PADDING_UNITS + offsetY,
+    );
+    context.scale(ALBUM_GLYPH_SCALE, ALBUM_GLYPH_SCALE);
+    context.translate(-pivotX, -pivotY);
+    paintChartsSymbol(context, mark, false);
+    context.restore();
+  };
+  context.save();
+  context.globalCompositeOperation = 'destination-out';
+  for (let index = 0; index < ALBUM_GLYPH_KNOCKOUT_STAMPS; index += 1) {
+    const angle = (index * 2 * Math.PI) / ALBUM_GLYPH_KNOCKOUT_STAMPS;
+    paintGlyph(
+      Math.cos(angle) * ALBUM_GLYPH_KNOCKOUT_UNITS,
+      Math.sin(angle) * ALBUM_GLYPH_KNOCKOUT_UNITS,
+    );
+  }
+  context.restore();
+  paintGlyph(0, 0);
 }
 
 function paintEmblem(
