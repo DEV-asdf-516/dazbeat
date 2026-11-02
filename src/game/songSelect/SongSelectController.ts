@@ -47,6 +47,7 @@ export interface SongSelectScreen {
   play(chart: ChartRef, restore: SongSelectRestore): void;
   openSettings(restore: SongSelectRestore): void;
   playFocusSound(): void;
+  playCloseSound(): void;
 }
 
 interface ControllerState {
@@ -207,6 +208,7 @@ export class SongSelectController {
 
   closeControls(): void {
     this.setControlsOpen(false);
+    this.screen.playCloseSound();
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {

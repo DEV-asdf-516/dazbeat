@@ -102,6 +102,7 @@ function createHarness(restore: () => AuthUser | null): Harness {
         controlsOpen.push(next.isControlsOpen);
         hovers.push(next.hover);
       },
+      playCloseSound: () => undefined,
       playFocusSound: () => {
         focusSoundCount += 1;
       },

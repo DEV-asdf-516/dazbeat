@@ -29,6 +29,7 @@ import type { ResultButton, ResultExit, ResultMenuItem, ResultState } from './st
 export interface ResultScreen {
   render(previous: ResultState | null, next: ResultState): void;
   playFocusSound(): void;
+  playCloseSound(): void;
   leave(request: SceneRequest): void;
 }
 
@@ -91,6 +92,7 @@ export class ResultController {
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
+    this.screen.playCloseSound();
   }
 
   pointerOver(button: ResultButton): void {
@@ -165,6 +167,11 @@ export class ResultController {
 
   unhoverToastClose(toastId: number): void {
     this.apply((state) => unhoverToastClose(state, toastId));
+  }
+
+  closeToast(toastId: number): void {
+    this.dismissToast(toastId);
+    this.screen.playCloseSound();
   }
 
   dismissToast(toastId: number): void {

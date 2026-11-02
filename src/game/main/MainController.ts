@@ -24,6 +24,7 @@ import type { MainButton, MainFocus, MainState } from './state/mainMenu.js';
 export interface MainScreen {
   render(previous: MainState | null, next: MainState): void;
   playFocusSound(): void;
+  playCloseSound(): void;
   activate(button: MainFocus | 'account'): void;
 }
 
@@ -99,6 +100,7 @@ export class MainController {
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
+    this.screen.playCloseSound();
   }
 
   pointerOver(button: MainButton): void {

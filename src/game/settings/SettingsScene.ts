@@ -359,6 +359,7 @@ export class SettingsScene extends Phaser.Scene {
         },
         // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
         playFocusSound: (settings) => new SoundEffects(this, settings).play('menuFocus'),
+        playCloseSound: (settings) => new SoundEffects(this, settings).play('close'),
         setMusicVolume: (settings) => this.menuMusic.setVolume(settings),
         leave: () => {
           this.exit = exitScene(this, this.exit, this.returnTo);
