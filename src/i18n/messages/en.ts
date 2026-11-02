@@ -146,7 +146,6 @@ export const en: Messages = {
   collection: {
     title: 'COLLECTION',
     progress: 'Progress',
-    currentSongs: 'Current songs',
     noAssignedSongs: 'No songs assigned',
     earned: 'Earned',
     setFeatured: 'Equip',
