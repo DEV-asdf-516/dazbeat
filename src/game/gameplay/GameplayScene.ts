@@ -39,7 +39,6 @@ import type {
   GameplayStatus,
   GameplayStatusMessage,
   GameplayStatusRegion,
-  GameplayStatusView,
   LoadErrorMessage,
 } from './state/gameplayStatus.js';
 import { QUIT_CONFIRM_TEXTS } from './state/quitConfirm.js';
@@ -184,15 +183,6 @@ const PRACTICE_STATS_Y_PX = 184;
 const INTRO_TITLE_Y_PX = 440;
 const INTRO_DIFFICULTY_Y_PX = 520;
 const STATUS_Y_PX = 600;
-// 게임 키워드처럼 언어와 관계없이 영어 대문자로 두고, 입력을 기다리는 동안 천천히 깜빡인다.
-const START_PROMPT = 'PRESS ENTER TO START';
-const NOTICE_LETTER_SPACING_PX: Readonly<Record<GameplayStatusView['notice']['kind'], number>> = {
-  none: 0,
-  loading: 0,
-  startPrompt: 4,
-};
-const START_PROMPT_DIM_ALPHA = 0.35;
-const START_PROMPT_BLINK_MS = 1100;
 // MV 전환도 키 조작이라 레인 키 이름과 같은 줄, 레인 왼쪽 바깥에 둔다. 노트를 가리지 않고 YouTube 의 구석 버튼과도 떨어진다.
 const MV_MODE_LANE_GAP_PX = 48;
 // 곡이 끝나면 레인·판정 HUD 를 먼저 걷어 입력이 끝났음을 보여 준 뒤 종료 연출을 띄운다.
@@ -246,7 +236,6 @@ interface GameplayView {
   modeHud: ModeHud;
   introTitle: Phaser.GameObjects.Text;
   introDifficulty: Phaser.GameObjects.Text;
-  statusText: Phaser.GameObjects.Text;
   status: NoticeText;
   countdownText: Phaser.GameObjects.Text;
   mvMode: MvModeIndicator;
@@ -550,7 +539,6 @@ export class GameplayScene extends Phaser.Scene {
         data.difficulty.toUpperCase(),
         textStyle('secondary', COLORS.textSecondary),
       ),
-      statusText,
       status: new NoticeText(this, this.celestial, statusText),
       countdownText: addHudText(
         this,
@@ -699,11 +687,9 @@ export class GameplayScene extends Phaser.Scene {
     region: GameplayStatusRegion,
   ): void {
     const { notice, countdownDigit } = getStatusView(status);
-    const { statusText, countdownText } = view;
+    const { countdownText } = view;
     switch (region) {
       case 'notice':
-        this.tweens.killTweensOf(statusText);
-        statusText.setAlpha(1).setLetterSpacing(NOTICE_LETTER_SPACING_PX[notice.kind]);
         switch (notice.kind) {
           case 'none':
             view.status.show(notice);
@@ -712,20 +698,6 @@ export class GameplayScene extends Phaser.Scene {
             view.status.show({
               kind: 'loading',
               text: this.i18n.t(STATUS_MESSAGES[notice.message]),
-            });
-            return;
-          case 'startPrompt':
-            view.status.show({
-              kind: 'text',
-              text: START_PROMPT,
-            });
-            this.tweens.add({
-              targets: statusText,
-              alpha: START_PROMPT_DIM_ALPHA,
-              duration: START_PROMPT_BLINK_MS,
-              ease: 'Sine.InOut',
-              yoyo: true,
-              repeat: -1,
             });
             return;
         }

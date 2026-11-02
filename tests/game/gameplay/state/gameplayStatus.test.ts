@@ -42,9 +42,7 @@ describe('getChangedStatusRegions', () => {
   });
 
   it('paints nothing for the same status again', () => {
-    expect(getChangedStatusRegions({ kind: 'awaitingStart' }, { kind: 'awaitingStart' })).toEqual(
-      [],
-    );
+    expect(getChangedStatusRegions({ kind: 'paused' }, { kind: 'paused' })).toEqual([]);
   });
 });
 
