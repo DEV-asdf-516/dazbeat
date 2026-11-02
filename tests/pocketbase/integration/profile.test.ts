@@ -55,7 +55,7 @@ interface ProfileResponse {
     target: number;
   }[];
   retiredAchievements: ServedAchievement[];
-  albumNames: Record<string, string>;
+  albums: Record<string, { key: string; name: string }>;
   newAchievements: string[];
 }
 
@@ -165,7 +165,7 @@ describe('GET /api/dazbeat/profile', () => {
       },
       achievements: ANY_ACHIEVEMENTS,
       retiredAchievements: ANY_ACHIEVEMENTS,
-      albumNames: ANY_OBJECT,
+      albums: ANY_OBJECT,
       newAchievements: [],
     });
     expect(profile.nickname).toMatch(DEFAULT_NICKNAME);

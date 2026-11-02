@@ -1049,9 +1049,10 @@ export class ChartEditorScene extends Phaser.Scene {
           text: this.i18n.t('chartEditor.noSongs'),
         };
       case 'loading':
+        // 채보 로딩은 문구 없이 별만 돈다.
         return {
           kind: 'loading',
-          text: this.i18n.t('chartEditor.loading'),
+          text: '',
         };
       case 'loadFailed':
         return {

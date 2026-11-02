@@ -29,7 +29,10 @@ import type {
 } from './state/mainMenu.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
-import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmblem.js';
+import {
+  getAchievementEmblemTexture,
+  queueAchievementEmblemLoads,
+} from '../ui/view/widgets/achievementEmblem.js';
 import { requireDefined } from '../../invariant.js';
 import { Button, QUIET_PADDING_PX } from '../ui/view/widgets/Button.js';
 import { queueCelestialTextures } from '../celestial/view/celestialSprites.js';
@@ -37,6 +40,7 @@ import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import type { MenuMusic } from '../ui/view/MenuMusic.js';
 import { YOUTUBE_HEART_IMAGE, playYoutubeHearts } from './view/youtubeHearts.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import {
@@ -178,6 +182,7 @@ export class MainScene extends Phaser.Scene {
     private readonly auth: AccountAuth,
     private readonly celestial: CelestialCatalog,
     private readonly catalog: AchievementCatalog,
+    private readonly menuMusic: MenuMusic,
   ) {
     super(SCENE_KEYS.main);
   }
@@ -199,7 +204,9 @@ export class MainScene extends Phaser.Scene {
       ],
       'main scene image',
     );
+    queueAchievementEmblemLoads(this);
     queueSoundEffects(this);
+    this.menuMusic.queue(this);
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'main'),
       ...getTitleBackdropTextureUses(this.celestial),

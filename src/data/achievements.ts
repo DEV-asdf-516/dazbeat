@@ -74,9 +74,15 @@ export type NamedAchievementDefinition = AchievementDefinition & {
   readonly names: Readonly<Record<Language, string>>;
 };
 
+export interface AchievementAlbum {
+  readonly key: string;
+  readonly name: string;
+}
+
 export interface AchievementCatalog {
   readonly definitions: readonly NamedAchievementDefinition[];
-  readonly albumNames: ReadonlyMap<string, string>;
+  // 규칙의 album 은 albums 레코드 id 다.
+  readonly albums: ReadonlyMap<string, AchievementAlbum>;
 }
 
 export interface AchievementFields {

@@ -1,6 +1,6 @@
 import type { Language } from '../../../i18n/language.js';
 import type { Lane } from '../../../rhythm/types.js';
-import { DEFAULT_SETTINGS } from '../../../storage/settings.js';
+import { DEFAULT_SETTINGS, getMusicVolume } from '../../../storage/settings.js';
 import type { Settings } from '../../../storage/settings.js';
 import { adjustSetting, assignKey, canAdjust } from './settingsAdjust.js';
 import type { SettingsRow } from './settingsAdjust.js';
@@ -355,6 +355,7 @@ export function withDisplayedLanguage(
 
 export type SettingsEffect =
   | { readonly kind: 'save'; readonly settings: Settings }
+  | { readonly kind: 'musicVolume'; readonly settings: Settings }
   | { readonly kind: 'changeLanguage'; readonly language: Language }
   | { readonly kind: 'focusSound'; readonly settings: Settings };
 
@@ -368,6 +369,13 @@ export function getSettingsEffects(
       kind: 'save',
       settings: next.settings,
     });
+    // 이 화면에서도 메뉴 음악이 흐르므로 들리는 음악 볼륨이 바뀌면 바로 반영한다.
+    if (getMusicVolume(next.settings) !== getMusicVolume(previous.settings)) {
+      effects.push({
+        kind: 'musicVolume',
+        settings: next.settings,
+      });
+    }
     const { language } = next.settings;
     if (language !== null && language !== next.displayedLanguage) {
       effects.push({

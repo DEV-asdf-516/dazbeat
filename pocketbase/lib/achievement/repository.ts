@@ -3,7 +3,11 @@ import {
   parseAchievementDefinition,
 } from '../../../src/data/achievements.js';
 import { InvalidAchievementDefinitionError } from '../../../src/data/achievements.js';
-import type { AchievementId, AchievementMark } from '../../../src/data/achievements.js';
+import type {
+  AchievementAlbum,
+  AchievementId,
+  AchievementMark,
+} from '../../../src/data/achievements.js';
 import { DIFFICULTIES, ZODIACS } from '../../../src/data/songs.js';
 import type { Zodiac } from '../../../src/data/songs.js';
 import {
@@ -248,19 +252,29 @@ export function readPublishedSongs(runtime: JsvmRuntime, app: JsvmApp): Publishe
   return [...songs.values()];
 }
 
-export function readAlbumNames(runtime: JsvmRuntime, app: JsvmApp): ReadonlyMap<string, string> {
+export function readAlbums(
+  runtime: JsvmRuntime,
+  app: JsvmApp,
+): ReadonlyMap<string, AchievementAlbum> {
   return new Map(
     selectRows(
       runtime,
       {
         id: 'text',
+        key: 'text',
         name: 'text',
       },
       app
         .db()
-        .select(...columns(ALBUMS, ['id', 'name']))
+        .select(...columns(ALBUMS, ['id', 'key', 'name']))
         .from(ALBUMS.name),
-    ).map(({ id, name }) => [id, name] as const),
+    ).map(({ id, key, name }) => [
+      id,
+      {
+        key,
+        name,
+      },
+    ]),
   );
 }
 

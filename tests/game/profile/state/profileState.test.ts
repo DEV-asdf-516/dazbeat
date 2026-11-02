@@ -84,7 +84,7 @@ function createProfile(overrides: Partial<Profile> = {}): Profile {
     newAchievements: new Set(),
     catalog: {
       definitions: [FIRST_FINISH, PLAY_3],
-      albumNames: new Map(),
+      albums: new Map(),
     },
     ...overrides,
   };

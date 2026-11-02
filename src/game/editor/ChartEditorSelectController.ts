@@ -15,11 +15,13 @@ import {
   hoverEditorSelectButton,
   hoverEditorSelectFilter,
   isListEndVisible,
+  isLoadMoreFailureOpen,
   moveSongListFocus,
   pressEditorSelectButton,
   readSongListCommand,
   releaseEditorSelectButton,
   releaseHiddenRetryHover,
+  setLoadMoreFailureCancelled,
   scrollSongList,
   unhoverEditorSelectButton,
   unhoverEditorSelectFilter,
@@ -77,7 +79,14 @@ export class ChartEditorSelectController {
     if (current === null) {
       return false;
     }
-    const command = readSongListCommand(key, this.screen.isSearchFocused());
+    const command = readSongListCommand(
+      key,
+      this.screen.isSearchFocused(),
+      isLoadMoreFailureOpen(
+        current.list,
+        getSongListStatus(current.list.songCount, current.feed.status),
+      ),
+    );
     if (command === null) {
       return false;
     }
@@ -96,6 +105,9 @@ export class ChartEditorSelectController {
         return true;
       case 'retry':
         return this.retry();
+      case 'cancelLoadMoreFailure':
+        this.cancelLoadMoreFailure();
+        return true;
       case 'focusSearch':
         this.screen.focusSearch();
         return true;
@@ -203,7 +215,11 @@ export class ChartEditorSelectController {
         this.screen.leave();
         return;
       case 'retry':
+      case 'failureRetry':
         this.retry();
+        return;
+      case 'failureCancel':
+        this.cancelLoadMoreFailure();
         return;
     }
   }
@@ -214,7 +230,19 @@ export class ChartEditorSelectController {
       return false;
     }
     void current.feed.requestMoreFromUser();
+    // 요청이 곧바로 loading 으로 바뀌므로 그 뒤에 취소를 풀어야 팝업이 잠깐 다시 열리지 않는다.
+    const loading = this.open;
+    if (loading !== null) {
+      this.setList(setLoadMoreFailureCancelled(loading.list, false));
+    }
     return true;
+  }
+
+  private cancelLoadMoreFailure(): void {
+    const current = this.open;
+    if (current !== null) {
+      this.setList(setLoadMoreFailureCancelled(current.list, true));
+    }
   }
 
   close(): void {
@@ -312,6 +340,7 @@ export class ChartEditorSelectController {
 
   private render(current: SelectState): void {
     const { feed, list } = current;
+    const status = getSongListStatus(list.songCount, feed.status);
     const next: ChartEditorSelectView = {
       category: feed.query.category,
       hover: list.hover,
@@ -319,8 +348,9 @@ export class ChartEditorSelectController {
       topIndex: list.topIndex,
       songCount: list.songCount,
       notice: getSongListNotice(list.songCount, feed.status, feed.query),
-      status: getSongListStatus(list.songCount, feed.status),
+      status,
       canRetry: canRetry(current),
+      isLoadMoreFailureOpen: isLoadMoreFailureOpen(list, status),
     };
     this.screen.render(this.shownView, next);
     this.shownView = next;

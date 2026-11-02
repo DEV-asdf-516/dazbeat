@@ -14,7 +14,7 @@ import { requireDefined } from '../../../src/invariant.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 import type { Settings } from '../../../src/storage/settings.js';
 
-// 0: 마스터 볼륨, 1~2: 키 lane 0~1, 3: 언어
+// 0: 마스터 볼륨, 1~2: 키 lane 0~1, 3: 언어, 4: 효과음 볼륨
 const ROWS: readonly SettingsRow[] = [
   {
     kind: 'volume',
@@ -29,10 +29,15 @@ const ROWS: readonly SettingsRow[] = [
     lane: 1,
   },
   { kind: 'language' },
+  {
+    kind: 'volume',
+    field: 'effectVolume',
+  },
 ];
 const VOLUME_INDEX = 0;
 const KEY_INDEX = 1;
 const LANGUAGE_INDEX = 3;
+const EFFECT_VOLUME_INDEX = 4;
 
 interface Pending<T> {
   readonly promise: Promise<T>;
@@ -71,6 +76,7 @@ interface Harness {
   readonly controller: SettingsController;
   readonly events: Event[];
   readonly languageChanges: { readonly language: Language; readonly response: Pending<void> }[];
+  readonly musicVolumes: Settings[];
   failSave(): void;
   leaveCount(): number;
   renders(): Extract<Event, { kind: 'render' }>[];
@@ -80,6 +86,7 @@ interface Harness {
 function createHarness(): Harness {
   const events: Event[] = [];
   const languageChanges: { language: Language; response: Pending<void> }[] = [];
+  const musicVolumes: Settings[] = [];
   let isSaveFailing = false;
   let leaveCount = 0;
   const controller = new SettingsController(
@@ -116,6 +123,7 @@ function createHarness(): Harness {
           kind: 'focusSound',
           settings,
         }),
+      setMusicVolume: (settings) => musicVolumes.push(settings),
       leave: () => {
         leaveCount += 1;
       },
@@ -130,6 +138,7 @@ function createHarness(): Harness {
     controller,
     events,
     languageChanges,
+    musicVolumes,
     failSave: () => {
       isSaveFailing = true;
     },
@@ -183,6 +192,24 @@ describe('SettingsController', () => {
     click(harness, getStepButton(VOLUME_INDEX, -1));
 
     expect(kinds(harness.events)).toEqual(['render', 'render', 'render', 'save', 'render']);
+  });
+
+  it('applies the music volume right away when the master volume changes', () => {
+    const harness = createHarness();
+
+    click(harness, getStepButton(VOLUME_INDEX, -1));
+
+    expect(harness.musicVolumes.map(({ masterVolume }) => masterVolume)).toEqual([0.9]);
+  });
+
+  it('leaves the music volume alone when a setting that is not heard in the music changes', () => {
+    const harness = createHarness();
+
+    click(harness, getStepButton(EFFECT_VOLUME_INDEX, -1));
+    click(harness, getStepButton(LANGUAGE_INDEX, 1));
+
+    expect(harness.events.filter(({ kind }) => kind === 'save')).toHaveLength(2);
+    expect(harness.musicVolumes).toEqual([]);
   });
 
   it('does nothing when the setting cannot change further', () => {

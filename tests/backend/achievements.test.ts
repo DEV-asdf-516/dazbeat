@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 describe('loadAchievementCatalog', () => {
-  it('reads every achievement in one request with the album name', async () => {
+  it('reads every achievement in one request with the album key and name', async () => {
     const fetchMock = stubFetch([]);
 
     await loadAchievementCatalog(new PocketBase('http://pb.test'));
@@ -72,11 +72,12 @@ describe('loadAchievementCatalog', () => {
       'nameKo',
       'nameJa',
       'nameEn',
+      'expand.album.key',
       'expand.album.name',
     ]);
   });
 
-  it('keeps the response order with names in three languages and album names', async () => {
+  it('keeps the response order with names in three languages and albums', async () => {
     stubFetch([
       makeAchievementRecord('PLAY_3'),
       makeAchievementRecord('ALBUM_ORBIT_CLEAR', {
@@ -86,7 +87,12 @@ describe('loadAchievementCatalog', () => {
         target: 0,
         mark: 'clear',
         album: 'album_orbit',
-        expand: { album: { name: 'orbit' } },
+        expand: {
+          album: {
+            key: 'orbit',
+            name: 'orbit',
+          },
+        },
       }),
       makeAchievementRecord('S_20_CHARTS', {
         category: 'precision',
@@ -149,7 +155,17 @@ describe('loadAchievementCatalog', () => {
         },
       },
     ]);
-    expect(catalog.albumNames).toEqual(new Map([['album_orbit', 'orbit']]));
+    expect(catalog.albums).toEqual(
+      new Map([
+        [
+          'album_orbit',
+          {
+            key: 'orbit',
+            name: 'orbit',
+          },
+        ],
+      ]),
+    );
   });
 
   it.each([

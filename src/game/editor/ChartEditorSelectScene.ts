@@ -30,7 +30,6 @@ import type {
   EditorSelectButton,
   EditorSelectRegion,
   SongListNotice,
-  SongListStatus,
 } from './state/songListState.js';
 import { getSegmentAppearance } from './state/segmentAppearance.js';
 import { createAuxiliaryButton } from '../ui/view/widgets/auxiliaryButton.js';
@@ -41,6 +40,7 @@ import { SongListPanel } from './view/SongListPanel.js';
 import { TextInput } from '../ui/view/widgets/TextInput.js';
 import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
 import { NoticeText } from '../ui/view/widgets/NoticeText.js';
+import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import {
   queueCelestialTextures,
@@ -56,9 +56,10 @@ interface SelectView {
   readonly filter: SegmentedControl<SongFilter>;
   readonly panel: SongListPanel;
   readonly notice: NoticeText;
-  readonly statusText: Phaser.GameObjects.Text;
+  readonly status: NoticeText;
   readonly backButton: Button;
   readonly retryButton: Button;
+  readonly loadMoreFailure: ConfirmDialog;
 }
 
 const LAYOUT = createEditorLayout(GAME_WIDTH, GAME_HEIGHT);
@@ -174,15 +175,23 @@ export class ChartEditorSelectScene extends Phaser.Scene {
       label: 'RETRY',
       pointer: pointButton(pointer, 'retry'),
     }).alignX(GAME_WIDTH - LAYOUT.video.leftPx, 1);
-    const statusText = this.add
-      .text(
-        retryButton.x - STATUS_RETRY_GAP_PX,
-        centerYPx,
-        '',
-        typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
-      )
-      .setAlign('right')
-      .setOrigin(1, 0.5);
+    const status = new NoticeText(
+      this,
+      this.celestial,
+      this.add
+        .text(
+          retryButton.x - STATUS_RETRY_GAP_PX,
+          centerYPx,
+          '',
+          typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
+        )
+        .setAlign('right')
+        .setOrigin(1, 0.5),
+    );
+    const loadMoreFailure = new ConfirmDialog(this, {
+      cancel: pointButton(pointer, 'failureCancel'),
+      accept: pointButton(pointer, 'failureRetry'),
+    });
     const screen: ChartEditorSelectScreen = {
       render: (previous, next) => {
         for (const region of getChangedRegions(previous, next)) {
@@ -191,9 +200,10 @@ export class ChartEditorSelectScene extends Phaser.Scene {
               filter,
               panel,
               notice,
-              statusText,
+              status,
               backButton,
               retryButton,
+              loadMoreFailure,
             },
             previous,
             next,
@@ -315,17 +325,40 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         );
         return;
       case 'status':
-        if (next.status === null) {
-          view.statusText.setText('').setVisible(false);
-        } else {
-          view.statusText.setText(this.translateStatus(next.status)).setVisible(true);
-        }
+        // 실패는 팝업이 알린다.
+        view.status.show(
+          next.status === 'loadingMore'
+            ? {
+                kind: 'loading',
+                text: this.i18n.t('chartEditorSelect.loadingMore'),
+              }
+            : { kind: 'none' },
+        );
         return;
       case 'backButton':
         view.backButton.render(getEditorSelectButtonView(next, 'back'));
         return;
       case 'retryButton':
         view.retryButton.setVisible(next.canRetry).render(getEditorSelectButtonView(next, 'retry'));
+        return;
+      case 'loadMoreFailure':
+        view.loadMoreFailure.render(
+          next.isLoadMoreFailureOpen
+            ? {
+                title: this.i18n.t('chartEditorSelect.loadMoreFailed'),
+                body: this.i18n.t('chartEditorSelect.loadMoreFailedBody'),
+                cancelLabel: 'CANCEL',
+                acceptLabel: 'RETRY',
+                acceptTone: 'default',
+              }
+            : null,
+        );
+        return;
+      case 'loadMoreFailureButtons':
+        view.loadMoreFailure.renderButtons(
+          getEditorSelectButtonView(next, 'failureCancel'),
+          getEditorSelectButtonView(next, 'failureRetry'),
+        );
         return;
     }
   }
@@ -342,15 +375,6 @@ export class ChartEditorSelectScene extends Phaser.Scene {
         return this.i18n.t('chartEditorSelect.emptyFilter');
       case 'noMatch':
         return this.i18n.t('chartEditorSelect.noMatch', { title: notice.title });
-    }
-  }
-
-  private translateStatus(status: SongListStatus): string {
-    switch (status) {
-      case 'loadingMore':
-        return this.i18n.t('chartEditorSelect.loadingMore');
-      case 'loadMoreFailed':
-        return this.i18n.t('chartEditorSelect.loadMoreFailed');
     }
   }
 

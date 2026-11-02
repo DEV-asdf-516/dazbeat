@@ -4,7 +4,11 @@ import {
   InvalidAchievementDefinitionError,
   parseAchievementDefinition,
 } from '../data/achievements.js';
-import type { AchievementCatalog, NamedAchievementDefinition } from '../data/achievements.js';
+import type {
+  AchievementAlbum,
+  AchievementCatalog,
+  NamedAchievementDefinition,
+} from '../data/achievements.js';
 import { toParseIssue } from '../data/parseIssue.js';
 import { ACHIEVEMENTS, ALBUMS } from '../pbCollections.js';
 import { relation, select } from '../pbQuery.js';
@@ -12,11 +16,18 @@ import { isBoolean, isFiniteNumber, isString } from '../typeGuards.js';
 import { readRecordField } from './recordField.js';
 import { requireDefined } from '../invariant.js';
 
-const ACHIEVEMENT_ALBUM = relation(ACHIEVEMENTS, 'album', ALBUMS, ['name']);
+const ACHIEVEMENT_ALBUM = relation(ACHIEVEMENTS, 'album', ALBUMS, ['key', 'name']);
 
 // album 이 빈 행은 PocketBase 가 expand 를 빼고 보낸다.
 const albumExpand = z
-  .object({ [ACHIEVEMENT_ALBUM.name]: z.object({ name: z.string() }).optional() })
+  .object({
+    [ACHIEVEMENT_ALBUM.name]: z
+      .object({
+        key: z.string(),
+        name: z.string(),
+      })
+      .optional(),
+  })
   .optional();
 
 export async function loadAchievementCatalog(pb: PocketBase): Promise<AchievementCatalog> {
@@ -43,7 +54,7 @@ export async function loadAchievementCatalog(pb: PocketBase): Promise<Achievemen
     ),
   });
   const definitions: NamedAchievementDefinition[] = [];
-  const albumNames = new Map<string, string>();
+  const albums = new Map<string, AchievementAlbum>();
   for (const record of records) {
     const field = <T>(name: string, guard: (value: unknown) => value is T): T =>
       readRecordField(record, ACHIEVEMENTS.name, name, guard);
@@ -87,7 +98,7 @@ export async function loadAchievementCatalog(pb: PocketBase): Promise<Achievemen
         'Invalid achievements record expand.album',
         record.id,
       );
-      albumNames.set(definition.rule.album, album.name);
+      albums.set(definition.rule.album, album);
     }
     definitions.push({
       ...definition,
@@ -96,6 +107,6 @@ export async function loadAchievementCatalog(pb: PocketBase): Promise<Achievemen
   }
   return {
     definitions,
-    albumNames,
+    albums,
   };
 }

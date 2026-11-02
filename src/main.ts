@@ -41,6 +41,7 @@ import { SharedSongFeeds } from './game/app/SongFeed.js';
 import type { SongBatchLoader } from './game/app/SongFeed.js';
 import { SongSelectScene } from './game/songSelect/SongSelectScene.js';
 import { DEFAULT_CURSOR } from './game/ui/view/input/cursor.js';
+import { MenuMusic } from './game/ui/view/MenuMusic.js';
 import { NebulaTrail } from './game/ui/view/input/NebulaTrail.js';
 import { bindPressedCursor } from './game/ui/view/input/pressedCursor.js';
 import { preloadCjkFonts, preloadUiFonts, redrawTextsWhenFontsLoad } from './game/ui/view/fonts.js';
@@ -96,10 +97,11 @@ async function fetchJson(url: string): Promise<unknown> {
   return body;
 }
 
-function startGame(scenes: Phaser.Scene[]): void {
+function startGame(scenes: Phaser.Scene[]): Phaser.Game {
   const game = new Phaser.Game(createGameConfig(scenes));
   game.events.once(Phaser.Core.Events.READY, () => bindPressedCursor(game.canvas));
   redrawTextsWhenFontsLoad(game);
+  return game;
 }
 
 const mvLayer = document.getElementById('mv-layer');
@@ -131,7 +133,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
         ja,
         en,
         achievements.definitions.map(({ names }) => names),
-        [...achievements.albumNames.values()],
+        [...achievements.albums.values()].map(({ name }) => name),
       ]),
     );
     const feeds = new SharedSongFeeds(loadPublishedBatch, firstBatch);
@@ -182,11 +184,12 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
         };
       },
     };
-    startGame([
-      new MainScene(save, i18n, auth, celestial, achievements),
+    const menuMusic = new MenuMusic(save);
+    const game = startGame([
+      new MainScene(save, i18n, auth, celestial, achievements, menuMusic),
       new CreditsScene(save, catalog, i18n, celestial),
       new SongSelectScene(save, mvLayer, feeds, i18n, celestial),
-      new SettingsScene(save, i18n, celestial),
+      new SettingsScene(save, i18n, celestial, menuMusic),
       new ProfileScene(save, i18n, celestial, profilePorts),
       new GameplayScene(
         save,
@@ -201,6 +204,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       new ChartEditorSelectScene(editorFeeds, auth, i18n, celestial),
       new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
     ]);
+    menuMusic.follow(game);
   },
   async (error: unknown) => {
     console.error('Failed to start game', error);

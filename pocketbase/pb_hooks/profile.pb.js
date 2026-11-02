@@ -9,13 +9,12 @@ routerAdd(
     const toDefinition = ({ fields, names }) => ({ ...fields, names });
 
     const user = e.app.findRecordById('users', e.auth.id);
-    const { stats, newAchievements, progress, retired, featured, albumNames } =
-      loadProfileAchievements(
-        { Record, DynamicModel, arrayOf, dbx: $dbx },
-        e.app,
-        user.id,
-        user.getString('featuredAchievement'),
-      );
+    const { stats, newAchievements, progress, retired, featured, albums } = loadProfileAchievements(
+      { Record, DynamicModel, arrayOf, dbx: $dbx },
+      e.app,
+      user.id,
+      user.getString('featuredAchievement'),
+    );
     return e.json(HTTP_STATUS.ok, {
       nickname: user.getString('nickname'),
       featuredAchievement: featured === null ? null : toDefinition(featured),
@@ -27,7 +26,7 @@ routerAdd(
         target,
       })),
       retiredAchievements: retired.map(toDefinition),
-      albumNames: Object.fromEntries(albumNames),
+      albums: Object.fromEntries(albums),
       newAchievements,
     });
   },
