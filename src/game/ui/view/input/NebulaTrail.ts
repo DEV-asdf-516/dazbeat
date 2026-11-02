@@ -8,18 +8,18 @@ import { rgba } from '../textures/lightTextures.js';
 const NEBULA_STOPS = [
   {
     offset: 0,
-    color: 0xbef5e4,
+    color: 0xf0e6ff,
   },
   {
     offset: 0.45,
-    color: 0x60d4c4,
+    color: 0xc4a2ff,
   },
   {
     offset: 1,
-    color: 0x287680,
+    color: 0x7650c4,
   },
 ] as const;
-const SPARK_COLOR = 0xe0fff4;
+const SPARK_COLOR = 0xfaf6ff;
 const SPARK_RADIUS_PX = 0.9;
 /** 덩이 alpha 가 아주 옅으므로 별빛 점은 그 몇 배로 밝혀 겨우 보이게 한다. */
 const SPARK_ALPHA_SCALE = 7;

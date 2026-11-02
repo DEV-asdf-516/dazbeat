@@ -144,7 +144,6 @@ export const ko = {
   collection: {
     title: 'COLLECTION',
     progress: '진행',
-    currentSongs: '현재 수록곡 기준',
     noAssignedSongs: '배정된 곡 없음',
     earned: '획득',
     setFeatured: '장착',

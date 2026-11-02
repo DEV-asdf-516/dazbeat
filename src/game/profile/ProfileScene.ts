@@ -227,6 +227,7 @@ const VALUE_RIGHT_X_PX = LEFT_X_PX + 800;
 const SET_NODE_X_PX = LEFT_X_PX - LIST_ROW.nodeOffsetXPx;
 const SET_FILL_X_PX = LEFT_X_PX - 72;
 const SET_FILL_WIDTH_PX = SET_ROW_WIDTH_PX + 72 + 16;
+const SET_FILL_INSET_Y_PX = 7;
 const SET_NODE_IDLE_ID = 'R15';
 const SET_NODE_HOVER_ID = 'R16';
 const SET_NODE_SELECTED_ID = 'R17';
@@ -428,7 +429,7 @@ export class ProfileScene extends Phaser.Scene {
     queueAchievementEmblemLoads(this);
     queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
-      ...getMenuSceneTextureUses(this.celestial, 'songSelect'),
+      ...getMenuSceneTextureUses(this.celestial, 'result'),
       this.celestial.atlasPresentations[FOCUS_STAR_ID],
       this.celestial.atlasPresentations[SELECTED_HALO_ID],
       this.celestial.atlasPresentations[DIVIDER_GLINT_ID],
@@ -451,7 +452,7 @@ export class ProfileScene extends Phaser.Scene {
       this,
       {
         celestial: this.celestial,
-        screen: 'songSelect',
+        screen: 'result',
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
@@ -718,8 +719,8 @@ export class ProfileScene extends Phaser.Scene {
         marker: new ListRowMarker(
           this,
           {
-            topYPx,
-            heightPx: ROW_HEIGHT_PX,
+            topYPx: topYPx + SET_FILL_INSET_Y_PX,
+            heightPx: ROW_HEIGHT_PX - SET_FILL_INSET_Y_PX * 2,
             nodeXPx: SET_NODE_X_PX,
             fillXPx: SET_FILL_X_PX,
             fillWidthPx: SET_FILL_WIDTH_PX,
@@ -1315,10 +1316,10 @@ export class ProfileScene extends Phaser.Scene {
     view.detailName.setText(getAchievementName(this.i18n, definition));
     view.detailCondition.setText(this.describeCondition(state.profile.catalog, definition));
     const progress = getProgressDisplay(state);
-    view.detailProgressLabel.setText(this.i18n.t(progress.labelKey));
-    switch (progress.value.kind) {
+    view.detailProgressLabel.setText(this.i18n.t('collection.progress'));
+    switch (progress.kind) {
       case 'ratio':
-        view.detailProgressValue.setText(`${progress.value.current} / ${progress.value.target}`);
+        view.detailProgressValue.setText(`${progress.current} / ${progress.target}`);
         break;
       case 'noAssignedSongs':
         view.detailProgressValue.setText(this.i18n.t('collection.noAssignedSongs'));

@@ -146,7 +146,6 @@ export const ja: Messages = {
   collection: {
     title: 'COLLECTION',
     progress: '進行',
-    currentSongs: '現在の収録曲',
     noAssignedSongs: '割り当てられた曲なし',
     earned: '獲得',
     setFeatured: '装備',

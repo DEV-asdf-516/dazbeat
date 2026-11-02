@@ -469,8 +469,7 @@ export function getPenAppearance(screen: LoadedScreen): 'hidden' | 'emphasized' 
 }
 
 export type AchievementProgress =
-  | { readonly kind: 'count'; readonly current: number; readonly target: number }
-  | { readonly kind: 'currentSongs'; readonly current: number; readonly target: number }
+  | { readonly kind: 'ratio'; readonly current: number; readonly target: number }
   | { readonly kind: 'noAssignedSongs' };
 
 /** 황도 완성과 앨범은 지금 배정된 곡 수가 목표라, 곡이 하나도 없으면 진행도 대신 그 사실을 보인다. */
@@ -480,20 +479,14 @@ export function getAchievementProgress({
   target,
 }: AchievementStatus): AchievementProgress {
   const { kind } = definition.rule;
-  if (kind !== 'zodiacComplete' && kind !== 'album') {
-    return {
-      kind: 'count',
-      current,
-      target,
-    };
+  if ((kind === 'zodiacComplete' || kind === 'album') && target === 0) {
+    return { kind: 'noAssignedSongs' };
   }
-  return target === 0
-    ? { kind: 'noAssignedSongs' }
-    : {
-        kind: 'currentSongs',
-        current,
-        target,
-      };
+  return {
+    kind: 'ratio',
+    current,
+    target,
+  };
 }
 
 export function getFeaturedAction(state: LoadedProfileState): FeaturedAction {
@@ -1074,15 +1067,8 @@ export function getNicknameCountInput(state: LoadedProfileState): string | null 
   return state.nickname.kind === 'idle' ? null : state.nickname.input;
 }
 
-export interface ProgressDisplay {
-  readonly labelKey: 'collection.progress' | 'collection.currentSongs';
-  readonly value:
-    | { readonly kind: 'ratio'; readonly current: number; readonly target: number }
-    | { readonly kind: 'noAssignedSongs' };
-}
-
-export function getProgressDisplay(state: LoadedProfileState): ProgressDisplay {
-  const progress = getAchievementProgress(
+export function getProgressDisplay(state: LoadedProfileState): AchievementProgress {
+  return getAchievementProgress(
     requireDefined(
       state.profile.achievements.find(
         ({ definition }) => definition.id === state.collection.focusedId,
@@ -1091,29 +1077,4 @@ export function getProgressDisplay(state: LoadedProfileState): ProgressDisplay {
       state.collection.focusedId,
     ),
   );
-  switch (progress.kind) {
-    case 'count':
-      return {
-        labelKey: 'collection.progress',
-        value: {
-          kind: 'ratio',
-          current: progress.current,
-          target: progress.target,
-        },
-      };
-    case 'currentSongs':
-      return {
-        labelKey: 'collection.currentSongs',
-        value: {
-          kind: 'ratio',
-          current: progress.current,
-          target: progress.target,
-        },
-      };
-    case 'noAssignedSongs':
-      return {
-        labelKey: 'collection.currentSongs',
-        value: { kind: 'noAssignedSongs' },
-      };
-  }
 }
