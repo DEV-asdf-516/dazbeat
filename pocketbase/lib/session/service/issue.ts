@@ -2,7 +2,7 @@ import { getPlayDurationMs } from '../../../../src/rhythm/playTiming.js';
 import { msToSec, secToMs } from '../../../../src/time.js';
 import { requireDefined } from '../../../../src/invariant.js';
 import type { JsvmRuntime, DbApp, TransactionalApp } from '../../jsvm.js';
-import { SessionRejectedError } from '../dto.js';
+import { InvalidSessionRequestError } from '../dto.js';
 import type { SessionQuota, SessionRequest, VerificationSong } from '../dto.js';
 import {
   deletePlaySessions,
@@ -67,20 +67,27 @@ export function getSessionExpiresAtMs(song: VerificationSong, issuedAtMs: number
   return issuedAtMs + getPlayDurationMs(song.gameStartMs, song.gameEndMs) + SESSION_GRACE_MS;
 }
 
+type SessionChart = NonNullable<ReturnType<typeof readSessionChart>>;
+
+export type SessionChartLoad =
+  { readonly kind: 'loaded'; readonly chart: SessionChart } | { readonly kind: 'changed' };
+
 /** 요청한 revision 그대로인 공개 곡의 채보만 돌려준다. */
 export function loadSessionChart(
   runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'>,
   app: DbApp,
   request: SessionRequest,
-) {
+): SessionChartLoad {
   const chart = readSessionChart(runtime, app, request.chartId);
   if (chart === undefined) {
-    throw new SessionRejectedError('chart_not_found');
+    throw new InvalidSessionRequestError('chart_not_found');
   }
-  if (chart.revision !== request.chartRevision) {
-    throw new SessionRejectedError('chart_changed');
-  }
-  return chart;
+  return chart.revision === request.chartRevision
+    ? {
+        kind: 'loaded',
+        chart,
+      }
+    : { kind: 'changed' };
 }
 
 export type SessionIssue =
@@ -91,7 +98,7 @@ export function issuePlaySession(
   runtime: Pick<JsvmRuntime, 'Record' | 'dbx'>,
   app: TransactionalApp,
   userId: string,
-  chart: ReturnType<typeof loadSessionChart>,
+  chart: SessionChart,
 ): SessionIssue {
   let issue: SessionIssue | undefined;
   app.runInTransaction((tx) => {

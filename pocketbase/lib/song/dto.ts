@@ -1,6 +1,8 @@
-import { SONG_CATEGORIES } from '../../../src/data/songs.js';
+import { DIFFICULTIES, SONG_CATEGORIES } from '../../../src/data/songs.js';
 import type { SongCategory, SongScope } from '../../../src/data/songs.js';
 import { HTTP_STATUS } from '../../../src/httpStatus.js';
+import { LANE_COUNTS } from '../../../src/rhythm/lanes.js';
+import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
 import { isOneOf, isString } from '../../../src/typeGuards.js';
 import type { JsvmRecord } from '../jsvm.js';
 
@@ -10,6 +12,8 @@ const MAX_CURSOR_LENGTH = 64;
 const MAX_PREFIX_LENGTH = 2;
 
 const isCategory = isOneOf(SONG_CATEGORIES);
+const isDifficulty = isOneOf(DIFFICULTIES);
+const isLaneCount = isOneOf(LANE_COUNTS);
 
 type SongSearchRejectionCode = 'invalid_request' | 'editor_required';
 
@@ -18,8 +22,8 @@ export const SONG_SEARCH_REJECTIONS: Record<SongSearchRejectionCode, { status: n
   editor_required: { status: HTTP_STATUS.forbidden },
 };
 
-export class SongSearchRejectedError extends Error {
-  override readonly name = 'SongSearchRejectedError';
+export class InvalidSongSearchError extends Error {
+  override readonly name = 'InvalidSongSearchError';
 
   constructor(
     readonly code: SongSearchRejectionCode,
@@ -27,6 +31,81 @@ export class SongSearchRejectedError extends Error {
   ) {
     super(message);
   }
+}
+
+export type ChartSaveRejectionCode =
+  'invalid_chart' | 'base_revision_required' | 'chart_revision_conflict';
+
+export const CHART_SAVE_REJECTIONS: Record<
+  ChartSaveRejectionCode,
+  { status: number; field: string }
+> = {
+  invalid_chart: {
+    status: HTTP_STATUS.badRequest,
+    field: 'data',
+  },
+  base_revision_required: {
+    status: HTTP_STATUS.badRequest,
+    field: 'baseRevision',
+  },
+  chart_revision_conflict: {
+    status: HTTP_STATUS.conflict,
+    field: 'baseRevision',
+  },
+};
+
+export class InvalidChartSaveError extends Error {
+  override readonly name = 'InvalidChartSaveError';
+
+  constructor(
+    readonly code: Exclude<ChartSaveRejectionCode, 'chart_revision_conflict'>,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export interface ChartRecord {
+  readonly song: string;
+  readonly difficulty: Difficulty;
+  readonly laneCount: LaneCount;
+  readonly data: string;
+}
+
+export function parseChartRecord(fields: {
+  readonly song: string;
+  readonly difficulty: string;
+  readonly laneCount: number;
+  readonly data: string;
+}): ChartRecord {
+  const { difficulty, laneCount } = fields;
+  if (!isDifficulty(difficulty)) {
+    throw new InvalidChartSaveError(
+      'invalid_chart',
+      `difficulty must be one of ${DIFFICULTIES.join(', ')}.`,
+    );
+  }
+  if (!isLaneCount(laneCount)) {
+    throw new InvalidChartSaveError(
+      'invalid_chart',
+      `laneCount must be one of ${LANE_COUNTS.join(', ')}.`,
+    );
+  }
+  return {
+    ...fields,
+    difficulty,
+    laneCount,
+  };
+}
+
+export function parseBaseRevision(value: unknown): string {
+  if (!isString(value) || value === '') {
+    throw new InvalidChartSaveError(
+      'base_revision_required',
+      'baseRevision must be a non-empty string.',
+    );
+  }
+  return value;
 }
 
 export interface SongSearchInput {
@@ -66,14 +145,14 @@ export function parseSongSearchInput(input: SongSearchInput): SongSearchRequest 
 
 function parseTitle(value: unknown): TitleSearch {
   if (!isString(value)) {
-    throw new SongSearchRejectedError('invalid_request', 'title must be a string.');
+    throw new InvalidSongSearchError('invalid_request', 'title must be a string.');
   }
   // 저장된 제목과 같은 NFC 로 맞춰야 조합형으로 입력한 검색어도 찾는다.
   const term = value.normalize('NFC').trim();
   // 보조 평면 문자도 한 글자로 센다.
   const termLength = Array.from(term).length;
   if (termLength === 0 || termLength > MAX_TITLE_LENGTH) {
-    throw new SongSearchRejectedError(
+    throw new InvalidSongSearchError(
       'invalid_request',
       `title must be 1 to ${MAX_TITLE_LENGTH} characters.`,
     );
@@ -89,7 +168,7 @@ function parseCategory(value: unknown): SongCategory | null {
     return null;
   }
   if (!isCategory(value)) {
-    throw new SongSearchRejectedError(
+    throw new InvalidSongSearchError(
       'invalid_request',
       `category must be one of ${SONG_CATEGORIES.join(', ')}.`,
     );
@@ -103,10 +182,10 @@ function parseScope(value: unknown, canListUnpublished: boolean): SongScope {
     return 'published';
   }
   if (value !== 'all') {
-    throw new SongSearchRejectedError('invalid_request', 'scope must be omitted or all.');
+    throw new InvalidSongSearchError('invalid_request', 'scope must be omitted or all.');
   }
   if (!canListUnpublished) {
-    throw new SongSearchRejectedError(
+    throw new InvalidSongSearchError(
       'editor_required',
       'Listing unpublished songs requires an editor.',
     );
@@ -123,7 +202,7 @@ function parseCursor(releasedOn: unknown, id: unknown): SongSearchCursor | null 
     return null;
   }
   if (!isCursorValue(releasedOn) || !isCursorValue(id)) {
-    throw new SongSearchRejectedError(
+    throw new InvalidSongSearchError(
       'invalid_request',
       `afterReleasedOn and afterId must both be non-empty strings of at most ${MAX_CURSOR_LENGTH} characters.`,
     );

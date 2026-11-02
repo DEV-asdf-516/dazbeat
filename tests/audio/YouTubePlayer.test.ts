@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { YouTubePlayer } from '../../src/audio/YouTubePlayer.js';
+import { loadYouTubeIframeApi, YouTubePlayer } from '../../src/audio/YouTubePlayer.js';
 import type { YouTubePlayerHandlers } from '../../src/audio/YouTubePlayer.js';
 import { requireDefined } from '../../src/invariant.js';
 
@@ -85,7 +85,38 @@ function infoDelivery(info: unknown): string {
   });
 }
 
+interface FakeScript {
+  src: string;
+  isRemoved: boolean;
+}
+
+// 실제 DOM 이 없는 node 환경이라 loadYouTubeIframeApi 가 쓰는 script 붙이기만 대역으로 기록한다.
+function stubIframeApiPage() {
+  const page: { scripts: FakeScript[]; window: { onYouTubeIframeAPIReady?: () => void } } = {
+    scripts: [],
+    window: {},
+  };
+  vi.stubGlobal('window', page.window);
+  vi.stubGlobal('document', {
+    createElement: () => {
+      const script: FakeScript = {
+        src: '',
+        isRemoved: false,
+      };
+      return Object.assign(script, {
+        addEventListener: vi.fn(),
+        remove: () => {
+          script.isRemoved = true;
+        },
+      });
+    },
+    head: { append: (script: FakeScript) => page.scripts.push(script) },
+  });
+  return page;
+}
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -173,6 +204,20 @@ describe('YouTubePlayer', () => {
     expect(onPositionReport).not.toHaveBeenCalled();
   });
 
+  it('passes autoplay blocking to its handler', () => {
+    const onAutoplayBlocked = vi.fn();
+    const { options } = createPlayer({
+      onReady: vi.fn(),
+      onStateChange: vi.fn(),
+      onError: vi.fn(),
+      onAutoplayBlocked,
+    });
+
+    options.events.onAutoplayBlocked();
+
+    expect(onAutoplayBlocked).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts position messages without a position handler', () => {
     const harness = createPlayer({
       onReady: vi.fn(),
@@ -183,5 +228,52 @@ describe('YouTubePlayer', () => {
     expect(() => {
       harness.dispatchMessage(harness.iframeWindow, infoDelivery({ currentTime: 1 }));
     }).not.toThrow();
+  });
+});
+
+// 진행 중 로드는 모듈 상태라 테스트 순서대로 이어진다. 준비된 로드는 이후 호출에도 그대로 남으므로 마지막에 둔다.
+describe('loadYouTubeIframeApi', () => {
+  it('rejects and removes the script after 10000ms without a response, and retries on the next call', async () => {
+    vi.useFakeTimers();
+    const page = stubIframeApiPage();
+
+    const first = loadYouTubeIframeApi();
+    const firstResult = first.then(
+      () => 'resolved',
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(page.scripts).toEqual([
+      expect.objectContaining({
+        src: 'https://www.youtube.com/iframe_api',
+        isRemoved: false,
+      }),
+    ]);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await firstResult).toEqual(new Error('Timed out loading YouTube IFrame API'));
+    expect(page.scripts[0]?.isRemoved).toBe(true);
+    const second = loadYouTubeIframeApi().catch((error: unknown) => error);
+    expect(page.scripts).toHaveLength(2);
+    expect(page.scripts[1]?.isRemoved).toBe(false);
+    await vi.advanceTimersByTimeAsync(10000);
+    await second;
+  });
+
+  it('resolves when the API is ready before the deadline and does not reject after it', async () => {
+    vi.useFakeTimers();
+    const page = stubIframeApiPage();
+    const settled: string[] = [];
+
+    void loadYouTubeIframeApi().then(
+      () => settled.push('resolved'),
+      () => settled.push('rejected'),
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    requireDefined(page.window.onYouTubeIframeAPIReady, 'ready callback was not set')();
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(settled).toEqual(['resolved']);
+    expect(page.scripts[0]?.isRemoved).toBe(false);
   });
 });

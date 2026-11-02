@@ -13,6 +13,7 @@ const SCREEN_FOLDERS = [
   'credits',
   'editor',
   'profile',
+  'boot',
 ];
 
 // conventions.md 2장의 폴더 의존 방향. 경로를 실제 위치로 풀어 비교하므로 폴더를 옮겨도 그대로 맞는다.

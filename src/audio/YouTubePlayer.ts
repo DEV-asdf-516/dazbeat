@@ -33,6 +33,7 @@ export interface YouTubePlayerHandlers {
   onStateChange(state: YouTubePlayerState): void;
   onError(kind: YouTubeErrorKind, code: number): void;
   onPositionReport?(positionSec: number): void;
+  onAutoplayBlocked?(): void;
 }
 
 interface YTPlayerEvent {
@@ -46,6 +47,7 @@ interface YTPlayerOptions {
     onReady(): void;
     onStateChange(event: YTPlayerEvent): void;
     onError(event: YTPlayerEvent): void;
+    onAutoplayBlocked(): void;
   };
 }
 
@@ -69,6 +71,8 @@ declare global {
 }
 
 const IFRAME_API_URL = 'https://www.youtube.com/iframe_api';
+// 스크립트 요청이 응답 없이 멈추면 load·error 가 오지 않아, 기다리지 않고 로드 실패로 끝낸다.
+const IFRAME_API_TIMEOUT_MS = 10_000;
 
 let pendingLoad: Promise<void> | null = null;
 
@@ -80,14 +84,23 @@ export function loadYouTubeIframeApi(): Promise<void> {
     return pendingLoad;
   }
   pendingLoad = new Promise<void>((resolve, reject) => {
-    window.onYouTubeIframeAPIReady = () => resolve();
     const script = document.createElement('script');
-    script.src = IFRAME_API_URL;
-    script.addEventListener('error', () => {
+    const fail = (message: string) => {
+      clearTimeout(timeoutId);
       pendingLoad = null;
       script.remove();
-      reject(new Error('Failed to load YouTube IFrame API'));
-    });
+      reject(new Error(message));
+    };
+    const timeoutId = setTimeout(
+      () => fail('Timed out loading YouTube IFrame API'),
+      IFRAME_API_TIMEOUT_MS,
+    );
+    window.onYouTubeIframeAPIReady = () => {
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    script.src = IFRAME_API_URL;
+    script.addEventListener('error', () => fail('Failed to load YouTube IFrame API'));
     document.head.append(script);
   });
   return pendingLoad;
@@ -136,6 +149,7 @@ export class YouTubePlayer {
           const code = isFiniteNumber(event.data) ? event.data : UNKNOWN_ERROR_CODE;
           handlers.onError(ERROR_KINDS.get(code) ?? 'unknown', code);
         },
+        onAutoplayBlocked: () => handlers.onAutoplayBlocked?.(),
       },
     });
     window.addEventListener('message', this.handleMessage);

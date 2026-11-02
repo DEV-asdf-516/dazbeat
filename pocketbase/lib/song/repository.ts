@@ -2,8 +2,8 @@ import { CHARTS, SONG_LIST_FIELDS, SONGS } from '../../../src/pbCollections.js';
 import { collectionSpec } from '../../../src/pbQuery.js';
 import type { CompiledFilter, FilterValue } from '../../../src/pbQuery.js';
 import { column, columns } from '../../../src/pbSql.js';
-import { selectRow } from '../jsvm.js';
-import type { JsvmRecord, JsvmRuntime, QueryBuilderApp, SelectQuery } from '../jsvm.js';
+import { selectRow, selectRows } from '../jsvm.js';
+import type { DbApp, JsvmRecord, JsvmRuntime, QueryBuilderApp, SelectQuery } from '../jsvm.js';
 import type { SongSearchChart, SongSearchPage, SongSearchRequest } from './dto.js';
 
 const SONG_SEARCH_BATCH_SIZE = 100;
@@ -162,4 +162,46 @@ export function readSongSearchPage(
     chartsBySong,
     hasMore,
   };
+}
+
+export function readChartSong(
+  runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'>,
+  app: DbApp,
+  songId: string,
+): { key: string; gameStartMs: number; gameEndMs: number } | undefined {
+  const { dbx } = runtime;
+  const [song] = selectRows(
+    runtime,
+    {
+      key: 'text',
+      gameStartMs: 'float',
+      gameEndMs: 'float',
+    },
+    app
+      .db()
+      .select(...columns(SONGS, ['key', 'gameStartMs', 'gameEndMs']))
+      .from(SONGS.name)
+      .where(dbx.hashExp({ [column(SONGS, 'id')]: songId }))
+      .limit(1),
+  );
+  return song;
+}
+
+export function readChartRevision(
+  runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'>,
+  app: DbApp,
+  chartId: string,
+): string | undefined {
+  const { dbx } = runtime;
+  const [chart] = selectRows(
+    runtime,
+    { revision: 'text' },
+    app
+      .db()
+      .select(column(CHARTS, 'revision'))
+      .from(CHARTS.name)
+      .where(dbx.hashExp({ [column(CHARTS, 'id')]: chartId }))
+      .limit(1),
+  );
+  return chart?.revision;
 }

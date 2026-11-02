@@ -37,21 +37,22 @@ export type Navigation =
     }
   | { readonly kind: 'leave' };
 
-/** 전체 삭제는 되돌릴 수 없으므로 저장 여부와 관계없이 묻는다. */
-export type PendingAction = Navigation | { readonly kind: 'clearNotes' };
+/** 저장하지 못한 이유는 SAVE 옆 문구 대신 버튼 하나짜리 확인 팝업으로 알린다. */
+export type SaveNotice =
+  | { readonly kind: 'saveFailed' }
+  | { readonly kind: 'saveConflict' }
+  | { readonly kind: 'invalidChart'; readonly reason: string };
 
-export type SaveResult =
-  | { readonly kind: 'idle' }
-  | { readonly kind: 'saving' }
-  | { readonly kind: 'saved' }
-  | { readonly kind: 'failed' }
-  | { readonly kind: 'invalid'; readonly reason: string };
+/** 전체 삭제는 되돌릴 수 없으므로 저장 여부와 관계없이 묻는다. */
+export type PendingAction = Navigation | { readonly kind: 'clearNotes' } | SaveNotice;
+
+export type SaveProgress = { readonly kind: 'idle' } | { readonly kind: 'saving' };
 
 export interface EditorSession {
   readonly id: object;
   readonly draft: ChartDraft;
   readonly gesture: PointerGesture;
-  readonly saveResult: SaveResult;
+  readonly saveProgress: SaveProgress;
   /** 편집 직전 draft 들. 마지막이 가장 최근 편집 직전이다. */
   readonly undoStack: readonly ChartDraft[];
 }
@@ -110,10 +111,6 @@ export type EditorStatus =
   | { readonly kind: 'noSongs' }
   | { readonly kind: 'loading' }
   | { readonly kind: 'loadFailed' }
-  | { readonly kind: 'saving' }
-  | { readonly kind: 'saved' }
-  | { readonly kind: 'saveFailed' }
-  | { readonly kind: 'invalid'; readonly reason: string }
   | { readonly kind: 'unsaved' }
   | { readonly kind: 'none' };
 
@@ -161,7 +158,6 @@ const readDifficulty: EditorReader = (state) => getSelection(state)?.difficulty;
 const readNotes: EditorReader = (state) => getNotes(state);
 const readSelected: EditorReader = (state) => getSession(state)?.draft.selected;
 const readSavedNotes: EditorReader = (state) => getSession(state)?.draft.savedNotes;
-const readSaveResult: EditorReader = (state) => getSession(state)?.saveResult;
 const readPending: EditorReader = (state) => getPending(state);
 const readTool: EditorReader = (state) => state.tool;
 const readTransport: EditorReader = (state) => state.playhead.transport;
@@ -185,7 +181,7 @@ const REGION_SOURCES: Readonly<Record<EditorRegion, readonly EditorReader[]>> = 
   // 저장하면 곡의 채보 목록이 바뀌어 난이도 표시가 달라진다.
   selection: [readSong, readLaneCount, readDifficulty],
   laneLines: [readLaneCount],
-  status: [readPhaseKind, readNotes, readPending, readSavedNotes, readSaveResult],
+  status: [readPhaseKind, readNotes, readPending, readSavedNotes],
   confirm: [readPending, readNotes],
   panel: [readNotes, readSelected, readTool],
   playButton: [readTransport, ...readButton('play')],
@@ -212,23 +208,16 @@ const REGION_SOURCES: Readonly<Record<EditorRegion, readonly EditorReader[]>> = 
   ],
 };
 
-const IDLE: SaveResult = { kind: 'idle' };
 const DISABLEABLE_BUTTONS: readonly EditorButton[] = ['save', 'delete', 'clear'];
 const NO_NOTES: readonly Note[] = [];
 
-/** 지난 저장 결과는 편집 전 notes 에 대한 것이다. */
 export function withDraft(session: EditorSession, draft: ChartDraft): EditorSession {
   if (session.draft === draft) {
     return session;
   }
-  const saveResult =
-    session.draft.notes !== draft.notes && session.saveResult.kind !== 'saving'
-      ? IDLE
-      : session.saveResult;
   return {
     ...session,
     draft,
-    saveResult,
   };
 }
 
@@ -368,7 +357,7 @@ export function canSave(state: ChartEditorState): boolean {
   const { phase } = state;
   return (
     phase.kind === 'editing' &&
-    phase.session.saveResult.kind !== 'saving' &&
+    phase.session.saveProgress.kind !== 'saving' &&
     isDraftDirty(phase.session.draft)
   );
 }
@@ -386,22 +375,7 @@ export function getEditorStatus(state: ChartEditorState): EditorStatus {
     case 'confirming':
       break;
   }
-  const { saveResult, draft } = phase.session;
-  switch (saveResult.kind) {
-    case 'saving':
-      return { kind: 'saving' };
-    case 'saved':
-      return { kind: 'saved' };
-    case 'failed':
-      return { kind: 'saveFailed' };
-    case 'invalid':
-      return {
-        kind: 'invalid',
-        reason: saveResult.reason,
-      };
-    case 'idle':
-      return isDraftDirty(draft) ? { kind: 'unsaved' } : { kind: 'none' };
-  }
+  return isDraftDirty(phase.session.draft) ? { kind: 'unsaved' } : { kind: 'none' };
 }
 
 export function getChangedRegions(

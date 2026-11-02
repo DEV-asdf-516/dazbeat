@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { YouTubePlayerHandlers } from '../../../src/audio/YouTubePlayer.js';
 import type { AchievementId, NamedAchievementDefinition } from '../../../src/data/achievements.js';
-import type { PreparedChart, VerifiedPlay } from '../../../src/data/playSession.js';
+import type {
+  PreparedChart,
+  RankingSession,
+  RankingSubmission,
+} from '../../../src/data/playSession.js';
 import type { PlaySubmission } from '../../../src/data/playSubmission.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { GameplayController } from '../../../src/game/gameplay/GameplayController.js';
@@ -14,6 +18,7 @@ import type {
 import type {
   GameplaySceneData,
   PlayMode,
+  ResultRanking,
   ResultSceneData,
 } from '../../../src/game/app/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
@@ -134,7 +139,7 @@ interface Harness {
   readonly createdPlayers: { readonly videoId: string; readonly handlers: YouTubePlayerHandlers }[];
   readonly savedSettings: Settings[];
   readonly savedResults: (readonly [string, LaneCount, Difficulty, GameplayResult])[];
-  readonly submissions: (Pending<VerifiedPlay> & {
+  readonly submissions: (Pending<RankingSubmission> & {
     readonly sessionId: string;
     readonly submission: PlaySubmission;
   })[];
@@ -154,7 +159,7 @@ interface Harness {
   }[];
   // 이 시각까지의 노트를 화면에 들어온 것으로 본다.
   enteredUntilMs: number;
-  rankedSessionId: string | null;
+  ranking: RankingSession;
   isCreateThrowing: boolean;
   isSaveSettingsThrowing: boolean;
   isSaveResultThrowing: boolean;
@@ -197,7 +202,10 @@ function createHarness(
     statuses: [],
     buttonRenders: [],
     enteredUntilMs: Number.NEGATIVE_INFINITY,
-    rankedSessionId: 'session-1',
+    ranking: {
+      kind: 'issued',
+      sessionId: 'session-1',
+    },
     isCreateThrowing: false,
     isSaveSettingsThrowing: false,
     isSaveResultThrowing: false,
@@ -362,8 +370,16 @@ function achievementOf(id: AchievementId): NamedAchievementDefinition {
   };
 }
 
-function getShownAchievements(harness: Harness): Promise<readonly NamedAchievementDefinition[]> {
-  return requireDefined(harness.shownResults[0], 'result was not shown').newAchievements;
+function getShownRanking(harness: Harness): ResultRanking {
+  return requireDefined(harness.shownResults[0], 'result was not shown').ranking;
+}
+
+function getShownSubmission(harness: Harness): Promise<RankingSubmission> {
+  const ranking = getShownRanking(harness);
+  if (ranking.kind !== 'submitted') {
+    throw new Error(`expected a submitted ranking, got ${ranking.kind}`);
+  }
+  return ranking.submission;
 }
 
 function flush(): Promise<void> {
@@ -378,7 +394,7 @@ function resolveChart(harness: Harness): void {
   if (harness.route.mode === 'standard') {
     requireDefined(harness.preparedCharts[0], 'prepared chart was not requested').resolve({
       chart: harness.chart,
-      rankedSessionId: harness.rankedSessionId,
+      ranking: harness.ranking,
     });
   } else {
     requireDefined(harness.practiceCharts[0], 'practice chart was not requested').resolve(
@@ -738,6 +754,70 @@ describe('GameplayController start request', () => {
       ['showStatus', { kind: 'loading' }],
     ]);
     expect(harness.playerCalls).toEqual(['setVolume(0.01)', 'resume']);
+  });
+});
+
+describe('GameplayController start failures', () => {
+  function blockAutoplay(harness: Harness): void {
+    const handlers = getHandlers(harness);
+    if (handlers.onAutoplayBlocked === undefined) {
+      throw new Error('autoplay blocking is not handled');
+    }
+    handlers.onAutoplayBlocked();
+  }
+
+  it('destroys the player and shows playbackStartFailed when the warm-up takes 10000ms', async () => {
+    const harness = createHarness();
+    await startRequested(harness);
+    resetCalls(harness);
+
+    harness.nowMs += 9999;
+    harness.controller.tick();
+    expect(harness.playerCalls).toEqual([]);
+    expect(harness.screenCalls).toEqual([]);
+
+    harness.nowMs += 1;
+    harness.controller.tick();
+    expect(harness.playerCalls).toEqual(['destroy']);
+    expect(harness.screenCalls).toEqual([['showLoadError', { kind: 'playbackStartFailed' }]]);
+  });
+
+  it('does not begin play on late player reports and ticks after the warm-up timed out', async () => {
+    const harness = createHarness();
+    await startRequested(harness);
+    harness.nowMs += 10000;
+    harness.controller.tick();
+    resetCalls(harness);
+
+    getHandlers(harness).onStateChange('playing');
+    getHandlers(harness).onStateChange('paused');
+    harness.bufferedEndSec = 10;
+    harness.controller.tick();
+
+    expect(harness.playerCalls).toEqual([]);
+    expect(harness.screenCalls).toEqual([]);
+  });
+
+  it('destroys the player and shows playbackStartFailed when autoplay is blocked while starting', async () => {
+    const harness = createHarness();
+    await startRequested(harness);
+    resetCalls(harness);
+
+    blockAutoplay(harness);
+
+    expect(harness.playerCalls).toEqual(['destroy']);
+    expect(harness.screenCalls).toEqual([['showLoadError', { kind: 'playbackStartFailed' }]]);
+  });
+
+  it('ignores autoplay blocking while loading', async () => {
+    const harness = createHarness();
+    await startLoaded(harness);
+    resetCalls(harness);
+
+    blockAutoplay(harness);
+
+    expect(harness.playerCalls).toEqual([]);
+    expect(harness.screenCalls).toEqual([]);
   });
 });
 
@@ -1342,7 +1422,7 @@ describe('GameplayController failure', () => {
     ]);
     expect(harness.savedResults).toEqual([]);
     expect(harness.submissions).toEqual([]);
-    await expect(getShownAchievements(harness)).resolves.toEqual([]);
+    expect(getShownRanking(harness)).toEqual({ kind: 'none' });
   });
 
   it('does not fail in practice for the same misses', async () => {
@@ -1458,7 +1538,7 @@ describe('GameplayController run end', () => {
 
   it('does not submit without a ranked session', async () => {
     const harness = createHarness();
-    harness.rankedSessionId = null;
+    harness.ranking = { kind: 'signedOut' };
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
@@ -1485,60 +1565,66 @@ describe('GameplayController run end', () => {
     expect(console.warn).toHaveBeenCalledWith('Failed to submit ranked play', expect.any(Error));
   });
 
-  it('passes the new achievements of the submission response to the result', async () => {
-    const newAchievements = [achievementOf('FIRST_FINISH'), achievementOf('FIRST_CLEAR')];
+  it('passes the submission result as the submitted ranking', async () => {
+    const submitted: RankingSubmission = {
+      kind: 'saved',
+      play: {
+        score: 0,
+        accuracy: 0,
+        maxCombo: 0,
+        cleared: true,
+        bestScore: 0,
+        newAchievements: [achievementOf('FIRST_FINISH'), achievementOf('FIRST_CLEAR')],
+      },
+    };
     const harness = createHarness();
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
     runEffectDone(harness);
 
-    requireDefined(harness.submissions[0], 'submission was not requested').resolve({
-      score: 0,
-      accuracy: 0,
-      maxCombo: 0,
-      cleared: true,
-      bestScore: 0,
-      newAchievements,
-    });
+    requireDefined(harness.submissions[0], 'submission was not requested').resolve(submitted);
 
-    await expect(getShownAchievements(harness)).resolves.toEqual(newAchievements);
+    await expect(getShownSubmission(harness)).resolves.toBe(submitted);
   });
 
-  it('passes no new achievements when the submission is rejected', async () => {
+  it('passes an unknown submission when submitting throws', async () => {
     const harness = createHarness();
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
     runEffectDone(harness);
 
-    requireDefined(harness.submissions[0], 'submission was not requested').reject(
-      new Error('network'),
-    );
+    const error = new Error('network');
+    requireDefined(harness.submissions[0], 'submission was not requested').reject(error);
 
-    await expect(getShownAchievements(harness)).resolves.toEqual([]);
-    expect(console.warn).toHaveBeenCalledWith('Failed to submit ranked play', expect.any(Error));
+    await expect(getShownSubmission(harness)).resolves.toEqual({ kind: 'unknown' });
+    expect(console.warn).toHaveBeenCalledWith('Failed to submit ranked play', error);
   });
 
-  it('passes no new achievements without a ranked session', async () => {
+  it.each<[RankingSession, ResultRanking]>([
+    [{ kind: 'signedOut' }, { kind: 'none' }],
+    [{ kind: 'issueFailed' }, { kind: 'issueFailed' }],
+  ])('passes the ranking of a %o session without submitting', async (session, expected) => {
     const harness = createHarness();
-    harness.rankedSessionId = null;
+    harness.ranking = session;
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
     runEffectDone(harness);
 
-    await expect(getShownAchievements(harness)).resolves.toEqual([]);
+    expect(harness.submissions).toEqual([]);
+    expect(getShownRanking(harness)).toEqual(expected);
   });
 
-  it('passes no new achievements in practice', async () => {
+  it('passes no ranking in practice', async () => {
     const harness = createHarness('practice');
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
     runEffectDone(harness);
 
-    await expect(getShownAchievements(harness)).resolves.toEqual([]);
+    expect(getShownRanking(harness)).toEqual({ kind: 'none' });
   });
 
   it('neither saves nor submits in practice', async () => {

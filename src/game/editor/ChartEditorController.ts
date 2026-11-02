@@ -47,6 +47,7 @@ import type {
   EditorSession,
   Navigation,
   PendingAction,
+  SaveNotice,
   SegmentHover,
   Selection,
 } from './state/chartEditorState.js';
@@ -69,9 +70,13 @@ interface PlaybackPlayer {
   pause(): void;
 }
 
+export type ChartSaveOutcome =
+  | { readonly kind: 'saved'; readonly chartId: string; readonly revision: string }
+  | { readonly kind: 'conflict' };
+
 export interface ChartCatalog {
-  loadChart(ref: ChartRef): Promise<Chart>;
-  saveChart(song: Song, chart: Chart): Promise<string>;
+  loadChart(ref: ChartRef): Promise<{ readonly chart: Chart; readonly revision: string }>;
+  saveChart(song: Song, chart: Chart, baseRevision: string | null): Promise<ChartSaveOutcome>;
 }
 
 export interface EditList {
@@ -210,12 +215,21 @@ export class ChartEditorController {
       return;
     }
     const { session, pending } = phase;
-    if (pending.kind === 'clearNotes') {
-      this.edit(recordEdit(withDraft(session, clearNotes(session.draft)), session.draft));
-      return;
+    switch (pending.kind) {
+      case 'clearNotes':
+        this.edit(recordEdit(withDraft(session, clearNotes(session.draft)), session.draft));
+        return;
+      case 'select':
+      case 'leave':
+        this.edit(session);
+        this.proceed(pending);
+        return;
+      case 'saveFailed':
+      case 'saveConflict':
+      case 'invalidChart':
+        this.edit(session);
+        return;
     }
-    this.edit(session);
-    this.proceed(pending);
   }
 
   cancelPending(): void {
@@ -241,7 +255,7 @@ export class ChartEditorController {
   /** 저장 중에도 편집할 수 있고, 끝나면 요청 때의 notes 만 저장 기준으로 삼으므로 그 뒤의 편집은 미저장으로 남는다. */
   async save(): Promise<void> {
     const session = this.getEditableSession();
-    if (session === null || session.saveResult.kind === 'saving') {
+    if (session === null || session.saveProgress.kind === 'saving') {
       return;
     }
     const { draft } = session;
@@ -252,63 +266,77 @@ export class ChartEditorController {
       if (!(error instanceof InvalidChartError)) {
         throw error;
       }
-      const invalid: EditorSession = {
-        ...session,
-        saveResult: {
-          kind: 'invalid',
-          reason: error.message,
-        },
+      const notice: SaveNotice = {
+        kind: 'invalidChart',
+        reason: error.message,
       };
       const note = findInvalidNote(draft, error);
       if (note === null) {
-        this.setSession(invalid);
+        this.confirm(session, notice);
         return;
       }
       this.setState({
         ...this.current,
         phase: {
-          kind: 'editing',
-          session: withDraft(invalid, selectNote(draft, note)),
+          kind: 'confirming',
+          session: withDraft(session, selectNote(draft, note)),
+          pending: notice,
         },
-        playhead: seekPlayback(this.current.playhead, draft.song, note.timeMs),
+        playhead: pausePlayback(seekPlayback(this.current.playhead, draft.song, note.timeMs)),
       });
       return;
     }
     this.setSession({
       ...session,
-      saveResult: { kind: 'saving' },
+      saveProgress: { kind: 'saving' },
     });
-    const chartId = await this.catalog.saveChart(draft.song, chart).catch((error: unknown) => {
-      console.error(
-        `Failed to save chart for song ${draft.song.id} ${draft.laneCount}K difficulty ${draft.difficulty}`,
-        error,
-      );
-      return null;
-    });
+    const outcome = await this.catalog
+      .saveChart(draft.song, chart, draft.baseRevision)
+      .catch((error: unknown) => {
+        console.error(
+          `Failed to save chart for song ${draft.song.id} ${draft.laneCount}K difficulty ${draft.difficulty}`,
+          error,
+        );
+        return null;
+      });
     // 저장이 겹칠 수 있으므로 요청 때의 스냅샷이 아니라 지금의 편집 목록 곡에 chart id 를 더한다.
-    const saved =
-      chartId === null
-        ? null
-        : requireDefined(
-            this.list.applySavedChart(draft.song.id, draft.laneCount, draft.difficulty, chartId),
-            'Saved chart song is not in the edit list',
-            draft.song.id,
-          );
+    const result =
+      outcome?.kind === 'saved'
+        ? {
+            kind: outcome.kind,
+            revision: outcome.revision,
+            song: requireDefined(
+              this.list.applySavedChart(
+                draft.song.id,
+                draft.laneCount,
+                draft.difficulty,
+                outcome.chartId,
+              ),
+              'Saved chart song is not in the edit list',
+              draft.song.id,
+            ),
+          }
+        : outcome;
     const current = getSession(this.current);
     if (current?.id !== session.id) {
       return;
     }
-    if (saved === null) {
-      this.setSession({
-        ...current,
-        saveResult: { kind: 'failed' },
-      });
+    // 다른 확인 팝업이 떠 있어도 실패를 놓치지 않게 알림으로 바꾼다.
+    // 충돌이면 초안과 기준 revision 은 그대로 두고, 다시 열 때만 서버 최신으로 바꾼다.
+    if (result === null || result.kind === 'conflict') {
+      this.confirm(
+        {
+          ...current,
+          saveProgress: { kind: 'idle' },
+        },
+        { kind: result === null ? 'saveFailed' : 'saveConflict' },
+      );
       return;
     }
     this.setSession({
       ...current,
-      draft: completeSave(current.draft, draft.notes, saved),
-      saveResult: { kind: 'saved' },
+      draft: completeSave(current.draft, draft.notes, result.song, result.revision),
+      saveProgress: { kind: 'idle' },
     });
   }
 
@@ -583,9 +611,9 @@ export class ChartEditorController {
       selection,
     };
     this.enter(loading, startTimeMs);
-    let chart: Chart;
+    let loaded: { readonly chart: Chart; readonly revision: string };
     try {
-      chart = await this.catalog.loadChart({
+      loaded = await this.catalog.loadChart({
         song,
         laneCount,
         difficulty,
@@ -610,7 +638,7 @@ export class ChartEditorController {
     if (this.current.phase !== loading) {
       return;
     }
-    const draft = createDraft(song, chart);
+    const draft = createDraft(song, loaded.chart, loaded.revision);
     this.enter(
       startEditing(draft),
       isSameSong
@@ -806,7 +834,7 @@ function startEditing(draft: ChartDraft): EditPhase {
       id: {},
       draft,
       gesture: NO_GESTURE,
-      saveResult: { kind: 'idle' },
+      saveProgress: { kind: 'idle' },
       undoStack: [],
     },
   };

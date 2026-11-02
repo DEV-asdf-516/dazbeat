@@ -203,6 +203,34 @@ const PROFILE_UPDATE_MIGRATION = '1793152800_allow_users_profile_updates.js';
 const AUTOPLAY_CHECK_MIGRATION = '1793239200_add_play_results_autoplay_check.js';
 const EARNED_MARKS_RENAME_MIGRATION = '1793757600_rename_earned_marks.js';
 const AUTOPLAY_CHECK_FIELDS = ['autoplayCheck', 'autoplayReasons', 'inputStats'];
+const SESSION_SNAPSHOT_MIGRATION = '1793930400_add_play_sessions_verification_snapshot.js';
+const SESSION_SNAPSHOT_FIELDS = [
+  {
+    name: 'songKey',
+    type: 'text',
+    required: true,
+  },
+  {
+    name: 'gameStartMs',
+    type: 'number',
+    required: false,
+  },
+  {
+    name: 'gameEndMs',
+    type: 'number',
+    required: true,
+  },
+  {
+    name: 'difficulty',
+    type: 'select',
+    required: true,
+  },
+  {
+    name: 'laneCount',
+    type: 'number',
+    required: true,
+  },
+];
 const PROFILE_PASSWORD = 'profile-password';
 const DEFAULT_NICKNAME = /^과즙이\d{4}$/;
 const PUBLISH_MIGRATION = '1793239200_add_songs_is_published.js';
@@ -352,6 +380,7 @@ describe('migrations', () => {
         type: 'json',
         required: true,
       },
+      ...SESSION_SNAPSHOT_FIELDS,
     ]);
     expect(playSessions.fields.find((field) => field.name === 'chartData')?.['maxSize']).toBe(
       charts.fields.find((field) => field.name === 'data')?.['maxSize'],
@@ -1289,6 +1318,78 @@ describe('migrations', () => {
     for (const field of AUTOPLAY_CHECK_FIELDS) {
       expect(stored).not.toHaveProperty(field);
     }
+  });
+
+  it('expire existing play sessions, add the snapshot fields and remove only them on rollback', async () => {
+    const dataDir = await tempDir('migrations-session-snapshot');
+    const oldMigrationsDir = await tempDir('migrations-before-session-snapshot');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < SESSION_SNAPSHOT_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const snapshotFieldNames = SESSION_SNAPSHOT_FIELDS.map(({ name }) => name);
+    const snapshotFields = (collection: CollectionModel) =>
+      fieldSummary(collection).filter(({ name }) => snapshotFieldNames.includes(name));
+
+    const old = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    await excludeLoopbackFromRateLimits(old.superuser);
+    // With empty hooks no hook fills the default nickname or chart revision, so they are given here.
+    const user = await old.superuser.collection('users').create({
+      email: 'snapshot@example.com',
+      password: PROFILE_PASSWORD,
+      passwordConfirm: PROFILE_PASSWORD,
+      nickname: 'Snapshot',
+    });
+    const song = await createSong(old.superuser, 'snapshot');
+    const chartData = fakeChartData('snapshot', 'easy');
+    const chart = await old.superuser.collection('charts').create({
+      song: song.id,
+      difficulty: 'easy',
+      laneCount: 4,
+      data: chartData,
+      revision: 'rev-1',
+    });
+    const nowMs = Date.now();
+    await old.superuser.collection('play_sessions').create({
+      user: user.id,
+      chart: chart.id,
+      chartRevision: 'rev-1',
+      chartData,
+      issuedAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(nowMs + 60_000).toISOString(),
+    });
+    expect(snapshotFields(await old.superuser.collections.getOne('play_sessions'))).toEqual([]);
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await upgraded.superuser.collection('play_sessions').getFullList()).toEqual([]);
+    const upgradedSessions = await upgraded.superuser.collections.getOne('play_sessions');
+    expect(snapshotFields(upgradedSessions)).toEqual(SESSION_SNAPSHOT_FIELDS);
+    const otherFields = fieldSummary(upgradedSessions).filter(
+      ({ name }) => !snapshotFieldNames.includes(name),
+    );
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > SESSION_SNAPSHOT_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(fieldSummary(await rolledBack.superuser.collections.getOne('play_sessions'))).toEqual(
+      otherFields,
+    );
   });
 
   it('publish existing songs and restore the rules on rollback', async () => {

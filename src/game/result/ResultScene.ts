@@ -28,6 +28,7 @@ import {
   getChangedRegions,
   getHoveredToastId,
   getMenuButtonView,
+  getRankingNoticeCloseView,
   getResultControlsCloseView,
   getRetryTabAppearance,
   getToastChanges,
@@ -40,6 +41,7 @@ import type { Song } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
 import { JUDGMENTS } from '../../rhythm/judgment.js';
 import { Button } from '../ui/view/widgets/Button.js';
+import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
@@ -67,6 +69,7 @@ interface ResultView {
   readonly retryButton: Button;
   readonly songSelectButton: Button;
   readonly toasts: AchievementToasts;
+  readonly rankingNotice: ConfirmDialog;
 }
 
 const LEFT_X_PX = SCREEN_LAYOUT.leftXPx;
@@ -215,7 +218,7 @@ export class ResultScene extends Phaser.Scene {
       pointer,
     );
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
-    const { song, laneCount, difficulty, chartId, mode, result, newAchievements, restore } = data;
+    const { song, laneCount, difficulty, chartId, mode, result, ranking, restore } = data;
     const presentation = getResultPresentation(mode, result);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
@@ -394,6 +397,11 @@ export class ResultScene extends Phaser.Scene {
         onExpire: (id) => controller.dismissToast(id),
         onRemoved: (id) => controller.removeToast(id),
       }),
+      // 확인 버튼 하나뿐이라 숨긴 취소 버튼도 같은 닫기로 잇는다.
+      rankingNotice: new ConfirmDialog(this, {
+        cancel: pointButton(pointer, 'noticeClose'),
+        accept: pointButton(pointer, 'noticeClose'),
+      }),
     };
     const controller = new ResultController(
       {
@@ -417,7 +425,7 @@ export class ResultScene extends Phaser.Scene {
         mode,
         restore,
       },
-      newAchievements,
+      ranking,
     );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
@@ -459,6 +467,24 @@ export class ResultScene extends Phaser.Scene {
       case 'toastClose':
         view.toasts.renderCloseHover(getHoveredToastId(state));
         return;
+      case 'rankingNotice':
+        view.rankingNotice.render(
+          state.rankingNotice === null
+            ? null
+            : {
+                title: this.i18n.t(`rankingNotice.${state.rankingNotice}.title`),
+                body: this.i18n.t(`rankingNotice.${state.rankingNotice}.body`),
+                cancelLabel: null,
+                acceptLabel: this.i18n.t('rankingNotice.close'),
+                acceptTone: 'default',
+              },
+        );
+        return;
+      case 'rankingNoticeButtons': {
+        const close = getRankingNoticeCloseView(state);
+        view.rankingNotice.renderButtons(close, close);
+        return;
+      }
       case 'controls':
         view.chrome.renderControls(
           state.isControlsOpen

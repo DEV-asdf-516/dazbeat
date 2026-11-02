@@ -3,8 +3,7 @@ import type { PlaybackFailure, PlaybackStatus } from '../../audio/LeadInPlayback
 import { RhythmClock } from '../../audio/RhythmClock.js';
 import { VideoPreload } from '../../audio/VideoPreload.js';
 import type { YouTubePlayer, YouTubePlayerHandlers } from '../../audio/YouTubePlayer.js';
-import type { NamedAchievementDefinition } from '../../data/achievements.js';
-import type { PreparedChart, VerifiedPlay } from '../../data/playSession.js';
+import type { PreparedChart, RankingSubmission } from '../../data/playSession.js';
 import type { PlaySubmission } from '../../data/playSubmission.js';
 import type { ChartRef } from '../../data/songs.js';
 import { cycleItem, getProgress } from '../../range.js';
@@ -15,7 +14,7 @@ import type { Chart, GameplayResult, JudgmentEvent, Lane } from '../../rhythm/ty
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { MV_MODES, getMusicVolume } from '../../storage/settings.js';
 import type { MvMode, Settings } from '../../storage/settings.js';
-import type { GameplaySceneData, ResultSceneData } from '../app/sceneRoutes.js';
+import type { GameplaySceneData, ResultRanking, ResultSceneData } from '../app/sceneRoutes.js';
 import {
   addPressedLane,
   getErrorKeyAction,
@@ -49,7 +48,7 @@ import type { RunMode } from './state/runEnding.js';
 import { WorldActivation } from './state/worldActivation.js';
 
 export interface RankedPlay {
-  submit(sessionId: string, submission: PlaySubmission): Promise<VerifiedPlay>;
+  submit(sessionId: string, submission: PlaySubmission): Promise<RankingSubmission>;
 }
 
 export type GameplayPlayer = Pick<
@@ -167,7 +166,7 @@ export class GameplayController {
         chart = prepared.chart;
         mode = {
           kind: 'standard',
-          rankedSessionId: prepared.rankedSessionId,
+          ranking: prepared.ranking,
         };
       } else {
         chart = await this.ports.loadPracticeChart(this.route);
@@ -213,6 +212,18 @@ export class GameplayController {
           switch (phase.kind) {
             case 'playing':
               phase.run.playback.handlePositionReport(positionSec);
+              return;
+            default:
+              return;
+          }
+        },
+        onAutoplayBlocked: () => {
+          const { phase } = this;
+          switch (phase.kind) {
+            case 'starting':
+            case 'playing':
+              phase.run.player.destroy();
+              this.fail({ kind: 'playbackStartFailed' }, 'Video autoplay was blocked');
               return;
             default:
               return;
@@ -294,8 +305,16 @@ export class GameplayController {
     const { phase } = this;
     switch (phase.kind) {
       case 'starting':
-        if (phase.preload.tick()) {
-          this.beginPlay(phase.run);
+        switch (phase.preload.tick()) {
+          case 'ready':
+            this.beginPlay(phase.run);
+            return;
+          case 'timedOut':
+            phase.run.player.destroy();
+            this.fail({ kind: 'playbackStartFailed' }, 'Video preload timed out');
+            return;
+          case 'waiting':
+            return;
         }
         return;
       case 'playing':
@@ -607,7 +626,7 @@ export class GameplayController {
 
   private finishRun(run: PlayRun, result: GameplayResult): void {
     const { song, laneCount, difficulty, chartId, mode } = this.route;
-    let newAchievements: Promise<readonly NamedAchievementDefinition[]> = Promise.resolve([]);
+    let ranking: ResultRanking = { kind: 'none' };
     const record = getRunRecord(run.mode, result);
     if (record.kind === 'save') {
       try {
@@ -615,18 +634,26 @@ export class GameplayController {
       } catch (error) {
         console.error('Failed to save result', error);
       }
-      const { rankedSessionId } = record;
-      if (rankedSessionId !== null) {
-        newAchievements = this.ports.rankedPlay
-          .submit(rankedSessionId, {
-            inputOffsetMs: this.settings.inputOffsetMs,
-            events: run.session.getInputs(),
-          })
-          .then((play) => play.newAchievements)
-          .catch((error: unknown) => {
-            console.warn('Failed to submit ranked play', error);
-            return [];
-          });
+      switch (record.ranking.kind) {
+        case 'signedOut':
+          break;
+        case 'issueFailed':
+          ranking = { kind: 'issueFailed' };
+          break;
+        case 'issued':
+          ranking = {
+            kind: 'submitted',
+            submission: this.ports.rankedPlay
+              .submit(record.ranking.sessionId, {
+                inputOffsetMs: this.settings.inputOffsetMs,
+                events: run.session.getInputs(),
+              })
+              .catch((error: unknown): RankingSubmission => {
+                console.warn('Failed to submit ranked play', error);
+                return { kind: 'unknown' };
+              }),
+          };
+          break;
       }
     }
     this.screen.showResult({
@@ -636,7 +663,7 @@ export class GameplayController {
       chartId,
       mode,
       result,
-      newAchievements,
+      ranking,
     });
   }
 

@@ -11,7 +11,8 @@ export type ConfirmTone = 'default' | 'danger';
 export interface ConfirmDialogContent {
   title: string;
   body: string;
-  cancelLabel: string;
+  /** null 이면 취소 버튼 없이 수락 버튼 하나만 보인다. */
+  cancelLabel: string | null;
   acceptLabel: string;
   acceptTone: ConfirmTone;
 }
@@ -141,11 +142,14 @@ export class ConfirmDialog {
     this.accepts.danger.setVisible(content.acceptTone === 'danger');
     // 버튼 폭은 라벨에 맞춰지므로 라벨을 먼저 정한다.
     accept.setLabel(content.acceptLabel);
-    this.cancel.setLabel(content.cancelLabel);
     const actionsTopYPx = this.body.y + this.body.height + ACTIONS_GAP_PX;
     const acceptXPx = PANEL_WIDTH_PX - PADDING_PX - accept.width;
     accept.setPosition(acceptXPx, actionsTopYPx);
-    this.cancel.setPosition(acceptXPx - BUTTON_GAP_PX - this.cancel.width, actionsTopYPx);
+    this.cancel.setVisible(content.cancelLabel !== null);
+    if (content.cancelLabel !== null) {
+      this.cancel.setLabel(content.cancelLabel);
+      this.cancel.setPosition(acceptXPx - BUTTON_GAP_PX - this.cancel.width, actionsTopYPx);
+    }
     this.frame.setPanelSize(PANEL_WIDTH_PX, actionsTopYPx + BUTTON_HEIGHT_PX + PADDING_PX);
     this.frame.render(true);
   }

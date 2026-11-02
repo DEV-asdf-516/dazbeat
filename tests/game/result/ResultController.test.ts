@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { AchievementId, NamedAchievementDefinition } from '../../../src/data/achievements.js';
+import type { RankingSubmission } from '../../../src/data/playSession.js';
 import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { SongFeed } from '../../../src/game/app/SongFeed.js';
 import { ResultController } from '../../../src/game/result/ResultController.js';
 import type { ResultExit, ResultState } from '../../../src/game/result/state/resultState.js';
-import type { SceneRequest } from '../../../src/game/app/sceneRoutes.js';
+import type { ResultRanking, SceneRequest } from '../../../src/game/app/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
 
 function achievementOf(id: AchievementId): NamedAchievementDefinition {
@@ -61,7 +62,21 @@ interface Harness {
   readonly leaves: SceneRequest[];
   focusSoundCount(): number;
   last(): ResultState;
-  resolve(achievements: readonly NamedAchievementDefinition[]): void;
+  submit(submission: RankingSubmission): void;
+}
+
+function savedWith(achievements: readonly NamedAchievementDefinition[]): RankingSubmission {
+  return {
+    kind: 'saved',
+    play: {
+      score: 0,
+      accuracy: 0,
+      maxCombo: 0,
+      cleared: true,
+      bestScore: 0,
+      newAchievements: achievements,
+    },
+  };
 }
 
 function createHarness(
@@ -69,14 +84,22 @@ function createHarness(
     mode: 'standard',
     restore: undefined,
   },
+  rankingKind: ResultRanking['kind'] = 'submitted',
 ): Harness {
   const renders: { previous: ResultState | null; next: ResultState }[] = [];
   const leaves: SceneRequest[] = [];
   let focusSoundCount = 0;
-  let resolve: (achievements: readonly NamedAchievementDefinition[]) => void = () => {};
-  const newAchievements = new Promise<readonly NamedAchievementDefinition[]>((resolveAll) => {
-    resolve = resolveAll;
+  let resolve: (submission: RankingSubmission) => void = () => {};
+  const submission = new Promise<RankingSubmission>((resolveSubmission) => {
+    resolve = resolveSubmission;
   });
+  const ranking: ResultRanking =
+    rankingKind === 'submitted'
+      ? {
+          kind: 'submitted',
+          submission,
+        }
+      : { kind: rankingKind };
   const controller = new ResultController(
     {
       render: (previous, next) =>
@@ -91,7 +114,7 @@ function createHarness(
     },
     EASY,
     exit,
-    newAchievements,
+    ranking,
   );
   return {
     controller,
@@ -99,7 +122,7 @@ function createHarness(
     leaves,
     focusSoundCount: () => focusSoundCount,
     last: () => requireDefined(renders.at(-1), 'Missing render', renders.length).next,
-    resolve: (achievements) => resolve(achievements),
+    submit: (submitted) => resolve(submitted),
   };
 }
 
@@ -111,7 +134,7 @@ async function withAchievements(
   achievements: readonly NamedAchievementDefinition[],
 ): Promise<Harness> {
   const harness = createHarness();
-  harness.resolve(achievements);
+  harness.submit(savedWith(achievements));
   await flush();
   return harness;
 }
@@ -132,7 +155,7 @@ describe('ResultController', () => {
       expect(harness.renders).toHaveLength(1);
       expect(harness.renders[0]?.previous).toBeNull();
 
-      harness.resolve([FIRST_FINISH, FIRST_CLEAR]);
+      harness.submit(savedWith([FIRST_FINISH, FIRST_CLEAR]));
       await flush();
 
       expect(harness.renders).toHaveLength(2);
@@ -148,11 +171,11 @@ describe('ResultController', () => {
       expect(harness.renders).toHaveLength(1);
     });
 
-    it('ignores achievements that arrive after close', async () => {
+    it('ignores a submission result that arrives after close', async () => {
       const harness = createHarness();
       harness.controller.close();
 
-      harness.resolve([FIRST_FINISH]);
+      harness.submit(savedWith([FIRST_FINISH]));
       await flush();
 
       expect(harness.renders).toHaveLength(1);
@@ -402,5 +425,122 @@ describe('ResultController button pointer', () => {
     harness.controller.handleControlsKey(ESCAPE_KEY);
 
     expect(harness.last().hover).toBeNull();
+  });
+});
+
+describe('ResultController ranking notice', () => {
+  const ENTER_KEY = {
+    code: 'Enter',
+    repeat: false,
+  };
+
+  async function withNotice(): Promise<Harness> {
+    const harness = createHarness();
+    harness.submit({ kind: 'rejected' });
+    await flush();
+    return harness;
+  }
+
+  it('opens the issue failure notice from the first render', () => {
+    const harness = createHarness(undefined, 'issueFailed');
+
+    expect(harness.renders).toHaveLength(1);
+    expect(harness.last().rankingNotice).toBe('issueFailed');
+  });
+
+  it.each(['none', 'submitted'] as const)('opens no notice first for %s', (kind) => {
+    const harness = createHarness(undefined, kind);
+
+    expect(harness.last().rankingNotice).toBeNull();
+  });
+
+  it.each(['rejected', 'unknown'] as const)(
+    'opens the %s notice when the submission arrives',
+    async (kind) => {
+      const harness = createHarness();
+
+      harness.submit({ kind });
+      await flush();
+
+      expect(harness.renders).toHaveLength(2);
+      expect(harness.last().rankingNotice).toBe(kind);
+      expect(harness.last().toasts.shown).toEqual([]);
+    },
+  );
+
+  it('opens no notice for a saved submission', async () => {
+    const harness = await withAchievements([FIRST_FINISH]);
+
+    expect(harness.last().rankingNotice).toBeNull();
+  });
+
+  it('ignores a failed submission that arrives after close', async () => {
+    const harness = createHarness();
+    harness.controller.close();
+
+    harness.submit({ kind: 'unknown' });
+    await flush();
+
+    expect(harness.renders).toHaveLength(1);
+  });
+
+  it('closes the controls guide when the notice opens', async () => {
+    const harness = createHarness();
+    harness.controller.openControls();
+
+    harness.submit({ kind: 'unknown' });
+    await flush();
+
+    expect(harness.last()).toMatchObject({
+      isControlsOpen: false,
+      rankingNotice: 'unknown',
+    });
+  });
+
+  it.each([
+    ['confirm', (controller: ResultController) => controller.confirm()],
+    ['back', (controller: ResultController) => controller.back()],
+  ])('only closes the notice on %s', async (_label, close) => {
+    const harness = await withNotice();
+
+    close(harness.controller);
+
+    expect(harness.last().rankingNotice).toBeNull();
+    expect(harness.leaves).toEqual([]);
+    close(harness.controller);
+    expect(harness.leaves).toHaveLength(1);
+  });
+
+  it('ignores menu, difficulty and controls input while open and passes Enter and Esc on', async () => {
+    const harness = await withNotice();
+    const state = harness.last();
+
+    harness.controller.moveFocus(1);
+    harness.controller.stepDifficulty(1);
+    harness.controller.selectDifficulty('hard');
+    harness.controller.pointerDown('retry');
+    harness.controller.pointerUp('retry');
+    harness.controller.openControls();
+
+    expect(harness.controller.handleControlsKey(H_KEY)).toBe(false);
+    expect(harness.controller.handleControlsKey(ENTER_KEY)).toBe(false);
+    expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
+    expect(harness.last()).toBe(state);
+    expect(harness.leaves).toEqual([]);
+    expect(harness.focusSoundCount()).toBe(0);
+  });
+
+  it('closes with the notice button and releases its hover', async () => {
+    const harness = await withNotice();
+
+    harness.controller.pointerOver('noticeClose');
+    harness.controller.pointerDown('noticeClose');
+    harness.controller.pointerUp('noticeClose');
+
+    expect(harness.last()).toMatchObject({
+      rankingNotice: null,
+      hover: null,
+    });
+    expect(harness.leaves).toEqual([]);
   });
 });

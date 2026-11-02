@@ -11,7 +11,6 @@ import type { SceneRequest } from '../app/sceneRoutes.js';
 import { getAccountPanel } from './state/accountPanel.js';
 import { MainController } from './MainController.js';
 import type { CornerPanel, UserPanel } from './state/accountPanel.js';
-import { addConstellationFigure } from './view/constellationFigure.js';
 import {
   getChangedRegions,
   getMainButtonView,
@@ -33,17 +32,18 @@ import type { SceneExit } from '../app/sceneExit.js';
 import { getAchievementEmblemTexture } from '../ui/view/widgets/achievementEmblem.js';
 import { requireDefined } from '../../invariant.js';
 import { Button, QUIET_PADDING_PX } from '../ui/view/widgets/Button.js';
-import {
-  addCelestialSprite,
-  playCelestialOnce,
-  queueCelestialTextures,
-} from '../celestial/view/celestialSprites.js';
+import { queueCelestialTextures } from '../celestial/view/celestialSprites.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { YOUTUBE_HEART_IMAGE, playYoutubeHearts } from './view/youtubeHearts.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
+import {
+  TITLE_CHARACTER_IMAGE,
+  addTitleBackdrop,
+  getTitleBackdropTextureUses,
+} from '../ui/view/widgets/titleBackdrop.js';
 import { LOADING_STAR_ID, LoadingStar } from '../ui/view/widgets/LoadingStar.js';
 import {
   CARD_PANEL,
@@ -56,7 +56,6 @@ import {
 } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
 
-const LOGO_Y_PX = 300;
 const PLAY_SPACING_AFTER_PX = 120;
 const MENU_SPACING_PX = 64;
 const MENU_ITEMS: Record<
@@ -150,31 +149,6 @@ const YOUTUBE_BUTTON_TOP_Y_PX =
   YOUTUBE_ICON_SIZE_PX -
   QUIET_PADDING_PX.yPx;
 
-const TITLE_THREAD_ID = 'R26';
-const TITLE_THREAD_POSITION_PX = {
-  x: 540,
-  y: 505,
-} as const;
-const LOGO_GLINT_ID = 'R25';
-const LOGO_GLINT_POSITION_PX = {
-  x: 900,
-  y: 478,
-} as const;
-const CHARACTER_TEXTURE_KEY = 'ui:dazbee-constellation';
-const CHARACTER_PATH = '/assets/ui/main/dazbee-constellation-lineart.png';
-const CHARACTER_CENTER_PX = {
-  x: 1400,
-  y: 560,
-} as const;
-const CHARACTER_SCALE = 0.64;
-/**
- * 캐릭터 아랫단이 화면 끝에서 칼로 자른 듯 끊기지 않도록 배경 아래쪽 밤색으로 서서히 덮는다.
- * 색은 R01 배경 아래 띠의 평균색이다.
- */
-const GROUND_FADE_COLOR = 0x050c1a;
-const GROUND_FADE_TOP_Y_PX = 820;
-const GROUND_FADE_MAX_ALPHA = 0.92;
-
 interface MainView {
   chrome: MenuSceneChrome;
   account: AccountView;
@@ -221,18 +195,14 @@ export class MainScene extends Phaser.Scene {
           url: YOUTUBE_ICON_PATH,
         },
         YOUTUBE_HEART_IMAGE,
-        {
-          key: CHARACTER_TEXTURE_KEY,
-          url: CHARACTER_PATH,
-        },
+        TITLE_CHARACTER_IMAGE,
       ],
       'main scene image',
     );
     queueSoundEffects(this);
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'main'),
-      this.celestial.atlasPresentations[TITLE_THREAD_ID],
-      this.celestial.atlasPresentations[LOGO_GLINT_ID],
+      ...getTitleBackdropTextureUses(this.celestial),
       this.celestial.atlasPresentations[LOADING_STAR_ID],
     ]);
   }
@@ -273,51 +243,8 @@ export class MainScene extends Phaser.Scene {
       },
       pointer,
     );
-    // 배경 바로 위에 두어 로고·메뉴·계정 UI 가 캐릭터 앞에 그려지게 한다.
-    if (this.textures.exists(CHARACTER_TEXTURE_KEY)) {
-      addConstellationFigure(
-        this,
-        CHARACTER_TEXTURE_KEY,
-        CHARACTER_CENTER_PX.x,
-        CHARACTER_CENTER_PX.y,
-        CHARACTER_SCALE,
-      );
-    }
-    this.add
-      .graphics()
-      .fillGradientStyle(
-        GROUND_FADE_COLOR,
-        GROUND_FADE_COLOR,
-        GROUND_FADE_COLOR,
-        GROUND_FADE_COLOR,
-        0,
-        0,
-        GROUND_FADE_MAX_ALPHA,
-        GROUND_FADE_MAX_ALPHA,
-      )
-      .fillRect(0, GROUND_FADE_TOP_Y_PX, GAME_WIDTH, GAME_HEIGHT - GROUND_FADE_TOP_Y_PX);
     this.cameras.main.fadeIn(MOTION.mediumMs);
-    const logo = this.add.text(
-      SCREEN_LAYOUT.leftXPx,
-      LOGO_Y_PX,
-      'DAZBEAT',
-      textStyle('display', COLORS.textPrimary),
-    );
-    addCelestialSprite(
-      this,
-      this.celestial.atlasPresentations[TITLE_THREAD_ID],
-      TITLE_THREAD_POSITION_PX.x,
-      TITLE_THREAD_POSITION_PX.y,
-    );
-    const logoGlint = addCelestialSprite(
-      this,
-      this.celestial.atlasPresentations[LOGO_GLINT_ID],
-      LOGO_GLINT_POSITION_PX.x,
-      LOGO_GLINT_POSITION_PX.y,
-    );
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () =>
-      playCelestialOnce(logoGlint),
-    );
+    const logo = addTitleBackdrop(this, this.celestial);
     // 카드와 구분선은 계정 버튼보다 아래에 그려지도록 먼저 만든다.
     const card = this.add
       .rectangle(0, 0, 0, 0, CARD_PANEL.fillColor, CARD_PANEL.fillAlpha)

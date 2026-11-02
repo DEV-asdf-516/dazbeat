@@ -2,7 +2,8 @@ import type { Messages } from './ko.js';
 
 export const en: Messages = {
   boot: {
-    loadFailed: 'Failed to load game data. Please refresh in a moment.',
+    loadFailed: 'Failed to load game data.',
+    checkConnection: 'Check your connection and try again.',
   },
   main: {
     account: {
@@ -94,10 +95,10 @@ export const en: Messages = {
     clearConfirm:
       '{{noteCount}} notes will be removed.\nNothing changes on the server until you save.',
     noSelection: 'No note selected',
-    saving: 'Saving',
-    saved: 'Saved',
-    saveFailed: 'Save failed',
-    invalidChart: 'Chart validation failed: {{reason}}',
+    saveFailedTitle: 'Save failed',
+    saveFailedBody: 'The chart could not be saved to the server. Try saving again in a moment.',
+    saveConflictBody: 'A newer version was saved elsewhere.\nReopen the chart to load it.',
+    invalidChartBody: 'Chart validation failed: {{reason}}',
     noteCount: '{{count}} notes',
     laneSection: 'Lanes',
     toolSection: 'Input tool',
@@ -147,12 +148,25 @@ export const en: Messages = {
     progress: 'Progress',
     currentSongs: 'Current songs',
     noAssignedSongs: 'No songs assigned',
-    locked: 'Locked',
-    status: 'Status',
     earned: 'Earned',
     featured: 'EQUIPPED',
     setFeatured: 'Equip',
     unsetFeatured: 'Unequip',
+  },
+  rankingNotice: {
+    issueFailed: {
+      title: 'Not recorded to the ranking',
+      body: "The ranking session couldn't be started, so this play wasn't recorded.",
+    },
+    rejected: {
+      title: 'Not recorded to the ranking',
+      body: "The server didn't accept this play.",
+    },
+    unknown: {
+      title: "Couldn't confirm the record",
+      body: "No response from the server, so it's unknown whether this play was saved.",
+    },
+    close: 'OK',
   },
   achievements: {
     unlocked: 'Achievement Unlocked',

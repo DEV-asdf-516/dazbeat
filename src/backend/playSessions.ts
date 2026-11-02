@@ -3,7 +3,7 @@ import type PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { findAchievement } from '../data/achievements.js';
 import type { AchievementCatalog } from '../data/achievements.js';
-import type { PreparedChart, VerifiedPlay } from '../data/playSession.js';
+import type { PreparedChart, RankingSubmission } from '../data/playSession.js';
 import type { PlaySubmission } from '../data/playSubmission.js';
 import type { ChartRef } from '../data/songs.js';
 import { HTTP_STATUS } from '../httpStatus.js';
@@ -80,7 +80,7 @@ export async function preparePlay(
     if (getCurrentUser(pb) === null) {
       return {
         chart,
-        rankedSessionId: null,
+        ranking: { kind: 'signedOut' },
       };
     }
     const issued = await sendApiRequest(
@@ -98,7 +98,10 @@ export async function preparePlay(
     );
     return {
       chart,
-      rankedSessionId: issued.sessionId,
+      ranking: {
+        kind: 'issued',
+        sessionId: issued.sessionId,
+      },
     };
   };
 
@@ -106,7 +109,7 @@ export async function preparePlay(
     console.warn('Failed to start ranked play session', error);
     return {
       chart,
-      rankedSessionId: null,
+      ranking: { kind: 'issueFailed' },
     };
   };
 
@@ -125,18 +128,31 @@ export async function submitPlay(
   catalog: AchievementCatalog,
   sessionId: string,
   submission: PlaySubmission,
-): Promise<VerifiedPlay> {
-  return sendApiRequest(
-    pb,
-    `${PLAY_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/result`,
-    {
-      method: 'POST',
-      body: {
-        inputOffsetMs: submission.inputOffsetMs,
-        events: submission.events,
+): Promise<RankingSubmission> {
+  try {
+    const play = await sendApiRequest(
+      pb,
+      `${PLAY_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/result`,
+      {
+        method: 'POST',
+        body: {
+          inputOffsetMs: submission.inputOffsetMs,
+          events: submission.events,
+        },
       },
-    },
-    verifiedPlaySchema(catalog),
-    toPlaySessionError,
-  );
+      verifiedPlaySchema(catalog),
+      toPlaySessionError,
+    );
+    return {
+      kind: 'saved',
+      play,
+    };
+  } catch (error) {
+    if (!(error instanceof PlaySessionError)) {
+      throw error;
+    }
+    console.warn('Failed to submit ranked play', error);
+    // status 0 은 응답을 받지 못한 경우라 서버가 저장했는지 알 수 없다.
+    return { kind: error.status === 0 ? 'unknown' : 'rejected' };
+  }
 }

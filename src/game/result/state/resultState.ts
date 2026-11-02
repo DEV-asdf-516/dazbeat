@@ -1,4 +1,5 @@
 import type { NamedAchievementDefinition } from '../../../data/achievements.js';
+import type { RankingSubmission } from '../../../data/playSession.js';
 import { findChart, getAvailableDifficulties, stepChart } from '../../../data/songs.js';
 import type { ChartRef } from '../../../data/songs.js';
 import type { Difficulty } from '../../../rhythm/types.js';
@@ -19,15 +20,24 @@ import {
   getControlsCloseView,
   isControlsButtonEnabled,
   isControlsEntryHovered,
+  readControlsKey,
+  withControlsOpen,
 } from '../../app/controlsGuide.js';
-import type { ControlsButton } from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsKeyAction } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
-import type { PlayMode, SceneRequest, SongSelectRestore } from '../../app/sceneRoutes.js';
+import type {
+  PlayMode,
+  ResultRanking,
+  SceneRequest,
+  SongSelectRestore,
+} from '../../app/sceneRoutes.js';
 import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 
 export type ResultMenuItem = 'retry' | 'songSelect';
 
-export type ResultButton = ResultMenuItem | ControlsButton;
+export type ResultButton = ResultMenuItem | ControlsButton | 'noticeClose';
+
+export type RankingNotice = 'issueFailed' | 'rejected' | 'unknown';
 
 export type ResultHover =
   | { readonly kind: 'difficulty'; readonly difficulty: Difficulty }
@@ -53,6 +63,7 @@ export interface ResultState {
   readonly focus: ResultMenuItem;
   readonly toasts: ToastQueue;
   readonly isControlsOpen: boolean;
+  readonly rankingNotice: RankingNotice | null;
 }
 
 export interface ResultExit {
@@ -63,12 +74,13 @@ export interface ResultExit {
 const MENU_ITEMS: readonly ResultMenuItem[] = ['retry', 'songSelect'];
 const MAX_VISIBLE_TOASTS = 3;
 
-export function createResultState(retryChart: ChartRef): ResultState {
+export function createResultState(retryChart: ChartRef, ranking: ResultRanking): ResultState {
   return {
     retryChart,
     hover: null,
     focus: 'retry',
     isControlsOpen: false,
+    rankingNotice: ranking.kind === 'issueFailed' ? 'issueFailed' : null,
     toasts: {
       shown: [],
       waiting: [],
@@ -175,10 +187,45 @@ function isResultButtonEnabled(state: ResultState, button: ResultButton): boolea
   switch (button) {
     case 'retry':
     case 'songSelect':
-      return true;
+      return state.rankingNotice === null;
+    case 'noticeClose':
+      return state.rankingNotice !== null;
     default:
-      return isControlsButtonEnabled(button, state.isControlsOpen);
+      return state.rankingNotice === null && isControlsButtonEnabled(button, state.isControlsOpen);
   }
+}
+
+// 알림이 떠 있는 동안 뒤 화면의 메뉴·난이도·조작 안내 입력은 받지 않는다.
+export function applyMenuInput(
+  state: ResultState,
+  transition: (state: ResultState) => ResultState,
+): ResultState {
+  return state.rankingNotice === null ? transition(state) : state;
+}
+
+// 알림 중에는 Enter·Esc 가 메뉴 키로 넘어가 알림을 닫아야 하므로 조작 안내 키로 소비하지 않는다.
+export function readResultControlsKey(
+  state: ResultState,
+  event: Pick<KeyboardEvent, 'code' | 'repeat'>,
+): ControlsKeyAction {
+  return state.rankingNotice === null ? readControlsKey(state.isControlsOpen, event) : 'pass';
+}
+
+export type ResultMenuOutcome =
+  | { readonly kind: 'leave'; readonly item: ResultMenuItem }
+  | { readonly kind: 'stay'; readonly state: ResultState };
+
+// 알림이 떠 있으면 나가지 않고 알림만 닫는다.
+export function pressResultMenu(state: ResultState, item: ResultMenuItem): ResultMenuOutcome {
+  return state.rankingNotice === null
+    ? {
+        kind: 'leave',
+        item,
+      }
+    : {
+        kind: 'stay',
+        state: closeRankingNotice(state),
+      };
 }
 
 function withHover(state: ResultState, hover: ResultState['hover']): ResultState {
@@ -208,6 +255,15 @@ export function releaseResultButton(state: ResultState, button: ResultButton): R
 
 export function getMenuButtonView(state: ResultState, item: ResultMenuItem): ButtonView {
   return getButtonView(state.hover, item, true, isResultFocused(state, item));
+}
+
+export function getRankingNoticeCloseView(state: ResultState): ButtonView {
+  return getButtonView(
+    state.hover,
+    'noticeClose',
+    isResultButtonEnabled(state, 'noticeClose'),
+    false,
+  );
 }
 
 export function getResultControlsCloseView(state: ResultState): ButtonView {
@@ -265,6 +321,36 @@ export function queueAchievements(
       ...state.toasts,
       waiting: [...state.toasts.waiting, ...achievements],
     }),
+  };
+}
+
+export function applyRankingSubmission(
+  state: ResultState,
+  submission: RankingSubmission,
+): ResultState {
+  switch (submission.kind) {
+    case 'saved':
+      return submission.play.newAchievements.length === 0
+        ? state
+        : queueAchievements(state, submission.play.newAchievements);
+    case 'rejected':
+    case 'unknown':
+      return {
+        ...withControlsOpen(state, false),
+        rankingNotice: submission.kind,
+      };
+  }
+}
+
+export function closeRankingNotice(state: ResultState): ResultState {
+  if (state.rankingNotice === null) {
+    return state;
+  }
+  return {
+    ...state,
+    rankingNotice: null,
+    // Phaser 는 숨긴 버튼에 POINTER_OUT 을 보내지 않으므로 닫을 때 그 hover 를 푼다.
+    hover: unhoverButton(state.hover, 'noticeClose'),
   };
 }
 
@@ -365,6 +451,8 @@ export type ResultRegion =
   | 'controls'
   | 'controlsEntry'
   | 'controlsClose'
+  | 'rankingNotice'
+  | 'rankingNoticeButtons'
   | 'menuFocusMotion';
 
 type ResultReader = StateReader<ResultState>;
@@ -382,6 +470,9 @@ const readSongSelectPressed: ResultReader = (state) => isButtonPressed(state.hov
 const readEntryHovered: ResultReader = (state) => isButtonHovered(state.hover, 'controlsEntry');
 const readCloseHovered: ResultReader = (state) => isButtonHovered(state.hover, 'controlsClose');
 const readClosePressed: ResultReader = (state) => isButtonPressed(state.hover, 'controlsClose');
+const readRankingNotice: ResultReader = (state) => state.rankingNotice;
+const readNoticeCloseHovered: ResultReader = (state) => isButtonHovered(state.hover, 'noticeClose');
+const readNoticeClosePressed: ResultReader = (state) => isButtonPressed(state.hover, 'noticeClose');
 
 const REGION_SOURCES: Readonly<
   Record<Exclude<ResultRegion, 'menuFocusMotion'>, readonly ResultReader[]>
@@ -394,6 +485,9 @@ const REGION_SOURCES: Readonly<
   controls: [readControlsOpen],
   controlsEntry: [readEntryHovered],
   controlsClose: [readCloseHovered, readClosePressed, readControlsOpen],
+  // 열림이 바뀔 때만 골라져야 알림 창 페이드가 열고 닫을 때만 돈다.
+  rankingNotice: [readRankingNotice],
+  rankingNoticeButtons: [readNoticeCloseHovered, readNoticeClosePressed, readRankingNotice],
 };
 
 export function getChangedRegions(

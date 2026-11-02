@@ -8,7 +8,7 @@ export interface SessionRequest {
 
 export function parseSessionRequest(body: unknown): SessionRequest {
   if (!isRecord(body) || !isString(body.chartId) || !isString(body.chartRevision)) {
-    throw new SessionRejectedError('invalid_request');
+    throw new InvalidSessionRequestError('invalid_request');
   }
   return {
     chartId: body.chartId,
@@ -47,10 +47,12 @@ export const SESSION_REJECTIONS: Record<SessionRejectionCode, { status: number; 
     },
   };
 
-export class SessionRejectedError extends Error {
-  override readonly name = 'SessionRejectedError';
+export class InvalidSessionRequestError extends Error {
+  override readonly name = 'InvalidSessionRequestError';
 
-  constructor(readonly code: SessionRejectionCode) {
+  constructor(
+    readonly code: Exclude<SessionRejectionCode, 'chart_changed' | 'session_rate_limited'>,
+  ) {
     super(SESSION_REJECTIONS[code].message);
   }
 }

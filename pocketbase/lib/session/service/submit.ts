@@ -3,7 +3,7 @@ import { requireDefined } from '../../../../src/invariant.js';
 import type { FinishedGameplayResult } from '../../../../src/rhythm/types.js';
 import { recordVerifiedPlay } from '../../achievement/service/grant.js';
 import type { JsvmRuntime, DbApp, TransactionalApp } from '../../jsvm.js';
-import { SessionRejectedError } from '../dto.js';
+import { InvalidSessionRequestError } from '../dto.js';
 import {
   deletePlaySessions,
   readBestScore,
@@ -31,7 +31,7 @@ export function consumePlaySession(
     }
   });
   if (played === undefined) {
-    throw new SessionRejectedError('session_not_found');
+    throw new InvalidSessionRequestError('session_not_found');
   }
   return played;
 }
@@ -44,7 +44,7 @@ function loadCurrentChart(
 ) {
   const chart = readCurrentChart(runtime, tx, chartId);
   if (chart === undefined) {
-    throw new SessionRejectedError('chart_not_found');
+    throw new InvalidSessionRequestError('chart_not_found');
   }
   return chart;
 }
@@ -66,10 +66,14 @@ export function recordPlayResult(
     // 최고 점수는 이 트랜잭션에서 읽은 제출 시점의 현재 채보 revision 으로 순위에 올려,
     // 스냅샷으로 통과한 플레이가 현재 랭킹에 보이게 한다.
     // 곡 공개 여부도 같은 시점에 읽어, 플레이 중 비공개로 바뀐 곡의 증거를 현재 증거에서 뺀다.
-    const { revision: currentRevision, isPublished } = loadCurrentChart(runtime, tx, played.chart);
+    const { revision: currentRevision, isPublished } = loadCurrentChart(
+      runtime,
+      tx,
+      played.current.chart,
+    );
     const key = {
       user: userId,
-      chart: played.chart,
+      chart: played.current.chart,
       chartRevision: currentRevision,
     };
     const best = readBestScore(tx, key);
@@ -84,17 +88,17 @@ export function recordPlayResult(
         userId,
         sessionId,
         song: {
-          id: played.song,
-          constellation: played.constellation,
+          id: played.current.song,
+          constellation: played.current.constellation,
           isPublished,
         },
         chart: {
-          id: played.chart,
-          difficulty: played.difficulty,
-          laneCount: played.laneCount,
+          id: played.current.chart,
+          difficulty: played.current.difficulty,
+          laneCount: played.current.laneCount,
           currentRevision,
         },
-        sessionChartRevision: played.chartRevision,
+        sessionChartRevision: played.verification.chartRevision,
         result,
         autoplayCheck,
       }),

@@ -1,6 +1,7 @@
 export const ko = {
   boot: {
-    loadFailed: '게임 데이터를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.',
+    loadFailed: '게임 데이터를 불러오지 못했습니다.',
+    checkConnection: '연결 상태를 확인한 후 다시 시도해 주세요.',
   },
   main: {
     account: {
@@ -92,10 +93,10 @@ export const ko = {
     clearTitle: '노트를 모두 삭제할까요?',
     clearConfirm: '노트 {{noteCount}}개가 지워집니다.\n저장하기 전까지는 서버에 반영되지 않습니다.',
     noSelection: '선택된 노트 없음',
-    saving: '저장 중',
-    saved: '저장됨',
-    saveFailed: '저장 실패',
-    invalidChart: '채보 검증 실패: {{reason}}',
+    saveFailedTitle: '저장 실패',
+    saveFailedBody: '서버에 저장하지 못했습니다. 잠시 후 다시 저장해 주세요.',
+    saveConflictBody: '다른 곳에서 먼저 저장된 버전이 있습니다.\n다시 열면 최신 버전을 불러옵니다.',
+    invalidChartBody: '채보 검증 실패: {{reason}}',
     noteCount: '노트 {{count}}개',
     laneSection: '레인 수',
     toolSection: '입력 도구',
@@ -145,12 +146,25 @@ export const ko = {
     progress: '진행',
     currentSongs: '현재 수록곡 기준',
     noAssignedSongs: '배정된 곡 없음',
-    locked: '잠김',
-    status: '상태',
     earned: '획득',
     featured: '장착 중',
     setFeatured: '장착',
     unsetFeatured: '장착 해제',
+  },
+  rankingNotice: {
+    issueFailed: {
+      title: '랭킹에 기록되지 않았습니다',
+      body: '플레이를 시작할 때 랭킹 세션을 열지 못해 이번 기록은 랭킹에 반영되지 않습니다.',
+    },
+    rejected: {
+      title: '랭킹에 기록되지 않았습니다',
+      body: '서버가 이번 기록을 받아들이지 않았습니다.',
+    },
+    unknown: {
+      title: '기록 저장을 확인하지 못했습니다',
+      body: '서버 응답을 받지 못해 이번 기록이 저장됐는지 알 수 없습니다.',
+    },
+    close: '확인',
   },
   achievements: {
     unlocked: '업적 달성',

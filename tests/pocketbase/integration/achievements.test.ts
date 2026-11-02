@@ -293,6 +293,7 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result achievements', () =
         ...virgoChart,
         offsetMs: 10,
       },
+      baseRevision: issuedRevision,
     });
     expect(changed['revision']).not.toBe(issuedRevision);
 

@@ -54,6 +54,11 @@ export const PLAY_SESSIONS = collectionSpec('play_sessions', [
   'chartData',
   'issuedAt',
   'expiresAt',
+  'songKey',
+  'gameStartMs',
+  'gameEndMs',
+  'difficulty',
+  'laneCount',
 ]);
 export const PLAY_SESSION_QUOTAS = collectionSpec('play_session_quotas', ['user']);
 export const USERS = collectionSpec('users', ['id', 'email', 'nickname']);
