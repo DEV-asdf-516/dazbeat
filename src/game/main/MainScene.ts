@@ -40,6 +40,7 @@ import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
+import type { MenuMusic } from '../ui/view/MenuMusic.js';
 import { YOUTUBE_HEART_IMAGE, playYoutubeHearts } from './view/youtubeHearts.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import {
@@ -181,6 +182,7 @@ export class MainScene extends Phaser.Scene {
     private readonly auth: AccountAuth,
     private readonly celestial: CelestialCatalog,
     private readonly catalog: AchievementCatalog,
+    private readonly menuMusic: MenuMusic,
   ) {
     super(SCENE_KEYS.main);
   }
@@ -204,6 +206,7 @@ export class MainScene extends Phaser.Scene {
     );
     queueAchievementEmblemLoads(this);
     queueSoundEffects(this);
+    this.menuMusic.queue(this);
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'main'),
       ...getTitleBackdropTextureUses(this.celestial),

@@ -484,12 +484,16 @@ describe('getSettingsEffects', () => {
     expect(getSettingsEffects(state, hoverRow(state, 1))).toEqual([]);
   });
 
-  it('saves and then plays the focus sound when another row is adjusted', () => {
+  it('saves, applies the music volume and then plays the focus sound when another row is adjusted', () => {
     const state = focusRow(initial(), 1);
     const next = adjustRow(state, 0, -1);
     expect(getSettingsEffects(state, next)).toEqual([
       {
         kind: 'save',
+        settings: next.settings,
+      },
+      {
+        kind: 'musicVolume',
         settings: next.settings,
       },
       {

@@ -19,6 +19,16 @@ export const SCENE_KEYS = {
   bootError: 'BootError',
 } as const;
 
+// 메뉴 음악을 끊지 않고 이어 트는 화면이다. 자기 곡을 트는 선곡, 게임플레이, 에디터와 겹치지 않도록
+// 나머지 화면에 들어가면 멈춘다.
+export const MENU_MUSIC_SCENE_KEYS: ReadonlySet<string> = new Set([
+  SCENE_KEYS.main,
+  SCENE_KEYS.settings,
+  SCENE_KEYS.credits,
+  SCENE_KEYS.profile,
+  SCENE_KEYS.chartEditorSelect,
+]);
+
 export type PlayMode = 'standard' | 'practice';
 
 export interface SongSelectRestore {

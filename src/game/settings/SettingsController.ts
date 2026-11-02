@@ -35,6 +35,7 @@ import type {
 export interface SettingsScreen {
   render(previous: SettingsEditorState | null, next: SettingsEditorState): void;
   playFocusSound(settings: Settings): void;
+  setMusicVolume(settings: Settings): void;
   leave(): void;
 }
 
@@ -237,6 +238,9 @@ export class SettingsController {
         } catch (error) {
           console.error('Failed to save settings', error);
         }
+        return;
+      case 'musicVolume':
+        this.screen.setMusicVolume(effect.settings);
         return;
       case 'changeLanguage': {
         const { language } = effect;

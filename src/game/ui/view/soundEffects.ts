@@ -42,8 +42,8 @@ Object.values(SOUND_EFFECTS).forEach(({ key, group }) => {
 });
 
 const MAX_PLAYING_PER_GROUP = 4;
-// 음원 자체가 커서 효과음 볼륨 100% 에서도 음악을 덮으므로 전체를 이만큼 낮춰 재생한다.
-const SOUND_EFFECT_GAIN = 0.5;
+// 짧은 음원이 작게(피크 -4 ~ -8 dBFS) 마스터링돼 있어 음악에 묻히므로, 가장 큰 음원이 클리핑 직전에 닿을 만큼 키운다.
+const SOUND_EFFECT_GAIN = 1.5;
 
 export function queueSoundEffects(scene: Phaser.Scene): void {
   const missing = Object.values(SOUND_EFFECTS).filter(({ key }) => !scene.cache.audio.exists(key));

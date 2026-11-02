@@ -6,6 +6,7 @@ import type { SceneRequest, SettingsReturn, SettingsSceneData } from '../app/sce
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import { parseLanguage } from '../../i18n/language.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
+import type { MenuMusic } from '../ui/view/MenuMusic.js';
 import type { SettingsRow } from './state/settingsAdjust.js';
 import { isChoiceRow } from './state/settingsRowView.js';
 import { STAYING } from '../app/sceneExit.js';
@@ -265,6 +266,7 @@ export class SettingsScene extends Phaser.Scene {
     private readonly save: LocalSave,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
+    private readonly menuMusic: MenuMusic,
   ) {
     super(SCENE_KEYS.settings);
   }
@@ -357,6 +359,7 @@ export class SettingsScene extends Phaser.Scene {
         },
         // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
         playFocusSound: (settings) => new SoundEffects(this, settings).play('menuFocus'),
+        setMusicVolume: (settings) => this.menuMusic.setVolume(settings),
         leave: () => {
           this.exit = exitScene(this, this.exit, this.returnTo);
         },
