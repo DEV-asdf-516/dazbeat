@@ -17,21 +17,26 @@ import {
   getChangedRegions,
   getKeyBoxButton,
   getKeyBoxView,
+  getMuteButton,
+  getMuteToggleView,
   getResetDialogButtonViews,
   getRowAppearance,
   getRowValue,
   getSettingsControlsCloseView,
   getStepButton,
   getStepView,
+  getVolumeMeterView,
   getWaitingLane,
   isResetEntryHovered,
   isRowShownAt,
   isSettingsControlsEntryHovered,
 } from './state/settingsEditorState.js';
 import type {
+  MuteToggleTone,
   SettingsButton,
   SettingsEditorState,
   SettingsRegion,
+  VolumeMeterView,
 } from './state/settingsEditorState.js';
 import { Button, SURFACE_BUTTON_COLORS } from '../ui/view/widgets/Button.js';
 import type { SecondaryButtonColors } from '../ui/view/widgets/Button.js';
@@ -59,6 +64,7 @@ import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/Men
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { renderTextEntry } from '../ui/view/widgets/textEntry.js';
 import {
+  CELESTIAL_COLORS,
   COLORS,
   LIST_ROW,
   SCREEN_LAYOUT,
@@ -81,19 +87,19 @@ interface RowLayout {
 const ROWS: readonly (SettingsRow & RowLayout)[] = [
   {
     kind: 'volume',
-    field: 'masterVolume',
+    field: 'backgroundVolume',
     column: 'left',
     yPx: 228,
   },
   {
     kind: 'volume',
-    field: 'musicVolume',
+    field: 'effectVolume',
     column: 'left',
     yPx: 300,
   },
   {
     kind: 'volume',
-    field: 'effectVolume',
+    field: 'musicVolume',
     column: 'left',
     yPx: 372,
   },
@@ -202,6 +208,28 @@ const CHEVRON_SIZE_PX = 14;
 const CHEVRON_TEXTURE_SCALE = 2;
 // 'secondary' 글자의 '−'·'+' 획 두께에 맞춘다.
 const CHEVRON_STROKE_PX = 2.5;
+// 스피커는 크기를 바꾸지 않고 켜고 끄기만 하므로 −/+ 묶음과 떨어뜨려 조정 버튼으로 읽히지 않게 한다.
+const MUTE_OFFSET_X_PX = DECREASE_OFFSET_X_PX - STEP_GAP_PX * 2 - STEP_SIZE_PX;
+const SPEAKER_ICON_SIZE_PX = 24;
+const SPEAKER_STROKE_PX = 2.2;
+const SPEAKER_GRID_UNITS = 24;
+const SPEAKER_WAVE_CENTER = {
+  x: 12.8,
+  y: 12,
+} as const;
+const SPEAKER_WAVE_RADII = [4, 7.4] as const;
+const SPEAKER_WAVE_HALF_ANGLE_RAD = 0.78;
+const MUTE_TONE_COLORS: Readonly<Record<MuteToggleTone, number>> = {
+  focused: COLORS.textPrimary,
+  audible: CELESTIAL_COLORS.selected,
+  muted: COLORS.textDisabled,
+};
+const METER_SEGMENT_WIDTH_PX = 10;
+const METER_SEGMENT_HEIGHT_PX = 22;
+const METER_SEGMENT_GAP_PX = 5;
+const METER_SEGMENT_RADIUS_PX = 3;
+const METER_STROKE_PX = 1.5;
+const METER_MUTED_EMPTY_ALPHA = 0.5;
 const STEP_BUTTON_COLORS: Partial<SecondaryButtonColors> = {
   ...SURFACE_BUTTON_COLORS,
   unframedLabel: COLORS.textMuted,
@@ -226,7 +254,13 @@ interface StepControl {
 
 type RowControl =
   | { kind: 'key'; keyBox: Button }
-  | { kind: 'step'; value: Phaser.GameObjects.Text; steps: readonly StepControl[] };
+  | { kind: 'step'; value: Phaser.GameObjects.Text; steps: readonly StepControl[] }
+  | {
+      kind: 'volume';
+      meter: Phaser.GameObjects.Graphics;
+      mute: Phaser.GameObjects.Image;
+      steps: readonly StepControl[];
+    };
 
 interface RowView {
   row: SettingsRow & RowLayout;
@@ -360,7 +394,8 @@ export class SettingsScene extends Phaser.Scene {
         // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
         playFocusSound: (settings) => new SoundEffects(this, settings).play('menuFocus'),
         playCloseSound: (settings) => new SoundEffects(this, settings).play('close'),
-        setMusicVolume: (settings) => this.menuMusic.setVolume(settings),
+        playClickSound: (settings) => new SoundEffects(this, settings).play('click'),
+        setBackgroundVolume: (settings) => this.menuMusic.setVolume(settings),
         leave: () => {
           this.exit = exitScene(this, this.exit, this.returnTo);
         },
@@ -493,6 +528,37 @@ export class SettingsScene extends Phaser.Scene {
         direction,
       };
     };
+    const steps = [
+      createStep(leftXPx + DECREASE_OFFSET_X_PX, '−', -1),
+      createStep(leftXPx + INCREASE_OFFSET_X_PX, '+', 1),
+    ];
+    if (row.kind === 'volume') {
+      const mute = this.add
+        .image(
+          leftXPx + MUTE_OFFSET_X_PX + STEP_SIZE_PX / 2,
+          centerYPx,
+          ensureSpeakerTexture(this, false),
+        )
+        .setDisplaySize(STEP_SIZE_PX, STEP_SIZE_PX)
+        .setInteractive({ cursor: HOVER_CURSOR });
+      bindPointer(mute, pointButton(pointer, getMuteButton(index)));
+      return {
+        row,
+        index,
+        hitArea,
+        marker,
+        label,
+        control: {
+          kind: 'volume',
+          meter: this.add.graphics({
+            x: leftXPx + VALUE_OFFSET_X_PX,
+            y: centerYPx,
+          }),
+          mute,
+          steps,
+        },
+      };
+    }
     const value = this.add
       .text(
         leftXPx + VALUE_OFFSET_X_PX,
@@ -510,10 +576,7 @@ export class SettingsScene extends Phaser.Scene {
       control: {
         kind: 'step',
         value,
-        steps: [
-          createStep(leftXPx + DECREASE_OFFSET_X_PX, '−', -1),
-          createStep(leftXPx + INCREASE_OFFSET_X_PX, '+', 1),
-        ],
+        steps,
       },
     };
   }
@@ -587,6 +650,17 @@ export class SettingsScene extends Phaser.Scene {
                 button.render(getStepView(state, index, direction)),
               );
               return;
+            case 'volume': {
+              control.steps.forEach(({ button, direction }) =>
+                button.render(getStepView(state, index, direction)),
+              );
+              const { isMuted, tone } = getMuteToggleView(state, index);
+              control.mute
+                .setTexture(ensureSpeakerTexture(this, isMuted))
+                .setDisplaySize(STEP_SIZE_PX, STEP_SIZE_PX)
+                .setTint(MUTE_TONE_COLORS[tone]);
+              return;
+            }
           }
         });
         return;
@@ -663,6 +737,9 @@ export class SettingsScene extends Phaser.Scene {
         }
         control.value.setText(getRowValue(state, index));
         return;
+      case 'volume':
+        drawVolumeMeter(control.meter, getVolumeMeterView(state, index));
+        return;
     }
   }
 
@@ -684,6 +761,90 @@ export class SettingsScene extends Phaser.Scene {
         return this.i18n.t('settings.rows.laneKey', { lane: row.lane + 1 });
     }
   }
+}
+
+function drawVolumeMeter(
+  meter: Phaser.GameObjects.Graphics,
+  { level, levelCount, isMuted }: VolumeMeterView,
+): void {
+  const widthPx = levelCount * METER_SEGMENT_WIDTH_PX + (levelCount - 1) * METER_SEGMENT_GAP_PX;
+  meter.clear();
+  for (let segment = 0; segment < levelCount; segment += 1) {
+    const xPx = -widthPx / 2 + segment * (METER_SEGMENT_WIDTH_PX + METER_SEGMENT_GAP_PX);
+    const yPx = -METER_SEGMENT_HEIGHT_PX / 2;
+    const isFilled = segment < level;
+    if (isFilled && !isMuted) {
+      meter.fillStyle(COLORS.textPrimary);
+      meter.fillRoundedRect(
+        xPx,
+        yPx,
+        METER_SEGMENT_WIDTH_PX,
+        METER_SEGMENT_HEIGHT_PX,
+        METER_SEGMENT_RADIUS_PX,
+      );
+      continue;
+    }
+    // 음소거 중에도 채운 칸은 테두리로 남겨 음소거를 풀면 돌아갈 크기를 보여 준다.
+    if (isFilled) {
+      meter.lineStyle(METER_STROKE_PX, COLORS.textDisabled);
+    } else {
+      meter.lineStyle(METER_STROKE_PX, COLORS.border, isMuted ? METER_MUTED_EMPTY_ALPHA : 1);
+    }
+    const insetPx = METER_STROKE_PX / 2;
+    meter.strokeRoundedRect(
+      xPx + insetPx,
+      yPx + insetPx,
+      METER_SEGMENT_WIDTH_PX - METER_STROKE_PX,
+      METER_SEGMENT_HEIGHT_PX - METER_STROKE_PX,
+      METER_SEGMENT_RADIUS_PX,
+    );
+  }
+}
+
+/** 흰색으로 그려 상태별 색을 tint 로 입힌다. 조정 버튼과 같은 크기의 칸 가운데에 그려 칸 전체가 눌린다. */
+function ensureSpeakerTexture(scene: Phaser.Scene, isMuted: boolean): string {
+  const key = isMuted ? 'ui:speaker-muted' : 'ui:speaker';
+  const sizePx = STEP_SIZE_PX * CHEVRON_TEXTURE_SCALE;
+  createCanvasTexture(scene, key, sizePx, sizePx, (context) => {
+    const unitPx = (SPEAKER_ICON_SIZE_PX * CHEVRON_TEXTURE_SCALE) / SPEAKER_GRID_UNITS;
+    const originPx = (sizePx - SPEAKER_ICON_SIZE_PX * CHEVRON_TEXTURE_SCALE) / 2;
+    context.translate(originPx, originPx);
+    context.scale(unitPx, unitPx);
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = SPEAKER_STROKE_PX;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.beginPath();
+    context.moveTo(4, 9.5);
+    context.lineTo(7.2, 9.5);
+    context.lineTo(12, 5.5);
+    context.lineTo(12, 18.5);
+    context.lineTo(7.2, 14.5);
+    context.lineTo(4, 14.5);
+    context.closePath();
+    if (isMuted) {
+      context.moveTo(16, 9.5);
+      context.lineTo(21, 14.5);
+      context.moveTo(21, 9.5);
+      context.lineTo(16, 14.5);
+    } else {
+      for (const radius of SPEAKER_WAVE_RADII) {
+        context.moveTo(
+          SPEAKER_WAVE_CENTER.x + radius * Math.cos(SPEAKER_WAVE_HALF_ANGLE_RAD),
+          SPEAKER_WAVE_CENTER.y - radius * Math.sin(SPEAKER_WAVE_HALF_ANGLE_RAD),
+        );
+        context.arc(
+          SPEAKER_WAVE_CENTER.x,
+          SPEAKER_WAVE_CENTER.y,
+          radius,
+          -SPEAKER_WAVE_HALF_ANGLE_RAD,
+          SPEAKER_WAVE_HALF_ANGLE_RAD,
+        );
+      }
+    }
+    context.stroke();
+  });
+  return key;
 }
 
 /** 흰색으로 그려 Button 이 상태별 색을 tint 로 입힌다. */

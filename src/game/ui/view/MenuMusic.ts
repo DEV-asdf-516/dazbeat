@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { LocalSave } from '../../../storage/LocalSave.js';
-import { getMusicVolume } from '../../../storage/settings.js';
+import { getAudibleVolume } from '../../../storage/settings.js';
 import type { Settings } from '../../../storage/settings.js';
 import { msToSec } from '../../../time.js';
 import { MENU_MUSIC_SCENE_KEYS } from '../../app/sceneRoutes.js';
@@ -46,7 +46,7 @@ export class MenuMusic {
     warnOnLoadError(scene, [MENU_MUSIC_KEY], 'menu music');
   }
 
-  setVolume(settings: Pick<Settings, 'masterVolume' | 'musicVolume'>): void {
+  setVolume(settings: Pick<Settings, 'backgroundVolume' | 'mutedVolumes'>): void {
     this.music?.setVolume(getMenuMusicVolume(settings));
   }
 
@@ -76,6 +76,6 @@ export class MenuMusic {
   }
 }
 
-function getMenuMusicVolume(settings: Pick<Settings, 'masterVolume' | 'musicVolume'>): number {
-  return getMusicVolume(settings) * MENU_MUSIC_GAIN;
+function getMenuMusicVolume(settings: Pick<Settings, 'backgroundVolume' | 'mutedVolumes'>): number {
+  return getAudibleVolume(settings, 'backgroundVolume') * MENU_MUSIC_GAIN;
 }

@@ -82,7 +82,7 @@ export type FocusDirection = 'up' | 'down' | 'left' | 'right';
 
 export type ProfileSelection =
   | { readonly kind: 'none' }
-  | { readonly kind: 'state'; readonly state: LoadedProfileState }
+  | { readonly kind: 'state'; readonly state: LoadedProfileState; readonly hasMovedFocus: boolean }
   | { readonly kind: 'saveFeatured'; readonly id: AchievementId | null };
 
 export type NicknameInputChange =
@@ -412,6 +412,8 @@ export function selectFocused(state: LoadedProfileState, target?: SummaryFocus):
               summaryFocus: focus,
             })
           : openCollection(state, focus),
+      // 클릭으로 다른 항목에 포커스가 옮겨질 때만 효과음을 낸다.
+      hasMovedFocus: focus !== state.summaryFocus,
     };
   }
   switch (getFeaturedAction(state)) {
@@ -471,23 +473,6 @@ export function getPenAppearance(screen: LoadedScreen): 'hidden' | 'emphasized' 
 export type AchievementProgress =
   | { readonly kind: 'ratio'; readonly current: number; readonly target: number }
   | { readonly kind: 'noAssignedSongs' };
-
-/** 황도 완성과 앨범은 지금 배정된 곡 수가 목표라, 곡이 하나도 없으면 진행도 대신 그 사실을 보인다. */
-export function getAchievementProgress({
-  definition,
-  current,
-  target,
-}: AchievementStatus): AchievementProgress {
-  const { kind } = definition.rule;
-  if ((kind === 'zodiacComplete' || kind === 'album') && target === 0) {
-    return { kind: 'noAssignedSongs' };
-  }
-  return {
-    kind: 'ratio',
-    current,
-    target,
-  };
-}
 
 export function getFeaturedAction(state: LoadedProfileState): FeaturedAction {
   if (!isEarned(state, state.collection.focusedId)) {
@@ -1067,14 +1052,22 @@ export function getNicknameCountInput(state: LoadedProfileState): string | null 
   return state.nickname.kind === 'idle' ? null : state.nickname.input;
 }
 
+/** 황도 완성과 앨범은 지금 배정된 곡 수가 목표라, 곡이 하나도 없으면 진행도 대신 그 사실을 보인다. */
 export function getProgressDisplay(state: LoadedProfileState): AchievementProgress {
-  return getAchievementProgress(
-    requireDefined(
-      state.profile.achievements.find(
-        ({ definition }) => definition.id === state.collection.focusedId,
-      ),
-      'Missing achievement status',
-      state.collection.focusedId,
+  const { definition, current, target } = requireDefined(
+    state.profile.achievements.find(
+      ({ definition }) => definition.id === state.collection.focusedId,
     ),
+    'Missing achievement status',
+    state.collection.focusedId,
   );
+  const { kind } = definition.rule;
+  if ((kind === 'zodiacComplete' || kind === 'album') && target === 0) {
+    return { kind: 'noAssignedSongs' };
+  }
+  return {
+    kind: 'ratio',
+    current,
+    target,
+  };
 }

@@ -7,6 +7,7 @@ import {
   bindWaitingKey,
   cancelPrompt,
   confirmReset,
+  confirmRow,
   createSettingsEditorState,
   focusRow,
   getChangedRegions,
@@ -31,7 +32,7 @@ import { DEFAULT_SETTINGS } from '../../../../src/storage/settings.js';
 const ROWS: readonly SettingsRow[] = [
   {
     kind: 'volume',
-    field: 'masterVolume',
+    field: 'backgroundVolume',
   },
   {
     kind: 'key',
@@ -103,7 +104,7 @@ describe('adjustRow', () => {
   it('focuses the adjusted row and changes its setting', () => {
     const state = adjustRow(focusRow(initial(), 1), 0, -1);
     expect(state.rowIndex).toBe(0);
-    expect(state.settings.masterVolume).toBe(0.9);
+    expect(state.settings.backgroundVolume).toBe(0.9);
   });
 
   it('returns the same state when nothing can change', () => {
@@ -464,11 +465,11 @@ describe('hover', () => {
   });
 });
 
-// 0: 마스터 볼륨, 1: 언어
+// 0: 배경음 볼륨, 1: 언어
 const LANGUAGE_ROWS: readonly SettingsRow[] = [
   {
     kind: 'volume',
-    field: 'masterVolume',
+    field: 'backgroundVolume',
   },
   { kind: 'language' },
 ];
@@ -484,7 +485,7 @@ describe('getSettingsEffects', () => {
     expect(getSettingsEffects(state, hoverRow(state, 1))).toEqual([]);
   });
 
-  it('saves, applies the music volume and then plays the focus sound when another row is adjusted', () => {
+  it('saves, applies the background volume and then plays the focus sound when another row is adjusted', () => {
     const state = focusRow(initial(), 1);
     const next = adjustRow(state, 0, -1);
     expect(getSettingsEffects(state, next)).toEqual([
@@ -493,7 +494,7 @@ describe('getSettingsEffects', () => {
         settings: next.settings,
       },
       {
-        kind: 'musicVolume',
+        kind: 'backgroundVolume',
         settings: next.settings,
       },
       {
@@ -571,6 +572,14 @@ describe('getChangedRegions', () => {
       'rowLabels',
       'rowControls',
       'selectedHalo',
+      'rowButtons',
+    ]);
+  });
+
+  it('redraws the speakers with the rows when a volume is muted', () => {
+    expect(getChangedRegions(initial(), confirmRow(initial(), 0))).toEqual([
+      'rowLabels',
+      'rowControls',
       'rowButtons',
     ]);
   });

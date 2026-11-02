@@ -27,9 +27,10 @@ export class LocalSave {
       return DEFAULT_SETTINGS[field];
     };
     const settings: Settings = {
-      masterVolume: read('masterVolume'),
+      backgroundVolume: read('backgroundVolume'),
       musicVolume: read('musicVolume'),
       effectVolume: read('effectVolume'),
+      mutedVolumes: read('mutedVolumes'),
       inputOffsetMs: read('inputOffsetMs'),
       scrollSpeedPxPerSecond: read('scrollSpeedPxPerSecond'),
       laneMode: read('laneMode'),

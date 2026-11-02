@@ -48,6 +48,7 @@ export interface SongSelectScreen {
   openSettings(restore: SongSelectRestore): void;
   playFocusSound(): void;
   playCloseSound(): void;
+  playClickSound(): void;
 }
 
 interface ControllerState {
@@ -257,9 +258,11 @@ export class SongSelectController {
     }
     switch (button) {
       case 'settings':
+        this.screen.playClickSound();
         this.openSettings();
         return;
       case 'controlsEntry':
+        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':

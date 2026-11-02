@@ -107,7 +107,6 @@ const SIX_LANE_CHART: Chart = {
 
 const SETTINGS: Settings = {
   ...DEFAULT_SETTINGS,
-  masterVolume: 0.5,
   musicVolume: 0.5,
   mvMode: 'dim',
 };

@@ -3,11 +3,9 @@ import type { Language } from '../../../i18n/language.js';
 import { LANE_COUNTS } from '../../../rhythm/lanes.js';
 import type { Lane } from '../../../rhythm/types.js';
 import { MV_MODES, SETTINGS_LIMITS } from '../../../storage/settings.js';
-import type { Settings } from '../../../storage/settings.js';
+import type { Settings, VolumeField } from '../../../storage/settings.js';
 import { clamp, stepItem } from '../../../range.js';
 import { requireDefined } from '../../../invariant.js';
-
-export type VolumeField = 'masterVolume' | 'musicVolume' | 'effectVolume';
 
 export type SettingsRow =
   | { kind: 'volume'; field: VolumeField }
@@ -38,12 +36,16 @@ export function adjustSetting(
   switch (row.kind) {
     case 'volume': {
       const volume = stepInRange(settings[row.field], SETTINGS_LIMITS.volume, direction);
-      return volume === settings[row.field]
-        ? settings
-        : {
-            ...settings,
-            [row.field]: volume,
-          };
+      // 음소거 중에 크기를 바꾸면 들으면서 맞추려는 것이므로 음소거를 함께 푼다.
+      const isMuted = settings.mutedVolumes.includes(row.field);
+      if (volume === settings[row.field] && !isMuted) {
+        return settings;
+      }
+      const adjusted = {
+        ...settings,
+        [row.field]: volume,
+      };
+      return isMuted ? toggleMute(adjusted, row.field) : adjusted;
     }
     case 'inputOffset': {
       const inputOffsetMs = stepInRange(
@@ -101,6 +103,16 @@ export function adjustSetting(
     case 'key':
       return settings;
   }
+}
+
+export function toggleMute(settings: Settings, field: VolumeField): Settings {
+  const { mutedVolumes } = settings;
+  return {
+    ...settings,
+    mutedVolumes: mutedVolumes.includes(field)
+      ? mutedVolumes.filter((muted) => muted !== field)
+      : [...mutedVolumes, field],
+  };
 }
 
 export function canAdjust(

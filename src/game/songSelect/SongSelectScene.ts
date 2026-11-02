@@ -16,7 +16,7 @@ import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import type { SongFeeds } from '../app/SongFeed.js';
 import type { ChartRecord } from '../../storage/chartRecords.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { DEFAULT_SETTINGS, getMusicVolume } from '../../storage/settings.js';
+import { DEFAULT_SETTINGS, getAudibleVolume } from '../../storage/settings.js';
 import {
   SONG_ROW_NODE_IDS,
   SONG_SELECT_ACTIONS,
@@ -385,6 +385,7 @@ export class SongSelectScene extends Phaser.Scene {
       openSettings: (restore) => this.openSettings(restore),
       playFocusSound: () => soundEffects.play('menuFocus'),
       playCloseSound: () => soundEffects.play('close'),
+      playClickSound: () => soundEffects.play('click'),
     };
     if (this.mode === 'practice') {
       this.add.text(FILTER_X_PX, MODE_LABEL_Y_PX, 'PRACTICE', {
@@ -544,7 +545,7 @@ export class SongSelectScene extends Phaser.Scene {
             create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
           },
           now: () => performance.now(),
-          volume: getMusicVolume(settings),
+          volume: getAudibleVolume(settings, 'musicVolume'),
         },
       },
       screen,

@@ -95,7 +95,7 @@ describe('LocalSave settings', () => {
     storage.setItem(
       SETTINGS_KEY,
       JSON.stringify({
-        masterVolume: 0.4,
+        backgroundVolume: 0.4,
         musicVolume: 'NaN',
         effectVolume: 0.3,
         inputOffsetMs: 301,
@@ -105,9 +105,10 @@ describe('LocalSave settings', () => {
       }),
     );
     expect(save.loadSettings()).toEqual({
-      masterVolume: 0.4,
+      backgroundVolume: 0.4,
       musicVolume: DEFAULT_SETTINGS.musicVolume,
       effectVolume: 0.3,
+      mutedVolumes: [],
       inputOffsetMs: DEFAULT_SETTINGS.inputOffsetMs,
       scrollSpeedPxPerSecond: DEFAULT_SETTINGS.scrollSpeedPxPerSecond,
       laneMode: 6,
@@ -123,8 +124,8 @@ describe('LocalSave settings', () => {
       SETTINGS_KEY,
       JSON.stringify({
         ...DEFAULT_SETTINGS,
-        masterVolume: 0.5,
-      }).replace('"masterVolume":0.5', '"masterVolume":1e999'),
+        backgroundVolume: 0.5,
+      }).replace('"backgroundVolume":0.5', '"backgroundVolume":1e999'),
     );
     expect(save.loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -246,9 +247,10 @@ describe('LocalSave settings', () => {
 
   it('round-trips saved settings', () => {
     const settings: Settings = {
-      masterVolume: 0.7,
+      backgroundVolume: 0.7,
       musicVolume: 0.2,
       effectVolume: 0,
+      mutedVolumes: ['musicVolume', 'backgroundVolume'],
       inputOffsetMs: -45,
       scrollSpeedPxPerSecond: 1250,
       laneMode: 5,
@@ -277,7 +279,7 @@ describe('LocalSave settings', () => {
     ['a non-string MV mode', 3],
   ])('replaces %s with dim and keeps the other fields, warning once', (_label, mvMode) => {
     const saved = {
-      masterVolume: 0.7,
+      backgroundVolume: 0.7,
       musicVolume: 0.2,
       effectVolume: 0,
       inputOffsetMs: -45,
@@ -289,9 +291,38 @@ describe('LocalSave settings', () => {
     storage.setItem(SETTINGS_KEY, JSON.stringify(saved));
     expect(save.loadSettings()).toEqual({
       ...saved,
+      mutedVolumes: [],
       mvMode: 'dim',
       language: null,
     });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats missing muted volumes as none muted without warning', () => {
+    storage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        mutedVolumes: undefined,
+      }),
+    );
+    expect(save.loadSettings()).toEqual(DEFAULT_SETTINGS);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an unknown volume', ['masterVolume']],
+    ['a duplicated volume', ['musicVolume', 'musicVolume']],
+    ['a non-array value', 'musicVolume'],
+  ])('replaces muted volumes holding %s with none, warning once', (_label, mutedVolumes) => {
+    storage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        mutedVolumes,
+      }),
+    );
+    expect(save.loadSettings()).toEqual(DEFAULT_SETTINGS);
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 

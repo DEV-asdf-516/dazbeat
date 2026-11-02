@@ -46,9 +46,9 @@ export const ja: Messages = {
       general: 'GAMEPLAY',
     },
     rows: {
-      masterVolume: 'マスター音量',
-      musicVolume: '音楽音量',
-      effectVolume: '効果音音量',
+      backgroundVolume: '背景音',
+      musicVolume: '音楽',
+      effectVolume: '効果音',
       inputOffset: '入力オフセット',
       laneMode: 'レーンモード',
       laneKey: 'レーン{{lane}}のキー',

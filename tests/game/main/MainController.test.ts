@@ -103,6 +103,7 @@ function createHarness(restore: () => AuthUser | null): Harness {
         hovers.push(next.hover);
       },
       playCloseSound: () => undefined,
+      playClickSound: () => undefined,
       playFocusSound: () => {
         focusSoundCount += 1;
       },

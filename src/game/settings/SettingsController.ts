@@ -9,6 +9,7 @@ import {
   applyPointer,
   cancelPrompt,
   confirmReset,
+  confirmRow,
   createSettingsEditorState,
   focusRow,
   getSettingsEffects,
@@ -21,7 +22,6 @@ import {
   readSettingsKey,
   releaseSettingsButton,
   requestReset,
-  startWaiting,
   unhoverRow,
   unhoverSettingsButton,
   withDisplayedLanguage,
@@ -36,7 +36,8 @@ export interface SettingsScreen {
   render(previous: SettingsEditorState | null, next: SettingsEditorState): void;
   playFocusSound(settings: Settings): void;
   playCloseSound(settings: Settings): void;
-  setMusicVolume(settings: Settings): void;
+  playClickSound(settings: Settings): void;
+  setBackgroundVolume(settings: Settings): void;
   leave(): void;
 }
 
@@ -131,15 +132,19 @@ export class SettingsController {
         this.back();
         return;
       case 'resetEntry':
+        this.screen.playClickSound(this.settings);
         this.applyPointer(requestReset);
         return;
       case 'resetCancel':
+        this.screen.playClickSound(this.settings);
         this.apply(cancelPrompt);
         return;
       case 'resetAccept':
+        this.screen.playClickSound(this.settings);
         this.apply(confirmReset);
         return;
       case 'controlsEntry':
+        this.screen.playClickSound(this.settings);
         this.openControls();
         return;
       case 'controlsClose':
@@ -147,6 +152,7 @@ export class SettingsController {
         this.closeControls();
         return;
       default:
+        this.screen.playClickSound(this.settings);
         this.applyPointer((state) => pointRowButton(state, button));
         return;
     }
@@ -183,7 +189,7 @@ export class SettingsController {
         this.apply((state) => adjustRow(state, state.rowIndex, 1));
         return;
       case 'confirm':
-        this.apply((state) => startWaiting(state, state.rowIndex));
+        this.apply((state) => confirmRow(state, state.rowIndex));
         return;
       case 'back':
         this.back();
@@ -197,6 +203,7 @@ export class SettingsController {
     if ('kind' in this.state) {
       return;
     }
+    this.screen.playCloseSound(this.state.settings);
     const outcome = pressBack(this.state);
     switch (outcome.kind) {
       case 'stay':
@@ -241,8 +248,8 @@ export class SettingsController {
           console.error('Failed to save settings', error);
         }
         return;
-      case 'musicVolume':
-        this.screen.setMusicVolume(effect.settings);
+      case 'backgroundVolume':
+        this.screen.setBackgroundVolume(effect.settings);
         return;
       case 'changeLanguage': {
         const { language } = effect;
