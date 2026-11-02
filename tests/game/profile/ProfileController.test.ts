@@ -235,6 +235,7 @@ function createHarness(isSignedIn = true): Harness {
       hovers.push(next.hover);
     },
     playCloseSound: () => undefined,
+    playClickSound: () => undefined,
     playFocusSound: () => {
       focusSounds += 1;
     },

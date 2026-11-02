@@ -11,10 +11,16 @@ export const MV_MODES: readonly MvMode[] = ['normal', 'dim', 'blur'];
 
 export type KeyBindings = Readonly<Record<LaneCount, readonly string[]>>;
 
+export type VolumeField = 'backgroundVolume' | 'musicVolume' | 'effectVolume';
+
+const VOLUME_FIELDS: readonly VolumeField[] = ['backgroundVolume', 'musicVolume', 'effectVolume'];
+
 export interface Settings {
-  masterVolume: number;
+  backgroundVolume: number;
   musicVolume: number;
   effectVolume: number;
+  // 볼륨 값은 그대로 두어 음소거를 풀면 이전 크기로 돌아간다.
+  mutedVolumes: readonly VolumeField[];
   inputOffsetMs: number;
   scrollSpeedPxPerSecond: number;
   laneMode: LaneCount;
@@ -24,9 +30,10 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  masterVolume: 1,
+  backgroundVolume: 1,
   musicVolume: 1,
   effectVolume: 1,
+  mutedVolumes: [],
   inputOffsetMs: 0,
   scrollSpeedPxPerSecond: 800,
   laneMode: 4,
@@ -56,12 +63,11 @@ export const SETTINGS_LIMITS = {
   },
 } as const;
 
-export function getMusicVolume(settings: Pick<Settings, 'masterVolume' | 'musicVolume'>): number {
-  return settings.masterVolume * settings.musicVolume;
-}
-
-export function getEffectVolume(settings: Pick<Settings, 'masterVolume' | 'effectVolume'>): number {
-  return settings.masterVolume * settings.effectVolume;
+export function getAudibleVolume<F extends VolumeField>(
+  settings: Pick<Settings, F | 'mutedVolumes'>,
+  field: F,
+): number {
+  return settings.mutedVolumes.includes(field) ? 0 : settings[field];
 }
 
 interface Range {
@@ -74,6 +80,15 @@ function parseInRange(value: unknown, { min, max }: Range): number | undefined {
 }
 
 const isLaneCount = isOneOf(LANE_COUNTS);
+const isVolumeField = isOneOf(VOLUME_FIELDS);
+
+function parseMutedVolumes(value: unknown): readonly VolumeField[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const fields: unknown[] = value;
+  return fields.every(isVolumeField) && new Set(fields).size === fields.length ? fields : undefined;
+}
 
 function isKeyCode(value: unknown): value is string {
   return isString(value) && value !== '';
@@ -113,9 +128,11 @@ function parseKeyBindings(value: unknown): KeyBindings | undefined {
 export const SETTINGS_PARSERS: {
   readonly [K in keyof Settings]: (value: unknown) => Settings[K] | undefined;
 } = {
-  masterVolume: (value) => parseInRange(value, SETTINGS_LIMITS.volume),
+  backgroundVolume: (value) => parseInRange(value, SETTINGS_LIMITS.volume),
   musicVolume: (value) => parseInRange(value, SETTINGS_LIMITS.volume),
   effectVolume: (value) => parseInRange(value, SETTINGS_LIMITS.volume),
+  // 음소거가 생기기 전에 저장된 설정에는 값이 없으므로 모두 켜진 것으로 본다.
+  mutedVolumes: (value) => (value === undefined ? [] : parseMutedVolumes(value)),
   inputOffsetMs: (value) => parseInRange(value, SETTINGS_LIMITS.inputOffsetMs),
   scrollSpeedPxPerSecond: (value) => parseInRange(value, SETTINGS_LIMITS.scrollSpeedPxPerSecond),
   laneMode: (value) => (isLaneCount(value) ? value : undefined),

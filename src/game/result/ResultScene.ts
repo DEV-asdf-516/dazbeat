@@ -414,6 +414,7 @@ export class ResultScene extends Phaser.Scene {
         },
         playFocusSound: () => soundEffects.play('menuFocus'),
         playCloseSound: () => soundEffects.play('close'),
+        playClickSound: () => soundEffects.play('click'),
         leave: (request) => {
           this.exit = exitScene(this, this.exit, request);
         },

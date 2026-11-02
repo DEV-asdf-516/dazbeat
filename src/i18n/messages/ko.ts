@@ -44,9 +44,9 @@ export const ko = {
       general: 'GAMEPLAY',
     },
     rows: {
-      masterVolume: '마스터 볼륨',
-      musicVolume: '음악 볼륨',
-      effectVolume: '효과음 볼륨',
+      backgroundVolume: '배경음',
+      musicVolume: '음악',
+      effectVolume: '효과음',
       inputOffset: '입력 오프셋',
       laneMode: '레인 모드',
       laneKey: '레인 {{lane}} 키',

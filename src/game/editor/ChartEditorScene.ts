@@ -6,7 +6,7 @@ import { getLanes } from '../../rhythm/lanes.js';
 import { getNoteTimeAtY, getNoteY } from '../../rhythm/notePosition.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { getMusicVolume } from '../../storage/settings.js';
+import { getAudibleVolume } from '../../storage/settings.js';
 import { canCurrentUserOpenChartEditor } from '../app/accountState.js';
 import type { AccountAuth } from '../app/accountState.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
@@ -249,7 +249,7 @@ export class ChartEditorScene extends Phaser.Scene {
         },
         now: () => performance.now(),
         frameNow: () => this.game.loop.now,
-        volume: getMusicVolume(settings),
+        volume: getAudibleVolume(settings, 'musicVolume'),
       },
       {
         leave: (focusedSongId) =>

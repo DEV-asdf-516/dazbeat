@@ -4,6 +4,7 @@ import { SettingsController } from '../../../src/game/settings/SettingsControlle
 import type { SettingsRow } from '../../../src/game/settings/state/settingsAdjust.js';
 import {
   getKeyBoxButton,
+  getMuteButton,
   getStepButton,
 } from '../../../src/game/settings/state/settingsEditorState.js';
 import type {
@@ -14,11 +15,11 @@ import { requireDefined } from '../../../src/invariant.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 import type { Settings } from '../../../src/storage/settings.js';
 
-// 0: 마스터 볼륨, 1~2: 키 lane 0~1, 3: 언어, 4: 효과음 볼륨
+// 0: 배경음 볼륨, 1~2: 키 lane 0~1, 3: 언어, 4: 효과음 볼륨
 const ROWS: readonly SettingsRow[] = [
   {
     kind: 'volume',
-    field: 'masterVolume',
+    field: 'backgroundVolume',
   },
   {
     kind: 'key',
@@ -76,7 +77,7 @@ interface Harness {
   readonly controller: SettingsController;
   readonly events: Event[];
   readonly languageChanges: { readonly language: Language; readonly response: Pending<void> }[];
-  readonly musicVolumes: Settings[];
+  readonly backgroundVolumes: Settings[];
   failSave(): void;
   leaveCount(): number;
   renders(): Extract<Event, { kind: 'render' }>[];
@@ -86,7 +87,7 @@ interface Harness {
 function createHarness(): Harness {
   const events: Event[] = [];
   const languageChanges: { language: Language; response: Pending<void> }[] = [];
-  const musicVolumes: Settings[] = [];
+  const backgroundVolumes: Settings[] = [];
   let isSaveFailing = false;
   let leaveCount = 0;
   const controller = new SettingsController(
@@ -119,12 +120,13 @@ function createHarness(): Harness {
           next,
         }),
       playCloseSound: () => undefined,
+      playClickSound: () => undefined,
       playFocusSound: (settings) =>
         events.push({
           kind: 'focusSound',
           settings,
         }),
-      setMusicVolume: (settings) => musicVolumes.push(settings),
+      setBackgroundVolume: (settings) => backgroundVolumes.push(settings),
       leave: () => {
         leaveCount += 1;
       },
@@ -139,7 +141,7 @@ function createHarness(): Harness {
     controller,
     events,
     languageChanges,
-    musicVolumes,
+    backgroundVolumes,
     failSave: () => {
       isSaveFailing = true;
     },
@@ -184,7 +186,7 @@ describe('SettingsController', () => {
 
     expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'focusSound', 'render']);
     const sound = requireDefined(harness.events[3], 'Missing focus sound', 3);
-    expect(sound.kind === 'focusSound' && sound.settings.masterVolume).toBe(0.9);
+    expect(sound.kind === 'focusSound' && sound.settings.backgroundVolume).toBe(0.9);
   });
 
   it('saves and renders without a sound when the focused row is adjusted', () => {
@@ -195,22 +197,67 @@ describe('SettingsController', () => {
     expect(kinds(harness.events)).toEqual(['render', 'render', 'render', 'save', 'render']);
   });
 
-  it('applies the music volume right away when the master volume changes', () => {
+  it('applies the background volume right away when it changes', () => {
     const harness = createHarness();
 
     click(harness, getStepButton(VOLUME_INDEX, -1));
 
-    expect(harness.musicVolumes.map(({ masterVolume }) => masterVolume)).toEqual([0.9]);
+    expect(harness.backgroundVolumes.map(({ backgroundVolume }) => backgroundVolume)).toEqual([
+      0.9,
+    ]);
   });
 
-  it('leaves the music volume alone when a setting that is not heard in the music changes', () => {
+  it('leaves the background volume alone when another setting changes', () => {
     const harness = createHarness();
 
     click(harness, getStepButton(EFFECT_VOLUME_INDEX, -1));
     click(harness, getStepButton(LANGUAGE_INDEX, 1));
 
     expect(harness.events.filter(({ kind }) => kind === 'save')).toHaveLength(2);
-    expect(harness.musicVolumes).toEqual([]);
+    expect(harness.backgroundVolumes).toEqual([]);
+  });
+
+  it('mutes a volume from its speaker and keeps the volume for when it is unmuted', () => {
+    const harness = createHarness();
+
+    click(harness, getMuteButton(VOLUME_INDEX));
+    click(harness, getMuteButton(VOLUME_INDEX));
+
+    expect(
+      harness.events.flatMap((event) =>
+        event.kind === 'save'
+          ? [[event.settings.mutedVolumes, event.settings.backgroundVolume]]
+          : [],
+      ),
+    ).toEqual([
+      [['backgroundVolume'], 1],
+      [[], 1],
+    ]);
+    expect(harness.backgroundVolumes.map(({ mutedVolumes }) => mutedVolumes)).toEqual([
+      ['backgroundVolume'],
+      [],
+    ]);
+  });
+
+  it('toggles the mute of the focused volume row with confirm', () => {
+    const harness = createHarness();
+    harness.controller.pointRow(EFFECT_VOLUME_INDEX);
+
+    harness.controller.handleMenuKey('confirm');
+
+    expect(harness.lastRender().next.settings.mutedVolumes).toEqual(['effectVolume']);
+    expect(harness.backgroundVolumes).toEqual([]);
+  });
+
+  it('unmutes a volume when it is adjusted', () => {
+    const harness = createHarness();
+    click(harness, getMuteButton(VOLUME_INDEX));
+
+    click(harness, getStepButton(VOLUME_INDEX, -1));
+
+    const { settings } = harness.lastRender().next;
+    expect(settings.mutedVolumes).toEqual([]);
+    expect(settings.backgroundVolume).toBe(0.9);
   });
 
   it('does nothing when the setting cannot change further', () => {
@@ -269,7 +316,7 @@ describe('SettingsController', () => {
     click(harness, getStepButton(VOLUME_INDEX, -1));
 
     expect(harness.renders()).toHaveLength(4);
-    expect(harness.lastRender().next.settings.masterVolume).toBe(0.9);
+    expect(harness.lastRender().next.settings.backgroundVolume).toBe(0.9);
   });
 
   it('saves a key pressed while waiting for a key', () => {
@@ -409,7 +456,7 @@ describe('SettingsController button pointer', () => {
     harness.controller.handleMenuKey('left');
     harness.controller.pointerUp(getStepButton(VOLUME_INDEX, 1));
 
-    expect(harness.lastRender().next.settings.masterVolume).toBe(0.9);
+    expect(harness.lastRender().next.settings.backgroundVolume).toBe(0.9);
   });
 
   it('releases the hover of the dialog buttons when the reset dialog closes', () => {

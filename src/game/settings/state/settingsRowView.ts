@@ -18,7 +18,7 @@ export function formatRowValue(
 ): string {
   switch (row.kind) {
     case 'volume':
-      return `${Math.round(settings[row.field] * 100)}%`;
+      throw new Error(`Volume rows have no value text: ${row.field}`);
     case 'inputOffset':
       return `${settings.inputOffsetMs}ms`;
     case 'scrollSpeed':

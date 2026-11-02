@@ -46,9 +46,9 @@ export const en: Messages = {
       general: 'GAMEPLAY',
     },
     rows: {
-      masterVolume: 'Master Volume',
-      musicVolume: 'Music Volume',
-      effectVolume: 'Effect Volume',
+      backgroundVolume: 'Background',
+      musicVolume: 'Music',
+      effectVolume: 'Effects',
       inputOffset: 'Input Offset',
       laneMode: 'Lane Mode',
       laneKey: 'Lane {{lane}} Key',

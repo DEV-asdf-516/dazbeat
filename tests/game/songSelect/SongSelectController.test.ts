@@ -237,6 +237,7 @@ function createHarness(
           }),
         openSettings: (restore) => settings.push(restore),
         playCloseSound: () => undefined,
+        playClickSound: () => undefined,
         playFocusSound: () => {
           focusSounds += 1;
         },

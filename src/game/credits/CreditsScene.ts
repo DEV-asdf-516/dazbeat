@@ -137,6 +137,7 @@ export class CreditsScene extends Phaser.Scene {
           }
         },
         playCloseSound: () => soundEffects.play('close'),
+        playClickSound: () => soundEffects.play('click'),
         leave: () => {
           this.exit = exitScene(this, this.exit, {
             key: 'main',

@@ -25,6 +25,7 @@ export interface MainScreen {
   render(previous: MainState | null, next: MainState): void;
   playFocusSound(): void;
   playCloseSound(): void;
+  playClickSound(): void;
   activate(button: MainFocus | 'account'): void;
 }
 
@@ -124,6 +125,7 @@ export class MainController {
     }
     switch (button) {
       case 'controlsEntry':
+        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -131,6 +133,7 @@ export class MainController {
         this.closeControls();
         return;
       default:
+        this.screen.playClickSound();
         this.screen.activate(button);
         return;
     }

@@ -12,7 +12,7 @@ import { JUDGMENT_WINDOWS, getJudgmentEventCount } from '../../rhythm/judgment.j
 import { getPlaybackStartMs } from '../../rhythm/playTiming.js';
 import type { Chart, GameplayResult, JudgmentEvent, Lane } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { MV_MODES, getMusicVolume } from '../../storage/settings.js';
+import { MV_MODES, getAudibleVolume } from '../../storage/settings.js';
 import type { MvMode, Settings } from '../../storage/settings.js';
 import type { GameplaySceneData, ResultRanking, ResultSceneData } from '../app/sceneRoutes.js';
 import {
@@ -448,7 +448,7 @@ export class GameplayController {
       {
         playbackStartMs,
         preRollStartMs: getPreRollStartMs(playbackStartMs, noteEntryMs),
-        volume: getMusicVolume(this.settings),
+        volume: getAudibleVolume(this.settings, 'musicVolume'),
       },
       {
         onStatusChange: (status) => {

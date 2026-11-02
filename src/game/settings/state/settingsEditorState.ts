@@ -1,13 +1,13 @@
 import type { Language } from '../../../i18n/language.js';
 import type { Lane } from '../../../rhythm/types.js';
-import { DEFAULT_SETTINGS, getMusicVolume } from '../../../storage/settings.js';
-import type { Settings } from '../../../storage/settings.js';
-import { adjustSetting, assignKey, canAdjust } from './settingsAdjust.js';
+import { DEFAULT_SETTINGS, SETTINGS_LIMITS, getAudibleVolume } from '../../../storage/settings.js';
+import type { Settings, VolumeField } from '../../../storage/settings.js';
+import { adjustSetting, assignKey, canAdjust, toggleMute } from './settingsAdjust.js';
 import type { SettingsRow } from './settingsAdjust.js';
 import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import { requireDefined } from '../../../invariant.js';
-import { cycleItem } from '../../../range.js';
+import { cycleItem, getFraction } from '../../../range.js';
 import {
   getButtonView,
   hoverButton,
@@ -43,7 +43,8 @@ export type SettingsButton =
   | 'resetAccept'
   | ControlsButton
   | `keyBox:${number}`
-  | `step:${number}:${StepDirection}`;
+  | `step:${number}:${StepDirection}`
+  | `mute:${number}`;
 
 export type SettingsHover =
   { readonly kind: 'row'; readonly index: number } | ButtonHover<SettingsButton>;
@@ -63,7 +64,8 @@ const STEP_DIRECTIONS: readonly StepDirection[] = [-1, 1];
 
 type RowButton =
   | { readonly kind: 'keyBox'; readonly index: number }
-  | { readonly kind: 'step'; readonly index: number; readonly direction: StepDirection };
+  | { readonly kind: 'step'; readonly index: number; readonly direction: StepDirection }
+  | { readonly kind: 'mute'; readonly index: number };
 
 export function getKeyBoxButton(index: number): SettingsButton {
   return `keyBox:${index}`;
@@ -71,6 +73,10 @@ export function getKeyBoxButton(index: number): SettingsButton {
 
 export function getStepButton(index: number, direction: StepDirection): SettingsButton {
   return `step:${index}:${direction}`;
+}
+
+export function getMuteButton(index: number): SettingsButton {
+  return `mute:${index}`;
 }
 
 export function createSettingsEditorState(
@@ -175,6 +181,8 @@ export function pointRowButton(
       return startWaiting(state, rowButton.index);
     case 'step':
       return adjustRow(state, rowButton.index, rowButton.direction);
+    case 'mute':
+      return confirmRow(state, rowButton.index);
   }
 }
 
@@ -203,6 +211,18 @@ export function adjustRow(
     ...state,
     rowIndex: index,
     settings,
+  });
+}
+
+export function confirmRow(state: SettingsEditorState, index: number): SettingsEditorState {
+  const row = getShownRow(state, index);
+  if (row.kind !== 'volume') {
+    return startWaiting(state, index);
+  }
+  return settleHover({
+    ...state,
+    rowIndex: index,
+    settings: toggleMute(state.settings, row.field),
   });
 }
 
@@ -355,7 +375,7 @@ export function withDisplayedLanguage(
 
 export type SettingsEffect =
   | { readonly kind: 'save'; readonly settings: Settings }
-  | { readonly kind: 'musicVolume'; readonly settings: Settings }
+  | { readonly kind: 'backgroundVolume'; readonly settings: Settings }
   | { readonly kind: 'changeLanguage'; readonly language: Language }
   | { readonly kind: 'focusSound'; readonly settings: Settings };
 
@@ -369,10 +389,13 @@ export function getSettingsEffects(
       kind: 'save',
       settings: next.settings,
     });
-    // 이 화면에서도 메뉴 음악이 흐르므로 들리는 음악 볼륨이 바뀌면 바로 반영한다.
-    if (getMusicVolume(next.settings) !== getMusicVolume(previous.settings)) {
+    // 이 화면에서도 메뉴 음악이 흐르므로 배경음 볼륨이 바뀌면 바로 반영한다.
+    if (
+      getAudibleVolume(next.settings, 'backgroundVolume') !==
+      getAudibleVolume(previous.settings, 'backgroundVolume')
+    ) {
       effects.push({
-        kind: 'musicVolume',
+        kind: 'backgroundVolume',
         settings: next.settings,
       });
     }
@@ -434,6 +457,44 @@ export function getStepView(
     canAdjustRow(state, index, direction),
     index === state.rowIndex,
   );
+}
+
+export type MuteToggleTone = 'focused' | 'audible' | 'muted';
+
+export interface MuteToggleView {
+  readonly isMuted: boolean;
+  readonly tone: MuteToggleTone;
+}
+
+export function getMuteToggleView(state: SettingsEditorState, index: number): MuteToggleView {
+  const isMuted = state.settings.mutedVolumes.includes(getVolumeField(state, index));
+  if (index === state.rowIndex || isButtonHovered(state.hover, getMuteButton(index))) {
+    return {
+      isMuted,
+      tone: 'focused',
+    };
+  }
+  return {
+    isMuted,
+    tone: isMuted ? 'muted' : 'audible',
+  };
+}
+
+export interface VolumeMeterView {
+  readonly level: number;
+  readonly levelCount: number;
+  readonly isMuted: boolean;
+}
+
+export function getVolumeMeterView(state: SettingsEditorState, index: number): VolumeMeterView {
+  const field = getVolumeField(state, index);
+  const { min, max, step } = SETTINGS_LIMITS.volume;
+  const levelCount = Math.round((max - min) / step);
+  return {
+    level: Math.round(getFraction(state.settings[field], min, max) * levelCount),
+    levelCount,
+    isMuted: state.settings.mutedVolumes.includes(field),
+  };
 }
 
 export function getBackButtonView(state: SettingsEditorState): ButtonView {
@@ -588,6 +649,12 @@ function findRowButton(state: SettingsEditorState, button: SettingsButton): RowB
         index,
       };
     }
+    if (button === getMuteButton(index)) {
+      return {
+        kind: 'mute',
+        index,
+      };
+    }
     for (const direction of STEP_DIRECTIONS) {
       if (button === getStepButton(index, direction)) {
         return {
@@ -617,10 +684,19 @@ function isSettingsButtonEnabled(state: SettingsEditorState, button: SettingsBut
   const rowButton = requireDefined(findRowButton(state, button), 'Not a settings button', button);
   switch (rowButton.kind) {
     case 'keyBox':
+    case 'mute':
       return true;
     case 'step':
       return canAdjustRow(state, rowButton.index, rowButton.direction);
   }
+}
+
+function getVolumeField(state: SettingsEditorState, index: number): VolumeField {
+  const row = getRow(state, index);
+  if (row.kind !== 'volume') {
+    throw new Error(`Not a volume settings row: ${index}`);
+  }
+  return row.field;
 }
 
 function getRow(state: SettingsEditorState, index: number): SettingsRow {

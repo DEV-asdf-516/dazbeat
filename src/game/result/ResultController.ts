@@ -30,6 +30,7 @@ export interface ResultScreen {
   render(previous: ResultState | null, next: ResultState): void;
   playFocusSound(): void;
   playCloseSound(): void;
+  playClickSound(): void;
   leave(request: SceneRequest): void;
 }
 
@@ -117,9 +118,11 @@ export class ResultController {
     switch (button) {
       case 'retry':
       case 'songSelect':
+        this.screen.playClickSound();
         this.activate(button);
         return;
       case 'controlsEntry':
+        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -127,6 +130,7 @@ export class ResultController {
         this.closeControls();
         return;
       case 'noticeClose':
+        this.screen.playClickSound();
         this.apply(closeRankingNotice);
         return;
     }

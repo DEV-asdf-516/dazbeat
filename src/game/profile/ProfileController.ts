@@ -56,6 +56,7 @@ export interface ProfileScreen {
   render(previous: ProfileScreenState | null, next: ProfileScreenState): void;
   playFocusSound(): void;
   playCloseSound(): void;
+  playClickSound(): void;
   playFeaturedSound(featuredId: AchievementId | null): void;
   leaveToMain(): void;
 }
@@ -169,6 +170,7 @@ export class ProfileController {
         this.back();
         return;
       case 'controlsEntry':
+        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -192,6 +194,9 @@ export class ProfileController {
       case 'none':
         return;
       case 'state':
+        if (selection.hasMovedFocus) {
+          this.screen.playFocusSound();
+        }
         this.setPage(selection.state);
         return;
       case 'saveFeatured':
@@ -288,6 +293,7 @@ export class ProfileController {
     if (page === null) {
       return;
     }
+    this.screen.playCloseSound();
     const action = goBack(page);
     if (action.kind === 'leave') {
       this.screen.leaveToMain();

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { requireDefined } from '../../../invariant.js';
-import { getEffectVolume } from '../../../storage/settings.js';
+import { getAudibleVolume } from '../../../storage/settings.js';
 import type { Settings } from '../../../storage/settings.js';
 import { warnOnLoadError } from './textures/loadWarning.js';
 
@@ -12,7 +12,8 @@ export type SoundEffect =
   | 'menuFocus'
   | 'equip'
   | 'unequip'
-  | 'close';
+  | 'close'
+  | 'click';
 
 type SoundEffectGroup = 'lane' | 'judgment' | 'menu';
 
@@ -57,6 +58,11 @@ const SOUND_EFFECTS: Record<SoundEffect, { key: string; url: string; group: Soun
     url: '/assets/audio/sfx/close.wav',
     group: 'menu',
   },
+  click: {
+    key: 'sfx-click',
+    url: '/assets/audio/sfx/click.wav',
+    group: 'menu',
+  },
 };
 
 const GROUP_KEYS = new Map<SoundEffectGroup, Set<string>>();
@@ -86,7 +92,7 @@ export class SoundEffects {
   private readonly loadedKeys: ReadonlySet<string>;
   private readonly volume: number;
 
-  constructor(scene: Phaser.Scene, settings: Pick<Settings, 'masterVolume' | 'effectVolume'>) {
+  constructor(scene: Phaser.Scene, settings: Pick<Settings, 'effectVolume' | 'mutedVolumes'>) {
     const { sound } = scene;
     this.manager = sound instanceof Phaser.Sound.WebAudioSoundManager ? sound : null;
     this.loadedKeys = new Set(
@@ -94,7 +100,7 @@ export class SoundEffects {
         .map(({ key }) => key)
         .filter((key) => scene.cache.audio.exists(key)),
     );
-    this.volume = getEffectVolume(settings) * SOUND_EFFECT_GAIN;
+    this.volume = getAudibleVolume(settings, 'effectVolume') * SOUND_EFFECT_GAIN;
   }
 
   play(effect: SoundEffect): void {

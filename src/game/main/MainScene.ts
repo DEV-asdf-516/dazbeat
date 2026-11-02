@@ -347,6 +347,7 @@ export class MainScene extends Phaser.Scene {
       },
       playFocusSound: () => soundEffects.play('menuFocus'),
       playCloseSound: () => soundEffects.play('close'),
+      playClickSound: () => soundEffects.play('click'),
       activate: (button) => this.activate(button, controller),
     });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());

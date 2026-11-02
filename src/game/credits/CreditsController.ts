@@ -15,6 +15,7 @@ import type { CreditsButton, CreditsGrid, CreditsState } from './state/creditsSt
 export interface CreditsScreen {
   render(previous: CreditsState | null, next: CreditsState): void;
   playCloseSound(): void;
+  playClickSound(): void;
   leave(): void;
 }
 
@@ -90,6 +91,7 @@ export class CreditsController {
         this.back();
         return;
       case 'controlsEntry':
+        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -121,6 +123,7 @@ export class CreditsController {
     if ('kind' in this.state) {
       return;
     }
+    this.screen.playCloseSound();
     this.screen.leave();
   }
 
