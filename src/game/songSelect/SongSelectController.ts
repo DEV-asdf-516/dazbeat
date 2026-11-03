@@ -46,6 +46,7 @@ export interface SongSelectScreen {
   render(previous: SongSelectView | null, next: SongSelectView): void;
   play(chart: ChartRef, restore: SongSelectRestore): void;
   openSettings(restore: SongSelectRestore): void;
+  backToMain(): void;
   playFocusSound(): void;
   playCloseSound(): void;
   playClickSound(): void;
@@ -153,11 +154,11 @@ export class SongSelectController {
   }
 
   moveDifficulty(delta: 1 | -1): void {
-    this.applyFromUser((state) => moveDifficulty(state, delta));
+    this.changeDifficultyFromUser((state) => moveDifficulty(state, delta));
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.applyFromUser((state) => selectDifficulty(state, difficulty));
+    this.changeDifficultyFromUser((state) => selectDifficulty(state, difficulty));
   }
 
   // 비활성 RANDOM 이 실패한 feed 를 다시 부르지 않도록 고를 곡이 없으면 아무것도 요청하지 않는다.
@@ -170,6 +171,7 @@ export class SongSelectController {
     if (!canSelectRandomSong(state)) {
       return;
     }
+    this.screen.playClickSound();
     if (feed.status !== 'hasMore' && feed.status !== 'loading') {
       this.pickRandomSong();
       return;
@@ -190,6 +192,7 @@ export class SongSelectController {
     if (current === null || filter === current.state.filter) {
       return;
     }
+    this.screen.playClickSound();
     const previous = current.state;
     this.randomRequest = null;
     current.unsubscribe();
@@ -258,7 +261,6 @@ export class SongSelectController {
     }
     switch (button) {
       case 'settings':
-        this.screen.playClickSound();
         this.openSettings();
         return;
       case 'controlsEntry':
@@ -287,6 +289,7 @@ export class SongSelectController {
     const { feed, state } = current;
     const chart = getPlayableSelection(state);
     if (chart !== null) {
+      this.screen.playClickSound();
       this.screen.play(chart, {
         feed,
         ...getSongSelectTarget(state),
@@ -300,10 +303,19 @@ export class SongSelectController {
       return;
     }
     const { feed, state } = current;
+    this.screen.playClickSound();
     this.screen.openSettings({
       feed,
       ...getSongSelectTarget(state),
     });
+  }
+
+  back(): void {
+    if (this.open === null) {
+      return;
+    }
+    this.screen.playCloseSound();
+    this.screen.backToMain();
   }
 
   tick(): void {
@@ -359,8 +371,10 @@ export class SongSelectController {
     this.requestMoreFromUser();
   }
 
-  private applyFromUser(transition: Transition): void {
-    this.apply(transition);
+  private changeDifficultyFromUser(transition: Transition): void {
+    if (this.apply(transition)) {
+      this.screen.playClickSound();
+    }
     this.requestMoreFromUser();
   }
 

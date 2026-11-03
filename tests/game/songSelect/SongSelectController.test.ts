@@ -206,6 +206,9 @@ function createHarness(
   const plays: { chart: ChartRef; restore: SongSelectRestore }[] = [];
   const settings: SongSelectRestore[] = [];
   let focusSounds = 0;
+  let clickSounds = 0;
+  let closeSounds = 0;
+  let mainExits = 0;
   let controller: SongSelectController | undefined;
   const open = (restore?: SongSelectRestore): SongSelectController => {
     controller = new SongSelectController(
@@ -236,8 +239,15 @@ function createHarness(
             restore,
           }),
         openSettings: (restore) => settings.push(restore),
-        playCloseSound: () => undefined,
-        playClickSound: () => undefined,
+        backToMain: () => {
+          mainExits += 1;
+        },
+        playCloseSound: () => {
+          closeSounds += 1;
+        },
+        playClickSound: () => {
+          clickSounds += 1;
+        },
         playFocusSound: () => {
           focusSounds += 1;
         },
@@ -261,6 +271,15 @@ function createHarness(
     open,
     get focusSounds(): number {
       return focusSounds;
+    },
+    get clickSounds(): number {
+      return clickSounds;
+    },
+    get closeSounds(): number {
+      return closeSounds;
+    },
+    get mainExits(): number {
+      return mainExits;
     },
     get controller(): SongSelectController {
       return requireDefined(controller, 'Not opened');
@@ -649,6 +668,66 @@ describe('SongSelectController focus sound', () => {
       expect(rendered()).toBeGreaterThan(before);
     }
     expect(harness.focusSounds).toBe(0);
+  });
+});
+
+describe('SongSelectController click sound', () => {
+  it('plays the click sound once for each filter, difficulty, random, play and settings action', () => {
+    const harness = openHarness(songs, 4, () => 0.5);
+    const actions = [
+      () => harness.controller.cycleFilter(1),
+      () => harness.controller.selectFilter('all'),
+      () => harness.controller.moveDifficulty(1),
+      () => harness.controller.selectDifficulty('easy'),
+      () => harness.controller.selectRandomSong(),
+      () => harness.controller.openSettings(),
+      () => harness.controller.pointerDown('settings'),
+      () => harness.controller.pointerUp('settings'),
+      () => harness.controller.play(),
+    ];
+
+    for (const action of actions) {
+      action();
+    }
+
+    expect(harness.clickSounds).toBe(8);
+    expect(harness.settings).toHaveLength(2);
+    expect(harness.plays).toHaveLength(1);
+  });
+
+  it('stays silent when the action changes nothing or is disabled', () => {
+    const harness = openHarness([makeSong(0), makeSong(1, 'original', {})]);
+
+    harness.controller.selectFilter('all');
+    harness.controller.selectDifficulty('easy');
+    harness.controller.selectRandomSong();
+    harness.controller.moveSong(1);
+    harness.controller.play();
+
+    expect(harness.clickSounds).toBe(0);
+    expect(harness.plays).toHaveLength(0);
+  });
+});
+
+describe('SongSelectController back', () => {
+  it('plays the close sound and returns to main', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.back();
+
+    expect(harness.closeSounds).toBe(1);
+    expect(harness.mainExits).toBe(1);
+    expect(harness.clickSounds).toBe(0);
+  });
+
+  it('does nothing after the controller is closed', () => {
+    const harness = openHarness(songs);
+    harness.controller.close();
+
+    harness.controller.back();
+
+    expect(harness.closeSounds).toBe(0);
+    expect(harness.mainExits).toBe(0);
   });
 });
 
