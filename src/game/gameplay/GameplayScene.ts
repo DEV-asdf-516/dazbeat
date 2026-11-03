@@ -581,6 +581,7 @@ export class GameplayScene extends Phaser.Scene {
       showLoadError: (error) => this.showLoadError(view, error),
       openQuitConfirm: (reason) => this.openQuitConfirm(view, reason),
       closeQuitConfirm: () => this.closeQuitConfirm(view),
+      playSound: (sound) => view.soundEffects.play(sound),
       beginPlay: (chart) => this.beginPlay(view, chart, settings.scrollSpeedPxPerSecond),
       showResult: (result) =>
         this.showResult({

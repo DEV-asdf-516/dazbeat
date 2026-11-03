@@ -6,6 +6,7 @@ import { MV_MODES, SETTINGS_LIMITS } from '../../../storage/settings.js';
 import type { Settings, VolumeField } from '../../../storage/settings.js';
 import { clamp, stepItem } from '../../../range.js';
 import { requireDefined } from '../../../invariant.js';
+import { isShallowEqual } from '../../../shallowEqual.js';
 
 export type SettingsRow =
   | { kind: 'volume'; field: VolumeField }
@@ -25,6 +26,14 @@ function stepInRange(
   direction: 1 | -1,
 ): number {
   return Math.round(clamp(value + direction * step, min, max) * STEP_PRECISION) / STEP_PRECISION;
+}
+
+function withChange(settings: Settings, change: Partial<Settings>): Settings {
+  const next = {
+    ...settings,
+    ...change,
+  };
+  return isShallowEqual(next, settings) ? settings : next;
 }
 
 export function adjustSetting(
@@ -47,50 +56,28 @@ export function adjustSetting(
       };
       return isMuted ? toggleMute(adjusted, row.field) : adjusted;
     }
-    case 'inputOffset': {
-      const inputOffsetMs = stepInRange(
-        settings.inputOffsetMs,
-        SETTINGS_LIMITS.inputOffsetMs,
-        direction,
-      );
-      return inputOffsetMs === settings.inputOffsetMs
-        ? settings
-        : {
-            ...settings,
-            inputOffsetMs,
-          };
-    }
-    case 'scrollSpeed': {
-      const scrollSpeedPxPerSecond = stepInRange(
-        settings.scrollSpeedPxPerSecond,
-        SETTINGS_LIMITS.scrollSpeedPxPerSecond,
-        direction,
-      );
-      return scrollSpeedPxPerSecond === settings.scrollSpeedPxPerSecond
-        ? settings
-        : {
-            ...settings,
-            scrollSpeedPxPerSecond,
-          };
-    }
-    case 'laneMode': {
-      const laneMode = stepItem(LANE_COUNTS, settings.laneMode, direction);
-      return laneMode === settings.laneMode
-        ? settings
-        : {
-            ...settings,
-            laneMode,
-          };
-    }
-    case 'mvMode': {
-      const mvMode = stepItem(MV_MODES, settings.mvMode, direction);
-      return mvMode === settings.mvMode
-        ? settings
-        : {
-            ...settings,
-            mvMode,
-          };
-    }
+    case 'inputOffset':
+      return withChange(settings, {
+        inputOffsetMs: stepInRange(
+          settings.inputOffsetMs,
+          SETTINGS_LIMITS.inputOffsetMs,
+          direction,
+        ),
+      });
+    case 'scrollSpeed':
+      return withChange(settings, {
+        scrollSpeedPxPerSecond: stepInRange(
+          settings.scrollSpeedPxPerSecond,
+          SETTINGS_LIMITS.scrollSpeedPxPerSecond,
+          direction,
+        ),
+      });
+    case 'laneMode':
+      return withChange(settings, {
+        laneMode: stepItem(LANE_COUNTS, settings.laneMode, direction),
+      });
+    case 'mvMode':
+      return withChange(settings, { mvMode: stepItem(MV_MODES, settings.mvMode, direction) });
     case 'language': {
       const next = stepItem(LANGUAGES, language, direction);
       return next === language

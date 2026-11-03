@@ -41,14 +41,14 @@ import type {
   SongSelectState,
   SongSelectView,
 } from './state/songSelectState.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface SongSelectScreen {
   render(previous: SongSelectView | null, next: SongSelectView): void;
+  playSound(sound: SoundEffect): void;
   play(chart: ChartRef, restore: SongSelectRestore): void;
   openSettings(restore: SongSelectRestore): void;
-  playFocusSound(): void;
-  playCloseSound(): void;
-  playClickSound(): void;
+  backToMain(): void;
 }
 
 interface ControllerState {
@@ -153,11 +153,11 @@ export class SongSelectController {
   }
 
   moveDifficulty(delta: 1 | -1): void {
-    this.applyFromUser((state) => moveDifficulty(state, delta));
+    this.changeDifficultyFromUser((state) => moveDifficulty(state, delta));
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.applyFromUser((state) => selectDifficulty(state, difficulty));
+    this.changeDifficultyFromUser((state) => selectDifficulty(state, difficulty));
   }
 
   // 비활성 RANDOM 이 실패한 feed 를 다시 부르지 않도록 고를 곡이 없으면 아무것도 요청하지 않는다.
@@ -170,6 +170,7 @@ export class SongSelectController {
     if (!canSelectRandomSong(state)) {
       return;
     }
+    this.screen.playSound('click');
     if (feed.status !== 'hasMore' && feed.status !== 'loading') {
       this.pickRandomSong();
       return;
@@ -190,6 +191,7 @@ export class SongSelectController {
     if (current === null || filter === current.state.filter) {
       return;
     }
+    this.screen.playSound('click');
     const previous = current.state;
     this.randomRequest = null;
     current.unsubscribe();
@@ -204,12 +206,13 @@ export class SongSelectController {
   }
 
   openControls(): void {
+    this.screen.playSound('click');
     this.setControlsOpen(true);
   }
 
   closeControls(): void {
     this.setControlsOpen(false);
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
@@ -258,11 +261,9 @@ export class SongSelectController {
     }
     switch (button) {
       case 'settings':
-        this.screen.playClickSound();
         this.openSettings();
         return;
       case 'controlsEntry':
-        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -287,6 +288,7 @@ export class SongSelectController {
     const { feed, state } = current;
     const chart = getPlayableSelection(state);
     if (chart !== null) {
+      this.screen.playSound('click');
       this.screen.play(chart, {
         feed,
         ...getSongSelectTarget(state),
@@ -300,10 +302,19 @@ export class SongSelectController {
       return;
     }
     const { feed, state } = current;
+    this.screen.playSound('click');
     this.screen.openSettings({
       feed,
       ...getSongSelectTarget(state),
     });
+  }
+
+  back(): void {
+    if (this.open === null) {
+      return;
+    }
+    this.screen.playSound('close');
+    this.screen.backToMain();
   }
 
   tick(): void {
@@ -354,13 +365,15 @@ export class SongSelectController {
   /** 키 이동과 목록 클릭은 같은 곡 포커스 이동이라 곡이 바뀔 때 같은 효과음을 낸다. */
   private focusSongFromUser(transition: Transition): void {
     if (this.apply(transition)) {
-      this.screen.playFocusSound();
+      this.screen.playSound('menuFocus');
     }
     this.requestMoreFromUser();
   }
 
-  private applyFromUser(transition: Transition): void {
-    this.apply(transition);
+  private changeDifficultyFromUser(transition: Transition): void {
+    if (this.apply(transition)) {
+      this.screen.playSound('click');
+    }
     this.requestMoreFromUser();
   }
 

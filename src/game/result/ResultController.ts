@@ -25,12 +25,11 @@ import {
   unhoverToastClose,
 } from './state/resultState.js';
 import type { ResultButton, ResultExit, ResultMenuItem, ResultState } from './state/resultState.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface ResultScreen {
   render(previous: ResultState | null, next: ResultState): void;
-  playFocusSound(): void;
-  playCloseSound(): void;
-  playClickSound(): void;
+  playSound(sound: SoundEffect): void;
   leave(request: SceneRequest): void;
 }
 
@@ -68,11 +67,11 @@ export class ResultController {
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.applyMenu((state) => selectRetryDifficulty(state, difficulty));
+    this.changeDifficultyFromUser((state) => selectRetryDifficulty(state, difficulty));
   }
 
   stepDifficulty(delta: 1 | -1): void {
-    this.applyMenu((state) => stepRetryChart(state, delta));
+    this.changeDifficultyFromUser((state) => stepRetryChart(state, delta));
   }
 
   moveFocus(delta: 1 | -1): void {
@@ -84,16 +83,17 @@ export class ResultController {
       return;
     }
     this.apply(() => next);
-    this.screen.playFocusSound();
+    this.screen.playSound('menuFocus');
   }
 
   openControls(): void {
+    this.screen.playSound('click');
     this.applyMenu((state) => withControlsOpen(state, true));
   }
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
   }
 
   pointerOver(button: ResultButton): void {
@@ -118,11 +118,10 @@ export class ResultController {
     switch (button) {
       case 'retry':
       case 'songSelect':
-        this.screen.playClickSound();
+        this.screen.playSound('click');
         this.activate(button);
         return;
       case 'controlsEntry':
-        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -130,7 +129,7 @@ export class ResultController {
         this.closeControls();
         return;
       case 'noticeClose':
-        this.screen.playClickSound();
+        this.screen.playSound('click');
         this.apply(closeRankingNotice);
         return;
     }
@@ -158,10 +157,15 @@ export class ResultController {
     if ('kind' in this.state) {
       return;
     }
+    this.screen.playSound('click');
     this.activate(this.state.focus);
   }
 
   back(): void {
+    if ('kind' in this.state) {
+      return;
+    }
+    this.screen.playSound('close');
     this.activate('songSelect');
   }
 
@@ -175,7 +179,7 @@ export class ResultController {
 
   closeToast(toastId: number): void {
     this.dismissToast(toastId);
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
   }
 
   dismissToast(toastId: number): void {
@@ -202,6 +206,14 @@ export class ResultController {
       case 'leave':
         this.screen.leave(getResultExitRequest(this.state, outcome.item, this.exit));
         return;
+    }
+  }
+
+  private changeDifficultyFromUser(transition: Transition): void {
+    const previous = this.state;
+    this.applyMenu(transition);
+    if (this.state !== previous) {
+      this.screen.playSound('click');
     }
   }
 

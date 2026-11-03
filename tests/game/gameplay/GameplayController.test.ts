@@ -26,6 +26,7 @@ import type { Chart, Difficulty, GameplayResult, LaneCount } from '../../../src/
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 import type { Settings } from '../../../src/storage/settings.js';
 import { msToSec, secToMs } from '../../../src/time.js';
+import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
 const song: Song = {
   id: 'test-song',
@@ -130,6 +131,7 @@ interface Harness {
   readonly controller: GameplayController;
   readonly route: GameplaySceneData;
   readonly screenCalls: Call[];
+  readonly sounds: SoundEffect[];
   readonly callOrder: string[];
   readonly playerCalls: string[];
   readonly preparedCharts: (Pending<PreparedChart> & { readonly ref: ChartRef })[];
@@ -184,6 +186,7 @@ function createHarness(
   const harness: Omit<Harness, 'controller'> = {
     route,
     screenCalls: [],
+    sounds: [],
     callOrder: [],
     playerCalls: [],
     preparedCharts: [],
@@ -307,6 +310,7 @@ function createHarness(
       setMvVisible: (isVisible) => record('setMvVisible', isVisible),
       showLoadError: (error) => record('showLoadError', error),
       openQuitConfirm: (reason) => record('openQuitConfirm', reason),
+      playSound: (sound) => harness.sounds.push(sound),
       closeQuitConfirm: () => record('closeQuitConfirm'),
       beginPlay: (played) => {
         record('beginPlay', played);
@@ -1260,6 +1264,19 @@ describe('GameplayController quit confirm', () => {
     harness.controller.keyDown('Enter', false);
 
     expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+  });
+
+  it('plays the click sound on opening, and the close sound on cancelling and quitting', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+
+    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false);
+    harness.controller.closeQuitConfirm();
+    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Enter', false);
+
+    expect(harness.sounds).toEqual(['click', 'close', 'click', 'close']);
   });
 
   it('closes the quit confirm from the public call only while it is open', async () => {

@@ -28,6 +28,7 @@ import type { ControlsButton } from '../../app/controlsGuide.js';
 import { readMenuAction } from '../../ui/state/menuAction.js';
 import { readKeyCapture } from './keyCapture.js';
 import { formatRowValue } from './settingsRowView.js';
+import type { SoundEffect } from '../../ui/view/soundEffects.js';
 
 export type SettingsMode =
   | { readonly kind: 'browsing' }
@@ -377,7 +378,7 @@ export type SettingsEffect =
   | { readonly kind: 'save'; readonly settings: Settings }
   | { readonly kind: 'backgroundVolume'; readonly settings: Settings }
   | { readonly kind: 'changeLanguage'; readonly language: Language }
-  | { readonly kind: 'focusSound'; readonly settings: Settings };
+  | { readonly kind: 'sound'; readonly sound: SoundEffect; readonly settings: Settings };
 
 export function getSettingsEffects(
   previous: SettingsEditorState,
@@ -410,11 +411,36 @@ export function getSettingsEffects(
   // 키 이동과 클릭 모두 줄 포커스가 바뀌면 같은 효과음을 낸다.
   if (next.rowIndex !== previous.rowIndex) {
     effects.push({
-      kind: 'focusSound',
+      kind: 'sound',
+      sound: 'menuFocus',
+      settings: next.settings,
+    });
+  }
+  const sound = getActionSound(previous, next);
+  if (sound !== null) {
+    effects.push({
+      kind: 'sound',
+      sound,
       settings: next.settings,
     });
   }
   return effects;
+}
+
+function getActionSound(
+  previous: SettingsEditorState,
+  next: SettingsEditorState,
+): SoundEffect | null {
+  if (next.settings !== previous.settings) {
+    return 'click';
+  }
+  if (next.mode.kind !== previous.mode.kind) {
+    return next.mode.kind === 'browsing' ? 'close' : 'click';
+  }
+  if (next.isControlsOpen !== previous.isControlsOpen) {
+    return next.isControlsOpen ? 'click' : 'close';
+  }
+  return null;
 }
 
 export function getWaitingLane(state: SettingsEditorState): Lane | null {

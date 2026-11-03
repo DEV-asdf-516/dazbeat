@@ -31,12 +31,11 @@ import type {
   SettingsEditorState,
   SettingsEffect,
 } from './state/settingsEditorState.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface SettingsScreen {
   render(previous: SettingsEditorState | null, next: SettingsEditorState): void;
-  playFocusSound(settings: Settings): void;
-  playCloseSound(settings: Settings): void;
-  playClickSound(settings: Settings): void;
+  playSound(sound: SoundEffect, settings: Settings): void;
   setBackgroundVolume(settings: Settings): void;
   leave(): void;
 }
@@ -105,7 +104,6 @@ export class SettingsController {
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
-    this.screen.playCloseSound(this.settings);
   }
 
   pointerOver(button: SettingsButton): void {
@@ -132,19 +130,15 @@ export class SettingsController {
         this.back();
         return;
       case 'resetEntry':
-        this.screen.playClickSound(this.settings);
         this.applyPointer(requestReset);
         return;
       case 'resetCancel':
-        this.screen.playClickSound(this.settings);
         this.apply(cancelPrompt);
         return;
       case 'resetAccept':
-        this.screen.playClickSound(this.settings);
         this.apply(confirmReset);
         return;
       case 'controlsEntry':
-        this.screen.playClickSound(this.settings);
         this.openControls();
         return;
       case 'controlsClose':
@@ -152,7 +146,6 @@ export class SettingsController {
         this.closeControls();
         return;
       default:
-        this.screen.playClickSound(this.settings);
         this.applyPointer((state) => pointRowButton(state, button));
         return;
     }
@@ -203,13 +196,13 @@ export class SettingsController {
     if ('kind' in this.state) {
       return;
     }
-    this.screen.playCloseSound(this.state.settings);
     const outcome = pressBack(this.state);
     switch (outcome.kind) {
       case 'stay':
         this.apply(() => outcome.state);
         return;
       case 'leave':
+        this.screen.playSound('close', this.state.settings);
         this.screen.leave();
         return;
     }
@@ -259,8 +252,8 @@ export class SettingsController {
         );
         return;
       }
-      case 'focusSound':
-        this.screen.playFocusSound(effect.settings);
+      case 'sound':
+        this.screen.playSound(effect.sound, effect.settings);
         return;
     }
   }

@@ -46,6 +46,7 @@ import type {
 import { getRunEnding, getRunRecord } from './state/runEnding.js';
 import type { RunMode } from './state/runEnding.js';
 import { WorldActivation } from './state/worldActivation.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface RankedPlay {
   submit(sessionId: string, submission: PlaySubmission): Promise<RankingSubmission>;
@@ -74,6 +75,7 @@ export interface PlayScreen {
 }
 
 export interface GameplayScreen {
+  playSound(sound: SoundEffect): void;
   showStatus(previous: GameplayStatus | null, next: GameplayStatus): void;
   renderButtons(previous: GameplayButtons | null, next: GameplayButtons): void;
   showMvMode(mode: MvMode): void;
@@ -331,6 +333,7 @@ export class GameplayController {
       return;
     }
     this.applyButtons((buttons) => withQuitConfirmOpen(buttons, false));
+    this.screen.playSound('close');
     this.screen.closeQuitConfirm();
     phase.run.playback.resume();
   }
@@ -370,6 +373,7 @@ export class GameplayController {
       return;
     }
     this.phase = { kind: 'leaving' };
+    this.screen.playSound('close');
     this.screen.backToSongSelect();
   }
 
@@ -523,6 +527,7 @@ export class GameplayController {
       case 'openQuitConfirm':
         this.applyButtons((buttons) => withQuitConfirmOpen(buttons, true));
         run.playback.pause();
+        this.screen.playSound('click');
         this.screen.openQuitConfirm('userPaused');
         return;
       case 'closeQuitConfirm':

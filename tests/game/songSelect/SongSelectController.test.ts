@@ -18,6 +18,7 @@ import { SongSelectController } from '../../../src/game/songSelect/SongSelectCon
 import { getSongPage } from '../../../src/game/songSelect/state/songSelectState.js';
 import type { SongSelectView } from '../../../src/game/songSelect/state/songSelectState.js';
 import type { ChartRecords } from '../../../src/storage/chartRecords.js';
+import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
 const PAGE_SIZE = 2;
 const ROWS_PER_PAGE = 3;
@@ -205,7 +206,8 @@ function createHarness(
   const renders: { view: SongSelectView; previous: SongSelectView | null }[] = [];
   const plays: { chart: ChartRef; restore: SongSelectRestore }[] = [];
   const settings: SongSelectRestore[] = [];
-  let focusSounds = 0;
+  const sounds: SoundEffect[] = [];
+  let mainExits = 0;
   let controller: SongSelectController | undefined;
   const open = (restore?: SongSelectRestore): SongSelectController => {
     controller = new SongSelectController(
@@ -236,11 +238,10 @@ function createHarness(
             restore,
           }),
         openSettings: (restore) => settings.push(restore),
-        playCloseSound: () => undefined,
-        playClickSound: () => undefined,
-        playFocusSound: () => {
-          focusSounds += 1;
+        backToMain: () => {
+          mainExits += 1;
         },
+        playSound: (sound) => sounds.push(sound),
       },
       ROWS_PER_PAGE,
       laneCount,
@@ -260,7 +261,16 @@ function createHarness(
     settings,
     open,
     get focusSounds(): number {
-      return focusSounds;
+      return sounds.filter((sound) => sound === 'menuFocus').length;
+    },
+    get clickSounds(): number {
+      return sounds.filter((sound) => sound === 'click').length;
+    },
+    get closeSounds(): number {
+      return sounds.filter((sound) => sound === 'close').length;
+    },
+    get mainExits(): number {
+      return mainExits;
     },
     get controller(): SongSelectController {
       return requireDefined(controller, 'Not opened');
@@ -649,6 +659,66 @@ describe('SongSelectController focus sound', () => {
       expect(rendered()).toBeGreaterThan(before);
     }
     expect(harness.focusSounds).toBe(0);
+  });
+});
+
+describe('SongSelectController click sound', () => {
+  it('plays the click sound once for each filter, difficulty, random, play and settings action', () => {
+    const harness = openHarness(songs, 4, () => 0.5);
+    const actions = [
+      () => harness.controller.cycleFilter(1),
+      () => harness.controller.selectFilter('all'),
+      () => harness.controller.moveDifficulty(1),
+      () => harness.controller.selectDifficulty('easy'),
+      () => harness.controller.selectRandomSong(),
+      () => harness.controller.openSettings(),
+      () => harness.controller.pointerDown('settings'),
+      () => harness.controller.pointerUp('settings'),
+      () => harness.controller.play(),
+    ];
+
+    for (const action of actions) {
+      action();
+    }
+
+    expect(harness.clickSounds).toBe(8);
+    expect(harness.settings).toHaveLength(2);
+    expect(harness.plays).toHaveLength(1);
+  });
+
+  it('stays silent when the action changes nothing or is disabled', () => {
+    const harness = openHarness([makeSong(0), makeSong(1, 'original', {})]);
+
+    harness.controller.selectFilter('all');
+    harness.controller.selectDifficulty('easy');
+    harness.controller.selectRandomSong();
+    harness.controller.moveSong(1);
+    harness.controller.play();
+
+    expect(harness.clickSounds).toBe(0);
+    expect(harness.plays).toHaveLength(0);
+  });
+});
+
+describe('SongSelectController back', () => {
+  it('plays the close sound and returns to main', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.back();
+
+    expect(harness.closeSounds).toBe(1);
+    expect(harness.mainExits).toBe(1);
+    expect(harness.clickSounds).toBe(0);
+  });
+
+  it('does nothing after the controller is closed', () => {
+    const harness = openHarness(songs);
+    harness.controller.close();
+
+    harness.controller.back();
+
+    expect(harness.closeSounds).toBe(0);
+    expect(harness.mainExits).toBe(0);
   });
 });
 
@@ -1552,6 +1622,13 @@ const DOWN_KEY = {
 };
 
 describe('SongSelectController controls', () => {
+  it('plays the click sound when H opens the controls', () => {
+    const harness = openHarness(songs);
+
+    harness.controller.handleControlsKey(H_KEY);
+
+    expect(harness.clickSounds).toBe(1);
+  });
   it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
     const harness = openHarness(songs);
 

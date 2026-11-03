@@ -383,9 +383,8 @@ export class SongSelectScene extends Phaser.Scene {
       },
       play: (chart, restore) => this.play(chart, restore),
       openSettings: (restore) => this.openSettings(restore),
-      playFocusSound: () => soundEffects.play('menuFocus'),
-      playCloseSound: () => soundEffects.play('close'),
-      playClickSound: () => soundEffects.play('click'),
+      backToMain: () => this.backToMain(),
+      playSound: (sound) => soundEffects.play(sound),
     };
     if (this.mode === 'practice') {
       this.add.text(FILTER_X_PX, MODE_LABEL_Y_PX, 'PRACTICE', {
@@ -752,7 +751,7 @@ export class SongSelectScene extends Phaser.Scene {
         controller.play();
         return;
       case 'back':
-        this.backToMain();
+        controller.back();
         return;
       case 'previousTab':
         controller.cycleFilter(-1);
