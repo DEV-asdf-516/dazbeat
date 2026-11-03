@@ -6,6 +6,7 @@ import type { AccountState } from '../../../src/game/app/accountState.js';
 import { MainController } from '../../../src/game/main/MainController.js';
 import type { MainFocus, MainState } from '../../../src/game/main/state/mainMenu.js';
 import { requireDefined } from '../../../src/invariant.js';
+import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
 function nickname(input: string): Nickname {
   return requireDefined(parseNickname(input), 'Invalid test nickname', input);
@@ -60,6 +61,7 @@ interface Harness {
   readonly activated: (MainFocus | 'account')[];
   readonly hovers: MainState['hover'][];
   focusSoundCount(): number;
+  clickSoundCount(): number;
   cancelSignInCount(): number;
   signOutCount(): number;
 }
@@ -72,7 +74,7 @@ function createHarness(restore: () => AuthUser | null): Harness {
   const controlsOpen: boolean[] = [];
   const activated: (MainFocus | 'account')[] = [];
   const hovers: MainState['hover'][] = [];
-  let focusSoundCount = 0;
+  const sounds: SoundEffect[] = [];
   let cancelSignInCount = 0;
   let signOutCount = 0;
   const controller = new MainController(
@@ -102,11 +104,7 @@ function createHarness(restore: () => AuthUser | null): Harness {
         controlsOpen.push(next.isControlsOpen);
         hovers.push(next.hover);
       },
-      playCloseSound: () => undefined,
-      playClickSound: () => undefined,
-      playFocusSound: () => {
-        focusSoundCount += 1;
-      },
+      playSound: (sound) => sounds.push(sound),
       activate: (button) => activated.push(button),
     },
   );
@@ -119,7 +117,8 @@ function createHarness(restore: () => AuthUser | null): Harness {
     controlsOpen,
     activated,
     hovers,
-    focusSoundCount: () => focusSoundCount,
+    focusSoundCount: () => sounds.filter((sound) => sound === 'menuFocus').length,
+    clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
     cancelSignInCount: () => cancelSignInCount,
     signOutCount: () => signOutCount,
   };
@@ -407,7 +406,26 @@ const DOWN_KEY = {
   repeat: false,
 };
 
+describe('MainController confirm', () => {
+  it('plays the click sound and activates the focused button with Enter', () => {
+    const harness = createHarness(() => null);
+    harness.controller.moveFocus(1);
+
+    harness.controller.confirm();
+
+    expect(harness.activated).toEqual(['practice']);
+    expect(harness.clickSoundCount()).toBe(1);
+  });
+});
+
 describe('MainController controls', () => {
+  it('plays the click sound when H opens the controls', () => {
+    const harness = createHarness(() => null);
+
+    harness.controller.handleControlsKey(H_KEY);
+
+    expect(harness.clickSoundCount()).toBe(1);
+  });
   it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
     const harness = createHarness(() => null);
 

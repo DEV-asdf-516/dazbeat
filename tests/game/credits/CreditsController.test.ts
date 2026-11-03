@@ -4,6 +4,7 @@ import { CreditsController } from '../../../src/game/credits/CreditsController.j
 import { getChangedRegions } from '../../../src/game/credits/state/creditsState.js';
 import type { CreditsGrid, CreditsState } from '../../../src/game/credits/state/creditsState.js';
 import { requireDefined } from '../../../src/invariant.js';
+import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
 function makeSong(index: number, credit?: readonly string[]): Song {
   return {
@@ -38,6 +39,7 @@ interface Harness {
   setSongs(songs: readonly Song[]): void;
   requestRemainingCount(): number;
   leaveCount(): number;
+  clickSoundCount(): number;
 }
 
 function createHarness(initialSongs: readonly Song[]): Harness {
@@ -46,6 +48,7 @@ function createHarness(initialSongs: readonly Song[]): Harness {
   let songs = initialSongs;
   let requestRemainingCount = 0;
   let leaveCount = 0;
+  const sounds: SoundEffect[] = [];
   const controller = new CreditsController(
     {
       get songs() {
@@ -66,8 +69,7 @@ function createHarness(initialSongs: readonly Song[]): Harness {
           previous,
           next,
         }),
-      playCloseSound: () => undefined,
-      playClickSound: () => undefined,
+      playSound: (sound) => sounds.push(sound),
       leave: () => {
         leaveCount += 1;
       },
@@ -84,6 +86,7 @@ function createHarness(initialSongs: readonly Song[]): Harness {
     },
     requestRemainingCount: () => requestRemainingCount,
     leaveCount: () => leaveCount,
+    clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
   };
 }
 
@@ -215,6 +218,13 @@ const DOWN_KEY = {
 };
 
 describe('CreditsController controls', () => {
+  it('plays the click sound when H opens the controls', () => {
+    const harness = createHarness(creditedSongs(6));
+
+    harness.controller.handleControlsKey(H_KEY);
+
+    expect(harness.clickSoundCount()).toBe(1);
+  });
   it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
     const harness = createHarness(creditedSongs(6));
 

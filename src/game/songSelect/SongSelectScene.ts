@@ -384,9 +384,7 @@ export class SongSelectScene extends Phaser.Scene {
       play: (chart, restore) => this.play(chart, restore),
       openSettings: (restore) => this.openSettings(restore),
       backToMain: () => this.backToMain(),
-      playFocusSound: () => soundEffects.play('menuFocus'),
-      playCloseSound: () => soundEffects.play('close'),
-      playClickSound: () => soundEffects.play('click'),
+      playSound: (sound) => soundEffects.play(sound),
     };
     if (this.mode === 'practice') {
       this.add.text(FILTER_X_PX, MODE_LABEL_Y_PX, 'PRACTICE', {

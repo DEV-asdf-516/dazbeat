@@ -8,6 +8,7 @@ import { ResultController } from '../../../src/game/result/ResultController.js';
 import type { ResultExit, ResultState } from '../../../src/game/result/state/resultState.js';
 import type { ResultRanking, SceneRequest } from '../../../src/game/app/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
+import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
 function achievementOf(id: AchievementId): NamedAchievementDefinition {
   return {
@@ -61,6 +62,8 @@ interface Harness {
   readonly renders: { previous: ResultState | null; next: ResultState }[];
   readonly leaves: SceneRequest[];
   focusSoundCount(): number;
+  clickSoundCount(): number;
+  closeSoundCount(): number;
   last(): ResultState;
   submit(submission: RankingSubmission): void;
 }
@@ -88,7 +91,7 @@ function createHarness(
 ): Harness {
   const renders: { previous: ResultState | null; next: ResultState }[] = [];
   const leaves: SceneRequest[] = [];
-  let focusSoundCount = 0;
+  const sounds: SoundEffect[] = [];
   let resolve: (submission: RankingSubmission) => void = () => {};
   const submission = new Promise<RankingSubmission>((resolveSubmission) => {
     resolve = resolveSubmission;
@@ -107,11 +110,7 @@ function createHarness(
           previous,
           next,
         }),
-      playCloseSound: () => undefined,
-      playClickSound: () => undefined,
-      playFocusSound: () => {
-        focusSoundCount += 1;
-      },
+      playSound: (sound) => sounds.push(sound),
       leave: (request) => leaves.push(request),
     },
     EASY,
@@ -122,7 +121,9 @@ function createHarness(
     controller,
     renders,
     leaves,
-    focusSoundCount: () => focusSoundCount,
+    focusSoundCount: () => sounds.filter((sound) => sound === 'menuFocus').length,
+    clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
+    closeSoundCount: () => sounds.filter((sound) => sound === 'close').length,
     last: () => requireDefined(renders.at(-1), 'Missing render', renders.length).next,
     submit: (submitted) => resolve(submitted),
   };
@@ -339,7 +340,39 @@ const DOWN_KEY = {
   repeat: false,
 };
 
+describe('ResultController sounds', () => {
+  it('plays the click sound only when a click or a key changes the retry difficulty', () => {
+    const harness = createHarness();
+
+    harness.controller.stepDifficulty(1);
+    harness.controller.stepDifficulty(1);
+    harness.controller.selectDifficulty('easy');
+    harness.controller.selectDifficulty('easy');
+
+    expect(harness.last().retryChart.difficulty).toBe('easy');
+    expect(harness.clickSoundCount()).toBe(2);
+  });
+
+  it('plays the click sound on Enter and the close sound on Esc', () => {
+    const harness = createHarness();
+
+    harness.controller.confirm();
+    harness.controller.back();
+
+    expect(harness.leaves).toHaveLength(2);
+    expect(harness.clickSoundCount()).toBe(1);
+    expect(harness.closeSoundCount()).toBe(1);
+  });
+});
+
 describe('ResultController controls', () => {
+  it('plays the click sound when H opens the controls', () => {
+    const harness = createHarness();
+
+    harness.controller.handleControlsKey(H_KEY);
+
+    expect(harness.clickSoundCount()).toBe(1);
+  });
   it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
     const harness = createHarness();
 

@@ -13,6 +13,7 @@ import { ProfileController } from '../../../src/game/profile/ProfileController.j
 import type { ProfilePorts } from '../../../src/game/profile/ProfileController.js';
 import type { ProfileHover, ProfileState } from '../../../src/game/profile/state/profileState.js';
 import { requireDefined } from '../../../src/invariant.js';
+import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
 function nickname(input: string): Nickname {
   return requireDefined(parseNickname(input), 'Invalid test nickname', input);
@@ -168,7 +169,8 @@ interface Harness {
   }[];
   leaveCount(): number;
   focusSoundCount(): number;
-  readonly featuredSounds: (AchievementId | null)[];
+  clickSoundCount(): number;
+  featuredSounds(): SoundEffect[];
   last(): ProfileState;
   hover(): ProfileHover | null;
   loaded(): Extract<ProfileState, { kind: 'loaded' }>;
@@ -185,8 +187,7 @@ function createHarness(isSignedIn = true): Harness {
   const checks: Harness['checks'] = [];
   const featured: Harness['featured'] = [];
   let leaves = 0;
-  let focusSounds = 0;
-  const featuredSounds: Harness['featuredSounds'] = [];
+  const sounds: SoundEffect[] = [];
   const ports: ProfilePorts = {
     isSignedIn: () => isSignedIn,
     loadProfile: () => {
@@ -234,14 +235,7 @@ function createHarness(isSignedIn = true): Harness {
       controlsOpen.push(next.isControlsOpen);
       hovers.push(next.hover);
     },
-    playCloseSound: () => undefined,
-    playClickSound: () => undefined,
-    playFocusSound: () => {
-      focusSounds += 1;
-    },
-    playFeaturedSound: (featuredId) => {
-      featuredSounds.push(featuredId);
-    },
+    playSound: (sound) => sounds.push(sound),
     leaveToMain: () => {
       leaves += 1;
     },
@@ -261,8 +255,9 @@ function createHarness(isSignedIn = true): Harness {
     checks,
     featured,
     leaveCount: () => leaves,
-    focusSoundCount: () => focusSounds,
-    featuredSounds,
+    focusSoundCount: () => sounds.filter((sound) => sound === 'menuFocus').length,
+    clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
+    featuredSounds: () => sounds.filter((sound) => sound === 'equip' || sound === 'unequip'),
     last,
     hover: () => requireDefined(hovers.at(-1), 'nothing rendered'),
     loaded: () => {
@@ -881,14 +876,14 @@ describe('ProfileController featured achievement', () => {
     harness.controller.select();
     expect(harness.loaded().featuredSave).toBe('saving');
     expect(harness.featured.map(({ id }) => id)).toEqual(['FIRST_CLEAR']);
-    expect(harness.featuredSounds).toEqual([]);
+    expect(harness.featuredSounds()).toEqual([]);
 
     harness.featured[0]?.response.resolve(FIRST_CLEAR.id);
     await flush();
 
     expect(harness.loaded().featuredSave).toBe('idle');
     expect(harness.loaded().profile.featuredAchievement).toBe(FIRST_CLEAR);
-    expect(harness.featuredSounds).toEqual(['FIRST_CLEAR']);
+    expect(harness.featuredSounds()).toEqual(['equip']);
   });
 
   it('unequips the featured achievement when it is selected again', async () => {
@@ -901,7 +896,7 @@ describe('ProfileController featured achievement', () => {
     await flush();
 
     expect(harness.loaded().profile.featuredAchievement).toBeNull();
-    expect(harness.featuredSounds).toEqual([null]);
+    expect(harness.featuredSounds()).toEqual(['unequip']);
   });
 
   it('does not request for a locked achievement', async () => {
@@ -922,7 +917,7 @@ describe('ProfileController featured achievement', () => {
 
     expect(harness.loaded().featuredSave).toBe('failed');
     expect(harness.loaded().profile.featuredAchievement).toBeNull();
-    expect(harness.featuredSounds).toEqual([]);
+    expect(harness.featuredSounds()).toEqual([]);
   });
 
   it('ignores selections while a featured save is pending', async () => {
@@ -1139,7 +1134,59 @@ const DOWN_KEY = {
   repeat: false,
 };
 
+describe('ProfileController summary tab sound', () => {
+  it('plays the click sound instead of the focus sound when a click or a key switches the tab', async () => {
+    const harness = await loadedHarness();
+
+    harness.controller.selectTab('collection');
+    harness.controller.moveFocus('left');
+    harness.controller.moveFocus('right');
+
+    expect(harness.loaded().summaryTab).toBe('collection');
+    expect(harness.clickSoundCount()).toBe(3);
+    expect(harness.focusSoundCount()).toBe(0);
+  });
+
+  it('stays silent when the tab does not change', async () => {
+    const harness = await loadedHarness();
+
+    harness.controller.selectTab('stats');
+    harness.controller.selectTab('collection');
+    harness.controller.select('zodiac');
+    harness.controller.selectTab('stats');
+
+    expect(harness.loaded().summaryTab).toBe('collection');
+    expect(harness.clickSoundCount()).toBe(1);
+  });
+});
+
+describe('ProfileController set tab sound', () => {
+  it('plays the click sound when a click or Q/E switches the set and stays silent otherwise', async () => {
+    const harness = await loadedHarness();
+    harness.controller.selectTab('collection');
+    harness.controller.select('rhythm');
+    const clicksBefore = harness.clickSoundCount();
+    const focusesBefore = harness.focusSoundCount();
+
+    harness.controller.switchSet(1);
+    harness.controller.selectSet('rhythm');
+    harness.controller.selectSet('rhythm');
+
+    expect(harness.loaded().collection.set).toBe('rhythm');
+    expect(harness.clickSoundCount() - clicksBefore).toBe(2);
+    expect(harness.focusSoundCount()).toBe(focusesBefore);
+  });
+});
+
 describe('ProfileController controls', () => {
+  it('plays the click sound when H opens the controls', () => {
+    const harness = createHarness(false);
+    harness.controller.start();
+
+    harness.controller.handleControlsKey(H_KEY);
+
+    expect(harness.clickSoundCount()).toBe(1);
+  });
   it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
     const harness = createHarness(false);
     harness.controller.start();

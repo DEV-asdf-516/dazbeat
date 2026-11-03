@@ -498,7 +498,13 @@ describe('getSettingsEffects', () => {
         settings: next.settings,
       },
       {
-        kind: 'focusSound',
+        kind: 'sound',
+        sound: 'menuFocus',
+        settings: next.settings,
+      },
+      {
+        kind: 'sound',
+        sound: 'click',
         settings: next.settings,
       },
     ]);
@@ -516,13 +522,18 @@ describe('getSettingsEffects', () => {
         kind: 'changeLanguage',
         language: 'ja',
       },
+      {
+        kind: 'sound',
+        sound: 'click',
+        settings: next.settings,
+      },
     ]);
   });
 
   it('does not change the language that is already displayed', () => {
     const state = focusRow(languageInitial(), LANGUAGE_INDEX);
     const next = withDisplayedLanguage(adjustRow(state, LANGUAGE_INDEX, 1), 'ja');
-    expect(getSettingsEffects(state, next).map(({ kind }) => kind)).toEqual(['save']);
+    expect(getSettingsEffects(state, next).map(({ kind }) => kind)).toEqual(['save', 'sound']);
   });
 });
 

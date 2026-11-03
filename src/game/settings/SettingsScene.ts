@@ -392,9 +392,7 @@ export class SettingsScene extends Phaser.Scene {
           }
         },
         // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
-        playFocusSound: (settings) => new SoundEffects(this, settings).play('menuFocus'),
-        playCloseSound: (settings) => new SoundEffects(this, settings).play('close'),
-        playClickSound: (settings) => new SoundEffects(this, settings).play('click'),
+        playSound: (sound, settings) => new SoundEffects(this, settings).play(sound),
         setBackgroundVolume: (settings) => this.menuMusic.setVolume(settings),
         leave: () => {
           this.exit = exitScene(this, this.exit, this.returnTo);
@@ -748,15 +746,12 @@ export class SettingsScene extends Phaser.Scene {
       case 'volume':
         return this.i18n.t(`settings.rows.${row.field}`);
       case 'inputOffset':
-        return this.i18n.t('settings.rows.inputOffset');
       case 'laneMode':
-        return this.i18n.t('settings.rows.laneMode');
+      case 'mvMode':
+      case 'language':
+        return this.i18n.t(`settings.rows.${row.kind}`);
       case 'scrollSpeed':
         return this.i18n.t('settings.rows.noteSpeed');
-      case 'mvMode':
-        return this.i18n.t('settings.rows.mvMode');
-      case 'language':
-        return this.i18n.t('settings.rows.language');
       case 'key':
         return this.i18n.t('settings.rows.laneKey', { lane: row.lane + 1 });
     }

@@ -20,12 +20,11 @@ import {
   withAccount,
 } from './state/mainMenu.js';
 import type { MainButton, MainFocus, MainState } from './state/mainMenu.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface MainScreen {
   render(previous: MainState | null, next: MainState): void;
-  playFocusSound(): void;
-  playCloseSound(): void;
-  playClickSound(): void;
+  playSound(sound: SoundEffect): void;
   activate(button: MainFocus | 'account'): void;
 }
 
@@ -92,16 +91,17 @@ export class MainController {
       return;
     }
     this.apply(() => next);
-    this.screen.playFocusSound();
+    this.screen.playSound('menuFocus');
   }
 
   openControls(): void {
+    this.screen.playSound('click');
     this.apply((state) => withControlsOpen(state, true));
   }
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
   }
 
   pointerOver(button: MainButton): void {
@@ -125,7 +125,6 @@ export class MainController {
     }
     switch (button) {
       case 'controlsEntry':
-        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -133,7 +132,7 @@ export class MainController {
         this.closeControls();
         return;
       default:
-        this.screen.playClickSound();
+        this.screen.playSound('click');
         this.screen.activate(button);
         return;
     }
@@ -161,6 +160,7 @@ export class MainController {
     if ('kind' in this.state) {
       return;
     }
+    this.screen.playSound('click');
     this.screen.activate(this.state.focus);
   }
 

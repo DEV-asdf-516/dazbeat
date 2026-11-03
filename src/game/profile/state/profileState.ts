@@ -836,7 +836,7 @@ export function goBack(state: ProfileState): ProfileBack {
   return { kind: 'leave' };
 }
 
-/** 요약 탭 전환은 포커스 이동이 아니라 효과음을 내지 않는다. */
+/** 요약 탭 전환은 포커스 이동이 아니라 포커스 효과음을 내지 않는다. */
 export function hasMovedFocus(before: LoadedProfileState, after: LoadedProfileState): boolean {
   return after !== before && after.summaryTab === before.summaryTab;
 }

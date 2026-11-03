@@ -11,11 +11,11 @@ import {
   withCreditSongs,
 } from './state/creditsState.js';
 import type { CreditsButton, CreditsGrid, CreditsState } from './state/creditsState.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface CreditsScreen {
   render(previous: CreditsState | null, next: CreditsState): void;
-  playCloseSound(): void;
-  playClickSound(): void;
+  playSound(sound: SoundEffect): void;
   leave(): void;
 }
 
@@ -59,12 +59,13 @@ export class CreditsController {
   }
 
   openControls(): void {
+    this.screen.playSound('click');
     this.apply((state) => withControlsOpen(state, true));
   }
 
   closeControls(): void {
     this.apply((state) => withControlsOpen(state, false));
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
   }
 
   pointerOver(button: CreditsButton): void {
@@ -91,7 +92,6 @@ export class CreditsController {
         this.back();
         return;
       case 'controlsEntry':
-        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -123,7 +123,7 @@ export class CreditsController {
     if ('kind' in this.state) {
       return;
     }
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
     this.screen.leave();
   }
 

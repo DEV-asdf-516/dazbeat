@@ -42,6 +42,7 @@ import type {
   SummaryFocus,
   SummaryTab,
 } from './state/profileState.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface ProfilePorts {
   isSignedIn(): boolean;
@@ -54,10 +55,7 @@ export interface ProfilePorts {
 
 export interface ProfileScreen {
   render(previous: ProfileScreenState | null, next: ProfileScreenState): void;
-  playFocusSound(): void;
-  playCloseSound(): void;
-  playClickSound(): void;
-  playFeaturedSound(featuredId: AchievementId | null): void;
+  playSound(sound: SoundEffect): void;
   leaveToMain(): void;
 }
 
@@ -109,7 +107,7 @@ export class ProfileController {
     this.moveFocusFromUser((state) => moveFocus(state, direction));
   }
 
-  /** 키 이동과 클릭은 같은 포커스 이동이라 포커스가 바뀔 때 같은 효과음을 낸다. */
+  /** 키 이동과 클릭은 같은 이동이라 포커스가 바뀌면 같은 포커스음을, 요약 탭이 바뀌면 같은 클릭음을 낸다. */
   private moveFocusFromUser(transition: (state: LoadedProfileState) => LoadedProfileState): void {
     const before = this.page;
     if (before?.kind !== 'loaded') {
@@ -118,20 +116,22 @@ export class ProfileController {
     const after = transition(before);
     this.setPage(after);
     if (hasMovedFocus(before, after)) {
-      this.screen.playFocusSound();
+      this.screen.playSound('menuFocus');
+    } else if (after.summaryTab !== before.summaryTab) {
+      this.screen.playSound('click');
     }
   }
 
   switchSet(delta: -1 | 1): void {
-    this.updateLoaded((state) => switchSet(state, delta));
+    this.changeSetFromUser((state) => switchSet(state, delta));
   }
 
   selectTab(tab: SummaryTab): void {
-    this.updateLoaded((state) => selectSummaryTab(state, tab));
+    this.moveFocusFromUser((state) => selectSummaryTab(state, tab));
   }
 
   selectSet(set: AchievementSet): void {
-    this.updateLoaded((state) => selectSet(state, set));
+    this.changeSetFromUser((state) => selectSet(state, set));
   }
 
   hover(target: ProfileTarget): void {
@@ -170,7 +170,6 @@ export class ProfileController {
         this.back();
         return;
       case 'controlsEntry':
-        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -195,7 +194,7 @@ export class ProfileController {
         return;
       case 'state':
         if (selection.hasMovedFocus) {
-          this.screen.playFocusSound();
+          this.screen.playSound('menuFocus');
         }
         this.setPage(selection.state);
         return;
@@ -262,12 +261,13 @@ export class ProfileController {
   }
 
   openControls(): void {
+    this.screen.playSound('click');
     this.apply((screen) => withControlsOpen(screen, true));
   }
 
   closeControls(): void {
     this.apply((screen) => withControlsOpen(screen, false));
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
@@ -293,7 +293,7 @@ export class ProfileController {
     if (page === null) {
       return;
     }
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
     const action = goBack(page);
     if (action.kind === 'leave') {
       this.screen.leaveToMain();
@@ -348,7 +348,7 @@ export class ProfileController {
       (saved) => {
         if (this.featuredToken === token) {
           this.updateLoaded((current) => saveFeatured(current, saved));
-          this.screen.playFeaturedSound(saved);
+          this.screen.playSound(saved === null ? 'unequip' : 'equip');
         }
       },
       () => {
@@ -361,6 +361,14 @@ export class ProfileController {
 
   private get page(): ProfileState | null {
     return 'kind' in this.state ? null : this.state.page;
+  }
+
+  private changeSetFromUser(transition: (state: LoadedProfileState) => LoadedProfileState): void {
+    const before = this.page;
+    this.updateLoaded(transition);
+    if (this.page !== before) {
+      this.screen.playSound('click');
+    }
   }
 
   private updateLoaded(transition: (state: LoadedProfileState) => LoadedProfileState): void {

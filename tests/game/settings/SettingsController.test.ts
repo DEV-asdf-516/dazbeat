@@ -14,6 +14,7 @@ import type {
 import { requireDefined } from '../../../src/invariant.js';
 import { DEFAULT_SETTINGS } from '../../../src/storage/settings.js';
 import type { Settings } from '../../../src/storage/settings.js';
+import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
 // 0: 배경음 볼륨, 1~2: 키 lane 0~1, 3: 언어, 4: 효과음 볼륨
 const ROWS: readonly SettingsRow[] = [
@@ -66,7 +67,7 @@ function flush(): Promise<void> {
 
 type Event =
   | { readonly kind: 'save'; readonly settings: Settings }
-  | { readonly kind: 'focusSound'; readonly settings: Settings }
+  | { readonly kind: 'sound'; readonly sound: SoundEffect; readonly settings: Settings }
   | {
       readonly kind: 'render';
       readonly previous: SettingsEditorState | null;
@@ -80,6 +81,8 @@ interface Harness {
   readonly backgroundVolumes: Settings[];
   failSave(): void;
   leaveCount(): number;
+  clickSoundCount(): number;
+  closeSoundCount(): number;
   renders(): Extract<Event, { kind: 'render' }>[];
   lastRender(): Extract<Event, { kind: 'render' }>;
 }
@@ -119,11 +122,10 @@ function createHarness(): Harness {
           previous,
           next,
         }),
-      playCloseSound: () => undefined,
-      playClickSound: () => undefined,
-      playFocusSound: (settings) =>
+      playSound: (sound, settings) =>
         events.push({
-          kind: 'focusSound',
+          kind: 'sound',
+          sound,
           settings,
         }),
       setBackgroundVolume: (settings) => backgroundVolumes.push(settings),
@@ -146,9 +148,15 @@ function createHarness(): Harness {
       isSaveFailing = true;
     },
     leaveCount: () => leaveCount,
+    clickSoundCount: () => countSounds(events, 'click'),
+    closeSoundCount: () => countSounds(events, 'close'),
     renders,
     lastRender: () => requireDefined(renders().at(-1), 'Missing render', events.length),
   };
+}
+
+function countSounds(events: readonly Event[], sound: SoundEffect): number {
+  return events.filter((event) => event.kind === 'sound' && event.sound === sound).length;
 }
 
 function kinds(events: readonly Event[]): string[] {
@@ -184,17 +192,26 @@ describe('SettingsController', () => {
 
     click(harness, getStepButton(VOLUME_INDEX, -1));
 
-    expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'focusSound', 'render']);
+    expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'sound', 'sound', 'render']);
     const sound = requireDefined(harness.events[3], 'Missing focus sound', 3);
-    expect(sound.kind === 'focusSound' && sound.settings.backgroundVolume).toBe(0.9);
+    expect(sound.kind === 'sound' && sound.sound).toBe('menuFocus');
+    expect(sound.kind === 'sound' && sound.settings.backgroundVolume).toBe(0.9);
   });
 
-  it('saves and renders without a sound when the focused row is adjusted', () => {
+  it('saves and renders with only the click sound when the focused row is adjusted', () => {
     const harness = createHarness();
 
     click(harness, getStepButton(VOLUME_INDEX, -1));
 
-    expect(kinds(harness.events)).toEqual(['render', 'render', 'render', 'save', 'render']);
+    expect(kinds(harness.events)).toEqual([
+      'render',
+      'render',
+      'render',
+      'save',
+      'sound',
+      'render',
+    ]);
+    expect(harness.clickSoundCount()).toBe(1);
   });
 
   it('applies the background volume right away when it changes', () => {
@@ -331,7 +348,7 @@ describe('SettingsController', () => {
       }),
     ).toBe(true);
 
-    expect(kinds(harness.events)).toEqual(['save', 'render']);
+    expect(kinds(harness.events)).toEqual(['save', 'sound', 'render']);
   });
 
   it('only cancels waiting on a pointer action', () => {
@@ -341,7 +358,8 @@ describe('SettingsController', () => {
 
     click(harness, getStepButton(VOLUME_INDEX, -1));
 
-    expect(kinds(harness.events)).toEqual(['render', 'render', 'render']);
+    expect(kinds(harness.events)).toEqual(['render', 'render', 'sound', 'render']);
+    expect(harness.closeSoundCount()).toBe(1);
     expect(harness.lastRender().next.mode).toEqual({ kind: 'browsing' });
     expect(harness.lastRender().next.settings).toBe(DEFAULT_SETTINGS);
   });
@@ -354,7 +372,7 @@ describe('SettingsController', () => {
 
     click(harness, 'resetAccept');
 
-    expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'render']);
+    expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'sound', 'render']);
   });
 
   it('leaves on back while browsing', () => {
@@ -388,6 +406,77 @@ const DOWN_KEY = {
   code: 'ArrowDown',
   repeat: false,
 };
+
+describe('SettingsController prompt sounds', () => {
+  it('plays the click sound on opening a prompt and the close sound on cancelling it', () => {
+    const harness = createHarness();
+
+    click(harness, 'resetEntry');
+    click(harness, 'resetCancel');
+    harness.controller.pointRow(KEY_INDEX);
+    harness.controller.handleMenuKey('confirm');
+    harness.controller.captureKey({
+      code: 'Escape',
+      repeat: false,
+    });
+
+    expect(harness.clickSoundCount()).toBe(2);
+    expect(harness.closeSoundCount()).toBe(2);
+  });
+
+  it('plays the click sound when a key binding or a reset changes the settings', () => {
+    const harness = createHarness();
+    harness.controller.pointRow(KEY_INDEX);
+    harness.controller.handleMenuKey('confirm');
+
+    harness.controller.captureKey({
+      code: 'KeyZ',
+      repeat: false,
+    });
+    click(harness, 'resetEntry');
+    click(harness, 'resetAccept');
+
+    expect(harness.clickSoundCount()).toBe(4);
+    expect(harness.closeSoundCount()).toBe(0);
+  });
+
+  it('plays the click sound on H and the close sound on closing the controls or leaving', () => {
+    const harness = createHarness();
+
+    harness.controller.handleControlsKey(H_KEY);
+    harness.controller.handleControlsKey(H_KEY);
+    harness.controller.back();
+
+    expect(harness.clickSoundCount()).toBe(1);
+    expect(harness.closeSoundCount()).toBe(2);
+    expect(harness.leaveCount()).toBe(1);
+  });
+});
+
+describe('SettingsController key click sound', () => {
+  it('plays the click sound when left, right or Enter changes the focused row', () => {
+    const harness = createHarness();
+
+    harness.controller.handleMenuKey('left');
+    harness.controller.handleMenuKey('right');
+    harness.controller.handleMenuKey('confirm');
+    harness.controller.handleMenuKey('down');
+
+    expect(harness.clickSoundCount()).toBe(3);
+  });
+
+  it('stays silent when the key changes nothing', () => {
+    const harness = createHarness();
+    harness.controller.handleMenuKey('right');
+    harness.controller.handleMenuKey('down');
+
+    harness.controller.handleMenuKey('left');
+    harness.controller.handleMenuKey('right');
+
+    expect(harness.lastRender().next.rowIndex).toBe(KEY_INDEX);
+    expect(harness.clickSoundCount()).toBe(0);
+  });
+});
 
 describe('SettingsController controls', () => {
   it('opens with H, closes with H and Esc, and blocks other keys while open', () => {

@@ -41,15 +41,14 @@ import type {
   SongSelectState,
   SongSelectView,
 } from './state/songSelectState.js';
+import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface SongSelectScreen {
   render(previous: SongSelectView | null, next: SongSelectView): void;
+  playSound(sound: SoundEffect): void;
   play(chart: ChartRef, restore: SongSelectRestore): void;
   openSettings(restore: SongSelectRestore): void;
   backToMain(): void;
-  playFocusSound(): void;
-  playCloseSound(): void;
-  playClickSound(): void;
 }
 
 interface ControllerState {
@@ -171,7 +170,7 @@ export class SongSelectController {
     if (!canSelectRandomSong(state)) {
       return;
     }
-    this.screen.playClickSound();
+    this.screen.playSound('click');
     if (feed.status !== 'hasMore' && feed.status !== 'loading') {
       this.pickRandomSong();
       return;
@@ -192,7 +191,7 @@ export class SongSelectController {
     if (current === null || filter === current.state.filter) {
       return;
     }
-    this.screen.playClickSound();
+    this.screen.playSound('click');
     const previous = current.state;
     this.randomRequest = null;
     current.unsubscribe();
@@ -207,12 +206,13 @@ export class SongSelectController {
   }
 
   openControls(): void {
+    this.screen.playSound('click');
     this.setControlsOpen(true);
   }
 
   closeControls(): void {
     this.setControlsOpen(false);
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
@@ -264,7 +264,6 @@ export class SongSelectController {
         this.openSettings();
         return;
       case 'controlsEntry':
-        this.screen.playClickSound();
         this.openControls();
         return;
       case 'controlsClose':
@@ -289,7 +288,7 @@ export class SongSelectController {
     const { feed, state } = current;
     const chart = getPlayableSelection(state);
     if (chart !== null) {
-      this.screen.playClickSound();
+      this.screen.playSound('click');
       this.screen.play(chart, {
         feed,
         ...getSongSelectTarget(state),
@@ -303,7 +302,7 @@ export class SongSelectController {
       return;
     }
     const { feed, state } = current;
-    this.screen.playClickSound();
+    this.screen.playSound('click');
     this.screen.openSettings({
       feed,
       ...getSongSelectTarget(state),
@@ -314,7 +313,7 @@ export class SongSelectController {
     if (this.open === null) {
       return;
     }
-    this.screen.playCloseSound();
+    this.screen.playSound('close');
     this.screen.backToMain();
   }
 
@@ -366,14 +365,14 @@ export class SongSelectController {
   /** 키 이동과 목록 클릭은 같은 곡 포커스 이동이라 곡이 바뀔 때 같은 효과음을 낸다. */
   private focusSongFromUser(transition: Transition): void {
     if (this.apply(transition)) {
-      this.screen.playFocusSound();
+      this.screen.playSound('menuFocus');
     }
     this.requestMoreFromUser();
   }
 
   private changeDifficultyFromUser(transition: Transition): void {
     if (this.apply(transition)) {
-      this.screen.playClickSound();
+      this.screen.playSound('click');
     }
     this.requestMoreFromUser();
   }
