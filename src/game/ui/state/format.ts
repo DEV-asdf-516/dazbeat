@@ -1,3 +1,5 @@
+import type { LaneCount } from '../../../rhythm/types.js';
+
 const SCORE_FORMAT = new Intl.NumberFormat('en-US');
 
 export function formatScore(score: number): string {
@@ -6,6 +8,10 @@ export function formatScore(score: number): string {
 
 export function formatAccuracy(accuracy: number): string {
   return `${(accuracy * 100).toFixed(2)}%`;
+}
+
+export function formatLaneCount(laneCount: LaneCount): string {
+  return `${laneCount}K`;
 }
 
 export function formatKeyCode(code: string): string {

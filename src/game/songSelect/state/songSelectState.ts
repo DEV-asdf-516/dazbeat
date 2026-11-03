@@ -748,7 +748,7 @@ const REGION_SOURCES: Readonly<
   pageIndicator: [readPageText],
   loadingMore: [readIsLoadingMore, readLoadingMoreSlot],
   jacket: [readCurrentSong],
-  songInfo: [readCurrentSong, readSelectedRecord],
+  songInfo: [readCurrentSong, readLaneCount, readSelectedRecord],
   difficultyTabs: [readCurrent, readLaneCount, readHoveredDifficulty],
   actions: [readRandomAppearance, readPlayAppearance],
   jacketLoads: [readSongs, readStartIndex],

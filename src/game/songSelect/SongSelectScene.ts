@@ -43,7 +43,8 @@ import {
 import { SongSelectController } from './SongSelectController.js';
 import type { SongSelectScreen } from './SongSelectController.js';
 import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
-import type { Difficulty } from '../../rhythm/types.js';
+import type { Difficulty, LaneCount } from '../../rhythm/types.js';
+import { LANE_COUNTS } from '../../rhythm/lanes.js';
 import { SongSelectJackets } from './view/SongSelectJackets.js';
 import { getZodiacSign, strokeZodiacLine } from '../celestial/view/zodiacSign.js';
 import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/state/zodiacFigures.js';
@@ -68,7 +69,7 @@ import {
   playCelestialOnce,
   queueCelestialTextures,
 } from '../celestial/view/celestialSprites.js';
-import { formatAccuracy, formatScore } from '../ui/state/format.js';
+import { formatAccuracy, formatLaneCount, formatScore } from '../ui/state/format.js';
 import {
   JacketView,
   getLoadedJacketSongIds,
@@ -233,6 +234,15 @@ const JACKET_GLINT_POSITION_PX = {
   y: JACKET_Y_PX - 14,
 } as const;
 const NAVIGATION_STAR_ID = 'R31';
+// 레인 수가 기록·채보를 가르므로 곡 정보 옆에 레인 수만큼 별을 놓아 글자를 읽지 않아도 바뀐 것을 알아보게 한다.
+const LANE_STAR_ID = 'R17';
+const LANE_GROUP_GAP_PX = 28;
+const LANE_STAR_STEP_PX = 16;
+const LANE_TEXT_GAP_PX = 12;
+const LANE_TEXT_TYPE = {
+  sizePx: TYPE_SCALE.secondary.sizePx,
+  weight: 800,
+} as const;
 // 별자리는 기록 아래부터 RANDOM, PLAY 위까지 남는 하늘에 맞춰 줄인다. 제목이 길면 남는 하늘이 줄어든다.
 const ZODIAC_MAX_SPAN_PX = 290;
 // 난이도 탭 끝(EXPERT)이 정보 열 왼쪽 선을 조금 넘어오므로 그만큼 비켜 선다.
@@ -245,6 +255,7 @@ const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   ORBIT_ARC_ID,
   JACKET_GLINT_ID,
   NAVIGATION_STAR_ID,
+  LANE_STAR_ID,
   LOADING_STAR_ID,
 ];
 const NAVIGATION_STAR_GAP_PX = 24;
@@ -278,6 +289,8 @@ interface SongSelectWidgets {
   jacket: JacketView;
   titleText: Phaser.GameObjects.Text;
   categoryText: Phaser.GameObjects.Text;
+  laneStars: Phaser.GameObjects.Sprite[];
+  laneText: Phaser.GameObjects.Text;
   difficultyTabs: TextTabs<Difficulty>;
   recordLabel: Phaser.GameObjects.Text;
   recordValue: Phaser.GameObjects.Text;
@@ -465,6 +478,12 @@ export class SongSelectScene extends Phaser.Scene {
         '',
         textStyle('secondary', CELESTIAL_COLORS.textNeutral),
       ),
+      laneStars: Array.from({ length: Math.max(...LANE_COUNTS) }, () =>
+        this.addCelestial(LANE_STAR_ID, 0, 0).setVisible(false),
+      ),
+      laneText: this.add
+        .text(0, 0, '', typeStyle(LANE_TEXT_TYPE, COLORS.textPrimary))
+        .setOrigin(0, 0.5),
       difficultyTabs: new TextTabs(
         this,
         DIFFICULTY_TAB_ITEMS,
@@ -863,7 +882,12 @@ export class SongSelectScene extends Phaser.Scene {
       case 'songInfo':
         switch (state.current.kind) {
           case 'song':
-            this.renderSongInfo(view, state.current.song, getSelectedRecord(state, records));
+            this.renderSongInfo(
+              view,
+              state.current.song,
+              state.laneCount,
+              getSelectedRecord(state, records),
+            );
             return;
           case 'none':
             this.renderNoSongInfo(view);
@@ -992,7 +1016,12 @@ export class SongSelectScene extends Phaser.Scene {
     view.selectedHalo.render(selectedSlot === null ? null : getSongRow(view, selectedSlot).marker);
   }
 
-  private renderSongInfo(view: SongSelectWidgets, song: Song, record: ChartRecord | null): void {
+  private renderSongInfo(
+    view: SongSelectWidgets,
+    song: Song,
+    laneCount: LaneCount,
+    record: ChartRecord | null,
+  ): void {
     let titleSizePx = TYPE_SCALE.title.sizePx;
     view.titleText.setWordWrapWidth(null).setFontSize(titleSizePx).setText(song.title);
     while (view.titleText.width > TITLE_MAX_WIDTH_PX && titleSizePx > TITLE_MIN_SIZE_PX) {
@@ -1004,6 +1033,20 @@ export class SongSelectScene extends Phaser.Scene {
     view.categoryText
       .setText(song.category.toUpperCase())
       .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
+    const laneCenterYPx = view.categoryText.y + view.categoryText.height / 2;
+    const firstStarXPx = view.categoryText.x + view.categoryText.width + LANE_GROUP_GAP_PX;
+    view.laneStars.forEach((star, index) => {
+      star
+        .setPosition(firstStarXPx + index * LANE_STAR_STEP_PX, laneCenterYPx)
+        .setVisible(index < laneCount);
+    });
+    view.laneText
+      .setText(formatLaneCount(laneCount))
+      .setPosition(
+        firstStarXPx + (laneCount - 1) * LANE_STAR_STEP_PX + LANE_TEXT_GAP_PX,
+        laneCenterYPx,
+      )
+      .setVisible(true);
     const recordYPx = view.categoryText.y + view.categoryText.height + RECORD_GROUP_GAP_PX;
     const hasRecord = record !== null;
     view.recordLabel.setY(recordYPx).setVisible(hasRecord);
@@ -1048,6 +1091,8 @@ export class SongSelectScene extends Phaser.Scene {
   private renderNoSongInfo(view: SongSelectWidgets): void {
     view.titleText.setText('');
     view.categoryText.setText('');
+    view.laneStars.forEach((star) => star.setVisible(false));
+    view.laneText.setVisible(false);
     view.recordLabel.setVisible(false);
     view.recordValue.setVisible(false);
     view.noRecordText.setVisible(false);

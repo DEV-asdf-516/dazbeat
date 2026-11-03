@@ -2,7 +2,7 @@ import { LANGUAGE_NAMES } from '../../../i18n/language.js';
 import type { Language } from '../../../i18n/language.js';
 import type { Lane } from '../../../rhythm/types.js';
 import type { Settings } from '../../../storage/settings.js';
-import { formatKeyCode } from '../../ui/state/format.js';
+import { formatKeyCode, formatLaneCount } from '../../ui/state/format.js';
 import { requireDefined } from '../../../invariant.js';
 import type { SettingsRow } from './settingsAdjust.js';
 
@@ -24,7 +24,7 @@ export function formatRowValue(
     case 'scrollSpeed':
       return `${settings.scrollSpeedPxPerSecond}px/s`;
     case 'laneMode':
-      return `${settings.laneMode}K`;
+      return formatLaneCount(settings.laneMode);
     case 'mvMode':
       return settings.mvMode.toUpperCase();
     case 'language':
