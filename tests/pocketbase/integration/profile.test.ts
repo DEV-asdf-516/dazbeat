@@ -22,7 +22,7 @@ import type { TestUser } from './testData.js';
 
 const DEFAULT_NICKNAME = /^과즙이\d{4}$/;
 // A clear mark on the only chart of the only leo song proves these, in catalog order.
-const BACKFILLED_CLEAR_ACHIEVEMENTS = [
+const STORED_CLEAR_ACHIEVEMENTS = [
   'FIRST_CLEAR',
   'ALL_DIFFICULTIES_CLEAR',
   'ZODIAC_LEO',
@@ -114,7 +114,7 @@ async function storedFeatured(userId: string): Promise<string> {
   return String((await server.superuser.collection('users').getOne(userId))['featuredAchievement']);
 }
 
-function backfillClearMark(userId: string): Promise<RecordModel> {
+function storeClearMark(userId: string): Promise<RecordModel> {
   return server.superuser.collection(EARNED_CHART_MARKS.name).create({
     user: userId,
     kind: 'clear',
@@ -122,8 +122,8 @@ function backfillClearMark(userId: string): Promise<RecordModel> {
     difficulty: 'easy',
     chart: chart.id,
     chartRevision: String(chart['revision']),
-    constellation: '',
-    source: 'backfill',
+    constellation: 'leo',
+    source: 'play',
   });
 }
 
@@ -190,19 +190,19 @@ describe('GET /api/dazbeat/profile', () => {
     });
   });
 
-  it('grants what backfilled marks prove once and reports them as new only then', async () => {
+  it('grants what stored marks prove once and reports them as new only then', async () => {
     const player = await newPlayer();
-    await backfillClearMark(player.id);
+    await storeClearMark(player.id);
 
     const first = await getProfile(player.client);
 
-    expect(first.newAchievements).toEqual(BACKFILLED_CLEAR_ACHIEVEMENTS);
+    expect(first.newAchievements).toEqual(STORED_CLEAR_ACHIEVEMENTS);
     expect(first.stats).toMatchObject({
       playCount: 0,
       clearedSongCount: 1,
     });
     const earned = first.achievements.filter(({ earnedAt }) => earnedAt !== null);
-    expect(earned.map(({ definition }) => definition.key)).toEqual(BACKFILLED_CLEAR_ACHIEVEMENTS);
+    expect(earned.map(({ definition }) => definition.key)).toEqual(STORED_CLEAR_ACHIEVEMENTS);
     expect(earned[0]).toEqual({
       definition: servedKey('FIRST_CLEAR'),
       earnedAt: ISO_TIMESTAMP,
@@ -218,7 +218,7 @@ describe('GET /api/dazbeat/profile', () => {
     const stored = await server.superuser.collection(EARNED_ACHIEVEMENTS.name).getFullList({
       filter: server.superuser.filter(earnedFilter.expression, earnedFilter.params),
     });
-    expect(stored).toHaveLength(BACKFILLED_CLEAR_ACHIEVEMENTS.length);
+    expect(stored).toHaveLength(STORED_CLEAR_ACHIEVEMENTS.length);
   });
 });
 
@@ -390,9 +390,9 @@ describe('saving the featured achievement through the users API', () => {
     expect(await storedFeatured(player.id)).toBe('');
   });
 
-  it('features an earned achievement without granting what backfilled marks prove', async () => {
+  it('features an earned achievement without granting what stored marks prove', async () => {
     const player = await newPlayer();
-    await backfillClearMark(player.id);
+    await storeClearMark(player.id);
     await earn(player.id, 'FIRST_AP');
 
     await updateOwnUser(player, { featuredAchievement: 'FIRST_AP' });
@@ -479,8 +479,8 @@ describe('accounts', () => {
 
   it('take their achievement records with them when deleted', async () => {
     const player = await newPlayer();
-    await backfillClearMark(player.id);
-    // 소급 mark 로 프로필을 조회하면 그 곡의 마스터와 업적이 기록된다.
+    await storeClearMark(player.id);
+    // 저장된 mark 로 프로필을 조회하면 그 곡의 마스터와 업적이 기록된다.
     await getProfile(player.client);
     await server.superuser.collection(PLAY_RESULTS.name).create({
       user: player.id,
@@ -502,6 +502,8 @@ describe('accounts', () => {
         miss: 0,
       },
       cleared: true,
+      reviewStatus: 'approved',
+      achievedAt: new Date().toISOString(),
     });
     const ownFilters = [
       [PLAY_RESULTS.name, where(PLAY_RESULTS, [{ user: player.id }])],

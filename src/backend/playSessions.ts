@@ -36,6 +36,19 @@ class PlaySessionError extends Error {
 
 const issuedSession = z.object({ sessionId: z.string() });
 
+const playReviewSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('approved'),
+    ranking: z
+      .object({
+        rank: z.number().int().positive(),
+        isNewBest: z.boolean(),
+      })
+      .nullable(),
+  }),
+  z.object({ kind: z.literal('pending') }),
+]);
+
 // 서버가 먼저 배포되지 않았으면 newAchievements 가 없다. 알림은 선택 기능이라 모르는 ID 는 빼고 결과는 그대로 받는다.
 function verifiedPlaySchema(catalog: AchievementCatalog) {
   return z
@@ -44,7 +57,7 @@ function verifiedPlaySchema(catalog: AchievementCatalog) {
       accuracy: z.number(),
       maxCombo: z.number(),
       cleared: z.boolean(),
-      bestScore: z.number(),
+      review: playReviewSchema,
       newAchievements: z.array(z.string()).default([]),
     })
     .transform(({ newAchievements, ...play }) => ({

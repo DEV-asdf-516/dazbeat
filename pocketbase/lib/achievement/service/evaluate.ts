@@ -69,9 +69,7 @@ export function evaluateAchievements(snapshot: AchievementSnapshot): Achievement
     if (mark.difficulty === 'expert') {
       tally.expertCharts.add(key);
     }
-    if (mark.constellation !== null) {
-      tally.zodiacs.add(mark.constellation);
-    }
+    tally.zodiacs.add(mark.constellation);
     // revision 이 바뀌었거나 지워진 채보의 증거는 과거 이력에만 세고 현재 완성도와 곡 마스터에는 세지 않는다.
     if (mark.isCurrent) {
       const difficulties = tally.currentDifficulties.get(mark.song) ?? new Set<Difficulty>();

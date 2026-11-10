@@ -1,6 +1,7 @@
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { PlayReview } from '../../../src/data/ranking.js';
 import {
   EARNED_CHART_MARKS,
   EARNED_ACHIEVEMENTS,
@@ -60,8 +61,8 @@ interface ProfileResponse {
 
 interface ResultResponse {
   score: number;
-  bestScore: number;
   newAchievements: string[];
+  review: PlayReview;
 }
 
 function tapChartOf(songKey: string): Chart {
@@ -267,7 +268,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result achievements', () =
 
     const third = await playRanked(player, leoChartRecord, unclearedInputs);
 
-    expect(third.bestScore).toBe(best.score);
+    expect(third.review).toMatchObject({
+      kind: 'approved',
+      ranking: { isNewBest: false },
+    });
     expect(third.score).toBeLessThan(best.score);
     expect(third.newAchievements).toEqual(['PLAY_3']);
     expect(await findPlayResults(player.id)).toHaveLength(3);
@@ -317,7 +321,7 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result achievements', () =
     }
     const scoreFilter = where(SCORES, [{ user: player.id }]);
     const [score] = await listOwn(SCORES.name, scoreFilter);
-    expect(score?.['chartRevision']).toBe(changed['revision']);
+    expect(score?.['chartRevision']).toBe(issuedRevision);
   });
 
   it('records a play whose song was unpublished during the play as past evidence only', async () => {
@@ -392,7 +396,7 @@ describe('GET /api/dazbeat/profile achievements', () => {
     }
   });
 
-  it('grants an album achievement from backfilled marks once', async () => {
+  it('grants an album achievement from stored marks once', async () => {
     const player = await newPlayer();
     for (const chart of albumCharts) {
       await server.superuser.collection(EARNED_CHART_MARKS.name).create({
@@ -402,8 +406,8 @@ describe('GET /api/dazbeat/profile achievements', () => {
         difficulty: 'easy',
         chart: chart.id,
         chartRevision: String(chart['revision']),
-        constellation: '',
-        source: 'backfill',
+        constellation: 'aries',
+        source: 'play',
       });
     }
 

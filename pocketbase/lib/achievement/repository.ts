@@ -20,7 +20,7 @@ import {
   EARNED_SONG_MARKS,
   SONGS,
 } from '../../../src/pbCollections.js';
-import { column, columns } from '../../../src/pbSql.js';
+import { column, columns, joinOn } from '../../../src/pbSql.js';
 import type { Difficulty } from '../../../src/rhythm/types.js';
 import { parseOneOf, selectRow, selectRows } from '../jsvm.js';
 import type { DbApp, JsvmApp, JsvmRecord, JsvmRuntime } from '../jsvm.js';
@@ -129,14 +129,8 @@ export function readMarks(runtime: JsvmRuntime, app: JsvmApp, userId: string): S
           AND ${column(SONGS, 'isPublished')} IS TRUE) AS isCurrent`,
       )
       .from(EARNED_CHART_MARKS.name)
-      .leftJoin(
-        CHARTS.name,
-        dbx.exp(`${column(CHARTS, 'id')} = ${column(EARNED_CHART_MARKS, 'chart')}`),
-      )
-      .leftJoin(
-        SONGS.name,
-        dbx.exp(`${column(SONGS, 'id')} = ${column(EARNED_CHART_MARKS, 'song')}`),
-      )
+      .leftJoin(CHARTS.name, dbx.exp(joinOn(CHARTS, 'id', EARNED_CHART_MARKS, 'chart')))
+      .leftJoin(SONGS.name, dbx.exp(joinOn(SONGS, 'id', EARNED_CHART_MARKS, 'song')))
       .where(dbx.hashExp({ [column(EARNED_CHART_MARKS, 'user')]: userId })),
   );
   return markRows.map((row) => ({
@@ -146,10 +140,7 @@ export function readMarks(runtime: JsvmRuntime, app: JsvmApp, userId: string): S
     chart: row.chart,
     chartRevision: row.chartRevision,
     isCurrent: row.isCurrent,
-    constellation:
-      row.constellation === ''
-        ? null
-        : parseOneOf(ZODIACS, 'Unknown constellation', row.constellation),
+    constellation: parseOneOf(ZODIACS, 'Unknown constellation', row.constellation),
   }));
 }
 
@@ -170,7 +161,12 @@ export function readEarnedState(
       .db()
       .select('COUNT(*) AS total')
       .from(PLAY_RESULTS.name)
-      .where(dbx.hashExp({ [column(PLAY_RESULTS, 'user')]: userId })),
+      .where(
+        dbx.hashExp({
+          [column(PLAY_RESULTS, 'user')]: userId,
+          [column(PLAY_RESULTS, 'reviewStatus')]: 'approved',
+        }),
+      ),
   );
   const songMarks = selectRows(
     runtime,
@@ -233,7 +229,7 @@ export function readPublishedSongs(runtime: JsvmRuntime, app: JsvmApp): Publishe
       .select(...columns(SONGS, ['id', 'constellation', 'album']), column(CHARTS, 'difficulty'))
       .distinct(true)
       .from(SONGS.name)
-      .innerJoin(CHARTS.name, dbx.exp(`${column(CHARTS, 'song')} = ${column(SONGS, 'id')}`))
+      .innerJoin(CHARTS.name, dbx.exp(joinOn(CHARTS, 'song', SONGS, 'id')))
       .where(dbx.hashExp({ [column(SONGS, 'isPublished')]: true })),
   )) {
     const difficulty = parseOneOf(DIFFICULTIES, 'Unknown difficulty', row.difficulty);

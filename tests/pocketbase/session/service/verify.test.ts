@@ -161,6 +161,54 @@ describe('verifyPlay', () => {
     });
   });
 
+  it('matches the client simulation for tail great, bad, an early release and holding to the end', () => {
+    const holdChart = makeChart([
+      hold(0, 3000, 3500),
+      hold(1, 3600, 4100),
+      hold(2, 4300, 4800),
+      hold(3, 5000, 5500),
+    ]);
+    const client = simulateClientPlay(
+      holdChart,
+      [
+        press(0, 3000),
+        release(0, 3560),
+        press(1, 3600),
+        release(1, 4220),
+        press(2, 4300),
+        release(2, 4400),
+        press(3, 5000),
+      ],
+      [3100, 3700, 4500, 5100, 5500, 5630, 5631],
+    );
+
+    expect(client.result.counts).toEqual({
+      perfect: 4,
+      great: 1,
+      good: 0,
+      bad: 1,
+      miss: 2,
+    });
+    expect(
+      verifyPlay(
+        makeInput({
+          chart: {
+            revision: REVISION,
+            data: holdChart,
+          },
+          submission: {
+            inputOffsetMs: 0,
+            events: client.inputs,
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: 'verified',
+      result: client.result,
+      autoplayCheck: UNJUDGED_CHECK,
+    });
+  });
+
   it('accepts a submission exactly at expiresAtMs and rejects 1ms later', () => {
     const expiresAtMs = getSessionExpiresAtMs(song, ISSUED_AT_MS);
 

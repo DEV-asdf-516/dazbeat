@@ -28,6 +28,9 @@ routerAdd(
       }
       throw error;
     }
+    if (load.kind === 'notFound') {
+      return reject('chart_not_found');
+    }
     if (load.kind === 'changed') {
       return reject('chart_changed');
     }
@@ -57,7 +60,7 @@ routerAdd(
   '/api/dazbeat/play-sessions/{sessionId}/result',
   (e) => {
     const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
-    const { PLAY_REJECTION_RESPONSES, InvalidSessionRequestError, SESSION_REJECTIONS } = require(
+    const { PLAY_REJECTION_RESPONSES, SESSION_REJECTIONS } = require(
       `${__hooks}/lib/session/dto.cjs`,
     );
     const { verifyPlay } = require(`${__hooks}/lib/session/service/verify.cjs`);
@@ -71,59 +74,61 @@ routerAdd(
     const userId = e.auth.id;
     const sessionId = e.request.pathValue('sessionId');
     const runtime = { Record, DynamicModel, arrayOf, dbx: $dbx };
-    try {
-      const played = consumePlaySession(runtime, e.app, sessionId, userId);
-      // 검증은 발급 때 고정한 값으로만 한다. 그 뒤 곡·채보가 바뀌어도 발급한 판의 기준은 그대로다.
-      const snapshot = played.verification;
-      const verification = verifyPlay({
-        song: {
-          key: snapshot.songKey,
-          gameStartMs: snapshot.gameStartMs,
-          gameEndMs: snapshot.gameEndMs,
-        },
-        difficulty: snapshot.difficulty,
-        laneCount: snapshot.laneCount,
-        chart: {
-          revision: $security.sha256(snapshot.chartData),
-          data: JSON.parse(snapshot.chartData),
-        },
-        session: {
-          chartRevision: snapshot.chartRevision,
-          issuedAtMs: new DateTime(snapshot.issuedAt).time().unixMilli(),
-          expiresAtMs: new DateTime(snapshot.expiresAt).time().unixMilli(),
-        },
-        submission: e.requestInfo().body,
-        nowMs: Date.now(),
-      });
-      if (verification.kind !== 'verified') {
-        const { status, message } = PLAY_REJECTION_RESPONSES[verification.code];
-        return fail(status, verification.code, message);
-      }
-
-      const { result, autoplayCheck } = verification;
-      const { bestScore, newAchievements } = recordPlayResult(runtime, e.app, {
-        userId,
-        sessionId,
-        played,
-        result,
-        autoplayCheck,
-      });
-      const { score, accuracy, maxCombo, counts, cleared } = result;
-      return e.json(HTTP_STATUS.ok, {
-        score,
-        accuracy,
-        maxCombo,
-        counts,
-        cleared,
-        bestScore,
-        newAchievements,
-      });
-    } catch (error) {
-      if (error instanceof InvalidSessionRequestError) {
-        return reject(error.code);
-      }
-      throw error;
+    const consumed = consumePlaySession(runtime, e.app, sessionId, userId);
+    if (consumed.kind === 'notFound') {
+      return reject('session_not_found');
     }
+    const { played } = consumed;
+    // 검증은 발급 때 고정한 값으로만 한다. 그 뒤 곡·채보가 바뀌어도 발급한 판의 기준은 그대로다.
+    const snapshot = played.verification;
+    const verification = verifyPlay({
+      song: {
+        key: snapshot.songKey,
+        gameStartMs: snapshot.gameStartMs,
+        gameEndMs: snapshot.gameEndMs,
+      },
+      difficulty: snapshot.difficulty,
+      laneCount: snapshot.laneCount,
+      chart: {
+        revision: $security.sha256(snapshot.chartData),
+        data: JSON.parse(snapshot.chartData),
+      },
+      session: {
+        chartRevision: snapshot.chartRevision,
+        issuedAtMs: new DateTime(snapshot.issuedAt).time().unixMilli(),
+        expiresAtMs: new DateTime(snapshot.expiresAt).time().unixMilli(),
+      },
+      submission: e.requestInfo().body,
+      nowMs: Date.now(),
+    });
+    if (verification.kind !== 'verified') {
+      const { status, message } = PLAY_REJECTION_RESPONSES[verification.code];
+      return fail(status, verification.code, message);
+    }
+
+    const { result, autoplayCheck } = verification;
+    const recording = recordPlayResult(runtime, e.app, {
+      userId,
+      sessionId,
+      played,
+      result,
+      autoplayCheck,
+      nowMs: Date.now(),
+    });
+    if (recording.kind === 'chartNotFound') {
+      return reject('chart_not_found');
+    }
+    const { review, newAchievements } = recording;
+    const { score, accuracy, maxCombo, counts, cleared } = result;
+    return e.json(HTTP_STATUS.ok, {
+      score,
+      accuracy,
+      maxCombo,
+      counts,
+      cleared,
+      newAchievements,
+      review,
+    });
   },
   $apis.requireAuth('users'),
   $apis.bodyLimit(1048576),

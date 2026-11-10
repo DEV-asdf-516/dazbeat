@@ -1,14 +1,9 @@
 import type { AchievementId } from '../../../../src/data/achievements.js';
 import type { Zodiac } from '../../../../src/data/songs.js';
 import { requireDefined } from '../../../../src/invariant.js';
-import { EARNED_CHART_MARKS, PLAY_RESULTS } from '../../../../src/pbCollections.js';
-import type {
-  Difficulty,
-  FinishedGameplayResult,
-  LaneCount,
-} from '../../../../src/rhythm/types.js';
+import { EARNED_CHART_MARKS } from '../../../../src/pbCollections.js';
+import type { Difficulty, FinishedGameplayResult } from '../../../../src/rhythm/types.js';
 import type { JsvmApp, JsvmRuntime, TransactionalApp } from '../../jsvm.js';
-import type { AutoplayCheck } from '../../session/service/verify.js';
 import type { ProfileAchievements, StoredMark, UserAchievements } from '../dto.js';
 import {
   readEarnedState,
@@ -21,57 +16,34 @@ import {
 } from '../repository.js';
 import { evaluateAchievements, getPlayMarks } from './evaluate.js';
 
-export function recordVerifiedPlay(
+export function recordApprovedPlay(
   runtime: JsvmRuntime,
   tx: JsvmApp,
   play: {
     readonly userId: string;
-    readonly sessionId: string;
     readonly song: {
       readonly id: string;
       readonly constellation: Zodiac;
-      /** 이 트랜잭션에서 읽은 곡의 현재 공개 여부. */
-      readonly isPublished: boolean;
     };
     readonly chart: {
       readonly id: string;
       readonly difficulty: Difficulty;
-      readonly laneCount: LaneCount;
-      /** 이 트랜잭션에서 읽은 채보의 현재 revision. */
-      readonly currentRevision: string;
+      /** 이 트랜잭션에서 읽은 채보의 현재 revision 과 곡 공개 여부. 채보가 지워졌으면 null. */
+      readonly current: { readonly revision: string; readonly isPublished: boolean } | null;
     };
-    // 소비한 세션의 revision 이다. 증거는 실제로 검증한 채보만 증명해야 해서 scores 의 현재 revision 을 쓰지 않는다.
-    readonly sessionChartRevision: string;
+    // 증거는 실제로 검증한 채보만 증명해야 해서 채보의 현재 revision 이 아니라 플레이의 revision 을 쓴다.
+    readonly chartRevision: string;
     readonly result: FinishedGameplayResult;
-    readonly autoplayCheck: AutoplayCheck;
   },
 ): readonly AchievementId[] {
-  const { userId, song, chart, sessionChartRevision, result, autoplayCheck } = play;
-  saveRecord(runtime, tx, PLAY_RESULTS.name, {
-    user: userId,
-    session: play.sessionId,
-    song: song.id,
-    chart: chart.id,
-    difficulty: chart.difficulty,
-    laneCount: chart.laneCount,
-    chartRevision: sessionChartRevision,
-    constellation: song.constellation,
-    score: result.score,
-    accuracy: result.accuracy,
-    maxCombo: result.maxCombo,
-    counts: result.counts,
-    cleared: result.cleared,
-    autoplayCheck: autoplayCheck.kind,
-    autoplayReasons: autoplayCheck.reasons,
-    inputStats: autoplayCheck.stats,
-  });
+  const { userId, song, chart, chartRevision, result } = play;
   const marks = readMarks(runtime, tx, userId);
   const existingKinds = new Set(
     marks
       .filter(
         (mark) =>
           mark.chart === chart.id &&
-          mark.chartRevision === sessionChartRevision &&
+          mark.chartRevision === chartRevision &&
           mark.constellation === song.constellation,
       )
       .map((mark) => mark.kind),
@@ -84,7 +56,7 @@ export function recordVerifiedPlay(
         song: song.id,
         difficulty: chart.difficulty,
         chart: chart.id,
-        chartRevision: sessionChartRevision,
+        chartRevision,
         constellation: song.constellation,
       };
       saveRecord(runtime, tx, EARNED_CHART_MARKS.name, {
@@ -94,7 +66,10 @@ export function recordVerifiedPlay(
       });
       return {
         ...stored,
-        isCurrent: sessionChartRevision === chart.currentRevision && song.isPublished,
+        isCurrent:
+          chart.current !== null &&
+          chartRevision === chart.current.revision &&
+          chart.current.isPublished,
       };
     });
   return saveUserAchievements(

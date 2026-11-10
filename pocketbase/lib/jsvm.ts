@@ -5,10 +5,17 @@ import type { FilterValue } from '../../src/pbQuery.js';
 
 export type QueryParams = Readonly<Record<string, FilterValue>>;
 
+/** Go `*string`. JS 문자열이 아니라 `===` 로 비교되지 않으므로 `String()` 으로 읽는다. */
+export interface GoStringPointer {
+  readonly __goStringPointer: never;
+  toString(): string;
+}
+
 export interface JsvmCollection {
   readonly id: string;
-  readonly listRule: string | null;
-  readonly viewRule: string | null;
+  /** 규칙이 없으면(superuser 전용) null 이다. */
+  readonly listRule: GoStringPointer | null;
+  readonly viewRule: GoStringPointer | null;
 }
 
 export interface JsvmRecord {
@@ -16,6 +23,7 @@ export interface JsvmRecord {
   getString(field: string): string;
   getInt(field: string): number;
   getFloat(field: string): number;
+  getBool(field: string): boolean;
   getDateTime(field: string): { time(): { unixMilli(): number } };
   set(field: string, value: unknown): void;
 }
@@ -25,6 +33,10 @@ export interface JsvmRuntime {
   readonly DynamicModel: new <T extends object>(shape: T) => T;
   readonly arrayOf: <T>(model: T) => T[];
   readonly dbx: Dbx;
+}
+
+export interface JsvmSecurity {
+  hs256(text: string, secret: string): string;
 }
 
 /** `$dbx` 가 만드는 SQL 식. 훅 밖에서는 만들 수 없어 runtime 으로 받는다. */
@@ -39,22 +51,31 @@ export interface Dbx {
   in(column: string, ...values: string[]): DbxExpression;
 }
 
-export interface SelectQuery {
+export interface RowQuery {
+  one(row: object): void;
+  all(rows: object[]): void;
+}
+
+export interface SelectQuery extends RowQuery {
   from(...tables: string[]): SelectQuery;
   distinct(isDistinct: boolean): SelectQuery;
+  join(type: string, table: string, on: DbxExpression): SelectQuery;
   innerJoin(table: string, on: DbxExpression): SelectQuery;
   leftJoin(table: string, on: DbxExpression): SelectQuery;
   where(condition: DbxExpression): SelectQuery;
   andWhere(condition: DbxExpression): SelectQuery;
   orderBy(...columns: string[]): SelectQuery;
+  groupBy(...columns: string[]): SelectQuery;
   limit(count: number): SelectQuery;
-  one(row: object): void;
-  all(rows: object[]): void;
+  offset(count: number): SelectQuery;
+  andBind(params: QueryParams): SelectQuery;
 }
 
 export interface DbApp {
   db(): {
     select(...columns: string[]): SelectQuery;
+    newQuery(sql: string): { bind(params: QueryParams): RowQuery };
+    update(table: string, columns: QueryParams, where: DbxExpression): { execute(): void };
     delete(table: string, where: DbxExpression): { execute(): void };
   };
 }
@@ -70,6 +91,7 @@ export interface JsvmApp extends DbApp {
     params: QueryParams,
   ): JsvmRecord[];
   save(record: JsvmRecord): void;
+  delete(record: JsvmRecord): void;
 }
 
 export interface QueryBuilderApp extends DbApp {
@@ -131,7 +153,7 @@ function rowOf<C extends Columns>(columns: C, model: Record<string, unknown>): R
 export function selectRows<const C extends Columns>(
   runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf'>,
   columns: C,
-  query: SelectQuery,
+  query: RowQuery,
 ): RowOf<C>[] {
   const rows = runtime.arrayOf(new runtime.DynamicModel(shapeOf(columns)));
   query.all(rows);
@@ -142,7 +164,7 @@ export function selectRows<const C extends Columns>(
 export function selectRow<const C extends Columns>(
   runtime: Pick<JsvmRuntime, 'DynamicModel'>,
   columns: C,
-  query: SelectQuery,
+  query: RowQuery,
 ): RowOf<C> {
   const row = new runtime.DynamicModel(shapeOf(columns));
   query.one(row);

@@ -6,6 +6,7 @@ import type {
   AchievementSet,
 } from '../../../../src/data/achievements.js';
 import type { Zodiac } from '../../../../src/data/songs.js';
+import { requireDefined } from '../../../../src/invariant.js';
 import type { Difficulty, FinishedGameplayResult } from '../../../../src/rhythm/types.js';
 import type {
   AchievementMarkRecord,
@@ -449,7 +450,9 @@ describe('evaluateAchievements', () => {
       const zodiacs: Zodiac[] = ['aries', 'taurus', 'gemini'];
       const publishedSongs = simplePublishedSongs(count);
       const marks = simpleCharts(count).map((chart, index) =>
-        markOf('clear', chart, { constellation: zodiacs[index] ?? null }),
+        markOf('clear', chart, {
+          constellation: requireDefined(zodiacs[index], 'Missing zodiac', String(index)),
+        }),
       );
       const evaluation = evaluateAchievements(
         snapshotOf({
@@ -514,23 +517,6 @@ describe('evaluateAchievements', () => {
       id: 'PLAY_10',
       current: 10,
       target: 10,
-    });
-  });
-
-  it('does not count backfilled marks without a constellation for zodiac visits', () => {
-    const publishedSongs = simplePublishedSongs(3);
-    const marks = simpleCharts(3).map((chart) => markOf('clear', chart, { constellation: null }));
-    const evaluation = evaluateAchievements(
-      snapshotOf({
-        publishedSongs,
-        marks,
-      }),
-    );
-    expect(evaluation.newAchievements).toContain('FIRST_CLEAR');
-    expect(evaluation.progress.find(({ id }) => id === 'ZODIAC_VISIT_3')).toEqual({
-      id: 'ZODIAC_VISIT_3',
-      current: 0,
-      target: 3,
     });
   });
 

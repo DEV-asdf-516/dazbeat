@@ -45,7 +45,19 @@ export const CHARTS = collectionSpec('charts', [
   'data',
   'revision',
 ]);
-export const SCORES = collectionSpec('scores', ['user', 'chart', 'chartRevision']);
+export const SCORES = collectionSpec('scores', [
+  'id',
+  'user',
+  'chart',
+  'chartRevision',
+  'score',
+  'accuracy',
+  'maxCombo',
+  'cleared',
+  'achievedAt',
+  'laneCount',
+  'difficulty',
+]);
 export const PLAY_SESSIONS = collectionSpec('play_sessions', [
   'id',
   'user',
@@ -61,8 +73,14 @@ export const PLAY_SESSIONS = collectionSpec('play_sessions', [
   'laneCount',
 ]);
 export const PLAY_SESSION_QUOTAS = collectionSpec('play_session_quotas', ['user']);
-export const USERS = collectionSpec('users', ['id', 'email', 'nickname']);
-export const PLAY_RESULTS = collectionSpec('play_results', ['user', 'session']);
+export const USERS = collectionSpec('users', ['id', 'email', 'nickname', 'featuredAchievement']);
+export const PLAY_RESULTS = collectionSpec('play_results', [
+  'id',
+  'user',
+  'session',
+  'reviewStatus',
+]);
+export const PLAY_REVIEWS = collectionSpec('play_reviews', ['playResult']);
 export const EARNED_CHART_MARKS = collectionSpec('earned_chart_marks', [
   'user',
   'kind',
@@ -96,4 +114,15 @@ export const ACHIEVEMENTS = collectionSpec('achievements', [
   'nameKo',
   'nameJa',
   'nameEn',
+]);
+export const DELETED_ACCOUNT_IDENTITIES = collectionSpec('deleted_account_identities', [
+  'provider',
+  'identityDigest',
+  'keyId',
+]);
+export const EXTERNAL_AUTHS = collectionSpec('_externalAuths', [
+  'collectionRef',
+  'recordRef',
+  'provider',
+  'providerId',
 ]);

@@ -22,22 +22,6 @@ const CREATE_RULE_FAILED = 400;
 const UPDATE_RULE_FAILED = 404;
 const VIEW_RULE_FAILED = 404;
 
-const PUBLIC_SCORE_FIELDS = [
-  'id',
-  'collectionId',
-  'collectionName',
-  'user',
-  'chart',
-  'chartRevision',
-  'score',
-  'accuracy',
-  'maxCombo',
-  'cleared',
-  'counts',
-  'created',
-  'updated',
-];
-
 type Role = 'guest' | 'user' | 'editor';
 
 interface ServerOnlyRecord {
@@ -55,13 +39,12 @@ let scoredChart: RecordModel;
 let currentScore: RecordModel;
 let hiddenSong: RecordModel;
 let hiddenChart: RecordModel;
-let hiddenScore: RecordModel;
 let playSession: RecordModel;
 let playSessionQuota: RecordModel;
 const achievementRecords: ServerOnlyRecord[] = [];
 let user: TestUser;
 let editor: TestUser;
-// Owns the public score, so no tested role is the owner who may view the expanded profile.
+// Owns the score, so no tested role is its owner.
 let scorer: TestUser;
 
 function clientFor(role: Role): PocketBase {
@@ -106,6 +89,19 @@ function achievementRecordBodies(userId: string) {
           miss: 0,
         },
         cleared: true,
+        reviewStatus: 'approved',
+        achievedAt: new Date().toISOString(),
+      },
+    },
+    {
+      collection: 'play_reviews',
+      forgedField: 'decision',
+      body: {
+        playResult: `play-result-${userId}`,
+        decision: 'approved',
+        reviewerId: 'reviewer',
+        reviewerEmail: 'reviewer@example.com',
+        note: '',
       },
     },
     {
@@ -142,10 +138,10 @@ function achievementRecordBodies(userId: string) {
   ];
 }
 
-function scoreBody(userId: string, chartRevision: string, chartId = scoredChart.id) {
+function scoreBody(userId: string, chartRevision: string) {
   return {
     user: userId,
-    chart: chartId,
+    chart: scoredChart.id,
     chartRevision,
     score: 900_000,
     accuracy: 95,
@@ -158,6 +154,7 @@ function scoreBody(userId: string, chartRevision: string, chartId = scoredChart.
       bad: 0,
       miss: 0,
     },
+    achievedAt: new Date().toISOString(),
   };
 }
 
@@ -175,7 +172,6 @@ beforeAll(async () => {
   currentScore = await superuser
     .collection('scores')
     .create(scoreBody(scorer.id, String(scoredChart['revision'])));
-  await superuser.collection('scores').create(scoreBody(scorer.id, 'stale-revision'));
   hiddenSong = await createSong(superuser, 'hidden', 5_000, { isPublished: false });
   hiddenChart = await createChart(
     superuser,
@@ -183,9 +179,6 @@ beforeAll(async () => {
     'easy',
     fakeChartData('hidden', 'easy'),
   );
-  hiddenScore = await superuser
-    .collection('scores')
-    .create(scoreBody(scorer.id, String(hiddenChart['revision']), hiddenChart.id));
   const nowMs = Date.now();
   playSession = await superuser.collection('play_sessions').create({
     user: user.id,
@@ -220,10 +213,16 @@ afterAll(async () => {
 });
 
 describe.each<Role>(['guest', 'user', 'editor'])('%s', (role) => {
-  it('lists songs but cannot create, update or delete them', async () => {
+  it('lists songs only as an editor, views none but their jackets, and never writes them', async () => {
     const pb = clientFor(role);
-    const songs = await pb.collection('songs').getFullList();
-    expect(songs.find((record) => record.id === song.id)?.['previewStartMs']).toBe(2_000);
+    // 에디터는 새 채보를 저장할 때 곡 키로 곡 레코드를 찾으려고 목록을 쓴다.
+    const listed = await pb.collection('songs').getFullList();
+    expect(listed.map((record) => record.id)).toEqual(
+      role === 'editor' ? expect.arrayContaining([song.id, hiddenSong.id]) : [],
+    );
+    await expectStatus(pb.collection('songs').getOne(song.id), SUPERUSER_ONLY);
+    const jacket = await fetch(pb.files.getURL(song, String(song['jacket'])));
+    expect(jacket.status).toBe(200);
     await expectStatus(pb.collection('songs').create({ key: `new-${role}` }), SUPERUSER_ONLY);
     await expectStatus(pb.collection('songs').update(song.id, { title: role }), SUPERUSER_ONLY);
     await expectStatus(pb.collection('songs').delete(song.id), SUPERUSER_ONLY);
@@ -255,19 +254,19 @@ describe.each<Role>(['guest', 'user', 'editor'])('%s', (role) => {
     },
   );
 
-  it('lists charts and cannot delete them', async () => {
+  it('views charts one at a time but cannot list or delete them', async () => {
     const pb = clientFor(role);
-    const charts = await pb.collection('charts').getFullList();
-    expect(charts.map((record) => record.id)).toEqual(
-      expect.arrayContaining([chart.id, scoredChart.id]),
-    );
+    await expectStatus(pb.collection('charts').getFullList(), SUPERUSER_ONLY);
+    await expect(pb.collection('charts').getOne(chart.id)).resolves.toMatchObject({ id: chart.id });
     await expectStatus(pb.collection('charts').delete(chart.id), SUPERUSER_ONLY);
     await expect(server.superuser.collection('charts').getOne(chart.id)).resolves.toBeDefined();
   });
 
-  it('cannot write scores directly', async () => {
+  it('cannot reach scores at all', async () => {
     const pb = clientFor(role);
     const ownerId = role === 'editor' ? editor.id : user.id;
+    await expectStatus(pb.collection('scores').getList(), SUPERUSER_ONLY);
+    await expectStatus(pb.collection('scores').getOne(currentScore.id), SUPERUSER_ONLY);
     await expectStatus(
       pb.collection('scores').create(scoreBody(ownerId, String(scoredChart['revision']))),
       SUPERUSER_ONLY,
@@ -348,16 +347,6 @@ describe.each<Role>(['guest', 'user', 'editor'])('%s', (role) => {
       expect(await server.superuser.collection(collection).getFullList()).toHaveLength(1);
     }
   });
-
-  it('sees only current-revision scores without sensitive fields', async () => {
-    const pb = clientFor(role);
-    const scores = await pb.collection('scores').getFullList({ expand: 'user' });
-    expect(scores.map((record) => record.id)).toEqual([currentScore.id]);
-    const { expand, ...fields } = scores[0] ?? {};
-    expect(Object.keys(fields).sort()).toEqual([...PUBLIC_SCORE_FIELDS].sort());
-    // users stays owner-only, so expanding the relation must not reveal the profile.
-    expect(expand ?? {}).toEqual({});
-  });
 });
 
 describe('chart writes', () => {
@@ -400,9 +389,6 @@ describe('chart writes', () => {
 });
 
 describe('unpublished songs', () => {
-  const listIds = async (pb: PocketBase, collection: string): Promise<string[]> =>
-    (await pb.collection(collection).getFullList()).map((record) => record.id);
-
   const expectPublishLocked = async (pb: PocketBase): Promise<void> => {
     await expectStatus(
       pb.collection('songs').update(hiddenSong.id, { isPublished: true }),
@@ -412,29 +398,15 @@ describe('unpublished songs', () => {
     expect(stored['isPublished']).toBe(false);
   };
 
-  it.each<Role>(['guest', 'user'])(
-    'are hidden from the %s with their charts and scores',
-    async (role) => {
-      const pb = clientFor(role);
-      expect(await listIds(pb, 'songs')).toEqual([song.id]);
-      expect(await listIds(pb, 'charts')).not.toContain(hiddenChart.id);
-      expect(await listIds(pb, 'scores')).not.toContain(hiddenScore.id);
-      await expectStatus(pb.collection('songs').getOne(hiddenSong.id), VIEW_RULE_FAILED);
-      await expectStatus(pb.collection('charts').getOne(hiddenChart.id), VIEW_RULE_FAILED);
-      await expectStatus(pb.collection('scores').getOne(hiddenScore.id), VIEW_RULE_FAILED);
-      await expectPublishLocked(pb);
-    },
-  );
+  it.each<Role>(['guest', 'user'])('hide their charts from the %s', async (role) => {
+    const pb = clientFor(role);
+    await expectStatus(pb.collection('charts').getOne(hiddenChart.id), VIEW_RULE_FAILED);
+    await expectPublishLocked(pb);
+  });
 
-  it('are visible to an editor with their charts but not their scores', async () => {
+  it('show their charts to an editor', async () => {
     const pb = editor.client;
-    expect(await listIds(pb, 'songs')).toEqual(expect.arrayContaining([song.id, hiddenSong.id]));
-    expect(await listIds(pb, 'charts')).toContain(hiddenChart.id);
-    await expect(pb.collection('songs').getOne(hiddenSong.id)).resolves.toMatchObject({
-      isPublished: false,
-    });
     await expect(pb.collection('charts').getOne(hiddenChart.id)).resolves.toBeDefined();
-    expect(await listIds(pb, 'scores')).not.toContain(hiddenScore.id);
     await expectPublishLocked(pb);
   });
 });
@@ -527,16 +499,13 @@ describe('profile fields', () => {
   });
 });
 
-// 비공개 곡을 공개하면 다른 describe 의 정확한 목록 비교가 바뀌므로 마지막에 둔다.
+// 비공개 곡을 공개하면 다른 describe 의 비공개 채보 확인이 바뀌므로 마지막에 둔다.
 describe('publishing a song', () => {
-  it('shows the song, its charts and its scores to players', async () => {
+  it('shows its charts to players', async () => {
     await server.superuser.collection('songs').update(hiddenSong.id, { isPublished: true });
 
-    const songs = await user.client.collection('songs').getFullList();
-    expect(songs.map((record) => record.id)).toContain(hiddenSong.id);
-    const charts = await user.client.collection('charts').getFullList();
-    expect(charts.map((record) => record.id)).toContain(hiddenChart.id);
-    const scores = await user.client.collection('scores').getFullList();
-    expect(scores.map((record) => record.id)).toContain(hiddenScore.id);
+    await expect(user.client.collection('charts').getOne(hiddenChart.id)).resolves.toMatchObject({
+      id: hiddenChart.id,
+    });
   });
 });
