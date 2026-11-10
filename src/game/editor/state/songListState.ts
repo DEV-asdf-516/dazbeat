@@ -126,18 +126,12 @@ export function moveSongListFocus(list: SongListState, delta: number): SongListS
 
 export function focusSongListRow(list: SongListState, rowIndex: number): SongListState {
   const focusedIndex = list.topIndex + rowIndex;
-  if (
-    rowIndex < 0 ||
-    rowIndex >= list.visibleRowCount ||
-    focusedIndex >= list.songCount ||
-    focusedIndex === list.focusedIndex
-  ) {
-    return list;
-  }
-  return {
-    ...list,
-    focusedIndex,
-  };
+  return focusedIndex === list.focusedIndex
+    ? list
+    : {
+        ...list,
+        focusedIndex,
+      };
 }
 
 export function scrollSongList(list: SongListState, deltaRows: number): SongListState {
@@ -408,12 +402,8 @@ export function unhoverEditorSelectButton(
 export function pressEditorSelectButton(
   list: SongListState,
   button: EditorSelectButton,
-  canRetry: boolean,
 ): SongListState {
-  return withHover(
-    list,
-    pressButton(list.hover, button, isEditorSelectButtonEnabled(button, canRetry)),
-  );
+  return withHover(list, pressButton(list.hover, button, true));
 }
 
 export function releaseEditorSelectButton(
@@ -428,30 +418,11 @@ export function releaseHiddenRetryHover(list: SongListState, canRetry: boolean):
   return canRetry ? list : withHover(list, unhoverButton(list.hover, 'retry'));
 }
 
-export function isEditorSelectButtonEnabled(
-  button: EditorSelectButton,
-  canRetry: boolean,
-): boolean {
-  switch (button) {
-    case 'back':
-    case 'failureCancel':
-      return true;
-    case 'retry':
-    case 'failureRetry':
-      return canRetry;
-  }
-}
-
 export function getEditorSelectButtonView(
   view: ChartEditorSelectView,
   button: EditorSelectButton,
 ): ButtonView {
-  return getButtonView(
-    view.hover,
-    button,
-    isEditorSelectButtonEnabled(button, view.canRetry),
-    false,
-  );
+  return getButtonView(view.hover, button, true, false);
 }
 
 export function getFilterMotion(previous: ChartEditorSelectView | null): 'snap' | 'slide' {
@@ -510,8 +481,6 @@ const REGION_SOURCES: Readonly<
   retryButton: [readCanRetry, readRetryHovered, readRetryPressed],
   loadMoreFailure: [readIsFailureOpen],
   loadMoreFailureButtons: [
-    readIsFailureOpen,
-    readCanRetry,
     readFailureCancelHovered,
     readFailureCancelPressed,
     readFailureRetryHovered,

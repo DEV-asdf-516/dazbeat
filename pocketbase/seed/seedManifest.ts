@@ -15,7 +15,7 @@ import {
 import { LANE_COUNTS } from '../../src/rhythm/lanes.js';
 import type { Chart, Difficulty, LaneCount } from '../../src/rhythm/types.js';
 
-export const DEFAULT_SEED_DATA_DIR = new URL('./data', import.meta.url);
+export const DEFAULT_SEED_DATA_DIR = new URL('./data/', import.meta.url);
 
 const MANIFEST_FILE_NAME = 'manifest.json';
 const PREPARE_GUIDE =

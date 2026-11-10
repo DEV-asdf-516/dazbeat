@@ -27,29 +27,18 @@ type FeedProgress =
 export type SongFeedStatus = FeedProgress['kind'];
 
 export class SongFeed {
-  private loaded: readonly Song[];
-  private totalCount: number;
-  private progress: FeedProgress;
+  private loaded: readonly Song[] = [];
+  private totalCount = 0;
+  private progress: FeedProgress = {
+    kind: 'hasMore',
+    after: null,
+  };
   private readonly listeners = new Set<() => void>();
 
   constructor(
     readonly query: SongQuery,
     private readonly loadBatch: SongBatchLoader,
-    first?: SongBatch,
-  ) {
-    if (first === undefined) {
-      this.loaded = [];
-      this.totalCount = 0;
-      this.progress = {
-        kind: 'hasMore',
-        after: null,
-      };
-      return;
-    }
-    this.loaded = first.songs;
-    this.totalCount = first.totalCount ?? 0;
-    this.progress = toProgress(first.next);
-  }
+  ) {}
 
   get songs(): readonly Song[] {
     return this.loaded;
@@ -174,11 +163,8 @@ export class SharedSongFeeds implements SongFeeds {
   readonly catalog: SongFeed;
   private readonly categories = new Map<SongCategory, SongFeed>();
 
-  constructor(
-    private readonly loadBatch: SongBatchLoader,
-    first?: SongBatch,
-  ) {
-    this.catalog = new SongFeed(ALL_SONGS_QUERY, loadBatch, first);
+  constructor(private readonly loadBatch: SongBatchLoader) {
+    this.catalog = new SongFeed(ALL_SONGS_QUERY, loadBatch);
   }
 
   create(query: SongQuery): SongFeed {

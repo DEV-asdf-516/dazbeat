@@ -48,7 +48,6 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
     { Record, DynamicModel, arrayOf, dbx: $dbx },
     e.app,
     search,
-    (record, rule) => e.app.canAccessRecord(record, requestInfo, rule),
   );
   if (songs.length === 0) {
     return e.json(HTTP_STATUS.ok, { items: [], totalItems, next: null });
@@ -66,7 +65,6 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
     }
     return item;
   });
-  // 커서는 마지막으로 보낸 항목에서 만들어, list rule 로 숨긴 곡이 커서로 새지 않는다.
   const last = items[items.length - 1];
   const next = hasMore ? { releasedOn: last['releasedOn'], recordId: last['id'] } : null;
   return e.json(HTTP_STATUS.ok, { items, totalItems, next });

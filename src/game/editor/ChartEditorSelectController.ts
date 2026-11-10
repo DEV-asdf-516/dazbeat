@@ -156,9 +156,6 @@ export class ChartEditorSelectController {
   }
 
   scrollByWheel(deltaYPx: number, atMs: number): void {
-    if (this.open === null) {
-      return;
-    }
     const read = readWheelRows(this.wheel, deltaYPx, atMs, this.rowHeightPx);
     this.wheel = read.gesture;
     this.scroll(read.rows);
@@ -195,7 +192,7 @@ export class ChartEditorSelectController {
   pointerDown(button: EditorSelectButton): void {
     const current = this.open;
     if (current !== null) {
-      this.setList(pressEditorSelectButton(current.list, button, canRetry(current)));
+      this.setList(pressEditorSelectButton(current.list, button));
     }
   }
 

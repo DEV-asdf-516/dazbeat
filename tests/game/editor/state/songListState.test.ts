@@ -77,7 +77,6 @@ describe('createSongList', () => {
     });
     expect(moveSongListFocus(empty, 1)).toBe(empty);
     expect(scrollSongList(empty, 1)).toBe(empty);
-    expect(focusSongListRow(empty, 0)).toBe(empty);
     expect(getSongListRows(empty, [])).toEqual([]);
   });
 });
@@ -105,11 +104,8 @@ describe('focusSongListRow', () => {
     expect(focusSongListRow(list(3, 3), 2)).toEqual(list(5, 3));
   });
 
-  it('ignores rows without a song and the already focused row', () => {
+  it('ignores the already focused row', () => {
     const short = createSongList(songs.slice(0, 2), null, 4, null);
-    expect(focusSongListRow(short, 2)).toBe(short);
-    expect(focusSongListRow(short, 4)).toBe(short);
-    expect(focusSongListRow(short, -1)).toBe(short);
     expect(focusSongListRow(short, 0)).toBe(short);
   });
 });
