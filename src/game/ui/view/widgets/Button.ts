@@ -6,6 +6,8 @@ import type { PointerActions } from '../input/hoverTarget.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
 import { COLORS, CELESTIAL_COLORS, RADIUS, TYPE_SCALE, setTextColor, typeStyle } from '../theme.js';
 import { MOTION } from '../../state/motion.js';
+import { getBrushRectTexture } from '../textures/brushRect.js';
+import { addTextUnderline, placeTextUnderline } from './cometUnderline.js';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'quiet';
 
@@ -43,6 +45,7 @@ interface ButtonContentOptions {
   widthPx?: number;
   heightPx?: number;
   paddingXPx?: number;
+  radiusPx?: number;
 }
 
 interface LabelType {
@@ -68,6 +71,7 @@ export type ButtonOptions = ButtonContentOptions &
         focus: 'outline' | 'slide';
         colors?: Partial<QuietButtonColors>;
         labelType?: LabelType;
+        isHoverUnderlined?: boolean;
       }
   );
 
@@ -116,7 +120,7 @@ type ButtonPaint =
   | { variant: 'quiet'; colors: QuietButtonColors };
 
 type ButtonFocus =
-  | { kind: 'outline'; rect: Phaser.GameObjects.Rectangle }
+  | { kind: 'outline'; rect: Phaser.GameObjects.Image }
   | { kind: 'glow' }
   | { kind: 'slide' }
   | { kind: 'frame' };
@@ -302,9 +306,18 @@ export class Button extends Phaser.GameObjects.Container {
   private readonly options: ButtonOptions;
   private readonly paint: ButtonPaint;
   private readonly focus: ButtonFocus;
-  private readonly background: Phaser.GameObjects.Rectangle;
+  private readonly background: Phaser.GameObjects.Image;
+  private readonly radiusPx: number;
+  private backgroundLook: {
+    readonly fill: number | null;
+    readonly border: { readonly color: number; readonly widthPx: number } | null;
+  } = {
+    fill: null,
+    border: null,
+  };
   private readonly focusGlow: Phaser.GameObjects.Image;
   private readonly labelText: Phaser.GameObjects.Text;
+  private readonly hoverUnderline: Phaser.GameObjects.Image | null;
   // 글자와 아이콘을 늘 함께 칠해 두어, 글자·아이콘을 바꾸는 그리기와 모양 그리기의 순서에 기대지 않는다.
   private readonly icon: Phaser.GameObjects.Image;
   private readonly hitArea = new Phaser.Geom.Rectangle();
@@ -315,18 +328,25 @@ export class Button extends Phaser.GameObjects.Container {
     const { paint, labelStyle } = resolveStyle(options);
     this.paint = paint;
     ensureLightTextures(scene);
-    this.background = scene.add.rectangle(0, 0, 0, 0).setOrigin(0, 0).setRounded(RADIUS.smallPx);
+    const radiusPx = options.radiusPx ?? RADIUS.smallPx;
+    this.radiusPx = radiusPx;
+    this.background = scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0).setVisible(false);
     this.focusGlow = addLight(scene, LIGHT_TEXTURES.glow, 0, 0).setAlpha(0);
     this.icon = scene.add.image(0, 0, '__DEFAULT').setVisible(false);
     this.labelText = scene.add.text(0, 0, options.label, labelStyle).setOrigin(0.5);
     this.add([this.background, this.focusGlow, this.icon, this.labelText]);
+    this.hoverUnderline =
+      paint.variant === 'quiet' && options.variant === 'quiet' && options.isHoverUnderlined === true
+        ? addTextUnderline(scene, this.labelText, paint.colors.emphasizedLabel).setVisible(false)
+        : null;
+    if (this.hoverUnderline !== null) {
+      this.add(this.hoverUnderline);
+    }
     const focusKind = options.variant === 'primary' ? 'glow' : options.focus;
     if (focusKind === 'outline') {
       const rect = scene.add
-        .rectangle(-FOCUS_OUTLINE_GAP_PX, -FOCUS_OUTLINE_GAP_PX, 0, 0)
+        .image(-FOCUS_OUTLINE_GAP_PX, -FOCUS_OUTLINE_GAP_PX, '__DEFAULT')
         .setOrigin(0, 0)
-        .setRounded(RADIUS.smallPx + FOCUS_OUTLINE_GAP_PX)
-        .setStrokeStyle(FOCUS_OUTLINE_WIDTH_PX, CELESTIAL_COLORS.highlight)
         .setVisible(false);
       this.add(rect);
       this.focus = {
@@ -348,6 +368,7 @@ export class Button extends Phaser.GameObjects.Container {
       this.focus.rect.setVisible(view.isFocused);
     }
     this.paintAppearance(view);
+    this.hoverUnderline?.setVisible(view.appearance === 'hovered' || view.appearance === 'pressed');
     const cursor = view.appearance === 'disabled' ? DISABLED_CURSOR : HOVER_CURSOR;
     // 비활성 버튼도 입력은 받아 그 위에서 비활성 커서를 보인다. 커서가 바뀔 때만 캔버스에 옮겨야
     // 누르는 동안 캔버스에 놓인 눌림 커서(pressedCursor)를 덮어쓰지 않는다.
@@ -376,6 +397,16 @@ export class Button extends Phaser.GameObjects.Container {
         duration: MOTION.fastMs,
         ease: 'Cubic.Out',
       });
+      const underline = this.hoverUnderline;
+      if (underline !== null) {
+        tweens.killTweensOf(underline);
+        tweens.add({
+          targets: underline,
+          x: xPx - this.labelText.width / 2,
+          duration: MOTION.fastMs,
+          ease: 'Cubic.Out',
+        });
+      }
     }
     if (!isFocused) {
       this.focusGlow.setAlpha(0);
@@ -425,15 +456,29 @@ export class Button extends Phaser.GameObjects.Container {
     const widthPx = fixedWidthPx ?? content.displayWidth + paddingXPx * 2;
     const heightPx = fixedHeightPx ?? content.displayHeight + padding.yPx * 2;
     this.setSize(widthPx, heightPx);
-    this.background.setSize(widthPx, heightPx);
+    this.paintBackground();
     if (this.focus.kind === 'outline') {
-      this.focus.rect.setSize(
-        widthPx + FOCUS_OUTLINE_GAP_PX * 2,
-        heightPx + FOCUS_OUTLINE_GAP_PX * 2,
+      this.focus.rect.setTexture(
+        getBrushRectTexture(this.scene, {
+          widthPx: widthPx + FOCUS_OUTLINE_GAP_PX * 2,
+          heightPx: heightPx + FOCUS_OUTLINE_GAP_PX * 2,
+          radiusPx: this.radiusPx + FOCUS_OUTLINE_GAP_PX,
+          fillColor: CELESTIAL_COLORS.highlight,
+          fillAlpha: 0,
+          border: {
+            color: CELESTIAL_COLORS.highlight,
+            alpha: 1,
+            widthPx: FOCUS_OUTLINE_WIDTH_PX,
+          },
+        }),
       );
     }
     this.scene.tweens.killTweensOf(content);
     content.setPosition(widthPx / 2, heightPx / 2);
+    if (this.hoverUnderline !== null) {
+      this.scene.tweens.killTweensOf(this.hoverUnderline);
+      placeTextUnderline(this.hoverUnderline, this.labelText);
+    }
     this.focusGlow.setDisplaySize(content.displayWidth, content.displayHeight);
     setContainerHitArea(this, this.hitArea, widthPx, heightPx);
   }
@@ -443,7 +488,7 @@ export class Button extends Phaser.GameObjects.Container {
     switch (paint.variant) {
       case 'primary': {
         const { fill, label } = getPrimaryPaint(paint.colors, appearance);
-        this.background.setFillStyle(fill);
+        this.setBackground(fill, null);
         setTextColor(this.labelText, label);
         return;
       }
@@ -453,19 +498,22 @@ export class Button extends Phaser.GameObjects.Container {
           appearance,
           this.focus.kind !== 'frame' || isFocused,
         );
-        if (border === null) {
-          this.background.setStrokeStyle();
-        } else {
-          this.background.setStrokeStyle(paint.borderWidthPx, border);
-        }
-        this.setBackgroundFill(fill);
+        this.setBackground(
+          fill,
+          border === null
+            ? null
+            : {
+                color: border,
+                widthPx: paint.borderWidthPx,
+              },
+        );
         setTextColor(this.labelText, label);
         this.icon.setTint(label);
         return;
       }
       case 'quiet': {
         const { fill, label, iconAlpha } = getQuietPaint(paint.colors, appearance);
-        this.setBackgroundFill(fill);
+        this.setBackground(fill, null);
         this.icon.setAlpha(iconAlpha);
         setTextColor(this.labelText, label);
         return;
@@ -473,11 +521,41 @@ export class Button extends Phaser.GameObjects.Container {
     }
   }
 
-  private setBackgroundFill(color: number | null): void {
-    if (color === null) {
-      this.background.setFillStyle();
-    } else {
-      this.background.setFillStyle(color);
+  private setBackground(
+    fill: number | null,
+    border: { readonly color: number; readonly widthPx: number } | null,
+  ): void {
+    this.backgroundLook = {
+      fill,
+      border,
+    };
+    this.paintBackground();
+  }
+
+  private paintBackground(): void {
+    const { fill, border } = this.backgroundLook;
+    if (fill === null && border === null) {
+      this.background.setVisible(false);
+      return;
     }
+    this.background
+      .setTexture(
+        getBrushRectTexture(this.scene, {
+          widthPx: this.width,
+          heightPx: this.height,
+          radiusPx: this.radiusPx,
+          fillColor: fill ?? 0,
+          fillAlpha: fill === null ? 0 : 1,
+          isFillSolid: true,
+          border:
+            border === null
+              ? null
+              : {
+                  ...border,
+                  alpha: 1,
+                },
+        }),
+      )
+      .setVisible(true);
   }
 }

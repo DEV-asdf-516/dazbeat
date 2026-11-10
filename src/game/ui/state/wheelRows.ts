@@ -39,6 +39,6 @@ export function readWheelRows(
       remainderPx: Math.max(0, accumulatedPx - rows * rowPx),
       lastAtMs: atMs,
     },
-    rows: rows === 0 ? 0 : rows * direction,
+    rows: rows * direction,
   };
 }

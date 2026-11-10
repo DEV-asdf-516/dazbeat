@@ -1,6 +1,6 @@
-import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
+import { readControlsKey, readControlsWheel, withControlsOpen } from '../app/controlsGuide.js';
 import type { SongFeed } from '../app/SongFeed.js';
-import { IDLE_WHEEL, readWheelRows } from '../ui/state/wheelRows.js';
+import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
 import {
   INITIAL_CREDITS_STATE,
   hoverCreditsButton,
@@ -14,6 +14,7 @@ import type { CreditsButton, CreditsGrid, CreditsState } from './state/creditsSt
 import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface CreditsScreen {
+  openProfile(): void;
   render(previous: CreditsState | null, next: CreditsState): void;
   playSound(sound: SoundEffect): void;
   leave(): void;
@@ -46,10 +47,14 @@ export class CreditsController {
   }
 
   scrollByWheel(deltaYPx: number, atMs: number): void {
-    if ('kind' in this.state || this.state.isControlsOpen) {
+    if ('kind' in this.state) {
       return;
     }
-    const read = readWheelRows(this.wheel, deltaYPx, atMs, this.wheelStepPx);
+    const read = readControlsWheel(this.state.isControlsOpen, this.wheel, {
+      deltaYPx,
+      atMs,
+      rowPx: this.wheelStepPx,
+    });
     this.wheel = read.gesture;
     this.apply((state) => scrollCredits(state, this.grid, read.rows));
   }
@@ -97,6 +102,10 @@ export class CreditsController {
       case 'controlsClose':
       case 'controlsBackdrop':
         this.closeControls();
+        return;
+      case 'accountProfile':
+        this.screen.playSound('click');
+        this.screen.openProfile();
         return;
     }
   }

@@ -74,7 +74,13 @@ export class TextInput {
   }
 
   focus(): void {
-    this.input.focus();
+    if (this.isFocused) {
+      return;
+    }
+    // 보여 준 직후에는 Phaser 가 아직 자리를 잡아 주기 전이라 브라우저가 그 자리로 스크롤하지 않게 한다.
+    this.input.focus({ preventScroll: true });
+    const end = this.input.value.length;
+    this.input.setSelectionRange(end, end);
   }
 
   blur(): void {
@@ -87,6 +93,8 @@ export class TextInput {
 
   setVisible(isVisible: boolean): void {
     this.element.setVisible(isVisible);
+    // Phaser 는 다음 렌더에서야 display 를 바꾸는데, display:none 인 input 은 focus 를 받지 못한다.
+    this.input.style.display = isVisible ? 'block' : 'none';
   }
 
   destroy(): void {

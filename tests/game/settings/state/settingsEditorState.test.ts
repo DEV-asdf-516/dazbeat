@@ -289,7 +289,6 @@ describe('reset', () => {
     const confirming = requestReset(state);
     expect(confirming.mode).toEqual({ kind: 'confirmingReset' });
     expect(confirming.settings).toBe(state.settings);
-    expect(requestReset(confirming)).toBe(confirming);
   });
 
   it('restores the defaults but keeps the language when confirmed', () => {
@@ -547,6 +546,7 @@ describe('getChangedRegions', () => {
       'selectedHalo',
       'waitingText',
       'controlsEntry',
+      'accountButton',
       'resetDialog',
       'controls',
       'rowButtons',
@@ -564,7 +564,7 @@ describe('getChangedRegions', () => {
         ...state,
         isControlsOpen: true,
       }),
-    ).toEqual(['controls', 'controlsClose']);
+    ).toEqual(['controls']);
   });
 
   it('redraws only the row labels when the hover changes', () => {

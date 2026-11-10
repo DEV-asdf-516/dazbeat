@@ -189,7 +189,14 @@ describe('getChangedRegions', () => {
       'controls',
       'backButton',
       'controlsEntry',
+      'accountButton',
       'controlsClose',
+    ]);
+  });
+
+  it('redraws only the account buttons when the pointer moves onto them', () => {
+    expect(getChangedRegions(state, hoverCreditsButton(state, 'accountProfile'))).toEqual([
+      'accountButton',
     ]);
   });
 
@@ -211,7 +218,7 @@ describe('getChangedRegions for the controls', () => {
         ...state,
         isControlsOpen: true,
       }),
-    ).toEqual(['controls', 'controlsClose']);
+    ).toEqual(['controls']);
   });
 });
 

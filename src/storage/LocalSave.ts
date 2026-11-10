@@ -4,10 +4,11 @@ import type { ChartRecord, ChartRecords } from './chartRecords.js';
 import { DEFAULT_SETTINGS, SETTINGS_PARSERS } from './settings.js';
 import type { Settings } from './settings.js';
 import { parseJson } from '../json.js';
-import { isRecord } from '../typeGuards.js';
+import { isRecord, isString } from '../typeGuards.js';
 
 const SETTINGS_KEY = 'dazbeat:settings:v1';
 const RECORDS_KEY = 'dazbeat:records:v2';
+const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
 
 export class LocalSave {
   constructor(private readonly storage: Storage) {}
@@ -62,6 +63,27 @@ export class LocalSave {
     const key = recordKey(songId, laneCount, difficulty);
     records[key] = mergeBestRecord(records[key], result);
     this.storage.setItem(RECORDS_KEY, JSON.stringify(records));
+  }
+
+  loadRevisionNotices(): ReadonlyMap<string, string> {
+    return new Map(Object.entries(this.readRevisionNotices()));
+  }
+
+  saveRevisionNotice(chartId: string, chartRevision: string): void {
+    const notices = this.readRevisionNotices();
+    notices[chartId] = chartRevision;
+    this.storage.setItem(REVISION_NOTICES_KEY, JSON.stringify(notices));
+  }
+
+  private readRevisionNotices(): Record<string, string> {
+    const notices: Record<string, string> = {};
+    const saved = this.readObject(REVISION_NOTICES_KEY, 'revision notices', 'ignoring them');
+    for (const [chartId, chartRevision] of Object.entries(saved ?? {})) {
+      if (isString(chartRevision)) {
+        notices[chartId] = chartRevision;
+      }
+    }
+    return notices;
   }
 
   private readRecords(): Record<string, ChartRecord> {

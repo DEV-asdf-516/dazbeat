@@ -1,5 +1,7 @@
 import type Phaser from 'phaser';
 import { parseKeyHints } from '../../state/keyHints.js';
+import { addBrushRect, getBrushRectTexture } from '../textures/brushRect.js';
+import type { BrushRectLook } from '../textures/brushRect.js';
 import { COLORS, RADIUS, TYPE_SCALE, typeStyle } from '../theme.js';
 
 export interface KeyHintStyle {
@@ -44,7 +46,7 @@ export const MENU_KEY_HINT_STYLE: KeyHintStyle = {
 const CAP_BORDER_PX = 1;
 
 export interface KeyCap {
-  readonly cap: Phaser.GameObjects.Rectangle;
+  readonly cap: Phaser.GameObjects.Image;
   readonly key: Phaser.GameObjects.Text;
 }
 
@@ -52,22 +54,33 @@ interface KeyHintItem extends KeyCap {
   label: Phaser.GameObjects.Text;
 }
 
+function getCapLook(style: KeyHintStyle, widthPx: number): BrushRectLook {
+  return {
+    widthPx,
+    heightPx: style.capHeightPx,
+    radiusPx: RADIUS.smallPx,
+    fillColor: style.capFill,
+    fillAlpha: style.capFillAlpha,
+    border: {
+      color: style.capBorder,
+      alpha: style.capBorderAlpha,
+      widthPx: CAP_BORDER_PX,
+    },
+  };
+}
+
+export function setKeyCapWidth(keyCap: KeyCap, style: KeyHintStyle, widthPx: number): void {
+  keyCap.cap.setTexture(getBrushRectTexture(keyCap.cap.scene, getCapLook(style, widthPx)));
+}
+
 export function createKeyCap(scene: Phaser.Scene, key: string, style: KeyHintStyle): KeyCap {
   const text = scene.add
     .text(0, 0, key, typeStyle(style.keyType, style.keyColor))
     .setOrigin(0.5, 0.5);
-  const cap = scene.add
-    .rectangle(
-      0,
-      0,
-      Math.max(style.capMinWidthPx, text.width + style.capPaddingXPx * 2),
-      style.capHeightPx,
-      style.capFill,
-      style.capFillAlpha,
-    )
-    .setOrigin(0, 0.5)
-    .setStrokeStyle(CAP_BORDER_PX, style.capBorder, style.capBorderAlpha)
-    .setRounded(RADIUS.smallPx);
+  const cap = addBrushRect(
+    scene,
+    getCapLook(style, Math.max(style.capMinWidthPx, text.width + style.capPaddingXPx * 2)),
+  ).setOrigin(0, 0.5);
   return {
     cap,
     key: text,
@@ -82,7 +95,7 @@ export function placeKeyCap(keyCap: KeyCap, capLeftPx: number, centerYPx: number
 // 키캡을 키보다 먼저 넣어 키가 키캡 위에 그려지게 한다.
 export function getKeyCapObjects(
   keyCap: KeyCap,
-): readonly [Phaser.GameObjects.Rectangle, Phaser.GameObjects.Text] {
+): readonly [Phaser.GameObjects.Image, Phaser.GameObjects.Text] {
   return [keyCap.cap, keyCap.key];
 }
 

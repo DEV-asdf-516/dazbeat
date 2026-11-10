@@ -40,6 +40,7 @@ interface Harness {
   requestRemainingCount(): number;
   leaveCount(): number;
   clickSoundCount(): number;
+  profileOpenCount(): number;
 }
 
 function createHarness(initialSongs: readonly Song[]): Harness {
@@ -48,6 +49,7 @@ function createHarness(initialSongs: readonly Song[]): Harness {
   let songs = initialSongs;
   let requestRemainingCount = 0;
   let leaveCount = 0;
+  let profileOpenCount = 0;
   const sounds: SoundEffect[] = [];
   const controller = new CreditsController(
     {
@@ -73,6 +75,9 @@ function createHarness(initialSongs: readonly Song[]): Harness {
       leave: () => {
         leaveCount += 1;
       },
+      openProfile: () => {
+        profileOpenCount += 1;
+      },
     },
     GRID,
     ROW_PX,
@@ -87,6 +92,7 @@ function createHarness(initialSongs: readonly Song[]): Harness {
     requestRemainingCount: () => requestRemainingCount,
     leaveCount: () => leaveCount,
     clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
+    profileOpenCount: () => profileOpenCount,
   };
 }
 
@@ -288,15 +294,6 @@ describe('CreditsController button pointer', () => {
     });
   });
 
-  it('ignores a press on the close button while the controls are closed', () => {
-    const harness = createHarness([]);
-    const renderCount = harness.renders.length;
-
-    harness.controller.pointerDown('controlsClose');
-
-    expect(harness.renders).toHaveLength(renderCount);
-  });
-
   it('opens with the entry and closes with the close button and the backdrop', () => {
     const harness = createHarness([]);
 
@@ -322,5 +319,15 @@ describe('CreditsController button pointer', () => {
     harness.controller.handleControlsKey(ESCAPE_KEY);
 
     expect(lastRender(harness).next.hover).toBeNull();
+  });
+
+  it('opens the profile from the account panel', () => {
+    const harness = createHarness([]);
+
+    harness.controller.pointerDown('accountProfile');
+    harness.controller.pointerUp('accountProfile');
+    expect(harness.profileOpenCount()).toBe(1);
+    expect(harness.leaveCount()).toBe(0);
+    expect(harness.clickSoundCount()).toBe(1);
   });
 });

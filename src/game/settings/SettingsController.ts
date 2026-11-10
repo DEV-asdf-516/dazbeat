@@ -38,6 +38,7 @@ export interface SettingsScreen {
   playSound(sound: SoundEffect, settings: Settings): void;
   setBackgroundVolume(settings: Settings): void;
   leave(): void;
+  openProfile(): void;
 }
 
 export interface SettingsPorts {
@@ -122,12 +123,16 @@ export class SettingsController {
     const previous = this.state;
     this.apply((state) => releaseSettingsButton(state, button));
     // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
-    if (this.state === previous) {
+    if (this.state === previous || 'kind' in this.state) {
       return;
     }
     switch (button) {
       case 'back':
         this.back();
+        return;
+      case 'accountProfile':
+        this.screen.playSound('click', this.state.settings);
+        this.screen.openProfile();
         return;
       case 'resetEntry':
         this.applyPointer(requestReset);

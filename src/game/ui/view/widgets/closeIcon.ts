@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { createCanvasTexture } from '../textures/canvasTexture.js';
+import { ICON_GRAIN, applyGrain } from '../textures/grain.js';
 import { COLORS, cssColor } from '../theme.js';
 
 const GRID_UNITS = 24;
@@ -21,6 +22,7 @@ export function getCloseIconTexture(scene: Phaser.Scene, sizePx: number): string
     context.moveTo(CROSS_END, CROSS_START);
     context.lineTo(CROSS_START, CROSS_END);
     context.stroke();
+    applyGrain(context, sizePx, sizePx, ICON_GRAIN);
   });
   return key;
 }

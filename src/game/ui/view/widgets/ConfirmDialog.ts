@@ -11,6 +11,8 @@ export type ConfirmTone = 'default' | 'danger';
 export interface ConfirmDialogContent {
   title: string;
   body: string;
+  /** 본문 아래에 본문보다 밝고 굵게 보인다. */
+  emphasis?: string;
   /** null 이면 취소 버튼 없이 수락 버튼 하나만 보인다. */
   cancelLabel: string | null;
   acceptLabel: string;
@@ -35,6 +37,11 @@ const BODY_TYPE = {
   sizePx: 15,
   weight: 400,
 } as const;
+const EMPHASIS_TYPE = {
+  ...BODY_TYPE,
+  weight: 600,
+} as const;
+const EMPHASIS_GAP_PX = 24;
 const BUTTON_LABEL_TYPE = {
   sizePx: 16,
   weight: 500,
@@ -51,8 +58,6 @@ const CANCEL_BUTTON_COLORS: Partial<QuietButtonColors> = {
 };
 const ACCEPT_BUTTON_COLORS: Partial<SecondaryButtonColors> = {
   fill: null,
-  hoverFill: BUTTON_HOVER_FILL,
-  pressedFill: CELESTIAL_COLORS.surfaceHover,
   disabledLabel: CELESTIAL_COLORS.border,
   disabledBorder: CELESTIAL_COLORS.border,
 };
@@ -60,11 +65,22 @@ const ACCEPT_TONE_COLORS: Record<ConfirmTone, number> = {
   default: CELESTIAL_COLORS.selected,
   danger: STATUS_COLORS.danger,
 };
+const ACCEPT_TONE_FILLS: Record<ConfirmTone, { hover: number; pressed: number }> = {
+  default: {
+    hover: BUTTON_HOVER_FILL,
+    pressed: CELESTIAL_COLORS.surfaceHover,
+  },
+  danger: {
+    hover: 0x4a2230,
+    pressed: 0x5e2a3a,
+  },
+};
 
 export class ConfirmDialog {
   private readonly frame: ModalFrame;
   private readonly title: Phaser.GameObjects.Text;
   private readonly body: Phaser.GameObjects.Text;
+  private readonly emphasis: Phaser.GameObjects.Text;
   private readonly cancel: Button;
   // 색 묶음을 바꾸는 가변 필드를 두지 않도록 톤마다 수락 버튼을 하나씩 두고 내용의 톤인 것만 보인다.
   private readonly accepts: Readonly<Record<ConfirmTone, Button>>;
@@ -81,6 +97,14 @@ export class ConfirmDialog {
     });
     this.body = scene.add.text(PADDING_PX, 0, '', {
       ...typeStyle(BODY_TYPE, CELESTIAL_COLORS.textSecondary),
+      lineSpacing: BODY_LINE_SPACING_PX,
+      wordWrap: {
+        width: CONTENT_WIDTH_PX,
+        useAdvancedWrap: true,
+      },
+    });
+    this.emphasis = scene.add.text(PADDING_PX, 0, '', {
+      ...typeStyle(EMPHASIS_TYPE, CELESTIAL_COLORS.textPrimary),
       lineSpacing: BODY_LINE_SPACING_PX,
       wordWrap: {
         width: CONTENT_WIDTH_PX,
@@ -113,6 +137,8 @@ export class ConfirmDialog {
           border: toneColor,
           hoverBorder: toneColor,
           label: toneColor,
+          hoverFill: ACCEPT_TONE_FILLS[tone].hover,
+          pressedFill: ACCEPT_TONE_FILLS[tone].pressed,
         },
       });
     };
@@ -123,13 +149,14 @@ export class ConfirmDialog {
     this.frame.container.add([
       this.title,
       this.body,
+      this.emphasis,
       this.cancel,
       this.accepts.default,
       this.accepts.danger,
     ]);
   }
 
-  /** 부르는 쪽이 열림이 바뀔 때만 부른다. null 이면 닫는다. */
+  /** null 이면 닫는다. 열린 채 다시 부르면 내용과 배치만 바꾸고 열림 페이드는 다시 걸지 않는다. */
   render(content: ConfirmDialogContent | null): void {
     if (content === null) {
       this.frame.render(false);
@@ -137,12 +164,18 @@ export class ConfirmDialog {
     }
     this.title.setText(content.title).setY(PADDING_PX);
     this.body.setText(content.body).setY(this.title.y + this.title.height + BODY_GAP_PX);
+    let contentBottomYPx = this.body.y + this.body.height;
+    this.emphasis.setVisible(content.emphasis !== undefined);
+    if (content.emphasis !== undefined) {
+      this.emphasis.setText(content.emphasis).setY(contentBottomYPx + EMPHASIS_GAP_PX);
+      contentBottomYPx = this.emphasis.y + this.emphasis.height;
+    }
     const accept = this.accepts[content.acceptTone];
     this.accepts.default.setVisible(content.acceptTone === 'default');
     this.accepts.danger.setVisible(content.acceptTone === 'danger');
     // 버튼 폭은 라벨에 맞춰지므로 라벨을 먼저 정한다.
     accept.setLabel(content.acceptLabel);
-    const actionsTopYPx = this.body.y + this.body.height + ACTIONS_GAP_PX;
+    const actionsTopYPx = contentBottomYPx + ACTIONS_GAP_PX;
     const acceptXPx = PANEL_WIDTH_PX - PADDING_PX - accept.width;
     accept.setPosition(acceptXPx, actionsTopYPx);
     this.cancel.setVisible(content.cancelLabel !== null);
@@ -151,7 +184,9 @@ export class ConfirmDialog {
       this.cancel.setPosition(acceptXPx - BUTTON_GAP_PX - this.cancel.width, actionsTopYPx);
     }
     this.frame.setPanelSize(PANEL_WIDTH_PX, actionsTopYPx + BUTTON_HEIGHT_PX + PADDING_PX);
-    this.frame.render(true);
+    if (!this.frame.container.visible) {
+      this.frame.render(true);
+    }
   }
 
   renderButtons(cancel: ButtonView, accept: ButtonView): void {

@@ -13,7 +13,7 @@ export interface ButtonView {
 }
 
 // 화면 hover union 의 탭·행 같은 다른 종류도 그대로 받는다. 그 종류에는 button·isPressed 가 없다.
-type PointerHover = {
+export type PointerHover = {
   readonly kind: string;
   readonly button?: unknown;
   readonly isPressed?: unknown;
