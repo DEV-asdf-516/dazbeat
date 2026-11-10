@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { AchievementId, NamedAchievementDefinition } from '../../../src/data/achievements.js';
 import type { RankingSubmission } from '../../../src/data/playSession.js';
+import type { PlayReview } from '../../../src/data/ranking.js';
 import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { SongFeed } from '../../../src/game/app/SongFeed.js';
 import { ResultController } from '../../../src/game/result/ResultController.js';
-import type { ResultExit, ResultState } from '../../../src/game/result/state/resultState.js';
-import type { ResultRanking, SceneRequest } from '../../../src/game/app/sceneRoutes.js';
+import type { ResultState } from '../../../src/game/result/state/resultState.js';
+import type {
+  PlayOrigin,
+  ResultRanking,
+  SceneRequest,
+  ResultReport,
+} from '../../../src/game/app/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
@@ -58,6 +64,8 @@ const EASY: ChartRef = {
 };
 
 interface Harness {
+  profileOpenCount(): number;
+  profileRankings(): readonly ResultRanking[];
   readonly controller: ResultController;
   readonly renders: { previous: ResultState | null; next: ResultState }[];
   readonly leaves: SceneRequest[];
@@ -68,7 +76,15 @@ interface Harness {
   submit(submission: RankingSubmission): void;
 }
 
-function savedWith(achievements: readonly NamedAchievementDefinition[]): RankingSubmission {
+const UNRANKED: PlayReview = {
+  kind: 'approved',
+  ranking: null,
+};
+
+function savedWith(
+  achievements: readonly NamedAchievementDefinition[],
+  review: PlayReview = UNRANKED,
+): RankingSubmission {
   return {
     kind: 'saved',
     play: {
@@ -76,22 +92,40 @@ function savedWith(achievements: readonly NamedAchievementDefinition[]): Ranking
       accuracy: 0,
       maxCombo: 0,
       cleared: true,
-      bestScore: 0,
       newAchievements: achievements,
+      review,
     },
   };
 }
 
+function rankedReview(rank: number, isNewBest: boolean): PlayReview {
+  return {
+    kind: 'approved',
+    ranking: {
+      rank,
+      isNewBest,
+    },
+  };
+}
+
+const EDITOR_START_MS = 5000;
+
 function createHarness(
-  exit: ResultExit = {
+  origin: PlayOrigin = {
+    kind: 'songSelect',
     mode: 'standard',
-    restore: undefined,
+    quitKey: 'confirm',
+    start: { kind: 'whole' },
   },
   rankingKind: ResultRanking['kind'] = 'submitted',
+  played: ChartRef = EASY,
+  report: ResultReport = { kind: 'graded' },
 ): Harness {
   const renders: { previous: ResultState | null; next: ResultState }[] = [];
   const leaves: SceneRequest[] = [];
   const sounds: SoundEffect[] = [];
+  let profileOpenCount = 0;
+  const profileRankings: ResultRanking[] = [];
   let resolve: (submission: RankingSubmission) => void = () => {};
   const submission = new Promise<RankingSubmission>((resolveSubmission) => {
     resolve = resolveSubmission;
@@ -112,15 +146,22 @@ function createHarness(
         }),
       playSound: (sound) => sounds.push(sound),
       leave: (request) => leaves.push(request),
+      openProfile: (awaitedRanking) => {
+        profileOpenCount += 1;
+        profileRankings.push(awaitedRanking);
+      },
     },
-    EASY,
-    exit,
+    played,
+    origin,
     ranking,
+    report,
   );
   return {
     controller,
     renders,
     leaves,
+    profileOpenCount: () => profileOpenCount,
+    profileRankings: () => profileRankings,
     focusSoundCount: () => sounds.filter((sound) => sound === 'menuFocus').length,
     clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
     closeSoundCount: () => sounds.filter((sound) => sound === 'close').length,
@@ -162,9 +203,15 @@ describe('ResultController', () => {
       await flush();
 
       expect(harness.renders).toHaveLength(2);
-      expect(harness.last().toasts.shown.map(({ achievement }) => achievement)).toEqual([
-        FIRST_FINISH,
-        FIRST_CLEAR,
+      expect(harness.last().toasts.shown.map(({ content }) => content)).toEqual([
+        {
+          kind: 'achievement',
+          achievement: FIRST_FINISH,
+        },
+        {
+          kind: 'achievement',
+          achievement: FIRST_CLEAR,
+        },
       ]);
     });
 
@@ -260,6 +307,50 @@ describe('ResultController', () => {
     });
   });
 
+  describe('ranking toasts', () => {
+    async function contentsAfter(submission: RankingSubmission) {
+      const harness = createHarness();
+      harness.submit(submission);
+      await flush();
+      return harness.last().toasts.shown.map(({ content }) => content);
+    }
+
+    it.each([1, 3, 20])(
+      'shows TOP %i before the achievements when the best record enters the top',
+      async (rank) => {
+        expect(await contentsAfter(savedWith([FIRST_FINISH], rankedReview(rank, true)))).toEqual([
+          {
+            kind: 'ranking',
+            rank,
+          },
+          {
+            kind: 'achievement',
+            achievement: FIRST_FINISH,
+          },
+        ]);
+      },
+    );
+
+    it.each([
+      ['a rank outside the top', rankedReview(21, true)],
+      ['a record that is not a new best', rankedReview(1, false)],
+      ['no visible ranking', UNRANKED],
+    ])('shows only the achievements for %s', async (_case, review) => {
+      expect(await contentsAfter(savedWith([FIRST_FINISH], review))).toEqual([
+        {
+          kind: 'achievement',
+          achievement: FIRST_FINISH,
+        },
+      ]);
+    });
+
+    it('shows one pending toast for a play held for review', async () => {
+      expect(await contentsAfter(savedWith([], { kind: 'pending' }))).toEqual([
+        { kind: 'rankingPending' },
+      ]);
+    });
+  });
+
   describe('menu', () => {
     it('plays the focus sound for each focus move', () => {
       const harness = createHarness();
@@ -271,17 +362,21 @@ describe('ResultController', () => {
       expect(harness.focusSoundCount()).toBe(2);
     });
 
-    it('requests the retry and the song select with the retry difficulty', () => {
+    it('requests the retry with the same origin and the song select with the retry difficulty', () => {
       const restore = {
         feed: new SongFeed(ALL_SONGS_QUERY, () => Promise.reject(new Error('Not used'))),
         index: 2,
         songId: SONG.id,
         difficulty: 'easy',
       } as const;
-      const harness = createHarness({
+      const origin: PlayOrigin = {
+        kind: 'songSelect',
         mode: 'practice',
+        quitKey: 'confirm',
+        start: { kind: 'whole' },
         restore,
-      });
+      };
+      const harness = createHarness(origin);
       harness.controller.stepDifficulty(1);
 
       harness.controller.confirm();
@@ -295,11 +390,7 @@ describe('ResultController', () => {
             laneCount: 4,
             difficulty: 'hard',
             chartId: 'hard.json',
-            mode: 'practice',
-            restore: {
-              ...restore,
-              difficulty: 'hard',
-            },
+            origin,
           },
         },
         {
@@ -313,6 +404,81 @@ describe('ResultController', () => {
           },
         },
       ]);
+    });
+
+    describe('from the editor', () => {
+      const list = new SongFeed(ALL_SONGS_QUERY, () => Promise.reject(new Error('Not used')));
+      const origin: PlayOrigin = {
+        kind: 'chartEditor',
+        mode: 'practice',
+        quitKey: 'leave',
+        start: {
+          kind: 'from',
+          timeMs: EDITOR_START_MS,
+        },
+        list,
+      };
+      const backToEditor = (difficulty: 'easy' | 'hard'): SceneRequest => ({
+        key: 'chartEditor',
+        data: {
+          songId: SONG.id,
+          list,
+          chart: {
+            laneCount: 4,
+            difficulty,
+          },
+          resumeTimeMs: EDITOR_START_MS,
+        },
+      });
+
+      it('retries the selected difficulty with the same origin', () => {
+        const harness = createHarness(origin, 'none');
+        harness.controller.selectDifficulty('hard');
+
+        harness.controller.confirm();
+
+        expect(harness.leaves).toEqual([
+          {
+            key: 'gameplay',
+            data: {
+              song: SONG,
+              laneCount: 4,
+              difficulty: 'hard',
+              chartId: 'hard.json',
+              origin,
+            },
+          },
+        ]);
+      });
+
+      it('goes back to the played chart', () => {
+        const harness = createHarness(origin, 'none');
+
+        harness.controller.back();
+
+        expect(harness.leaves).toEqual([backToEditor('easy')]);
+      });
+
+      it('goes back to the played difficulty when only the tab changed', () => {
+        const harness = createHarness(origin, 'none');
+        harness.controller.selectDifficulty('hard');
+
+        harness.controller.back();
+
+        expect(harness.leaves).toEqual([backToEditor('easy')]);
+      });
+
+      it('goes back to the difficulty a retry played', () => {
+        const harness = createHarness(origin, 'none', {
+          ...EASY,
+          difficulty: 'hard',
+          chartId: 'hard.json',
+        });
+
+        harness.controller.back();
+
+        expect(harness.leaves).toEqual([backToEditor('hard')]);
+      });
     });
 
     it('changes the retry chart by selecting and stepping difficulties', () => {
@@ -424,15 +590,6 @@ describe('ResultController button pointer', () => {
       button: 'retry',
       isPressed: false,
     });
-  });
-
-  it('ignores a press on the close button while the controls are closed', () => {
-    const harness = createHarness();
-    const renderCount = harness.renders.length;
-
-    harness.controller.pointerDown('controlsClose');
-
-    expect(harness.renders).toHaveLength(renderCount);
   });
 
   it('opens with the entry and closes with the close button and the backdrop', () => {
@@ -553,8 +710,6 @@ describe('ResultController ranking notice', () => {
     harness.controller.moveFocus(1);
     harness.controller.stepDifficulty(1);
     harness.controller.selectDifficulty('hard');
-    harness.controller.pointerDown('retry');
-    harness.controller.pointerUp('retry');
     harness.controller.openControls();
 
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(false);
@@ -577,5 +732,78 @@ describe('ResultController ranking notice', () => {
       hover: null,
     });
     expect(harness.leaves).toEqual([]);
+  });
+
+  it('hands an unanswered submission to the profile so its toasts show on return', async () => {
+    const harness = createHarness();
+    const openProfile = (): void => {
+      harness.controller.pointerDown('accountProfile');
+      harness.controller.pointerUp('accountProfile');
+    };
+
+    openProfile();
+    expect(harness.profileRankings().at(-1)).toMatchObject({ kind: 'submitted' });
+
+    harness.submit({ kind: 'unknown' });
+    await Promise.resolve();
+    harness.controller.pointerDown('noticeClose');
+    harness.controller.pointerUp('noticeClose');
+    openProfile();
+    expect(harness.profileRankings().at(-1)).toEqual({ kind: 'none' });
+  });
+
+  it('shows the toasts of a submission answered while the profile was open', async () => {
+    const submission = Promise.resolve<RankingSubmission>({ kind: 'unknown' });
+    const renders: ResultState[] = [];
+    new ResultController(
+      {
+        render: (_previous, next) => renders.push(next),
+        playSound: () => undefined,
+        leave: () => undefined,
+        openProfile: () => undefined,
+      },
+      EASY,
+      {
+        kind: 'songSelect',
+        mode: 'standard',
+        quitKey: 'confirm',
+        start: { kind: 'whole' },
+      },
+      {
+        kind: 'submitted',
+        submission,
+      },
+      { kind: 'graded' },
+    );
+    await submission;
+    await Promise.resolve();
+
+    expect(renders.at(-1)?.rankingNotice).toBe('unknown');
+  });
+
+  it('keeps the retry chart on a section report', () => {
+    const harness = createHarness(undefined, 'none', EASY, {
+      kind: 'section',
+      startTimeMs: 5000,
+      endTimeMs: 60000,
+      noteCount: 26,
+      totalNoteCount: 116,
+    });
+    const renderCount = harness.renders.length;
+
+    harness.controller.stepDifficulty(1);
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(harness.clickSoundCount()).toBe(0);
+  });
+
+  it('opens the profile from the account panel', () => {
+    const harness = createHarness();
+
+    harness.controller.pointerDown('accountProfile');
+    harness.controller.pointerUp('accountProfile');
+    expect(harness.profileOpenCount()).toBe(1);
+    expect(harness.leaves).toEqual([]);
+    expect(harness.clickSoundCount()).toBe(1);
   });
 });

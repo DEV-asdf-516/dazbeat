@@ -10,12 +10,28 @@ import type {
 } from '../../../data/achievements.js';
 import { parseNickname } from '../../../data/nickname.js';
 import type { Nickname } from '../../../data/nickname.js';
+import { AccountDeletionError } from '../../../data/account.js';
 import { ProfileRequestError } from '../../../data/profile.js';
 import type { AchievementStatus, NicknameChangeFailure, Profile } from '../../../data/profile.js';
+import {
+  DEFAULT_RANKED_CHART_SORT,
+  RANKED_CHART_SORTS,
+  RankingRequestError,
+} from '../../../data/ranking.js';
+import type {
+  RankedChart,
+  RankedChartCursor,
+  RankedChartPage,
+  RankedChartQuery,
+  RankedChartSort,
+} from '../../../data/ranking.js';
+import { DIFFICULTIES } from '../../../data/songs.js';
 import type { Zodiac } from '../../../data/songs.js';
+import type { Difficulty, LaneCount } from '../../../rhythm/types.js';
 import { requireDefined } from '../../../invariant.js';
 import { clamp, cycleItem, stepItem } from '../../../range.js';
 import { isShallowEqual } from '../../../shallowEqual.js';
+import type { SoundEffect } from '../../ui/view/soundEffects.js';
 import {
   getButtonView,
   hoverButton,
@@ -26,12 +42,10 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import {
-  getControlsCloseView,
-  isControlsButtonEnabled,
-  isControlsEntryHovered,
-} from '../../app/controlsGuide.js';
+import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
+import type { MenuAction } from '../../ui/state/menuAction.js';
+import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 
 type ProfilePage = 'summary' | 'collection';
@@ -45,7 +59,34 @@ export type NicknameEdit =
     }
   | { readonly kind: 'saving'; readonly input: string };
 
-export type SummaryTab = 'stats' | 'collection';
+export type SummaryTab = 'stats' | 'collection' | 'ranking';
+
+export const SUMMARY_TABS: readonly SummaryTab[] = ['stats', 'collection', 'ranking'];
+
+export const PROFILE_RANKING_VISIBLE_ROWS = 9;
+// 끝에 닿아 멈춰 보이기 전에 다음 쪽이 도착하도록 한 화면 분량을 남기고 미리 요청한다.
+const RANKING_PREFETCH_ROWS = PROFILE_RANKING_VISIBLE_ROWS;
+
+export type RankingDifficultyFilter = Difficulty | 'all';
+
+const RANKING_DIFFICULTY_FILTERS: readonly RankingDifficultyFilter[] = ['all', ...DIFFICULTIES];
+
+export type RankingLaneFilter = LaneCount | 'all';
+
+export type RankingsMore =
+  | { readonly kind: 'end' }
+  | { readonly kind: 'ready' | 'loading'; readonly cursor: RankedChartCursor };
+
+export type RankingsLoad =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'loading' }
+  | {
+      readonly kind: 'loaded';
+      readonly items: readonly RankedChart[];
+      readonly more: RankingsMore;
+      readonly topRow: number;
+    }
+  | { readonly kind: 'failed' };
 
 export type SummaryFocus = 'nickname' | AchievementSet;
 
@@ -55,9 +96,38 @@ export type ProfileTarget =
   | { readonly kind: 'nickname' }
   | { readonly kind: 'summaryTab'; readonly tab: SummaryTab }
   | { readonly kind: 'setRow'; readonly set: AchievementSet }
-  | { readonly kind: 'collectionTab'; readonly set: AchievementSet };
+  | { readonly kind: 'collectionTab'; readonly set: AchievementSet }
+  | { readonly kind: 'rankingSort' }
+  | { readonly kind: 'rankingAllOption' }
+  | { readonly kind: 'rankingLaneOption'; readonly filter: LaneCount }
+  | { readonly kind: 'rankingDifficultyOption'; readonly filter: Difficulty };
 
-export type ProfileButton = 'equip' | 'unequip' | 'back' | ControlsButton;
+export type ProfileButton =
+  | 'equip'
+  | 'unequip'
+  | 'back'
+  | 'retry'
+  | 'deleteEntry'
+  | 'deleteCancel'
+  | 'deleteAccept'
+  | ControlsButton
+  | 'accountSignOut';
+
+export type DeletionFocus = 'cancel' | 'accept';
+
+export type AccountDeletion =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'confirming' | 'failed' | 'unknown'; readonly focus: DeletionFocus }
+  | { readonly kind: 'deleting' };
+
+type ChoosingDeletion = Extract<AccountDeletion, { readonly focus: DeletionFocus }>;
+
+export type AccountDeletionKey =
+  | { readonly kind: 'pass' }
+  | { readonly kind: 'block' }
+  | { readonly kind: 'cancel' }
+  | { readonly kind: 'accept' }
+  | { readonly kind: 'focus'; readonly focus: DeletionFocus };
 
 export type ProfileHover = ProfileTarget | ButtonHover<ProfileButton>;
 
@@ -70,6 +140,11 @@ export interface LoadedProfileState {
   readonly collection: { readonly set: AchievementSet; readonly focusedId: AchievementId };
   readonly nickname: NicknameEdit;
   readonly featuredSave: FeaturedSave;
+  readonly accountDeletion: AccountDeletion;
+  readonly rankings: RankingsLoad;
+  readonly rankingSort: RankedChartSort;
+  readonly rankingLane: RankingLaneFilter;
+  readonly rankingDifficulty: RankingDifficultyFilter;
 }
 
 export type ProfileState =
@@ -100,11 +175,23 @@ export type ProfileBack =
 const SUMMARY_FOCUS_ORDER: Readonly<Record<SummaryTab, readonly SummaryFocus[]>> = {
   stats: ['nickname'],
   collection: ['nickname', ...ACHIEVEMENT_SETS],
+  ranking: ['nickname'],
 };
 
 const IDLE_NICKNAME: NicknameEdit = { kind: 'idle' };
 
-type ScreenRegion = 'controls' | 'backButton' | 'controlsEntry' | 'controlsClose';
+const CLOSED_DELETION: AccountDeletion = { kind: 'closed' };
+
+type ScreenRegion =
+  | 'controls'
+  | 'backButton'
+  | 'retryButton'
+  | 'controlsEntry'
+  | 'controlsClose'
+  | 'accountButton'
+  | 'deleteEntry'
+  | 'deleteDialog'
+  | 'deleteButtons';
 
 export type ProfileRegion = 'pages' | 'title' | 'notice' | 'nicknameInput' | ScreenRegion;
 
@@ -139,7 +226,11 @@ export type SummaryRegion =
   | 'summaryTab'
   | 'tabs'
   | 'summaryFocus'
-  | 'setMarkers';
+  | 'setMarkers'
+  | 'rankings'
+  | 'rankingControls'
+  | 'rankingsScroll'
+  | 'rankingsNotice';
 
 export type CollectionRegion =
   | 'tabs'
@@ -155,11 +246,13 @@ export type CollectionRegion =
 const readPage: StateReader<ProfileState> = (state) => getProfilePage(state);
 // 입력 중 글자는 입력란이 먼저 갖고 있어, 입력란은 편집 단계가 바뀔 때만 상태의 글자로 맞춘다.
 const readEditKind: StateReader<ProfileState> = (state) => getNicknameEdit(state).kind;
+const readLoadedSummaryTab: StateReader<ProfileState> = (state) =>
+  state.kind === 'loaded' ? state.summaryTab : null;
 
 const PROFILE_REGION_SOURCES: Readonly<
   Record<Exclude<ProfileRegion, ScreenRegion>, readonly StateReader<ProfileState>[]>
 > = {
-  pages: [readPage],
+  pages: [readPage, readLoadedSummaryTab],
   title: [readPage],
   notice: [readPage],
   nicknameInput: [readEditKind],
@@ -182,6 +275,17 @@ const readSummaryFocus: ProfileReader = ({ page }) => page.summaryFocus;
 const readSet: ProfileReader = ({ page }) => page.collection.set;
 const readFocusedId: ProfileReader = ({ page }) => page.collection.focusedId;
 const readFeaturedSave: ProfileReader = ({ page }) => page.featuredSave;
+const readRankings: ProfileReader = ({ page }) => page.rankings;
+const readRankingSort: ProfileReader = ({ page }) => page.rankingSort;
+const readRankingDifficulty: ProfileReader = ({ page }) => page.rankingDifficulty;
+const readHoveredRankingSort: ProfileReader = ({ hover }) => hover?.kind === 'rankingSort';
+const readRankingLane: ProfileReader = ({ page }) => page.rankingLane;
+const readHoveredRankingAllOption: ProfileReader = ({ hover }) =>
+  hover?.kind === 'rankingAllOption';
+const readHoveredRankingLaneOption: ProfileReader = ({ hover }) =>
+  hover?.kind === 'rankingLaneOption' ? hover.filter : null;
+const readHoveredRankingOption: ProfileReader = ({ hover }) =>
+  hover?.kind === 'rankingDifficultyOption' ? hover.filter : null;
 const readNicknameHovered: ProfileReader = ({ hover }) => hover?.kind === 'nickname';
 const readHoveredSummaryTab: ProfileReader = ({ hover }) =>
   hover?.kind === 'summaryTab' ? hover.tab : null;
@@ -204,6 +308,18 @@ const SUMMARY_REGION_SOURCES: Readonly<Record<SummaryRegion, readonly ProfileRea
   tabs: [readSummaryTab, readHoveredSummaryTab],
   summaryFocus: [readSummaryFocus],
   setMarkers: [readSummaryFocus, readHoveredSetRow],
+  rankings: [readRankings],
+  rankingControls: [
+    readRankingSort,
+    readRankingLane,
+    readRankingDifficulty,
+    readHoveredRankingSort,
+    readHoveredRankingAllOption,
+    readHoveredRankingLaneOption,
+    readHoveredRankingOption,
+  ],
+  rankingsScroll: [readRankings],
+  rankingsNotice: [readRankings],
 };
 
 const COLLECTION_REGION_SOURCES: Readonly<Record<CollectionRegion, readonly ProfileReader[]>> = {
@@ -270,10 +386,15 @@ export function loadedState(profile: Profile): LoadedProfileState {
     },
     nickname: IDLE_NICKNAME,
     featuredSave: 'idle',
+    accountDeletion: CLOSED_DELETION,
+    rankings: { kind: 'idle' },
+    rankingSort: DEFAULT_RANKED_CHART_SORT,
+    rankingLane: 'all',
+    rankingDifficulty: 'all',
   };
 }
 
-function withCollection(
+export function withCollection(
   state: LoadedProfileState,
   set: AchievementSet,
   focusedId: AchievementId,
@@ -331,7 +452,14 @@ export function moveFocus(
     return moveCollectionFocus(state, direction);
   }
   if (direction === 'left' || direction === 'right') {
-    return selectSummaryTab(state, direction === 'left' ? 'stats' : 'collection');
+    return selectSummaryTab(
+      state,
+      stepItem(SUMMARY_TABS, state.summaryTab, direction === 'left' ? -1 : 1),
+    );
+  }
+  // RANKING 탭은 포커스할 항목이 닉네임뿐이라 위아래는 목록을 넘긴다.
+  if (state.summaryTab === 'ranking') {
+    return scrollRankings(state, direction === 'up' ? -1 : 1);
   }
   const summaryFocus = cycleItem(
     SUMMARY_FOCUS_ORDER[state.summaryTab],
@@ -347,15 +475,252 @@ export function moveFocus(
 }
 
 export function selectSummaryTab(state: LoadedProfileState, tab: SummaryTab): LoadedProfileState {
-  if (state.view !== 'summary' || state.nickname.kind !== 'idle' || state.summaryTab === tab) {
+  if (state.nickname.kind !== 'idle' || state.summaryTab === tab) {
     return state;
   }
-  // 세트 줄은 컬렉션 탭에만 있어 탭을 바꾸면 포커스는 두 탭에 공통인 닉네임으로 돌아간다.
+  // 세트 줄은 컬렉션 탭에만 있어 탭을 바꾸면 포커스는 모든 탭에 공통인 닉네임으로 돌아간다.
   return {
     ...state,
     summaryTab: tab,
     summaryFocus: 'nickname',
+    // 랭킹은 탭을 처음 열 때 한 번만 요청한다.
+    rankings:
+      tab === 'ranking' && state.rankings.kind === 'idle' ? { kind: 'loading' } : state.rankings,
   };
+}
+
+function isRankingTabShown(state: LoadedProfileState): boolean {
+  return state.view === 'summary' && state.summaryTab === 'ranking';
+}
+
+function isRankingsFailureShown(state: LoadedProfileState): boolean {
+  return isRankingTabShown(state) && state.rankings.kind === 'failed';
+}
+
+function isRankingFilterCleared(state: LoadedProfileState): boolean {
+  return state.rankingLane === 'all' && state.rankingDifficulty === 'all';
+}
+
+export function applyRankings(
+  state: LoadedProfileState,
+  page: RankedChartPage,
+): LoadedProfileState {
+  const { rankings } = state;
+  const isAppending = rankings.kind === 'loaded';
+  return {
+    ...state,
+    rankings: {
+      kind: 'loaded',
+      items: isAppending ? [...rankings.items, ...page.items] : page.items,
+      more:
+        page.next === null
+          ? { kind: 'end' }
+          : {
+              kind: 'ready',
+              cursor: page.next,
+            },
+      topRow: isAppending ? rankings.topRow : 0,
+    },
+  };
+}
+
+export function getRankingsQuery(state: LoadedProfileState): RankedChartQuery {
+  return {
+    sort: state.rankingSort,
+    laneCount: state.rankingLane === 'all' ? null : state.rankingLane,
+    difficulty: state.rankingDifficulty === 'all' ? null : state.rankingDifficulty,
+    cursor:
+      state.rankings.kind === 'loaded' && state.rankings.more.kind === 'loading'
+        ? state.rankings.more.cursor
+        : null,
+  };
+}
+
+function reloadRankings(
+  state: LoadedProfileState,
+  change: Partial<Pick<LoadedProfileState, 'rankingSort' | 'rankingLane' | 'rankingDifficulty'>>,
+): LoadedProfileState {
+  if (!isRankingTabShown(state) || state.nickname.kind !== 'idle') {
+    return state;
+  }
+  return {
+    ...state,
+    ...change,
+    rankings: { kind: 'loading' },
+  };
+}
+
+export function toggleRankingSort(state: LoadedProfileState): LoadedProfileState {
+  return reloadRankings(state, {
+    rankingSort: cycleItem(RANKED_CHART_SORTS, state.rankingSort, 1),
+  });
+}
+
+export function clearRankingFilters(state: LoadedProfileState): LoadedProfileState {
+  if (isRankingFilterCleared(state)) {
+    return state;
+  }
+  return reloadRankings(state, {
+    rankingLane: 'all',
+    rankingDifficulty: 'all',
+  });
+}
+
+export function selectRankingLane(
+  state: LoadedProfileState,
+  filter: LaneCount,
+): LoadedProfileState {
+  return reloadRankings(state, { rankingLane: filter === state.rankingLane ? 'all' : filter });
+}
+
+export function selectRankingDifficulty(
+  state: LoadedProfileState,
+  filter: Difficulty,
+): LoadedProfileState {
+  return reloadRankings(state, {
+    rankingDifficulty: filter === state.rankingDifficulty ? 'all' : filter,
+  });
+}
+
+export function cycleRankingDifficulty(
+  state: LoadedProfileState,
+  delta: -1 | 1,
+): LoadedProfileState {
+  return reloadRankings(state, {
+    rankingDifficulty: cycleItem(RANKING_DIFFICULTY_FILTERS, state.rankingDifficulty, delta),
+  });
+}
+
+function readRankingControls({ rankingSort, rankingLane, rankingDifficulty }: LoadedProfileState) {
+  return {
+    rankingSort,
+    rankingLane,
+    rankingDifficulty,
+  };
+}
+
+export function failRankings(state: LoadedProfileState, error: unknown): ProfileState {
+  const failure = toLoadFailurePage(error);
+  if (failure.kind === 'guest') {
+    return failure;
+  }
+  const { rankings } = state;
+  // 이어 받기만 실패하면 받아 둔 목록을 지우지 않고, 다음 스크롤이 다시 요청한다.
+  return {
+    ...state,
+    rankings:
+      rankings.kind === 'loaded' && rankings.more.kind === 'loading'
+        ? {
+            ...rankings,
+            more: {
+              kind: 'ready',
+              cursor: rankings.more.cursor,
+            },
+          }
+        : { kind: 'failed' },
+  };
+}
+
+export function retryRankings(state: LoadedProfileState): LoadedProfileState {
+  return {
+    ...state,
+    rankings: { kind: 'loading' },
+  };
+}
+
+export type ProfileConfirm =
+  | { readonly kind: 'none' | 'retryLoad' | 'select' }
+  | { readonly kind: 'retryRankings'; readonly state: LoadedProfileState };
+
+// 실패 안내가 보이는 동안 Enter 는 다시 시도라 닉네임 편집을 열지 않는다.
+export function readProfileConfirm(page: ProfileState): ProfileConfirm {
+  switch (page.kind) {
+    case 'failed':
+      return { kind: 'retryLoad' };
+    case 'loaded':
+      return isRankingsFailureShown(page)
+        ? {
+            kind: 'retryRankings',
+            state: page,
+          }
+        : { kind: 'select' };
+    default:
+      return { kind: 'none' };
+  }
+}
+
+export function scrollRankings(state: LoadedProfileState, rows: number): LoadedProfileState {
+  // 휠은 계정 삭제 팝업의 키 가로채기를 거치지 않아, 팝업 뒤 목록이 움직이지 않게 여기서 막는다.
+  const { rankings } = state;
+  if (
+    !isRankingTabShown(state) ||
+    state.accountDeletion.kind !== 'closed' ||
+    rankings.kind !== 'loaded' ||
+    rows === 0
+  ) {
+    return state;
+  }
+  const chartCount = rankings.items.length;
+  const maxTopRow = Math.max(0, chartCount - PROFILE_RANKING_VISIBLE_ROWS);
+  const topRow = clamp(rankings.topRow + rows, 0, maxTopRow);
+  const { more } = rankings;
+  const isMoreNeeded =
+    more.kind === 'ready' &&
+    topRow + PROFILE_RANKING_VISIBLE_ROWS + RANKING_PREFETCH_ROWS >= chartCount;
+  if (topRow === rankings.topRow && !isMoreNeeded) {
+    return state;
+  }
+  return {
+    ...state,
+    rankings: {
+      ...rankings,
+      more: isMoreNeeded
+        ? {
+            kind: 'loading',
+            cursor: more.cursor,
+          }
+        : more,
+      topRow,
+    },
+  };
+}
+
+export function getRankingRows(state: LoadedProfileState): readonly RankedChart[] {
+  const { rankings } = state;
+  return rankings.kind === 'loaded'
+    ? rankings.items.slice(rankings.topRow, rankings.topRow + PROFILE_RANKING_VISIBLE_ROWS)
+    : [];
+}
+
+export function getRankingsScroll(state: LoadedProfileState): ScrollBarScroll {
+  const { rankings } = state;
+  if (rankings.kind !== 'loaded' || rankings.items.length === 0) {
+    return { kind: 'hidden' };
+  }
+  const totalCount = rankings.items.length;
+  if (totalCount <= PROFILE_RANKING_VISIBLE_ROWS) {
+    return { kind: 'track' };
+  }
+  return {
+    kind: 'thumb',
+    firstIndex: rankings.topRow,
+    visibleCount: PROFILE_RANKING_VISIBLE_ROWS,
+    totalCount,
+  };
+}
+
+export function getRankingsNotice(
+  state: LoadedProfileState,
+): 'none' | 'loading' | 'failed' | 'empty' {
+  switch (state.rankings.kind) {
+    case 'idle':
+      return 'none';
+    case 'loading':
+    case 'failed':
+      return state.rankings.kind;
+    case 'loaded':
+      return state.rankings.items.length === 0 ? 'empty' : 'none';
+  }
 }
 
 export function switchSet(state: LoadedProfileState, delta: -1 | 1): LoadedProfileState {
@@ -367,22 +732,10 @@ export function switchSet(state: LoadedProfileState, delta: -1 | 1): LoadedProfi
 }
 
 export function selectSet(state: LoadedProfileState, set: AchievementSet): LoadedProfileState {
-  if (state.view !== 'collection' || state.collection.set === set) {
+  if (state.collection.set === set) {
     return state;
   }
   return withCollection(state, set, firstAchievementOf(state.profile.achievements, set));
-}
-
-export function focusAchievement(state: LoadedProfileState, id: AchievementId): LoadedProfileState {
-  if (
-    state.view !== 'collection' ||
-    !state.profile.achievements.some(
-      ({ definition }) => definition.id === id && definition.set === state.collection.set,
-    )
-  ) {
-    return state;
-  }
-  return withCollection(state, state.collection.set, id);
 }
 
 function openCollection(state: LoadedProfileState, set: AchievementSet): LoadedProfileState {
@@ -505,7 +858,21 @@ export function createProfileScreen(page: ProfileState): ProfileScreenState {
 // Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로, 페이지가 바뀌어 숨는 대상의 hover 는 여기서 푼다.
 function isShownHover(page: ProfileState, hover: ProfileHover): boolean {
   if (page.kind !== 'loaded') {
-    return hover.kind === 'button' && hover.button !== 'equip' && hover.button !== 'unequip';
+    if (hover.kind !== 'button') {
+      return false;
+    }
+    switch (hover.button) {
+      case 'equip':
+      case 'unequip':
+      case 'deleteEntry':
+      case 'deleteCancel':
+      case 'deleteAccept':
+        return false;
+      case 'retry':
+        return page.kind === 'failed';
+      default:
+        return true;
+    }
   }
   switch (hover.kind) {
     case 'nickname':
@@ -515,11 +882,23 @@ function isShownHover(page: ProfileState, hover: ProfileHover): boolean {
       return page.view === 'summary' && page.summaryTab === 'collection';
     case 'collectionTab':
       return page.view === 'collection';
+    case 'rankingSort':
+    case 'rankingAllOption':
+    case 'rankingLaneOption':
+    case 'rankingDifficultyOption':
+      return isRankingTabShown(page);
     case 'button':
       switch (hover.button) {
         case 'equip':
         case 'unequip':
           return page.view === 'collection' && getFeaturedAction(page) === hover.button;
+        case 'deleteEntry':
+          return page.view === 'summary';
+        case 'retry':
+          return isRankingsFailureShown(page);
+        case 'deleteCancel':
+        case 'deleteAccept':
+          return page.accountDeletion.kind !== 'closed';
         default:
           return true;
       }
@@ -547,9 +926,7 @@ export function withPage(screen: ProfileScreenState, page: ProfileState): Profil
 }
 
 export function setHover(screen: ProfileScreenState, target: ProfileTarget): ProfileScreenState {
-  return isSameHover(screen.hover, target) || !isShownHover(screen.page, target)
-    ? screen
-    : withHover(screen, target);
+  return isSameHover(screen.hover, target) ? screen : withHover(screen, target);
 }
 
 export function clearHover(screen: ProfileScreenState, target: ProfileTarget): ProfileScreenState {
@@ -558,12 +935,11 @@ export function clearHover(screen: ProfileScreenState, target: ProfileTarget): P
 
 function isProfileButtonEnabled(screen: ProfileScreenState, button: ProfileButton): boolean {
   switch (button) {
-    case 'equip':
-    case 'unequip':
-    case 'back':
-      return true;
+    case 'deleteCancel':
+    case 'deleteAccept':
+      return isChoosingDeletion(getAccountDeletion(screen));
     default:
-      return isControlsButtonEnabled(button, screen.isControlsOpen);
+      return true;
   }
 }
 
@@ -600,17 +976,145 @@ export function releaseProfileButton(
 
 export function getProfileButtonView(
   screen: Pick<ProfileScreenState, 'hover'>,
-  button: 'equip' | 'unequip' | 'back',
+  button: 'equip' | 'unequip' | 'back' | 'retry' | 'accountSignOut',
 ): ButtonView {
   return getButtonView(screen.hover, button, true, false);
 }
 
 export function getProfileControlsCloseView(screen: ProfileScreenState): ButtonView {
-  return getControlsCloseView(screen.hover, screen.isControlsOpen);
+  return getControlsCloseView(screen.hover);
 }
 
 export function isProfileControlsEntryHovered(screen: ProfileScreenState): boolean {
   return isControlsEntryHovered(screen.hover);
+}
+
+function isChoosingDeletion(deletion: AccountDeletion): deletion is ChoosingDeletion {
+  return 'focus' in deletion;
+}
+
+export function openAccountDeletion(state: LoadedProfileState): LoadedProfileState {
+  return state.view === 'summary' &&
+    state.nickname.kind === 'idle' &&
+    state.accountDeletion.kind === 'closed'
+    ? {
+        ...state,
+        accountDeletion: {
+          kind: 'confirming',
+          focus: 'cancel',
+        },
+      }
+    : state;
+}
+
+export function focusAccountDeletion(
+  state: LoadedProfileState,
+  focus: DeletionFocus,
+): LoadedProfileState {
+  const deletion = state.accountDeletion;
+  return isChoosingDeletion(deletion) && deletion.focus !== focus
+    ? {
+        ...state,
+        accountDeletion: {
+          ...deletion,
+          focus,
+        },
+      }
+    : state;
+}
+
+export function closeAccountDeletion(state: LoadedProfileState): LoadedProfileState {
+  return isChoosingDeletion(state.accountDeletion)
+    ? {
+        ...state,
+        accountDeletion: CLOSED_DELETION,
+      }
+    : state;
+}
+
+export function startAccountDeletion(state: LoadedProfileState): LoadedProfileState {
+  return isChoosingDeletion(state.accountDeletion)
+    ? {
+        ...state,
+        accountDeletion: { kind: 'deleting' },
+      }
+    : state;
+}
+
+export function failAccountDeletion(state: LoadedProfileState, error: unknown): ProfileState {
+  const kind = error instanceof AccountDeletionError ? error.kind : 'failed';
+  // 인증 만료는 다시 로그인해야 하므로 프로필 로드 실패와 같이 게스트 안내로 보낸다.
+  if (kind === 'unauthorized') {
+    return { kind: 'guest' };
+  }
+  return {
+    ...state,
+    accountDeletion: {
+      kind: kind === 'unknown' ? 'unknown' : 'failed',
+      focus: 'cancel',
+    },
+  };
+}
+
+export function readAccountDeletionKey(
+  state: LoadedProfileState,
+  action: MenuAction | null,
+): AccountDeletionKey {
+  const deletion = state.accountDeletion;
+  if (deletion.kind === 'closed') {
+    return { kind: 'pass' };
+  }
+  if (!isChoosingDeletion(deletion)) {
+    return { kind: 'block' };
+  }
+  switch (action) {
+    case 'left':
+      return {
+        kind: 'focus',
+        focus: 'cancel',
+      };
+    case 'right':
+      return {
+        kind: 'focus',
+        focus: 'accept',
+      };
+    case 'confirm':
+      return { kind: deletion.focus };
+    case 'back':
+      return { kind: 'cancel' };
+    default:
+      return { kind: 'block' };
+  }
+}
+
+export function getAccountDeletion(screen: ProfileScreenState): AccountDeletion {
+  return screen.page.kind === 'loaded' ? screen.page.accountDeletion : CLOSED_DELETION;
+}
+
+export function isDeleteEntryShown(screen: ProfileScreenState): boolean {
+  return screen.page.kind === 'loaded' && screen.page.view === 'summary';
+}
+
+export function getDeletionButtonViews(screen: ProfileScreenState): {
+  readonly cancel: ButtonView;
+  readonly accept: ButtonView;
+} {
+  const deletion = getAccountDeletion(screen);
+  const isChoosing = isChoosingDeletion(deletion);
+  return {
+    cancel: getButtonView(
+      screen.hover,
+      'deleteCancel',
+      isChoosing,
+      isChoosing && deletion.focus === 'cancel',
+    ),
+    accept: getButtonView(
+      screen.hover,
+      'deleteAccept',
+      isChoosing,
+      isChoosing && deletion.focus === 'accept',
+    ),
+  };
 }
 
 function startNicknameEdit(state: LoadedProfileState): LoadedProfileState {
@@ -663,7 +1167,8 @@ export function toNicknameFailure(error: unknown): NicknameChangeFailure {
 
 export function toLoadFailurePage(error: unknown): ProfileState {
   // 인증 만료는 다시 로그인해야 하므로 게스트 안내로 보낸다.
-  return error instanceof ProfileRequestError && error.kind === 'unauthorized'
+  return (error instanceof ProfileRequestError || error instanceof RankingRequestError) &&
+    error.kind === 'unauthorized'
     ? { kind: 'guest' }
     : { kind: 'failed' };
 }
@@ -742,6 +1247,14 @@ function isSameHover(hover: ProfileHover | null, target: ProfileTarget): boolean
       return target.kind === 'setRow' && target.set === hover.set;
     case 'collectionTab':
       return target.kind === 'collectionTab' && target.set === hover.set;
+    case 'rankingSort':
+      return target.kind === 'rankingSort';
+    case 'rankingAllOption':
+      return target.kind === 'rankingAllOption';
+    case 'rankingLaneOption':
+      return target.kind === 'rankingLaneOption' && target.filter === hover.filter;
+    case 'rankingDifficultyOption':
+      return target.kind === 'rankingDifficultyOption' && target.filter === hover.filter;
   }
 }
 
@@ -763,6 +1276,21 @@ export function getChoiceAppearance(
       break;
     case 'collectionTab':
       if (state.collection.set === target.set) {
+        return 'selected';
+      }
+      break;
+    case 'rankingAllOption':
+      if (isRankingFilterCleared(state)) {
+        return 'selected';
+      }
+      break;
+    case 'rankingLaneOption':
+      if (state.rankingLane === target.filter) {
+        return 'selected';
+      }
+      break;
+    case 'rankingDifficultyOption':
+      if (state.rankingDifficulty === target.filter) {
         return 'selected';
       }
       break;
@@ -836,9 +1364,34 @@ export function goBack(state: ProfileState): ProfileBack {
   return { kind: 'leave' };
 }
 
-/** 요약 탭 전환은 포커스 이동이 아니라 포커스 효과음을 내지 않는다. */
-export function hasMovedFocus(before: LoadedProfileState, after: LoadedProfileState): boolean {
-  return after !== before && after.summaryTab === before.summaryTab;
+/** 정렬과 필터, 요약 탭을 바꾸는 일은 클릭음을 내고, 랭킹 목록 넘기기는 포커스 이동이 아니라 소리를 내지 않는다. */
+export function getFocusMoveSound(
+  before: LoadedProfileState,
+  after: LoadedProfileState,
+): SoundEffect | null {
+  if (
+    after.summaryTab !== before.summaryTab ||
+    !isShallowEqual(readRankingControls(before), readRankingControls(after))
+  ) {
+    return 'click';
+  }
+  return after !== before && after.rankings === before.rankings ? 'menuFocus' : null;
+}
+
+function getPendingRankings({ rankings }: LoadedProfileState): object | null {
+  if (rankings.kind === 'loading') {
+    return rankings;
+  }
+  return rankings.kind === 'loaded' && rankings.more.kind === 'loading' ? rankings.more : null;
+}
+
+/** 목록을 넘기기만 해서는 요청하지 않고, 처음 받기나 이어 받기가 새로 시작됐을 때만 요청한다. */
+export function hasStartedRankingsLoad(
+  before: LoadedProfileState,
+  after: LoadedProfileState,
+): boolean {
+  const pending = getPendingRankings(after);
+  return pending !== null && pending !== getPendingRankings(before);
 }
 
 /** 편집 중에는 입력란이 키를 받으므로 메뉴 단축키로 읽지 않는다. */
@@ -855,19 +1408,30 @@ export interface ProfileRegions {
 type ScreenReader = StateReader<ProfileScreenState>;
 
 const readControlsOpen: ScreenReader = (screen) => screen.isControlsOpen;
-const readCloseHovered: ScreenReader = (screen) => isButtonHovered(screen.hover, 'controlsClose');
+const readHovered =
+  (button: ProfileButton): ScreenReader =>
+  (screen) =>
+    isButtonHovered(screen.hover, button);
+const readPressed =
+  (button: ProfileButton): ScreenReader =>
+  (screen) =>
+    isButtonPressed(screen.hover, button);
 
 const SCREEN_REGION_SOURCES: Readonly<Record<ScreenRegion, readonly ScreenReader[]>> = {
   controls: [readControlsOpen],
-  backButton: [
-    (screen) => isButtonHovered(screen.hover, 'back'),
-    (screen) => isButtonPressed(screen.hover, 'back'),
-  ],
-  controlsEntry: [(screen) => isButtonHovered(screen.hover, 'controlsEntry')],
-  controlsClose: [
-    readCloseHovered,
-    (screen) => isButtonPressed(screen.hover, 'controlsClose'),
-    readControlsOpen,
+  backButton: [readHovered('back'), readPressed('back')],
+  retryButton: [readHovered('retry'), readPressed('retry')],
+  controlsEntry: [readHovered('controlsEntry')],
+  accountButton: [readHovered('accountSignOut'), readPressed('accountSignOut')],
+  controlsClose: [readHovered('controlsClose'), readPressed('controlsClose')],
+  deleteEntry: [isDeleteEntryShown, readHovered('deleteEntry')],
+  deleteDialog: [(screen) => getAccountDeletion(screen).kind],
+  deleteButtons: [
+    getAccountDeletion,
+    readHovered('deleteCancel'),
+    readPressed('deleteCancel'),
+    readHovered('deleteAccept'),
+    readPressed('deleteAccept'),
   ],
 };
 
@@ -1034,18 +1598,6 @@ export function getFeaturedIdentity(state: LoadedProfileState): FeaturedIdentity
 
 export function getSummaryFocusKind(state: LoadedProfileState): 'nickname' | 'set' {
   return state.summaryFocus === 'nickname' ? 'nickname' : 'set';
-}
-
-export function getProfileNotice(page: ProfilePageKind): 'guest' | 'failed' | null {
-  switch (page) {
-    case 'guest':
-    case 'failed':
-      return page;
-    case 'loading':
-    case 'summary':
-    case 'collection':
-      return null;
-  }
 }
 
 export function getNicknameCountInput(state: LoadedProfileState): string | null {

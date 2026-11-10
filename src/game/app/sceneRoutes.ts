@@ -14,6 +14,7 @@ export const SCENE_KEYS = {
   settings: 'Settings',
   credits: 'Credits',
   profile: 'Profile',
+  ranking: 'Ranking',
   chartEditorSelect: 'ChartEditorSelect',
   chartEditor: 'ChartEditor',
   bootError: 'BootError',
@@ -43,9 +44,40 @@ export interface SongSelectSceneData {
   readonly restore?: SongSelectRestore;
 }
 
-export interface GameplaySceneData extends ChartRef {
+export interface ProfileSceneData {
+  readonly returnTo: SceneRequest;
+}
+
+export interface RankingSceneData {
   readonly mode: PlayMode;
-  readonly restore?: SongSelectRestore;
+  readonly restore: SongSelectRestore;
+  readonly chart: ChartRef;
+}
+
+/** 시각은 채보 타임라인 기준이다. */
+export type PlayStart =
+  { readonly kind: 'whole' } | { readonly kind: 'from'; readonly timeMs: number };
+
+export type PlayQuitKey = 'confirm' | 'leave';
+
+export type PlayOrigin =
+  | {
+      readonly kind: 'songSelect';
+      readonly mode: PlayMode;
+      readonly quitKey: 'confirm';
+      readonly start: { readonly kind: 'whole' };
+      readonly restore?: SongSelectRestore;
+    }
+  | {
+      readonly kind: 'chartEditor';
+      readonly mode: 'practice';
+      readonly quitKey: 'leave';
+      readonly start: { readonly kind: 'from'; readonly timeMs: number };
+      readonly list: SongFeed;
+    };
+
+export interface GameplaySceneData extends ChartRef {
+  readonly origin: PlayOrigin;
 }
 
 /** submitted 의 submission 은 거절되지 않는다. 제출이 예외로 끝나면 unknown 이 된다. */
@@ -54,11 +86,22 @@ export type ResultRanking =
   | { readonly kind: 'issueFailed' }
   | { readonly kind: 'submitted'; readonly submission: Promise<RankingSubmission> };
 
+/** section 은 곡의 일부만 친 판이라 곡 전체를 평가하는 등급과 점수를 매기지 않는다. */
+export type ResultReport =
+  | { readonly kind: 'graded' }
+  | {
+      readonly kind: 'section';
+      readonly startTimeMs: number;
+      readonly endTimeMs: number;
+      readonly noteCount: number;
+      readonly totalNoteCount: number;
+    };
+
 export interface ResultSceneData extends ChartRef {
-  readonly mode: PlayMode;
+  readonly origin: PlayOrigin;
+  readonly report: ResultReport;
   result: GameplayResult;
   readonly ranking: ResultRanking;
-  readonly restore?: SongSelectRestore;
 }
 
 export type ChartEditorSelectSceneData =
@@ -68,6 +111,8 @@ export type ChartEditorSelectSceneData =
 export interface ChartEditorSceneData {
   readonly songId: string;
   readonly list: SongFeed;
+  readonly chart?: Pick<ChartRef, 'laneCount' | 'difficulty'>;
+  readonly resumeTimeMs?: number;
 }
 
 export type SettingsReturn =
@@ -85,7 +130,8 @@ export interface SceneDataMap {
   result: ResultSceneData;
   settings: SettingsSceneData;
   credits: undefined;
-  profile: undefined;
+  profile: ProfileSceneData;
+  ranking: RankingSceneData;
   chartEditorSelect: ChartEditorSelectSceneData;
   chartEditor: ChartEditorSceneData;
 }
@@ -101,6 +147,46 @@ export function startScene<K extends keyof SceneDataMap>(
 export type SceneRequest = {
   [K in keyof SceneDataMap]: { readonly key: K; readonly data: SceneDataMap[K] };
 }[keyof SceneDataMap];
+
+/** played 는 실제로 플레이한 채보, selected 는 화면에서 고른 채보, stoppedTimeMs 는 플레이를 멈춘 시각이다. */
+export function getPlayOriginRequest(
+  origin: PlayOrigin,
+  played: ChartRef,
+  selected: ChartRef,
+  stoppedTimeMs = 0,
+): SceneRequest {
+  switch (origin.kind) {
+    case 'songSelect':
+      return {
+        key: 'songSelect',
+        data: {
+          mode: origin.mode,
+          ...(origin.restore === undefined
+            ? {}
+            : {
+                restore: {
+                  ...origin.restore,
+                  difficulty: selected.difficulty,
+                },
+              }),
+        },
+      };
+    case 'chartEditor':
+      return {
+        key: 'chartEditor',
+        data: {
+          songId: played.song.id,
+          list: origin.list,
+          chart: {
+            laneCount: played.laneCount,
+            difficulty: played.difficulty,
+          },
+          // 시작 전 카운트다운에 나가도 고른 위치를 잃지 않는다.
+          resumeTimeMs: Math.max(origin.start.timeMs, stoppedTimeMs),
+        },
+      };
+  }
+}
 
 export function exitScene(
   scene: Phaser.Scene,

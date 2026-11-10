@@ -4,9 +4,11 @@ import {
   getAvailableDifficulties,
   stepChart,
 } from '../../../data/songs.js';
+import type { ChartTopRank, MyChartRecord } from '../../../data/ranking.js';
 import type { ChartRef, Song, SongFilter } from '../../../data/songs.js';
-import type { Difficulty, LaneCount } from '../../../rhythm/types.js';
-import { getChartRecord } from '../../../storage/chartRecords.js';
+import { getRank } from '../../../rhythm/rank.js';
+import type { Difficulty, LaneCount, Rank } from '../../../rhythm/types.js';
+import { getChartRecord, recordKey } from '../../../storage/chartRecords.js';
 import type { ChartRecord, ChartRecords } from '../../../storage/chartRecords.js';
 import { filterChangedRegions } from '../../../changedRegions.js';
 import {
@@ -19,11 +21,9 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import {
-  getControlsCloseView,
-  isControlsButtonEnabled,
-  isControlsEntryHovered,
-} from '../../app/controlsGuide.js';
+import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
+import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
 import type { CelestialStaticId } from '../../celestial/state/celestialCatalog.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
@@ -46,7 +46,8 @@ export type SongSelection =
 export const SONG_SELECT_ACTIONS = ['random', 'play'] as const;
 export type SongSelectAction = (typeof SONG_SELECT_ACTIONS)[number];
 
-export type SongSelectButton = 'settings' | ControlsButton;
+export type SongSelectButton =
+  'settings' | 'back' | 'ranking' | 'retry' | 'recordsRetry' | ControlsButton | AccountPanelButton;
 
 export type SongSelectHover =
   | { readonly kind: 'filter'; readonly filter: SongFilter }
@@ -55,6 +56,11 @@ export type SongSelectHover =
   | { readonly kind: 'difficulty'; readonly difficulty: Difficulty }
   | ButtonHover<SongSelectButton>;
 
+export type SongRecords =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'ready'; readonly records: ChartRecords }
+  | { readonly kind: 'failed' };
+
 export interface SongSelectState {
   readonly filter: SongFilter;
   readonly songs: readonly Song[];
@@ -62,6 +68,9 @@ export interface SongSelectState {
   readonly current: SongSelection;
   readonly hover: SongSelectHover | null;
   readonly isControlsOpen: boolean;
+  /** 로그인 사용자가 20위 안인 채보의 순위. 채보 id 로 찾는다. */
+  readonly topRanks: ReadonlyMap<string, number>;
+  readonly records: SongRecords;
 }
 
 export type SongRowAppearance = 'selected' | 'hovered' | 'idle';
@@ -73,6 +82,7 @@ export type SongRowView =
       readonly song: Song;
       readonly appearance: SongRowAppearance;
       readonly nodeId: SongRowNodeId;
+      readonly topRank: number | null;
     };
 
 export type SongSelectNotice = 'loading' | 'loadFailed' | 'noSongs';
@@ -83,8 +93,9 @@ export interface SongSelectView {
   readonly isLoadingMore: boolean;
   /** 아직 받지 않은 곡까지 포함한 목록 전체 곡 수. 페이지 수 표시에 쓴다. */
   readonly songCount: number;
-  readonly records: ChartRecords;
 }
+
+const NO_TOP_RANKS: ReadonlyMap<string, number> = new Map();
 
 type SongSelectTarget = Pick<SongSelectRestore, 'index' | 'songId' | 'difficulty'>;
 
@@ -102,6 +113,8 @@ export function createSongSelectState(
       current: selectAt(songs, laneCount, 0, null),
       hover: null,
       isControlsOpen: false,
+      topRanks: NO_TOP_RANKS,
+      records: { kind: 'loading' },
     };
   }
   const found = songs.findIndex((song) => song.id === target.songId);
@@ -117,6 +130,62 @@ export function createSongSelectState(
     ),
     hover: null,
     isControlsOpen: false,
+    topRanks: NO_TOP_RANKS,
+    records: { kind: 'loading' },
+  };
+}
+
+export function withTopRanks(
+  state: SongSelectState,
+  ranked: readonly ChartTopRank[],
+): SongSelectState {
+  if (ranked.length === 0 && state.topRanks.size === 0) {
+    return state;
+  }
+  return {
+    ...state,
+    topRanks: new Map(ranked.map(({ chartId, rank }) => [chartId, rank])),
+  };
+}
+
+export function withLocalRecords(state: SongSelectState, records: ChartRecords): SongSelectState {
+  return {
+    ...state,
+    records: {
+      kind: 'ready',
+      records,
+    },
+  };
+}
+
+export function withMyRecords(
+  state: SongSelectState,
+  items: readonly MyChartRecord[],
+): SongSelectState {
+  return withLocalRecords(
+    state,
+    new Map(
+      items.map(({ songId, laneCount, difficulty, ...record }) => [
+        recordKey(songId, laneCount, difficulty),
+        record,
+      ]),
+    ),
+  );
+}
+
+export function failRecords(state: SongSelectState): SongSelectState {
+  return {
+    ...state,
+    records: { kind: 'failed' },
+  };
+}
+
+// 다시 받는 동안 RETRY 가 숨어 Phaser 가 POINTER_OUT 을 보내지 않으므로 hover 를 여기서 푼다.
+export function retryRecords(state: SongSelectState): SongSelectState {
+  return {
+    ...state,
+    records: { kind: 'loading' },
+    hover: unhoverButton(state.hover, 'recordsRetry'),
   };
 }
 
@@ -177,18 +246,56 @@ export function isLoadingMoreSongs(loadedCount: number, status: SongFeedStatus):
   return loadedCount > 0 && status === 'loading';
 }
 
+/** 곡이 없어 실패 안내만 보이는 동안 PLAY 와 RANKING 은 다시 불러오기로 받는다. */
+export function isFeedRetryInput(state: SongSelectState, status: SongFeedStatus): boolean {
+  return getSongSelectNotice(state.songs.length, status) === 'loadFailed';
+}
+
 export function getPlayableSelection(state: SongSelectState): ChartRef | null {
   return state.current.kind === 'song' ? state.current.chart : null;
 }
 
-export function getSelectedRecord(
-  state: SongSelectState,
-  records: ChartRecords,
-): ChartRecord | null {
+export function getSelectedRecord(state: SongSelectState): ChartRecord | null {
   const selection = getPlayableSelection(state);
-  return selection === null
+  return selection === null || state.records.kind !== 'ready'
     ? null
-    : getChartRecord(records, selection.song.id, selection.laneCount, selection.difficulty);
+    : getChartRecord(
+        state.records.records,
+        selection.song.id,
+        selection.laneCount,
+        selection.difficulty,
+      );
+}
+
+export type SelectedRecordView =
+  | { readonly kind: 'hidden' }
+  | { readonly kind: 'failed' }
+  | { readonly kind: 'none' }
+  | {
+      readonly kind: 'record';
+      readonly score: number;
+      readonly accuracy: number;
+      readonly grade: Rank;
+    };
+
+export function getSelectedRecordView(state: SongSelectState): SelectedRecordView {
+  switch (state.records.kind) {
+    case 'loading':
+      return { kind: 'hidden' };
+    case 'failed':
+      return { kind: 'failed' };
+    case 'ready': {
+      const record = getSelectedRecord(state);
+      return record === null
+        ? { kind: 'none' }
+        : {
+            kind: 'record',
+            score: record.score,
+            accuracy: record.accuracy,
+            grade: getRank(record.accuracy),
+          };
+    }
+  }
 }
 
 export function getDifficultyAccent(state: SongSelectState): number | null {
@@ -263,11 +370,7 @@ export function getJacketRange(state: SongSelectState, rowsPerPage: number): Jac
   };
 }
 
-export function getSongRows(
-  state: SongSelectState,
-  rowsPerPage: number,
-  records: ChartRecords,
-): SongRowView[] {
+export function getSongRows(state: SongSelectState, rowsPerPage: number): SongRowView[] {
   const { startIndex, selectedSlot } = getSongPage(state, rowsPerPage);
   const difficulty = getSelectedDifficulty(state.current);
   return Array.from({ length: rowsPerPage }, (_, slot): SongRowView => {
@@ -284,10 +387,16 @@ export function getSongRows(
       appearance,
       nodeId: getSongRowNodeId(
         appearance,
-        recordChart === undefined
+        recordChart === undefined || state.records.kind !== 'ready'
           ? null
-          : getChartRecord(records, song.id, recordChart.laneCount, recordChart.difficulty),
+          : getChartRecord(
+              state.records.records,
+              song.id,
+              recordChart.laneCount,
+              recordChart.difficulty,
+            ),
       ),
+      topRank: recordChart === undefined ? null : (state.topRanks.get(recordChart.chartId) ?? null),
     };
   });
 }
@@ -449,6 +558,8 @@ export function withFilter(
     current: selectAt(songs, state.laneCount, 0, getSelectedDifficulty(state.current)),
     hover: state.hover,
     isControlsOpen: state.isControlsOpen,
+    topRanks: state.topRanks,
+    records: state.records,
   };
 }
 
@@ -515,6 +626,13 @@ export function releaseHover(state: SongSelectState, rowsPerPage: number): SongS
   }
 }
 
+// RETRY 는 실패 안내와 함께 숨어 Phaser 가 POINTER_OUT 을 보내지 않으므로 hover 를 여기서 푼다.
+export function releaseRetryHover(state: SongSelectState, status: SongFeedStatus): SongSelectState {
+  return isFeedRetryInput(state, status)
+    ? state
+    : withHover(state, unhoverButton(state.hover, 'retry'));
+}
+
 function withHover(state: SongSelectState, hover: SongSelectHover | null): SongSelectState {
   return hover === state.hover
     ? state
@@ -544,12 +662,24 @@ export function pressSongSelectButton(
 ): SongSelectState {
   return withHover(
     state,
-    pressButton(
-      state.hover,
-      button,
-      button === 'settings' || isControlsButtonEnabled(button, state.isControlsOpen),
-    ),
+    pressButton(state.hover, button, isSongSelectButtonEnabled(state, button)),
   );
+}
+
+function isSongSelectButtonEnabled(state: SongSelectState, button: SongSelectButton): boolean {
+  switch (button) {
+    case 'ranking':
+      return getPlayableSelection(state) !== null;
+    case 'settings':
+    case 'back':
+    case 'retry':
+    case 'recordsRetry':
+    case 'controlsEntry':
+    case 'controlsClose':
+    case 'controlsBackdrop':
+    case 'accountProfile':
+      return true;
+  }
 }
 
 export function releaseSongSelectButton(
@@ -559,28 +689,54 @@ export function releaseSongSelectButton(
   return withHover(state, releaseButton(state.hover, button));
 }
 
+export function getBackButtonView(view: SongSelectView): ButtonView {
+  return getButtonView(view.state.hover, 'back', true, false);
+}
+
 export function getSettingsButtonView(view: SongSelectView): ButtonView {
   return getButtonView(view.state.hover, 'settings', true, false);
 }
 
+export function getRetryButtonView(view: SongSelectView): ButtonView {
+  return getButtonView(view.state.hover, 'retry', true, false);
+}
+
+export function getRecordsRetryButtonView(view: SongSelectView): ButtonView {
+  return getButtonView(view.state.hover, 'recordsRetry', true, false);
+}
+
+export function getRankingButtonView(view: SongSelectView): ButtonView {
+  return getButtonView(
+    view.state.hover,
+    'ranking',
+    isSongSelectButtonEnabled(view.state, 'ranking'),
+    false,
+  );
+}
+
 export function getSongSelectControlsCloseView(view: SongSelectView): ButtonView {
-  return getControlsCloseView(view.state.hover, view.state.isControlsOpen);
+  return getControlsCloseView(view.state.hover);
 }
 
 export function isSongSelectControlsEntryHovered(view: SongSelectView): boolean {
   return isControlsEntryHovered(view.state.hover);
 }
 
-export type SongSelectShortcut = 'openSettings' | 'selectRandomSong';
+export type SongSelectShortcut = 'openSettings' | 'selectRandomSong' | 'openRanking';
 
 export function readSongSelectShortcut(
   event: Pick<KeyboardEvent, 'code' | 'repeat'>,
 ): SongSelectShortcut | null {
+  if (event.repeat) {
+    return null;
+  }
   switch (event.code) {
     case 'Tab':
       return 'openSettings';
     case 'KeyR':
-      return event.repeat ? null : 'selectRandomSong';
+      return 'selectRandomSong';
+    case 'KeyL':
+      return 'openRanking';
     default:
       return null;
   }
@@ -674,7 +830,12 @@ export type SongSelectRegion =
   | 'jacketLoads'
   | 'controls'
   | 'settingsButton'
+  | 'backButton'
+  | 'rankingButton'
+  | 'retryButton'
+  | 'recordsRetryButton'
   | 'controlsEntry'
+  | 'accountButton'
   | 'controlsClose'
   | 'jacketGlint'
   | 'rowShift';
@@ -699,9 +860,9 @@ const readLaneCount: SongSelectReader = ({ view }) => view.state.laneCount;
 const readCurrent: SongSelectReader = ({ view }) => view.state.current;
 const readCurrentSong: SongSelectReader = ({ view }) =>
   view.state.current.kind === 'song' ? view.state.current.song : null;
-const readRecords: SongSelectReader = ({ view }) => view.records;
-const readSelectedRecord: SongSelectReader = ({ view }) =>
-  getSelectedRecord(view.state, view.records);
+const readRecords: SongSelectReader = ({ view }) => view.state.records;
+const readRecordsKind: SongSelectReader = ({ view }) => view.state.records.kind;
+const readSelectedRecord: SongSelectReader = ({ view }) => getSelectedRecord(view.state);
 const readStartIndex: SongSelectReader = ({ view, rowsPerPage }) =>
   getSongPage(view.state, rowsPerPage).startIndex;
 const readSelectedSlot: SongSelectReader = ({ view, rowsPerPage }) =>
@@ -722,6 +883,13 @@ const readSettingsHovered: SongSelectReader = ({ view }) =>
   isButtonHovered(view.state.hover, 'settings');
 const readSettingsPressed: SongSelectReader = ({ view }) =>
   isButtonPressed(view.state.hover, 'settings');
+const readTopRanks: SongSelectReader = ({ view }) => view.state.topRanks;
+const readRankingEnabled: SongSelectReader = ({ view }) =>
+  isSongSelectButtonEnabled(view.state, 'ranking');
+const readRankingHovered: SongSelectReader = ({ view }) =>
+  isButtonHovered(view.state.hover, 'ranking');
+const readRankingPressed: SongSelectReader = ({ view }) =>
+  isButtonPressed(view.state.hover, 'ranking');
 const readEntryHovered: SongSelectReader = ({ view }) =>
   isButtonHovered(view.state.hover, 'controlsEntry');
 const readCloseHovered: SongSelectReader = ({ view }) =>
@@ -742,20 +910,36 @@ const REGION_SOURCES: Readonly<
     readCurrent,
     readLaneCount,
     readRecords,
+    readTopRanks,
   ],
   selectedHalo: [readSelectedSlot],
   notice: [readNotice],
   pageIndicator: [readPageText],
   loadingMore: [readIsLoadingMore, readLoadingMoreSlot],
   jacket: [readCurrentSong],
-  songInfo: [readCurrentSong, readLaneCount, readSelectedRecord],
+  // 고른 채보에 기록이 없어도 받는 중, 없음, 실패는 다르게 그리므로 기록 상태 종류도 읽는다.
+  songInfo: [readCurrentSong, readLaneCount, readSelectedRecord, readRecordsKind],
   difficultyTabs: [readCurrent, readLaneCount, readHoveredDifficulty],
   actions: [readRandomAppearance, readPlayAppearance],
   jacketLoads: [readSongs, readStartIndex],
   controls: [readControlsOpen],
   settingsButton: [readSettingsHovered, readSettingsPressed],
+  backButton: [
+    ({ view }) => isButtonHovered(view.state.hover, 'back'),
+    ({ view }) => isButtonPressed(view.state.hover, 'back'),
+  ],
+  rankingButton: [readRankingEnabled, readRankingHovered, readRankingPressed],
+  retryButton: [
+    ({ view }) => isButtonHovered(view.state.hover, 'retry'),
+    ({ view }) => isButtonPressed(view.state.hover, 'retry'),
+  ],
+  recordsRetryButton: [
+    ({ view }) => isButtonHovered(view.state.hover, 'recordsRetry'),
+    ({ view }) => isButtonPressed(view.state.hover, 'recordsRetry'),
+  ],
   controlsEntry: [readEntryHovered],
-  controlsClose: [readCloseHovered, readClosePressed, readControlsOpen],
+  accountButton: [({ view }) => getAccountPanelPointerKey(view.state.hover)],
+  controlsClose: [readCloseHovered, readClosePressed],
 };
 
 export function getChangedRegions(
@@ -792,11 +976,11 @@ export function getChangedRowSlots(
   next: SongSelectView,
   rowsPerPage: number,
 ): readonly number[] {
-  const after = getSongRows(next.state, rowsPerPage, next.records);
+  const after = getSongRows(next.state, rowsPerPage);
   if (previous === null) {
     return after.map((_, slot) => slot);
   }
-  const before = getSongRows(previous.state, rowsPerPage, previous.records);
+  const before = getSongRows(previous.state, rowsPerPage);
   return after.flatMap((row, slot) => (isSameRow(before[slot], row) ? [] : [slot]));
 }
 

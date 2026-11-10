@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import PocketBase from 'pocketbase';
 import {
   cancelSignInWithGoogle,
+  deleteAccount,
   getCurrentUser,
   refreshCurrentUser,
   signInWithGoogle,
@@ -10,22 +11,27 @@ import {
 import { loadAchievementCatalog } from './backend/achievements.js';
 import { ChartCache } from './backend/ChartCache.js';
 import { loadChart, saveChart } from './backend/charts.js';
-import { preparePlay, submitPlay } from './backend/playSessions.js';
+import { PlayRecords } from './backend/PlayRecords.js';
+import { preparePlay } from './backend/playSessions.js';
 import {
   changeNickname,
   isNicknameAvailable,
   loadProfile,
   setFeaturedAchievement,
 } from './backend/profile.js';
+import { loadLeaderboard, loadMyRankings, loadMyTopRanks } from './backend/rankings.js';
 import { loadSongBatch } from './backend/songLoader.js';
 import type { AchievementCatalog } from './data/achievements.js';
 import type { PreparedChart } from './data/playSession.js';
-import { ALL_SONGS_QUERY } from './data/songs.js';
-import type { ChartRef, SongBatch, SongScope } from './data/songs.js';
+import type { ChartRef, SongScope } from './data/songs.js';
+import { getAccountIdentity } from './game/ui/state/accountIdentity.js';
+import type { AccountSource } from './game/ui/state/accountIdentity.js';
 import type { AccountAuth } from './game/app/accountState.js';
 import { loadCelestialCatalog } from './game/celestial/state/celestialCatalog.js';
 import { createGameConfig } from './game/app/config.js';
 import { BootErrorScene } from './game/boot/BootErrorScene.js';
+import { LoadingController } from './game/boot/LoadingController.js';
+import { LoadingShell } from './game/boot/view/LoadingShell.js';
 import { ChartEditorScene } from './game/editor/ChartEditorScene.js';
 import { ChartEditorSelectScene } from './game/editor/ChartEditorSelectScene.js';
 import type { ChartCatalog } from './game/editor/ChartEditorController.js';
@@ -35,6 +41,8 @@ import type { RankedPlay } from './game/gameplay/GameplayController.js';
 import { MainScene } from './game/main/MainScene.js';
 import type { ProfilePorts } from './game/profile/ProfileController.js';
 import { ProfileScene } from './game/profile/ProfileScene.js';
+import type { RankingPorts } from './game/ranking/RankingController.js';
+import { RankingScene } from './game/ranking/RankingScene.js';
 import { ResultScene } from './game/result/ResultScene.js';
 import { SettingsScene } from './game/settings/SettingsScene.js';
 import { SharedSongFeeds } from './game/app/SongFeed.js';
@@ -45,6 +53,8 @@ import { MenuMusic } from './game/ui/view/MenuMusic.js';
 import { NebulaTrail } from './game/ui/view/input/NebulaTrail.js';
 import { bindPressedCursor } from './game/ui/view/input/pressedCursor.js';
 import { preloadCjkFonts, preloadUiFonts, redrawTextsWhenFontsLoad } from './game/ui/view/fonts.js';
+import { isReducedMotionPreferred } from './game/ui/view/theme.js';
+import { requireDefined } from './invariant.js';
 import { en } from './i18n/messages/en.js';
 import { ja } from './i18n/messages/ja.js';
 import { ko } from './i18n/messages/ko.js';
@@ -57,7 +67,6 @@ async function loadSongCatalog(): Promise<{
   pb: PocketBase;
   loadPublishedBatch: SongBatchLoader;
   loadAllBatch: SongBatchLoader;
-  firstBatch: SongBatch;
   achievements: AchievementCatalog;
 }> {
   const url = import.meta.env.VITE_POCKETBASE_URL;
@@ -73,18 +82,11 @@ async function loadSongCatalog(): Promise<{
       await preloadCjkFonts(batch.songs.map((song) => song.title).join(''));
       return batch;
     };
-  const loadPublishedBatch = createLoader('published');
-  // 첫 배치 실패는 부트 오류로 보여야 하므로 실패를 삼키는 feed 요청이 아니라 로더를 직접 부른다.
-  const [firstBatch, achievements] = await Promise.all([
-    loadPublishedBatch(ALL_SONGS_QUERY, null),
-    loadAchievementCatalog(pb),
-  ]);
   return {
     pb,
-    loadPublishedBatch,
+    loadPublishedBatch: createLoader('published'),
     loadAllBatch: createLoader('all'),
-    firstBatch,
-    achievements,
+    achievements: await loadAchievementCatalog(pb),
   };
 }
 
@@ -97,13 +99,39 @@ async function fetchJson(url: string): Promise<unknown> {
   return body;
 }
 
-function startGame(scenes: Phaser.Scene[]): Phaser.Game {
+function startGame(scenes: Phaser.Scene[], onFirstRender?: () => void): Phaser.Game {
   const game = new Phaser.Game(createGameConfig(scenes));
-  game.events.once(Phaser.Core.Events.READY, () => bindPressedCursor(game.canvas));
+  game.events.once(Phaser.Core.Events.READY, () => {
+    bindPressedCursor(game.canvas);
+    const firstScene = requireDefined(scenes[0], 'Missing first scene');
+    firstScene.load.on(Phaser.Loader.Events.PROGRESS, (loaderFraction: number) =>
+      loading.sceneLoadProgress(loaderFraction),
+    );
+    // 씬의 events 는 게임이 READY 에서 씬을 부팅할 때 생기므로 그 뒤에 구독한다.
+    firstScene.sys.events.once(Phaser.Scenes.Events.CREATE, () =>
+      game.events.once(Phaser.Core.Events.POST_RENDER, () => {
+        loading.firstDraw();
+        onFirstRender?.();
+      }),
+    );
+  });
   redrawTextsWhenFontsLoad(game);
   return game;
 }
 
+const loadingShellElement = document.getElementById('loading-shell');
+if (loadingShellElement === null) {
+  throw new Error('Missing #loading-shell element');
+}
+const wait = (delayMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+const loading = new LoadingController({ wait }, new LoadingShell(loadingShellElement));
+// 정적 import 는 Vite 가 head 의 link 로 되돌려 첫 표시를 막는다.
+await import('./style.css').catch((error: unknown) => {
+  console.warn('Failed to load styles', error);
+});
 const mvLayer = document.getElementById('mv-layer');
 if (mvLayer === null) {
   throw new Error('Missing #mv-layer element');
@@ -113,7 +141,7 @@ if (gameElement === null) {
   throw new Error('Missing #game element');
 }
 gameElement.style.cursor = DEFAULT_CURSOR;
-if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+if (!isReducedMotionPreferred()) {
   new NebulaTrail(document.body);
 }
 const save = new LocalSave(window.localStorage);
@@ -124,23 +152,22 @@ i18n.on('languageChanged', (language) => {
   document.documentElement.lang = language;
 });
 await preloadUiFonts();
+loading.completeStage('uiFonts');
 const celestialLoad = loadCelestialCatalog(fetchJson);
 await Promise.all([loadSongCatalog(), celestialLoad]).then(
-  async ([{ pb, loadPublishedBatch, loadAllBatch, firstBatch, achievements }, celestial]) => {
+  async ([{ pb, loadPublishedBatch, loadAllBatch, achievements }, celestial]) => {
+    loading.completeStage('catalogs');
     await preloadCjkFonts(
       JSON.stringify([
-        ko,
-        ja,
-        en,
-        achievements.definitions.map(({ names }) => names),
-        [...achievements.albums.values()].map(({ name }) => name),
+        i18n.t('main', { returnObjects: true }),
+        i18n.t('controls', { returnObjects: true }),
+        getCurrentUser(pb)?.nickname,
       ]),
     );
-    const feeds = new SharedSongFeeds(loadPublishedBatch, firstBatch);
+    loading.completeStage('mainFonts');
+    const feeds = new SharedSongFeeds(loadPublishedBatch);
     const editorFeeds = new SharedSongFeeds(loadAllBatch);
     const { catalog } = feeds;
-    // 첫 화면은 첫 배치로 띄우고, 곡 선택의 랜덤과 목록 끝 이동이 기다리지 않도록 나머지 곡은 뒤에서 받는다.
-    void catalog.requestRemaining();
     const charts = new ChartCache(pb);
     const auth: AccountAuth = {
       getCurrentUser: () => getCurrentUser(pb),
@@ -150,21 +177,29 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       refresh: () => refreshCurrentUser(pb),
     };
     const prepareChart = (ref: ChartRef): Promise<PreparedChart> => preparePlay(pb, charts, ref);
-    const loadPracticeChart = async (ref: ChartRef): Promise<Chart> =>
-      (await charts.load(ref)).chart;
+    const loadPlayChart = async (ref: ChartRef, isFresh: boolean): Promise<Chart> =>
+      (await (isFresh ? charts.reload(ref) : charts.load(ref))).chart;
+    const playRecords = new PlayRecords(pb, achievements);
     const rankedPlay: RankedPlay = {
-      submit: (sessionId, submission) => submitPlay(pb, achievements, sessionId, submission),
+      submit: (sessionId, submission) => playRecords.submit(sessionId, submission),
     };
     const profilePorts: ProfilePorts = {
       isSignedIn: () => getCurrentUser(pb) !== null,
       loadProfile: () => loadProfile(pb),
       changeNickname: (nickname) => changeNickname(pb, nickname),
       isNicknameAvailable: (nickname) => isNicknameAvailable(pb, nickname),
-      wait: (delayMs) =>
-        new Promise((resolve) => {
-          setTimeout(resolve, delayMs);
-        }),
+      wait,
       setFeaturedAchievement: (id) => setFeaturedAchievement(pb, id),
+      deleteAccount: () => deleteAccount(pb),
+      loadMyRankings: (query) => loadMyRankings(pb, query),
+      signOut: () => signOut(pb),
+    };
+    const rankingPorts: RankingPorts = {
+      loadLeaderboard: (chartId) => loadLeaderboard(pb, chartId),
+      isSignedIn: () => getCurrentUser(pb) !== null,
+      loadRevisionNotices: () => save.loadRevisionNotices(),
+      saveRevisionNotice: (chartId, chartRevision) =>
+        save.saveRevisionNotice(chartId, chartRevision),
     };
     const editorCharts: ChartCatalog = {
       loadChart: (ref) => loadChart(pb, ref),
@@ -185,25 +220,50 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       },
     };
     const menuMusic = new MenuMusic(save);
-    const game = startGame([
-      new MainScene(save, i18n, auth, celestial, achievements, menuMusic),
-      new CreditsScene(save, catalog, i18n, celestial),
-      new SongSelectScene(save, mvLayer, feeds, i18n, celestial),
-      new SettingsScene(save, i18n, celestial, menuMusic),
-      new ProfileScene(save, i18n, celestial, profilePorts),
-      new GameplayScene(
+    const account: AccountSource = {
+      getIdentity: () => {
+        const user = getCurrentUser(pb);
+        return user === null ? null : getAccountIdentity(user, achievements);
+      },
+      catalog: achievements,
+    };
+    const scenes = [
+      new MainScene(save, i18n, auth, celestial, achievements),
+      new CreditsScene(save, catalog, i18n, celestial, account),
+      new SongSelectScene(
         save,
         mvLayer,
-        prepareChart,
-        loadPracticeChart,
+        feeds,
         i18n,
         celestial,
-        rankedPlay,
+        {
+          isSignedIn: () => getCurrentUser(pb) !== null,
+          loadMyTopRanks: () => loadMyTopRanks(pb),
+          loadMyRecords: () => playRecords.loadMine(),
+        },
+        account,
       ),
-      new ResultScene(save, i18n, celestial, achievements),
+      new SettingsScene(save, i18n, celestial, menuMusic, account),
+      new ProfileScene(save, i18n, celestial, profilePorts, account),
+      new RankingScene(save, i18n, celestial, achievements, rankingPorts, account),
+      new GameplayScene(save, mvLayer, prepareChart, loadPlayChart, i18n, celestial, rankedPlay),
+      new ResultScene(save, i18n, celestial, achievements, account),
       new ChartEditorSelectScene(editorFeeds, auth, i18n, celestial),
       new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
-    ]);
+    ];
+    // HTTP/1.1 에서 메인 preload 와 연결을 다투지 않도록 첫 그림 뒤에 받는다.
+    const game = startGame(scenes, () => {
+      void catalog.requestRemaining();
+      void preloadCjkFonts(
+        JSON.stringify([
+          ko,
+          ja,
+          en,
+          achievements.definitions.map(({ names }) => names),
+          [...achievements.albums.values()].map(({ name }) => name),
+        ]),
+      );
+    });
     menuMusic.follow(game);
   },
   async (error: unknown) => {
@@ -217,6 +277,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       () => {
         gameElement.textContent = `${i18n.t('boot.loadFailed')} ${i18n.t('boot.checkConnection')}`;
         gameElement.classList.add('boot-error');
+        loading.remove();
       },
     );
   },

@@ -14,7 +14,6 @@ import type {
 import { SONG_FILTERS } from '../../data/songs.js';
 import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import type { SongFeeds } from '../app/SongFeed.js';
-import type { ChartRecord } from '../../storage/chartRecords.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { DEFAULT_SETTINGS, getAudibleVolume } from '../../storage/settings.js';
 import {
@@ -29,7 +28,11 @@ import {
   getLoadingMoreAnchor,
   getNoticeKind,
   getPageIndicator,
-  getSelectedRecord,
+  getRecordsRetryButtonView,
+  getSelectedRecordView,
+  getRankingButtonView,
+  getRetryButtonView,
+  getBackButtonView,
   getSettingsButtonView,
   getShiftedRowSlots,
   getSongDifficultyAppearance,
@@ -41,17 +44,45 @@ import {
   readSongSelectShortcut,
 } from './state/songSelectState.js';
 import { SongSelectController } from './SongSelectController.js';
-import type { SongSelectScreen } from './SongSelectController.js';
+import type { SongSelectPorts, SongSelectScreen } from './SongSelectController.js';
 import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
-import { LANE_COUNTS } from '../../rhythm/lanes.js';
 import { SongSelectJackets } from './view/SongSelectJackets.js';
-import { getZodiacSign, strokeZodiacLine } from '../celestial/view/zodiacSign.js';
-import { ZODIAC_FIGURES, fitZodiacFigure } from '../celestial/state/zodiacFigures.js';
+import { renderZodiacFigure } from '../celestial/view/zodiacSign.js';
+import {
+  DETAIL_RIGHT_X_PX,
+  DETAIL_X_PX,
+  DIFFICULTY_TABS_LAYOUT,
+  DIFFICULTY_TABS_STYLE,
+  INFO_X_PX,
+  JACKET_SIZE_PX,
+  JACKET_Y_PX,
+  LIST_PANEL,
+  addGlassPanel,
+  PAGE_X_PX,
+  PAGE_Y_PX,
+  ROWS_PER_PAGE,
+  ROW_HEIGHT_PX,
+  ROW_WIDTH_PX,
+  ROW_X_PX,
+  ROW_Y_PX,
+  TITLE_MAX_LINES,
+  TITLE_Y_PX,
+  UNSELECTED_WEIGHT,
+  ZODIAC_AREA_GAP_PX,
+  ZODIAC_AREA_LEFT_X_PX,
+  ZODIAC_MAX_SPAN_PX,
+  LANE_STAR_ID,
+  addLaneMarks,
+  fitSongTitle,
+  renderLaneMarks,
+} from '../ui/view/widgets/songDetailLayout.js';
+import type { LaneMarks } from '../ui/view/widgets/songDetailLayout.js';
 import type { JacketTextures } from './view/SongSelectJackets.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
 import type {
+  SelectedRecordView,
   SongRowView,
   SongSelectAction,
   SongSelectButton,
@@ -60,16 +91,18 @@ import type {
   SongSelectState,
   SongSelectView,
 } from './state/songSelectState.js';
-import { GAME_WIDTH } from '../app/config.js';
+import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
-import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
-import type { Button } from '../ui/view/widgets/Button.js';
+import { createFooterAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import { Button } from '../ui/view/widgets/Button.js';
+import { TOP_RANK_GLINT_ID, TopRankBadge } from '../ui/view/widgets/TopRankBadge.js';
 import {
   addCelestialSprite,
   playCelestialOnce,
   queueCelestialTextures,
 } from '../celestial/view/celestialSprites.js';
-import { formatAccuracy, formatLaneCount, formatScore } from '../ui/state/format.js';
+import { formatAccuracy, formatScore } from '../ui/state/format.js';
 import {
   JacketView,
   getLoadedJacketSongIds,
@@ -77,15 +110,19 @@ import {
   removeJacketTextures,
 } from '../ui/view/widgets/jacket.js';
 import { setFittedText } from '../ui/view/widgets/fitText.js';
+import { GradeLetter } from '../ui/view/widgets/GradeLetter.js';
+import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { ensureLightTextures } from '../ui/view/textures/lightTextures.js';
 import { requireKeyboard } from '../ui/view/input/menuInput.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import { bindHoverTarget, pointButton } from '../ui/view/input/hoverTarget.js';
+import { getGrainedImageTexture } from '../ui/view/textures/grain.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
-import type { TextTabsLayout, TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
+import type { TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
+import { LoadFailurePanel } from '../ui/view/widgets/LoadFailurePanel.js';
 import { NoticeText } from '../ui/view/widgets/NoticeText.js';
 import {
   CATEGORY_COLORS,
@@ -95,12 +132,12 @@ import {
   RADIUS,
   SCREEN_LAYOUT,
   TYPE_SCALE,
-  addTextUnderline,
   setTextColor,
   setTextWeight,
   textStyle,
   typeStyle,
 } from '../ui/view/theme.js';
+import { addTextUnderline } from '../ui/view/widgets/cometUnderline.js';
 import { MOTION } from '../ui/state/motion.js';
 import {
   ListRowMarker,
@@ -110,15 +147,6 @@ import {
 import { requireDefined } from '../../invariant.js';
 
 const FILTER_GAP_PX = 48;
-const LIST_PANEL = {
-  xPx: 120,
-  yPx: 176,
-  widthPx: 736,
-  heightPx: 744,
-  // 남색 위에 흰빛을 옅게 깔아 뒤 배경이 비치는 젖빛 유리처럼 보이게 한다.
-  fill: CELESTIAL_COLORS.highlight,
-  fillAlpha: 0.09,
-} as const;
 // 연습 모드는 기록이 남지 않으므로 화면 머리에 계속 보여 일반 플레이와 헷갈리지 않게 한다.
 const MODE_LABEL_Y_PX = 48;
 const MODE_LABEL_TYPE = {
@@ -126,39 +154,15 @@ const MODE_LABEL_TYPE = {
   weight: 600,
 } as const;
 const MODE_LABEL_LETTER_SPACING_PX = 5;
-const ROW_X_PX = LIST_PANEL.xPx + 72;
 const FILTER_X_PX = LIST_PANEL.xPx;
-const ROW_Y_PX = 200;
-const ROW_WIDTH_PX = 640;
-const ROW_HEIGHT_PX = 72;
 const ROW_TEXT_INSET_PX = 24;
-const ROWS_PER_PAGE = 9;
 const THUMBNAIL_INSET_PX = 8;
 const THUMBNAIL_SIZE_PX = 56;
 const THUMBNAIL_TITLE_GAP_PX = 16;
 const ROW_TITLE_CATEGORY_GAP_PX = 24;
 const UNSELECTED_THUMBNAIL_ALPHA = 0.5;
-const PAGE_X_PX = ROW_X_PX;
-const PAGE_Y_PX = 872;
 const PAGE_LINE_CENTER_Y_PX = PAGE_Y_PX + TYPE_SCALE.meta.sizePx / 2;
-// 바깥 여백을 넓히고 목록·자켓·정보 사이는 좁혀 화면 가운데로 한 덩어리처럼 모이게 한다.
-const DETAIL_X_PX = LIST_PANEL.xPx + LIST_PANEL.widthPx + 64;
-const JACKET_Y_PX = 228;
-const JACKET_SIZE_PX = 460;
-const INFO_X_PX = DETAIL_X_PX + JACKET_SIZE_PX + 48;
-const TITLE_Y_PX = 272;
-// 오른쪽 여백을 목록 패널 왼쪽 여백과 같게 두어 한쪽으로 쏠려 보이지 않게 한다.
-const DETAIL_RIGHT_X_PX = GAME_WIDTH - LIST_PANEL.xPx;
-const TITLE_MAX_WIDTH_PX = DETAIL_RIGHT_X_PX - INFO_X_PX;
-// 자켓 옆 칸이 좁아 긴 제목은 이 크기까지 줄인 뒤에도 넘치면 줄을 넘긴다.
-const TITLE_MIN_SIZE_PX = 40;
-const TITLE_SHRINK_STEP_PX = 4;
-// 줄을 넘겨도 기록 묶음이 RANDOM·PLAY 위에서 끝나게 한다.
-const TITLE_MAX_LINES = 3;
 const CATEGORY_GAP_PX = 8;
-const DIFFICULTY_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 40;
-// 선택되지 않은 탭·곡·난이도를 얇게 두어 굵은 선택 항목에 시선이 모이게 한다.
-const UNSELECTED_WEIGHT = 400;
 const FILTER_TABS_STYLE: TextTabsStyle = {
   type: {
     sizePx: TYPE_SCALE.primary.sizePx,
@@ -168,23 +172,10 @@ const FILTER_TABS_STYLE: TextTabsStyle = {
   gapPx: FILTER_GAP_PX,
   normalColor: CELESTIAL_COLORS.textNeutral,
 };
-const DIFFICULTY_TABS_LAYOUT: TextTabsLayout = {
-  xPx: DETAIL_X_PX,
-  align: 'left',
-  topYPx: DIFFICULTY_Y_PX,
-};
-const DIFFICULTY_TABS_STYLE: TextTabsStyle = {
-  type: {
-    sizePx: TYPE_SCALE.primary.sizePx,
-    weight: UNSELECTED_WEIGHT,
-  },
-  selectedWeight: 800,
-  gapPx: 40,
-  normalColor: CELESTIAL_COLORS.textNeutral,
-};
 // 기록은 곡 정보와 한 묶음으로 읽히도록 카테고리 바로 아래에 둔다.
 const RECORD_GROUP_GAP_PX = 40;
 const RECORD_LABEL_GAP_PX = 8;
+const RECORD_GRADE_GAP_PX = 24;
 // 목록 패널과 아랫선을 맞춰 두 덩어리가 같은 바닥에 서 있게 한다.
 const ACTION_BASELINE_Y_PX = LIST_PANEL.yPx + LIST_PANEL.heightPx;
 // 두 버튼의 hitPaddingPx 합보다 넓혀 누르는 영역이 겹치지 않게 한다.
@@ -228,26 +219,33 @@ const ORBIT_ARC_POSITION_PX = {
   x: DETAIL_X_PX + JACKET_SIZE_PX + 90,
   y: JACKET_Y_PX + 110,
 } as const;
+const LOAD_FAILURE_INSET_X_PX = 80;
+// 정보 열은 폭이 좁아 패널의 한 줄 안내가 영어, 일본어에서 화면 밖으로 넘치므로 재킷 아래 난이도 탭 밑에 둔다.
+const RECORDS_FAILURE_CENTER_Y_PX = 860;
+// 곡이 없을 때 제목, 분류, 기록이 놓일 자리를 윤곽으로 남겨 오른쪽이 비어 보이지 않게 한다.
+const DETAIL_OUTLINES = [
+  {
+    offsetYPx: -10,
+    widthPx: 340,
+    heightPx: 48,
+  },
+  {
+    offsetYPx: 66,
+    widthPx: 200,
+    heightPx: 22,
+  },
+  {
+    offsetYPx: 130,
+    widthPx: 120,
+    heightPx: 22,
+  },
+] as const;
 const JACKET_GLINT_ID = 'R28';
 const JACKET_GLINT_POSITION_PX = {
   x: DETAIL_X_PX + JACKET_SIZE_PX + 30,
   y: JACKET_Y_PX - 14,
 } as const;
 const NAVIGATION_STAR_ID = 'R31';
-// 레인 수가 기록·채보를 가르므로 곡 정보 옆에 레인 수만큼 별을 놓아 글자를 읽지 않아도 바뀐 것을 알아보게 한다.
-const LANE_STAR_ID = 'R17';
-const LANE_GROUP_GAP_PX = 28;
-const LANE_STAR_STEP_PX = 16;
-const LANE_TEXT_GAP_PX = 12;
-const LANE_TEXT_TYPE = {
-  sizePx: TYPE_SCALE.secondary.sizePx,
-  weight: 800,
-} as const;
-// 별자리는 기록 아래부터 RANDOM, PLAY 위까지 남는 하늘에 맞춰 줄인다. 제목이 길면 남는 하늘이 줄어든다.
-const ZODIAC_MAX_SPAN_PX = 290;
-// 난이도 탭 끝(EXPERT)이 정보 열 왼쪽 선을 조금 넘어오므로 그만큼 비켜 선다.
-const ZODIAC_AREA_LEFT_X_PX = INFO_X_PX + 40;
-const ZODIAC_AREA_GAP_PX = 40;
 const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   ROW_NODE_INITIAL_ID,
   ...SONG_ROW_NODE_IDS,
@@ -257,8 +255,22 @@ const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   NAVIGATION_STAR_ID,
   LANE_STAR_ID,
   LOADING_STAR_ID,
+  TOP_RANK_GLINT_ID,
 ];
 const NAVIGATION_STAR_GAP_PX = 24;
+// 줄의 TOP 표시는 분류 글자 왼쪽 고정 열에 오른쪽 끝을 맞춘다.
+const ROW_TOP_RANK_RIGHT_X_PX = 690;
+const ROW_TOP_RANK_NUMBER_SIZE_PX = 34;
+const ROW_TITLE_TOP_RANK_GAP_PX = 24;
+// RANKING 은 재킷 그림을 가리지 않도록 재킷 오른쪽 위 바깥에 두고, 아이콘 오른쪽 끝을 재킷 오른쪽 끝에 맞춘다.
+const RANKING_BUTTON_CENTER_Y_PX = 191;
+const RANKING_ICON_TEXTURE_KEY = 'ui:song-select-ranking';
+const RANKING_ICON_PATH = '/assets/ui/songSelect/ranking.png';
+const RANKING_ICON_SIZE_PX = 48;
+/** 아이콘 PNG 의 투명 여백만큼 더 밀어 획 끝을 재킷 오른쪽 선에 맞춘다. */
+const RANKING_ICON_MARGIN_X_PX = 4;
+/** quiet 버튼의 안쪽 가로 여백만큼 밀어 내용을 재킷 오른쪽 선에 맞춘다. */
+const QUIET_BUTTON_PADDING_X_PX = 16;
 
 interface SongRow {
   marker: ListRowMarker;
@@ -267,11 +279,12 @@ interface SongRow {
   thumbnail: JacketView;
   title: Phaser.GameObjects.Text;
   category: Phaser.GameObjects.Text;
+  topRank: TopRankBadge;
 }
 
 interface ActionButton {
   text: Phaser.GameObjects.Text;
-  underline: Phaser.GameObjects.Rectangle;
+  underline: Phaser.GameObjects.Image;
   hitArea: Phaser.GameObjects.Rectangle;
 }
 
@@ -280,6 +293,8 @@ interface SongSelectWidgets {
   tabs: TextTabs<SongFilter>;
   rows: SongRow[];
   notice: NoticeText;
+  loadFailure: LoadFailurePanel;
+  recordsFailure: LoadFailurePanel;
   pageText: Phaser.GameObjects.Text;
   loadingMore: NoticeText;
   navigationStar: Phaser.GameObjects.Sprite;
@@ -287,18 +302,21 @@ interface SongSelectWidgets {
   orbitArc: Phaser.GameObjects.Sprite;
   jacketGlint: Phaser.GameObjects.Sprite;
   jacket: JacketView;
+  detailOutlines: readonly Phaser.GameObjects.Image[];
   titleText: Phaser.GameObjects.Text;
   categoryText: Phaser.GameObjects.Text;
-  laneStars: Phaser.GameObjects.Sprite[];
-  laneText: Phaser.GameObjects.Text;
+  laneMarks: LaneMarks;
   difficultyTabs: TextTabs<Difficulty>;
   recordLabel: Phaser.GameObjects.Text;
   recordValue: Phaser.GameObjects.Text;
+  recordGrade: GradeLetter;
   noRecordText: Phaser.GameObjects.Text;
   zodiacStars: Phaser.GameObjects.Image;
   zodiacLines: Phaser.GameObjects.Graphics;
   actions: Record<SongSelectAction, ActionButton>;
   settingsButton: Button;
+  backButton: Button;
+  rankingButton: Button;
 }
 
 type HoverInput = Pick<SongSelectController, 'hover' | 'unhover'>;
@@ -321,6 +339,8 @@ export class SongSelectScene extends Phaser.Scene {
     private readonly feeds: SongFeeds,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
+    private readonly rankings: SongSelectPorts['rankings'],
+    private readonly account: AccountSource,
   ) {
     super(SCENE_KEYS.songSelect);
   }
@@ -342,6 +362,16 @@ export class SongSelectScene extends Phaser.Scene {
       ...getMenuSceneTextureUses(this.celestial, 'songSelect'),
       ...CELESTIAL_IDS.map((id) => this.celestial.atlasPresentations[id]),
     ]);
+    queueImageLoads(
+      this,
+      [
+        {
+          key: RANKING_ICON_TEXTURE_KEY,
+          url: RANKING_ICON_PATH,
+        },
+      ],
+      'song select scene image',
+    );
     queueSoundEffects(this);
   }
 
@@ -361,6 +391,11 @@ export class SongSelectScene extends Phaser.Scene {
       {
         celestial: this.celestial,
         screen: 'songSelect',
+        account: {
+          kind: 'nameplate',
+          catalog: this.account.catalog,
+          pointer,
+        },
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
@@ -369,17 +404,8 @@ export class SongSelectScene extends Phaser.Scene {
       },
       pointer,
     );
-    this.add
-      .rectangle(
-        LIST_PANEL.xPx,
-        LIST_PANEL.yPx,
-        LIST_PANEL.widthPx,
-        LIST_PANEL.heightPx,
-        LIST_PANEL.fill,
-        LIST_PANEL.fillAlpha,
-      )
-      .setOrigin(0, 0)
-      .setRounded(RADIUS.smallPx);
+    chrome.renderAccount(this.account.getIdentity());
+    addGlassPanel(this, LIST_PANEL, RADIUS.smallPx);
     const keyboard = requireKeyboard(this);
     ensureLightTextures(this);
     this.cameras.main.fadeIn(MOTION.mediumMs);
@@ -396,7 +422,18 @@ export class SongSelectScene extends Phaser.Scene {
       },
       play: (chart, restore) => this.play(chart, restore),
       openSettings: (restore) => this.openSettings(restore),
+      openRanking: (chart, restore) => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'ranking',
+          data: {
+            mode: this.mode,
+            restore,
+            chart,
+          },
+        });
+      },
       backToMain: () => this.backToMain(),
+      openProfile: (restore) => this.openProfile(restore),
       playSound: (sound) => soundEffects.play(sound),
     };
     if (this.mode === 'practice') {
@@ -431,7 +468,19 @@ export class SongSelectScene extends Phaser.Scene {
           }),
       },
     );
-    const widgets: Omit<SongSelectWidgets, 'settingsButton'> = {
+    const detailOutlines = DETAIL_OUTLINES.map(({ offsetYPx, widthPx, heightPx }) =>
+      addGlassPanel(
+        this,
+        {
+          xPx: INFO_X_PX,
+          yPx: TITLE_Y_PX + offsetYPx,
+          widthPx,
+          heightPx,
+        },
+        RADIUS.smallPx,
+      ).setVisible(false),
+    );
+    const widgets: Omit<SongSelectWidgets, 'settingsButton' | 'backButton' | 'rankingButton'> = {
       chrome,
       tabs,
       rows: this.createSongRows(hoverInput, (slot) => controller.selectRow(slot)),
@@ -446,6 +495,14 @@ export class SongSelectScene extends Phaser.Scene {
             textStyle('secondary', CELESTIAL_COLORS.textNeutral),
           )
           .setOrigin(0.5),
+      ),
+      loadFailure: new LoadFailurePanel(
+        this,
+        {
+          leftXPx: LIST_PANEL.xPx + LOAD_FAILURE_INSET_X_PX,
+          centerYPx: LIST_PANEL.yPx + LIST_PANEL.heightPx / 2,
+        },
+        pointButton(pointer, 'retry'),
       ),
       pageText: this.add.text(
         PAGE_X_PX,
@@ -469,6 +526,7 @@ export class SongSelectScene extends Phaser.Scene {
         JACKET_GLINT_POSITION_PX.y,
       ),
       jacket: new JacketView(this, DETAIL_X_PX, JACKET_Y_PX, JACKET_SIZE_PX),
+      detailOutlines,
       titleText: this.add
         .text(INFO_X_PX, TITLE_Y_PX, '', textStyle('title', COLORS.textPrimary))
         .setMaxLines(TITLE_MAX_LINES),
@@ -478,12 +536,7 @@ export class SongSelectScene extends Phaser.Scene {
         '',
         textStyle('secondary', CELESTIAL_COLORS.textNeutral),
       ),
-      laneStars: Array.from({ length: Math.max(...LANE_COUNTS) }, () =>
-        this.addCelestial(LANE_STAR_ID, 0, 0).setVisible(false),
-      ),
-      laneText: this.add
-        .text(0, 0, '', typeStyle(LANE_TEXT_TYPE, COLORS.textPrimary))
-        .setOrigin(0, 0.5),
+      laneMarks: addLaneMarks(this, this.celestial),
       difficultyTabs: new TextTabs(
         this,
         DIFFICULTY_TAB_ITEMS,
@@ -504,15 +557,27 @@ export class SongSelectScene extends Phaser.Scene {
         },
       ),
       ...this.createRecordTexts(),
+      recordsFailure: new LoadFailurePanel(
+        this,
+        {
+          leftXPx: DETAIL_X_PX,
+          centerYPx: RECORDS_FAILURE_CENTER_Y_PX,
+        },
+        pointButton(pointer, 'recordsRetry'),
+      ),
       actions: this.createActionButtons(hoverInput, {
         random: () => controller.selectRandomSong(),
         play: () => controller.play(),
       }),
     };
-    const [settingsButton] = createHeaderAuxiliaryButtons(this, [
+    const [settingsButton, backButton] = createFooterAuxiliaryButtons(this, [
       {
         label: 'SETTINGS',
         pointer: pointButton(pointer, 'settings'),
+      },
+      {
+        label: 'BACK',
+        pointer: pointButton(pointer, 'back'),
       },
     ]);
     const view: SongSelectWidgets = {
@@ -522,13 +587,15 @@ export class SongSelectScene extends Phaser.Scene {
         'Missing song select header button',
         'SETTINGS',
       ),
+      backButton: requireDefined(backButton, 'Missing song select header button', 'BACK'),
+      rankingButton: this.createRankingButton(pointer),
     };
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     const renderLoadedJackets = (): void => {
       this.jackets.complete(getShownSongIds(view));
-      const { state, records } = controller.view;
-      getSongRows(state, ROWS_PER_PAGE, records).forEach((rowView, slot) => {
+      const { state } = controller.view;
+      getSongRows(state, ROWS_PER_PAGE).forEach((rowView, slot) => {
         if (rowView.kind === 'song') {
           getSongRow(view, slot).thumbnail.refreshTexture(rowView.song);
         }
@@ -565,13 +632,13 @@ export class SongSelectScene extends Phaser.Scene {
           now: () => performance.now(),
           volume: getAudibleVolume(settings, 'musicVolume'),
         },
+        rankings: this.rankings,
+        loadLocalRecords: () => this.save.loadRecords(),
       },
       screen,
       ROWS_PER_PAGE,
       settings.laneMode,
       this.restore,
-      // 기록은 플레이 뒤에만 바뀌고 그때 이 씬은 다시 create 되므로 그릴 때마다 저장소를 다시 읽지 않는다.
-      this.save.loadRecords(),
       WHEEL_STEP_PX,
     );
     // 상세 패널(PLAY 버튼) 위에서 휠이 살짝 움직여 선택 곡이 바뀌지 않도록 목록 위에서만 받는다.
@@ -650,8 +717,38 @@ export class SongSelectScene extends Phaser.Scene {
         thumbnail,
         title,
         category,
+        topRank: new TopRankBadge(this, this.celestial, {
+          xPx: ROW_TOP_RANK_RIGHT_X_PX,
+          yPx: centerYPx,
+          align: 'right',
+          hasWord: true,
+          numberSizePx: ROW_TOP_RANK_NUMBER_SIZE_PX,
+        }),
       };
     });
+  }
+
+  private createRankingButton(pointer: ButtonPointer<SongSelectButton>): Button {
+    const button = new Button(this, 0, 0, {
+      variant: 'quiet',
+      focus: 'slide',
+      label: 'RANKING',
+      pointer: pointButton(pointer, 'ranking'),
+    });
+    if (this.textures.exists(RANKING_ICON_TEXTURE_KEY)) {
+      button.setIcon(
+        getGrainedImageTexture(this, RANKING_ICON_TEXTURE_KEY, RANKING_ICON_SIZE_PX),
+        RANKING_ICON_SIZE_PX,
+      );
+    }
+    return button.setPosition(
+      DETAIL_X_PX +
+        JACKET_SIZE_PX +
+        QUIET_BUTTON_PADDING_X_PX +
+        RANKING_ICON_MARGIN_X_PX -
+        button.width,
+      RANKING_BUTTON_CENTER_Y_PX - button.height / 2,
+    );
   }
 
   private addCelestial(id: CelestialAtlasId, xPx: number, yPx: number): Phaser.GameObjects.Sprite {
@@ -660,13 +757,13 @@ export class SongSelectScene extends Phaser.Scene {
 
   private createRecordTexts(): Pick<
     SongSelectWidgets,
-    'recordLabel' | 'recordValue' | 'noRecordText'
+    'recordLabel' | 'recordValue' | 'recordGrade' | 'noRecordText'
   > {
     const recordLabel = this.add.text(
       INFO_X_PX,
       TITLE_Y_PX,
       'BEST',
-      textStyle('meta', CELESTIAL_COLORS.textNeutral),
+      textStyle('meta', COLORS.textPrimary),
     );
     const recordValue = this.add.text(
       INFO_X_PX,
@@ -674,6 +771,17 @@ export class SongSelectScene extends Phaser.Scene {
       '',
       textStyle('secondary', COLORS.textPrimary),
     );
+    // 등급 글자가 BEST 윗면부터 점수 기준선까지 차도록 실제 글자 높이로 크기를 정한다.
+    const labelTopPx =
+      recordLabel.getTextMetrics().ascent -
+      recordLabel.context.measureText('BEST').actualBoundingBoxAscent;
+    const valueBaselinePx =
+      recordLabel.height + RECORD_LABEL_GAP_PX + recordValue.getTextMetrics().ascent;
+    const recordGrade = new GradeLetter(this, this.celestial, {
+      role: 'heading',
+      glyphHeightPx: valueBaselinePx - labelTopPx,
+    });
+    recordGrade.playSheen();
     const noRecordText = this.add.text(
       INFO_X_PX,
       TITLE_Y_PX,
@@ -683,6 +791,7 @@ export class SongSelectScene extends Phaser.Scene {
     return {
       recordLabel,
       recordValue,
+      recordGrade,
       noRecordText,
     };
   }
@@ -788,6 +897,9 @@ export class SongSelectScene extends Phaser.Scene {
       case 'selectRandomSong':
         controller.selectRandomSong();
         return;
+      case 'openRanking':
+        controller.openRanking();
+        return;
       case null:
         return;
     }
@@ -799,20 +911,20 @@ export class SongSelectScene extends Phaser.Scene {
     next: SongSelectView,
     region: SongSelectRegion,
   ): void {
-    const { state, notice, isLoadingMore, songCount, records } = next;
+    const { state, notice, isLoadingMore, songCount } = next;
     switch (region) {
       case 'filterTabs':
         this.renderTabs(view, state);
         return;
       case 'rows': {
-        const rows = getSongRows(state, ROWS_PER_PAGE, records);
+        const rows = getSongRows(state, ROWS_PER_PAGE);
         for (const slot of getChangedRowSlots(previous, next, ROWS_PER_PAGE)) {
           this.renderRow(view, slot, requireDefined(rows[slot], 'Invalid song row slot', slot));
         }
         return;
       }
       case 'rowShift': {
-        const rows = getSongRows(state, ROWS_PER_PAGE, records);
+        const rows = getSongRows(state, ROWS_PER_PAGE);
         for (const slot of getShiftedRowSlots(previous, next, ROWS_PER_PAGE)) {
           this.shiftRow(
             getSongRow(view, slot),
@@ -825,8 +937,16 @@ export class SongSelectScene extends Phaser.Scene {
         this.renderSelectedHalo(view, state);
         return;
       case 'notice':
+        view.loadFailure.render(
+          notice === 'loadFailed'
+            ? {
+                title: this.i18n.t('songSelect.loadFailed'),
+                body: this.i18n.t('loadFailure.body'),
+              }
+            : null,
+        );
         view.notice.show(
-          notice === null
+          notice === null || notice === 'loadFailed'
             ? { kind: 'none' }
             : {
                 kind: getNoticeKind(notice),
@@ -871,10 +991,12 @@ export class SongSelectScene extends Phaser.Scene {
         switch (state.current.kind) {
           case 'song':
             view.jacket.setSong(state.current.song, true);
+            view.detailOutlines.forEach((outline) => outline.setVisible(false));
             view.orbitArc.setVisible(true);
             return;
           case 'none':
-            view.jacket.setSong(null, true);
+            view.jacket.setEmptySlot(true);
+            view.detailOutlines.forEach((outline) => outline.setVisible(true));
             view.orbitArc.setVisible(false);
             return;
         }
@@ -886,7 +1008,7 @@ export class SongSelectScene extends Phaser.Scene {
               view,
               state.current.song,
               state.laneCount,
-              getSelectedRecord(state, records),
+              getSelectedRecordView(state),
             );
             return;
           case 'none':
@@ -922,11 +1044,26 @@ export class SongSelectScene extends Phaser.Scene {
       case 'settingsButton':
         view.settingsButton.render(getSettingsButtonView(next));
         return;
+      case 'backButton':
+        view.backButton.render(getBackButtonView(next));
+        return;
+      case 'rankingButton':
+        view.rankingButton.render(getRankingButtonView(next));
+        return;
+      case 'retryButton':
+        view.loadFailure.renderRetry(getRetryButtonView(next));
+        return;
+      case 'recordsRetryButton':
+        view.recordsFailure.renderRetry(getRecordsRetryButtonView(next));
+        return;
       case 'controlsEntry':
         view.chrome.renderControlsEntry(isSongSelectControlsEntryHovered(next));
         return;
       case 'controlsClose':
         view.chrome.renderControlsClose(getSongSelectControlsCloseView(next));
+        return;
+      case 'accountButton':
+        view.chrome.renderAccountButton(getAccountPanelButtonView(next.state.hover));
         return;
     }
   }
@@ -936,8 +1073,13 @@ export class SongSelectScene extends Phaser.Scene {
       key: 'gameplay',
       data: {
         ...chart,
-        mode: this.mode,
-        restore,
+        origin: {
+          kind: 'songSelect',
+          mode: this.mode,
+          quitKey: 'confirm',
+          start: { kind: 'whole' },
+          restore,
+        },
       },
     });
   }
@@ -957,6 +1099,21 @@ export class SongSelectScene extends Phaser.Scene {
     });
   }
 
+  private openProfile(restore: SongSelectRestore): void {
+    this.exit = exitScene(this, this.exit, {
+      key: 'profile',
+      data: {
+        returnTo: {
+          key: 'songSelect',
+          data: {
+            mode: this.mode,
+            restore,
+          },
+        },
+      },
+    });
+  }
+
   private backToMain(): void {
     this.exit = exitScene(this, this.exit, {
       key: 'main',
@@ -964,12 +1121,10 @@ export class SongSelectScene extends Phaser.Scene {
     });
   }
 
-  private translateNotice(notice: SongSelectNotice): string {
+  private translateNotice(notice: Exclude<SongSelectNotice, 'loadFailed'>): string {
     switch (notice) {
       case 'loading':
         return this.i18n.t('songSelect.loading');
-      case 'loadFailed':
-        return this.i18n.t('songSelect.loadFailed');
       case 'noSongs':
         return this.i18n.t('songSelect.noSongs');
     }
@@ -983,13 +1138,14 @@ export class SongSelectScene extends Phaser.Scene {
 
   private renderRow(view: SongSelectWidgets, slot: number, rowView: SongRowView): void {
     const row = getSongRow(view, slot);
-    const { marker, background, thumbnail, title, category } = row;
+    const { marker, background, thumbnail, title, category, topRank } = row;
     const hasSong = rowView.kind === 'song';
     const isSelected = hasSong && rowView.appearance === 'selected';
     thumbnail.setVisible(hasSong);
     title.setVisible(hasSong);
     category.setVisible(hasSong);
     if (!hasSong) {
+      topRank.render(null);
       marker.render(null);
       background.disableInteractive(true);
       return;
@@ -1001,9 +1157,14 @@ export class SongSelectScene extends Phaser.Scene {
     setTextColor(category, CATEGORY_COLORS[song.category]);
     setTextWeight(category, isSelected ? TYPE_SCALE.meta.weight : UNSELECTED_WEIGHT);
     setTextWeight(title, isSelected ? TYPE_SCALE.primary.weight : UNSELECTED_WEIGHT);
-    // 선택 행은 오른쪽으로 밀리므로 그만큼 빼야 선택돼도 분류와 겹치지 않는다.
-    const titleMaxWidthPx =
-      category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX - LIST_ROW.selectedShiftPx - title.x;
+    topRank.render(rowView.topRank);
+    const topRankLeftXPx = topRank.getLeftXPx();
+    // 선택 행은 오른쪽으로 밀리므로 그만큼 빼야 선택돼도 분류나 TOP 표시와 겹치지 않는다.
+    const titleRightXPx =
+      topRankLeftXPx === null
+        ? category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX
+        : topRankLeftXPx - ROW_TITLE_TOP_RANK_GAP_PX;
+    const titleMaxWidthPx = titleRightXPx - LIST_ROW.selectedShiftPx - title.x;
     setFittedText(title, song.title, titleMaxWidthPx);
     marker.render({
       node: this.celestial.atlasPresentations[rowView.nodeId],
@@ -1020,82 +1181,63 @@ export class SongSelectScene extends Phaser.Scene {
     view: SongSelectWidgets,
     song: Song,
     laneCount: LaneCount,
-    record: ChartRecord | null,
+    record: SelectedRecordView,
   ): void {
-    let titleSizePx = TYPE_SCALE.title.sizePx;
-    view.titleText.setWordWrapWidth(null).setFontSize(titleSizePx).setText(song.title);
-    while (view.titleText.width > TITLE_MAX_WIDTH_PX && titleSizePx > TITLE_MIN_SIZE_PX) {
-      titleSizePx -= TITLE_SHRINK_STEP_PX;
-      view.titleText.setFontSize(titleSizePx);
-    }
-    view.titleText.setWordWrapWidth(TITLE_MAX_WIDTH_PX, true);
+    fitSongTitle(view.titleText, song.title);
     setTextColor(view.categoryText, CATEGORY_COLORS[song.category]);
     view.categoryText
       .setText(song.category.toUpperCase())
       .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
-    const laneCenterYPx = view.categoryText.y + view.categoryText.height / 2;
-    const firstStarXPx = view.categoryText.x + view.categoryText.width + LANE_GROUP_GAP_PX;
-    view.laneStars.forEach((star, index) => {
-      star
-        .setPosition(firstStarXPx + index * LANE_STAR_STEP_PX, laneCenterYPx)
-        .setVisible(index < laneCount);
-    });
-    view.laneText
-      .setText(formatLaneCount(laneCount))
-      .setPosition(
-        firstStarXPx + (laneCount - 1) * LANE_STAR_STEP_PX + LANE_TEXT_GAP_PX,
-        laneCenterYPx,
-      )
-      .setVisible(true);
+    renderLaneMarks(view.laneMarks, view.categoryText, laneCount);
     const recordYPx = view.categoryText.y + view.categoryText.height + RECORD_GROUP_GAP_PX;
-    const hasRecord = record !== null;
+    const hasRecord = record.kind === 'record';
     view.recordLabel.setY(recordYPx).setVisible(hasRecord);
-    view.noRecordText.setY(recordYPx).setVisible(!hasRecord);
+    view.noRecordText.setY(recordYPx).setVisible(record.kind === 'none');
     view.recordValue
       .setY(recordYPx + view.recordLabel.height + RECORD_LABEL_GAP_PX)
       .setText(hasRecord ? `${formatScore(record.score)}   ${formatAccuracy(record.accuracy)}` : '')
       .setVisible(hasRecord);
-    const recordBottom = hasRecord ? view.recordValue : view.noRecordText;
-    this.renderZodiac(view, song, recordBottom.y + recordBottom.height + ZODIAC_AREA_GAP_PX);
-  }
-
-  private renderZodiac(view: SongSelectWidgets, song: Song, topYPx: number): void {
-    const bottomYPx = view.actions.random.text.y - ZODIAC_AREA_GAP_PX;
-    const sign = getZodiacSign(this, song.constellation, ZODIAC_MAX_SPAN_PX);
-    const scale = Math.min(
-      1,
-      (DETAIL_RIGHT_X_PX - ZODIAC_AREA_LEFT_X_PX) / sign.figureWidthPx,
-      (bottomYPx - topYPx) / sign.figureHeightPx,
+    view.recordGrade.render(hasRecord ? record.grade : null);
+    // 글자 크기가 달라 기준선을 맞춰야 한 줄로 읽힌다.
+    view.recordGrade.place(
+      view.recordValue.x + view.recordValue.width + RECORD_GRADE_GAP_PX,
+      view.recordValue.y +
+        view.recordValue.getTextMetrics().ascent -
+        view.recordGrade.getAscentPx(),
     );
-    const centerXPx = (ZODIAC_AREA_LEFT_X_PX + DETAIL_RIGHT_X_PX) / 2;
-    const centerYPx = (topYPx + bottomYPx) / 2;
-    view.zodiacStars
-      .setTexture(sign.textureKey)
-      .setScale(scale)
-      .setPosition(centerXPx, centerYPx)
-      .setVisible(true);
-    const figure = ZODIAC_FIGURES[song.constellation];
-    const points = fitZodiacFigure(figure, centerXPx, centerYPx, ZODIAC_MAX_SPAN_PX * scale);
-    const lines = view.zodiacLines.clear().setVisible(true);
-    for (const [from, to] of figure.edges) {
-      const [fromXPx, fromYPx] = requireDefined(
-        points[from],
-        'Zodiac edge outside the figure',
-        from,
-      );
-      const [toXPx, toYPx] = requireDefined(points[to], 'Zodiac edge outside the figure', to);
-      strokeZodiacLine(lines, fromXPx, fromYPx, toXPx, toYPx);
-    }
+    view.recordsFailure.render(
+      record.kind === 'failed'
+        ? {
+            title: this.i18n.t('songSelect.recordsFailed'),
+            body: this.i18n.t('loadFailure.body'),
+          }
+        : null,
+    );
+    const recordBottom = hasRecord ? view.recordValue : view.noRecordText;
+    // 별자리는 기록 아래부터 RANDOM, PLAY 위까지 남는 하늘에 그린다.
+    renderZodiacFigure(
+      view.zodiacStars,
+      view.zodiacLines,
+      song.constellation,
+      {
+        leftXPx: ZODIAC_AREA_LEFT_X_PX,
+        rightXPx: DETAIL_RIGHT_X_PX,
+        topYPx: recordBottom.y + recordBottom.height + ZODIAC_AREA_GAP_PX,
+        bottomYPx: view.actions.random.text.y - ZODIAC_AREA_GAP_PX,
+      },
+      ZODIAC_MAX_SPAN_PX,
+    );
   }
 
   private renderNoSongInfo(view: SongSelectWidgets): void {
     view.titleText.setText('');
     view.categoryText.setText('');
-    view.laneStars.forEach((star) => star.setVisible(false));
-    view.laneText.setVisible(false);
+    renderLaneMarks(view.laneMarks, view.categoryText, null);
     view.recordLabel.setVisible(false);
     view.recordValue.setVisible(false);
+    view.recordGrade.render(null);
     view.noRecordText.setVisible(false);
+    view.recordsFailure.render(null);
     view.zodiacStars.setVisible(false);
     view.zodiacLines.setVisible(false);
   }
@@ -1116,12 +1258,12 @@ export class SongSelectScene extends Phaser.Scene {
       case 'hovered':
         hitArea.setInteractive();
         setTextColor(text, hoverColor);
-        underline.setFillStyle(hoverColor).setVisible(true);
+        underline.setTint(hoverColor).setVisible(true);
         return;
       case 'idle':
         hitArea.setInteractive();
         setTextColor(text, idleColor);
-        underline.setFillStyle(idleColor).setVisible(false);
+        underline.setTint(idleColor).setVisible(false);
         return;
     }
   }

@@ -9,7 +9,6 @@ import type { Profile } from '../../../../src/data/profile.js';
 import { withControlsOpen } from '../../../../src/game/app/controlsGuide.js';
 import {
   createProfileScreen,
-  focusAchievement,
   getAchievementCondition,
   getChangedRegions,
   getEarnedProgress,
@@ -17,7 +16,6 @@ import {
   getFeaturedAction,
   getFeaturedIdentity,
   getFocusedEarning,
-  getProfileNotice,
   hoverProfileButton,
   isFocusedFeatured,
   loadedState,
@@ -25,6 +23,7 @@ import {
   selectFocused,
   selectSummaryTab,
   setHover,
+  withCollection,
   withPage,
 } from '../../../../src/game/profile/state/profileState.js';
 import type {
@@ -114,8 +113,13 @@ describe('getChangedRegions', () => {
         'nicknameInput',
         'controls',
         'backButton',
+        'retryButton',
         'controlsEntry',
+        'accountButton',
         'controlsClose',
+        'deleteEntry',
+        'deleteDialog',
+        'deleteButtons',
       ],
       summary: [
         'labels',
@@ -127,6 +131,10 @@ describe('getChangedRegions', () => {
         'tabs',
         'summaryFocus',
         'setMarkers',
+        'rankings',
+        'rankingControls',
+        'rankingsScroll',
+        'rankingsNotice',
       ],
       collection: [],
     });
@@ -152,7 +160,7 @@ describe('getChangedRegions', () => {
     const collection = openRhythm(SUMMARY);
 
     expect(getChangedRegions(screenOf(SUMMARY), screenOf(collection))).toEqual({
-      profile: ['pages', 'title', 'notice'],
+      profile: ['pages', 'title', 'notice', 'deleteEntry'],
       summary: [],
       collection: [
         'tabs',
@@ -177,8 +185,13 @@ describe('getChangedRegions', () => {
         'nicknameInput',
         'controls',
         'backButton',
+        'retryButton',
         'controlsEntry',
+        'accountButton',
         'controlsClose',
+        'deleteEntry',
+        'deleteDialog',
+        'deleteButtons',
       ],
       summary: [],
       collection: [],
@@ -189,7 +202,7 @@ describe('getChangedRegions', () => {
 describe('getChangedRegions for the controls', () => {
   it('draws only the controls when only the controls open', () => {
     expect(getChangedRegions(screenOf(SUMMARY), screenOf(SUMMARY, true))).toEqual({
-      profile: ['controls', 'controlsClose'],
+      profile: ['controls'],
       summary: [],
       collection: [],
     });
@@ -445,11 +458,15 @@ describe('getFocusedEarning', () => {
   it('reads the earned time of the focused achievement or tells it is locked', () => {
     const collection = openRhythm(SUMMARY);
 
-    expect(getFocusedEarning(focusAchievement(collection, FIRST_FINISH.id))).toEqual({
+    expect(
+      getFocusedEarning(withCollection(collection, collection.collection.set, FIRST_FINISH.id)),
+    ).toEqual({
       kind: 'earned',
       earnedAtMs: EARNED_AT_MS,
     });
-    expect(getFocusedEarning(focusAchievement(collection, PLAY_3.id))).toEqual({
+    expect(
+      getFocusedEarning(withCollection(collection, collection.collection.set, PLAY_3.id)),
+    ).toEqual({
       kind: 'locked',
     });
   });
@@ -482,25 +499,13 @@ describe('getFeaturedIdentity', () => {
 
 describe('isFocusedFeatured', () => {
   it('agrees with the featured action', () => {
-    const collection = focusAchievement(
-      openRhythm(loadedState(createProfile({ featuredAchievement: FIRST_FINISH }))),
-      FIRST_FINISH.id,
-    );
-    const other = focusAchievement(collection, PLAY_3.id);
+    const rhythm = openRhythm(loadedState(createProfile({ featuredAchievement: FIRST_FINISH })));
+    const collection = withCollection(rhythm, rhythm.collection.set, FIRST_FINISH.id);
+    const other = withCollection(collection, collection.collection.set, PLAY_3.id);
 
     expect(isFocusedFeatured(collection)).toBe(true);
     expect(getFeaturedAction(collection)).toBe('unequip');
     expect(isFocusedFeatured(other)).toBe(false);
     expect(getFeaturedAction(other)).toBe('none');
-  });
-});
-
-describe('getProfileNotice', () => {
-  it('has a notice only on the guest and failed pages', () => {
-    expect(getProfileNotice('guest')).toBe('guest');
-    expect(getProfileNotice('failed')).toBe('failed');
-    expect(getProfileNotice('loading')).toBeNull();
-    expect(getProfileNotice('summary')).toBeNull();
-    expect(getProfileNotice('collection')).toBeNull();
   });
 });

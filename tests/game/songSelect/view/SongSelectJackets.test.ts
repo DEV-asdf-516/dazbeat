@@ -47,16 +47,21 @@ function createTextures(loadedSongIds: readonly string[] = []) {
   const textures: JacketTextures = {
     loadedSongIds: () => [...loaded],
     queue: (songs, onError) => {
-      queued.push({
-        songIds: songs.map((song) => song.id),
-        onError,
-      });
+      // 실제 로더는 빈 목록이면 아무 일도 하지 않는다.
+      if (songs.length > 0) {
+        queued.push({
+          songIds: songs.map((song) => song.id),
+          onError,
+        });
+      }
     },
     start: () => {
       startCount += 1;
     },
     remove: (songIds) => {
-      removed.push([...songIds]);
+      if (songIds.length > 0) {
+        removed.push([...songIds]);
+      }
       songIds.forEach((songId) => loaded.delete(songId));
     },
   };

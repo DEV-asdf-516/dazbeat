@@ -1,5 +1,6 @@
 import { PreviewLoop } from '../../audio/PreviewLoop.js';
 import type { YouTubePlayer, YouTubePlayerHandlers } from '../../audio/YouTubePlayer.js';
+import type { ChartTopRank, MyChartRecord } from '../../data/ranking.js';
 import { SONG_FILTERS } from '../../data/songs.js';
 import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
 import { cycleItem } from '../../range.js';
@@ -8,11 +9,12 @@ import { isShallowEqual } from '../../shallowEqual.js';
 import type { ChartRecords } from '../../storage/chartRecords.js';
 import type { SongFeed, SongFeeds } from '../app/SongFeed.js';
 import type { SongSelectRestore } from '../app/sceneRoutes.js';
-import { IDLE_WHEEL, readWheelRows } from '../ui/state/wheelRows.js';
-import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
+import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
+import { readControlsKey, readControlsWheel, withControlsOpen } from '../app/controlsGuide.js';
 import {
   canSelectRandomSong,
   clearHover,
+  failRecords,
   getPlayableSelection,
   getSongPage,
   getSongSelectNotice,
@@ -24,15 +26,21 @@ import {
   moveSong,
   openSongSelect,
   pressSongSelectButton,
+  isFeedRetryInput,
   releaseHover,
+  releaseRetryHover,
   releaseSongSelectButton,
+  retryRecords,
   selectDifficulty,
   selectRandomSong,
   selectSong,
   setHover,
   unhoverSongSelectButton,
   withFilter,
+  withLocalRecords,
+  withMyRecords,
   withSongs,
+  withTopRanks,
 } from './state/songSelectState.js';
 import type {
   SongSelectButton,
@@ -48,7 +56,9 @@ export interface SongSelectScreen {
   playSound(sound: SoundEffect): void;
   play(chart: ChartRef, restore: SongSelectRestore): void;
   openSettings(restore: SongSelectRestore): void;
+  openRanking(chart: ChartRef, restore: SongSelectRestore): void;
   backToMain(): void;
+  openProfile(restore: SongSelectRestore): void;
 }
 
 interface ControllerState {
@@ -79,6 +89,12 @@ export interface SongSelectPorts {
   readonly feeds: SongFeeds;
   readonly random: () => number;
   readonly preview: SongPreviewPorts;
+  readonly rankings: {
+    isSignedIn(): boolean;
+    loadMyTopRanks(): Promise<readonly ChartTopRank[]>;
+    loadMyRecords(): Promise<readonly MyChartRecord[]>;
+  };
+  loadLocalRecords(): ChartRecords;
 }
 
 type PreviewState =
@@ -102,6 +118,8 @@ export class SongSelectController {
   private current: ControllerOrClosed;
   private previewState: PreviewState = { kind: 'none' };
   private randomRequest: object | null = null;
+  private rankingsRequest: object | null = null;
+  private recordsRequest: object | null = null;
   private wheel = IDLE_WHEEL;
   private shownView: SongSelectView | null = null;
 
@@ -111,15 +129,22 @@ export class SongSelectController {
     private readonly rowsPerPage: number,
     laneCount: LaneCount,
     restore: SongSelectRestore | undefined,
-    private readonly records: ChartRecords,
     private readonly wheelStepPx: number,
   ) {
     const { feed, state } = openSongSelect(ports.feeds.catalog, laneCount, restore);
-    const first = this.attach(feed, state);
+    const isSignedIn = ports.rankings.isSignedIn();
+    const first = this.attach(
+      feed,
+      isSignedIn ? state : withLocalRecords(state, ports.loadLocalRecords()),
+    );
     this.current = first;
     this.render(first);
     if (restore === undefined) {
       this.requestMoreFromUser();
+    }
+    if (isSignedIn) {
+      this.requestTopRanks();
+      this.requestRecords();
     }
   }
 
@@ -136,10 +161,14 @@ export class SongSelectController {
 
   scrollByWheel(deltaYPx: number, atMs: number): void {
     const current = this.open;
-    if (current === null || current.state.isControlsOpen) {
+    if (current === null) {
       return;
     }
-    const read = readWheelRows(this.wheel, deltaYPx, atMs, this.wheelStepPx);
+    const read = readControlsWheel(current.state.isControlsOpen, this.wheel, {
+      deltaYPx,
+      atMs,
+      rowPx: this.wheelStepPx,
+    });
     this.wheel = read.gesture;
     if (read.rows !== 0) {
       this.moveSong(read.rows);
@@ -200,7 +229,13 @@ export class SongSelectController {
       title: '',
     });
     this.commit(
-      this.attach(feed, releaseHover(withFilter(previous, filter, feed.songs), this.rowsPerPage)),
+      this.attach(
+        feed,
+        releaseRetryHover(
+          releaseHover(withFilter(previous, filter, feed.songs), this.rowsPerPage),
+          feed.status,
+        ),
+      ),
     );
     this.requestMoreFromUser();
   }
@@ -263,12 +298,30 @@ export class SongSelectController {
       case 'settings':
         this.openSettings();
         return;
+      case 'back':
+        this.back();
+        return;
+      case 'ranking':
+        this.openRanking();
+        return;
+      case 'retry':
+        this.screen.playSound('click');
+        this.requestMoreFromUser();
+        return;
+      case 'recordsRetry':
+        this.screen.playSound('click');
+        this.apply(retryRecords);
+        this.requestRecords();
+        return;
       case 'controlsEntry':
         this.openControls();
         return;
       case 'controlsClose':
       case 'controlsBackdrop':
         this.closeControls();
+        return;
+      case 'accountProfile':
+        this.openProfile();
         return;
     }
   }
@@ -293,7 +346,44 @@ export class SongSelectController {
         feed,
         ...getSongSelectTarget(state),
       });
+      return;
     }
+    if (isFeedRetryInput(state, feed.status)) {
+      this.requestMoreFromUser();
+    }
+  }
+
+  openRanking(): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const { feed, state } = current;
+    const chart = getPlayableSelection(state);
+    if (chart !== null) {
+      this.screen.playSound('click');
+      this.screen.openRanking(chart, {
+        feed,
+        ...getSongSelectTarget(state),
+      });
+      return;
+    }
+    if (isFeedRetryInput(state, feed.status)) {
+      this.requestMoreFromUser();
+    }
+  }
+
+  private openProfile(): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const { feed, state } = current;
+    this.screen.playSound('click');
+    this.screen.openProfile({
+      feed,
+      ...getSongSelectTarget(state),
+    });
   }
 
   openSettings(): void {
@@ -339,10 +429,48 @@ export class SongSelectController {
       return;
     }
     this.randomRequest = null;
+    this.rankingsRequest = null;
+    this.recordsRequest = null;
     current.unsubscribe();
     this.destroyPreviewPlayer();
     this.previewState = { kind: 'none' };
     this.current = { kind: 'closed' };
+  }
+
+  // TOP 표시는 선택 리소스라 실패해도 표시 없이 계속한다.
+  private requestTopRanks(): void {
+    const request = {};
+    this.rankingsRequest = request;
+    void this.ports.rankings.loadMyTopRanks().then(
+      (ranked) => {
+        if (this.rankingsRequest === request) {
+          this.apply((state) => withTopRanks(state, ranked));
+        }
+      },
+      (error: unknown) => {
+        if (this.rankingsRequest === request) {
+          console.warn('Failed to load my top ranks', error);
+        }
+      },
+    );
+  }
+
+  private requestRecords(): void {
+    const request = {};
+    this.recordsRequest = request;
+    void this.ports.rankings.loadMyRecords().then(
+      (items) => {
+        if (this.recordsRequest === request) {
+          this.apply((state) => withMyRecords(state, items));
+        }
+      },
+      (error: unknown) => {
+        if (this.recordsRequest === request) {
+          console.warn('Failed to load my records', error);
+          this.apply(failRecords);
+        }
+      },
+    );
   }
 
   // 다 받기 전에 실패했으면 받아 둔 곡에서 고르고, 실패 알림이 다시 받기를 안내한다.
@@ -405,7 +533,10 @@ export class SongSelectController {
       return;
     }
     const { feed, state } = current;
-    const next = releaseHover(withSongs(state, feed.songs), this.rowsPerPage);
+    const next = releaseRetryHover(
+      releaseHover(withSongs(state, feed.songs), this.rowsPerPage),
+      feed.status,
+    );
     this.commit({
       ...current,
       state: next,
@@ -439,7 +570,6 @@ export class SongSelectController {
       notice,
       isLoadingMore,
       songCount: feed.songCount,
-      records: this.records,
     };
     this.screen.render(this.shownView, next);
     this.shownView = next;
