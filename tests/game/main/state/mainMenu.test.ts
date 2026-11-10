@@ -23,7 +23,7 @@ const USER: AuthUser = {
 
 const GUEST: AccountState = {
   kind: 'guest',
-  hasSignInFailed: false,
+  signInFailure: 'none',
 };
 
 function signedIn(user: AuthUser): AccountState {
@@ -51,13 +51,10 @@ describe('getChangedRegions', () => {
     ]);
   });
 
-  it('redraws only the controls and their close button when only the controls open', () => {
+  it('redraws only the controls when only the controls open', () => {
     const state = createMainState(GUEST);
 
-    expect(getChangedRegions(state, withControlsOpen(state, true))).toEqual([
-      'controls',
-      'controlsClose',
-    ]);
+    expect(getChangedRegions(state, withControlsOpen(state, true))).toEqual(['controls']);
   });
 
   it('plays the focus motion and the hearts when the focus moves to YouTube', () => {
@@ -173,10 +170,8 @@ describe('getChangedRegions for the buttons', () => {
 
     expect(withAccount(hoverMainButton(editor, 'chartEditor'), GUEST).hover).toBeNull();
     expect(withAccount(hoverMainButton(state, 'profile'), GUEST).hover).toBeNull();
-    expect(withAccount(hoverMainButton(state, 'account'), GUEST).hover).toEqual({
-      kind: 'button',
-      button: 'account',
-      isPressed: false,
-    });
+    expect(
+      withAccount(hoverMainButton(createMainState(GUEST), 'account'), signedIn(USER)).hover,
+    ).toBeNull();
   });
 });

@@ -13,11 +13,7 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import {
-  getControlsCloseView,
-  isControlsButtonEnabled,
-  isControlsEntryHovered,
-} from '../../app/controlsGuide.js';
+import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
 
 export type MainMenuItem = 'play' | 'practice' | 'chartEditor' | 'settings' | 'credits';
@@ -87,7 +83,7 @@ export function isCurrentAccountAttempt(state: MainState, attempt: AccountState)
   return state.account === attempt;
 }
 
-// Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 메뉴 항목이 바뀌거나 프로필 진입이
+// Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 메뉴 항목이 바뀌거나 프로필 진입, 로그인 버튼이
 // 사라지는 계정 변경에서 그 버튼들의 hover 를 푼다.
 function releaseHiddenHover(state: MainState, account: AccountState): MainState['hover'] {
   const menuHover =
@@ -97,18 +93,7 @@ function releaseHiddenHover(state: MainState, account: AccountState): MainState[
           (hover, item) => unhoverButton(hover, item),
           state.hover,
         );
-  return account.kind === 'signedIn' ? menuHover : unhoverButton(menuHover, 'profile');
-}
-
-function isMainButtonEnabled(state: MainState, button: MainButton): boolean {
-  switch (button) {
-    case 'controlsEntry':
-    case 'controlsClose':
-    case 'controlsBackdrop':
-      return isControlsButtonEnabled(button, state.isControlsOpen);
-    default:
-      return true;
-  }
+  return unhoverButton(menuHover, account.kind === 'signedIn' ? 'account' : 'profile');
 }
 
 function withHover(state: MainState, hover: MainState['hover']): MainState {
@@ -129,7 +114,7 @@ export function unhoverMainButton(state: MainState, button: MainButton): MainSta
 }
 
 export function pressMainButton(state: MainState, button: MainButton): MainState {
-  return withHover(state, pressButton(state.hover, button, isMainButtonEnabled(state, button)));
+  return withHover(state, pressButton(state.hover, button, true));
 }
 
 export function releaseMainButton(state: MainState, button: MainButton): MainState {
@@ -141,7 +126,7 @@ export function getMainButtonView(state: MainState, button: MainFocus | 'account
 }
 
 export function getMainControlsCloseView(state: MainState): ButtonView {
-  return getControlsCloseView(state.hover, state.isControlsOpen);
+  return getControlsCloseView(state.hover);
 }
 
 export function isMainControlsEntryHovered(state: MainState): boolean {
@@ -204,7 +189,7 @@ const REGION_SOURCES: Readonly<
   youtubeButton: [readFocus, ...readButton('youtube')],
   controls: [readControlsOpen],
   controlsEntry: [(state) => isButtonHovered(state.hover, 'controlsEntry')],
-  controlsClose: [readControlsOpen, ...readButton('controlsClose')],
+  controlsClose: readButton('controlsClose'),
 };
 
 export function getChangedRegions(

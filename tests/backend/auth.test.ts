@@ -1,13 +1,16 @@
-import PocketBase from 'pocketbase';
+import PocketBase, { ClientResponseError } from 'pocketbase';
 import type { RecordAuthResponse, RecordModel } from 'pocketbase';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cancelSignInWithGoogle,
+  deleteAccount,
   getCurrentUser,
   refreshCurrentUser,
   signInWithGoogle,
   signOut,
 } from '../../src/backend/auth.js';
+import { AccountDeletionError, AccountRejoinBlockedError } from '../../src/data/account.js';
+import type { AccountDeletionErrorKind } from '../../src/data/account.js';
 import { msToSec } from '../../src/time.js';
 
 const USER_RECORD_WITHOUT_IS_EDITOR: RecordModel = {
@@ -321,6 +324,39 @@ describe('signInWithGoogle', () => {
 
     await expect(signInWithGoogle(pb, new EventTarget())).rejects.toThrow('popup blocked');
   });
+
+  it('rejects with the rejoin blocked error when the deleted Google account is rejected', async () => {
+    const pb = new PocketBase('http://pb.test');
+    vi.spyOn(pb.collection('users'), 'authWithOAuth2').mockRejectedValue(
+      new ClientResponseError({
+        status: 403,
+        response: {
+          status: 403,
+          code: 'account_rejoin_blocked',
+          message: 'blocked',
+        },
+      }),
+    );
+
+    await expect(signInWithGoogle(pb, new EventTarget())).rejects.toBeInstanceOf(
+      AccountRejoinBlockedError,
+    );
+  });
+
+  it('rejects with the SDK error for any other error response', async () => {
+    const pb = new PocketBase('http://pb.test');
+    const rejection = new ClientResponseError({
+      status: 503,
+      response: {
+        status: 503,
+        code: 'rejoin_block_unavailable',
+        message: 'unavailable',
+      },
+    });
+    vi.spyOn(pb.collection('users'), 'authWithOAuth2').mockRejectedValue(rejection);
+
+    await expect(signInWithGoogle(pb, new EventTarget())).rejects.toBe(rejection);
+  });
 });
 
 describe('signInWithGoogle after the sign-in window closes', () => {
@@ -416,5 +452,117 @@ describe('cancelSignInWithGoogle', () => {
 
     expect(() => cancelSignInWithGoogle(pb)).not.toThrow();
     expect(getCurrentUser(pb)).toEqual(user);
+  });
+});
+
+describe('deleteAccount', () => {
+  const OTHER_KEY = 'dazbeat-local-save';
+  let storage: Map<string, string>;
+
+  // The SDK keeps the session in window.localStorage, where local saves also live.
+  function signedInClient(): PocketBase {
+    storage = new Map([[OTHER_KEY, '{"bestScores":{}}']]);
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+        removeItem: (key: string) => storage.delete(key),
+      },
+      addEventListener: () => undefined,
+    });
+    const pb = new PocketBase('http://pb.test');
+    pb.authStore.save(makeToken(nowSeconds() + 3600), USER_RECORD);
+    return pb;
+  }
+
+  async function expectFailure(
+    deletion: Promise<void>,
+    kind: AccountDeletionErrorKind,
+  ): Promise<void> {
+    const error: unknown = await deletion.then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(AccountDeletionError);
+    expect(error).toMatchObject({ kind });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends one DELETE and clears only the session once the server deleted the account', async () => {
+    const pb = signedInClient();
+    const fetchSpy = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await deleteAccount(pb);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe('http://pb.test/api/dazbeat/account');
+    expect(init?.method).toBe('DELETE');
+    expect(pb.authStore.token).toBe('');
+    expect(pb.authStore.record).toBeNull();
+    expect(storage.get(OTHER_KEY)).toBe('{"bestScores":{}}');
+  });
+
+  it.each([
+    [401, 'unauthorized'],
+    [409, 'failed'],
+    [503, 'failed'],
+    [500, 'failed'],
+  ] as const)('rejects a %s response as %s and keeps the session', async (status, kind) => {
+    const pb = signedInClient();
+    const { token } = pb.authStore;
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        jsonResponse(status, {
+          status,
+          code: 'rejected',
+          message: 'rejected',
+        }),
+      ),
+    );
+
+    await expectFailure(deleteAccount(pb), kind);
+
+    expect(pb.authStore.token).toBe(token);
+    expect(pb.authStore.record).toEqual(USER_RECORD);
+  });
+
+  it('rejects a network failure as unknown and keeps the session', async () => {
+    const pb = signedInClient();
+    const { token } = pb.authStore;
+    vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
+
+    await expectFailure(deleteAccount(pb), 'unknown');
+
+    expect(pb.authStore.token).toBe(token);
+    expect(pb.authStore.record).toEqual(USER_RECORD);
+  });
+
+  it('gives up as unknown after 15 seconds without a response and keeps the session', async () => {
+    vi.useFakeTimers();
+    const pb = signedInClient();
+    const { token } = pb.authStore;
+    vi.stubGlobal('fetch', pendingUntilAbortFetch);
+    let isSettled = false;
+    const failure = expectFailure(
+      deleteAccount(pb).finally(() => {
+        isSettled = true;
+      }),
+      'unknown',
+    );
+
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(isSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await failure;
+    expect(pb.authStore.token).toBe(token);
+    expect(pb.authStore.record).toEqual(USER_RECORD);
   });
 });

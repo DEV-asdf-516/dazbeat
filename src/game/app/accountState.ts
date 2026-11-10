@@ -1,8 +1,11 @@
+import { AccountRejoinBlockedError } from '../../data/account.js';
 import type { AuthUser } from '../../data/account.js';
 import { isShallowEqual } from '../../shallowEqual.js';
 
+export type SignInFailure = 'failed' | 'rejoinBlocked';
+
 export type AccountState =
-  | { readonly kind: 'guest'; readonly hasSignInFailed: boolean }
+  | { readonly kind: 'guest'; readonly signInFailure: SignInFailure | 'none' }
   | { readonly kind: 'signingIn' }
   | { readonly kind: 'signedIn'; readonly user: AuthUser };
 
@@ -14,10 +17,10 @@ export interface AccountAuth {
   refresh(): Promise<AuthUser | null>;
 }
 
-function guest(hasSignInFailed: boolean): AccountState {
+function guest(signInFailure: SignInFailure | 'none'): AccountState {
   return {
     kind: 'guest',
-    hasSignInFailed,
+    signInFailure,
   };
 }
 
@@ -31,7 +34,7 @@ function whenCurrent(
 
 export function createAccountState(user: AuthUser | null): AccountState {
   return user === null
-    ? guest(false)
+    ? guest('none')
     : {
         kind: 'signedIn',
         user,
@@ -56,11 +59,19 @@ export function completeSignIn(
 
 /** 취소는 실패가 아니므로 안내를 띄우지 않는다. */
 export function cancelSignIn(current: AccountState, attempt: AccountState): AccountState {
-  return whenCurrent(current, attempt, guest(false));
+  return whenCurrent(current, attempt, guest('none'));
 }
 
-export function failSignIn(current: AccountState, attempt: AccountState): AccountState {
-  return whenCurrent(current, attempt, guest(true));
+export function failSignIn(
+  current: AccountState,
+  attempt: AccountState,
+  error: unknown,
+): AccountState {
+  return whenCurrent(
+    current,
+    attempt,
+    guest(error instanceof AccountRejoinBlockedError ? 'rejoinBlocked' : 'failed'),
+  );
 }
 
 /** 거절(`null`)은 저장된 세션이 무효가 된 것이라 실패 안내 없이 게스트로 둔다. */
@@ -73,7 +84,7 @@ export function completeRefresh(
     return current;
   }
   if (user === null) {
-    return guest(false);
+    return guest('none');
   }
   if (attempt.kind === 'signedIn' && isShallowEqual(attempt.user, user)) {
     return current;
