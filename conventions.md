@@ -23,15 +23,15 @@
 - `shallowEqual.ts` `isShallowEqual`(뺄 필드 지정): 필드를 `===`·`&&`로 나열해 비교하지 않는다.
 - `changedRegions.ts` `filterChangedRegions`: 부분 갱신에 필드 비교 불리언 플래그를 만들지 않는다. 영역 표와 고르기 함수는 상태 모듈에 둔다. 영역은 상태 필드가 아니라 위젯 기준이고, 위젯 하나의 남는 모양은 한 영역에서만 칠하며 그 위젯이 읽는 값을 모두 적는다. 새 위젯은 읽는 값을 이미 보는 영역에 넣고, 다른 위젯까지 쓸데없이 다시 그려질 때만 나눈다. 한 번 재생하는 연출(반짝임·팝)은 연출 영역으로 두고 첫 그림 포함 여부는 상태 모듈이 정한다. 영역 간 그리는 순서에 기대지 않는다.
 - `time.ts` `msToSec`·`secToMs`: 초는 외부 API(YouTube)·초당 속도 설정 경계에서만, 변환에 `1000`을 직접 쓰지 않는다.
-- `pbQuery.ts` `where`·`sort`·`select`(fields·expand)·`lt`·`gt`·`ne`·`like`·`anyOf`·`after`(keyset)·`backRelation`: 필터·정렬·fields·expand 문자열을 직접 쓰지 않는다.
-- `pbSql.ts` `column`·`columns`·`columnAs`: 조인한 dbx 쿼리의 열·조건 이름을 직접 쓰지 않는다.
+- `pbQuery.ts` `where`·`select`(fields·expand)·`ne`·`like`·`backRelation`·`asc`·`desc`(정렬 키): 필터·fields·expand 문자열을 직접 쓰지 않는다.
+- `pbSql.ts` `column`·`columns`·`columnAs`·`orderTerms`·`joinOn`: 조인한 dbx 쿼리의 열·ON·조건·정렬 이름을 직접 쓰지 않는다.
 - `pbCollections.ts`: 컬렉션 spec(이름 + 조회에 쓰는 필드). 새 필드로 조회하면 여기에 추가한다.
 
 ### 2.2 순수·I/O 폴더
 
 - `src/rhythm/`: 판정·점수·노트 위치 등 순수 게임 로직. 2.1만 import한다.
 - `src/data/`: 곡·채보 타입과 런타임 검증. `rhythm/`, 2.1만 import한다.
-- `src/backend/`: PocketBase 호출. `pocketbase` 패키지는 이 폴더와 `src/main.ts`에서만 import한다.
+- `src/backend/`: PocketBase 호출. `pocketbase` 패키지는 이 폴더와 `src/main.ts`에서만 import한다. API 경로는 모듈 맨 위 `*_PATH` 상수로 둔다.
 - `src/storage/`: 브라우저 로컬 저장소. `rhythm/`, `i18n/language.ts`, 2.1만 import한다.
 - `src/audio/`: 재생·시간 소스. 문구를 만들지 않고 오류 종류 같은 값만 반환한다(번역은 `game/`).
 
@@ -45,7 +45,7 @@
 
 Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src/main.ts`에서 주입받는다.
 
-- 화면 폴더(`main/`, `songSelect/`, `gameplay/`, `result/`, `settings/`, `credits/`, `editor/`, `profile/`, `boot/`): 바로 아래에 씬과 Controller만, 그리는 것(위젯·텍스처·연출·테마)과 그 자원 수명은 `view/`, Phaser 없는 판단·계산(상태 전이·정책·입력 해석·표시 데이터 집계·레이아웃·appearance)은 `state/`. `state/`는 Phaser·DOM·I/O를 쓰지 않고(주입된 I/O 객체의 메서드 호출, 실행 객체의 수명 관리 포함) Controller·씬·`view/`를 런타임 import하지 않는다. 스스로 시간을 진행하는 도메인 객체(`GameplaySession` 등)는 I/O가 아니다. 여러 층이 함께 쓰는 상태·표현 타입과 순수 입력 해석은 그 값을 만드는 `state/`·`ui/state/`가 소유하고, 타입 전용 역참조는 소유가 뒤집혔거나 순환일 때만 옮긴다.
+- 화면 폴더(`main/`, `songSelect/`, `gameplay/`, `result/`, `settings/`, `credits/`, `editor/`, `profile/`, `ranking/`, `boot/`): 바로 아래에 씬과 Controller만, 그리는 것(위젯·텍스처·연출·테마)과 그 자원 수명은 `view/`, Phaser 없는 판단·계산(상태 전이·정책·입력 해석·표시 데이터 집계·레이아웃·appearance)은 `state/`. `state/`는 Phaser·DOM·I/O를 쓰지 않고(주입된 I/O 객체의 메서드 호출, 실행 객체의 수명 관리 포함) Controller·씬·`view/`를 런타임 import하지 않는다. 스스로 시간을 진행하는 도메인 객체(`GameplaySession` 등)는 I/O가 아니다. 여러 층이 함께 쓰는 상태·표현 타입과 순수 입력 해석은 그 값을 만드는 `state/`·`ui/state/`가 소유하고, 타입 전용 역참조는 소유가 뒤집혔거나 순환일 때만 옮긴다.
 - 공용: 씬 설정·경로·계정 같은 앱 공통은 `app/`, 천체는 `celestial/{view,state}/`, 그 밖은 `ui/state/`·`ui/view/{widgets,textures,input}/`. 다른 화면도 쓰게 되면 공용으로 옮기고, 이미 있는 공용 위젯(`ui/view/widgets/LoadingStar` 등)은 복사하지 않고 쓴다.
 
 ### 2.5 `pocketbase/`
@@ -72,9 +72,11 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 
 ## 4. PocketBase 서버 (`pocketbase/`)
 
+- 목록 페이지: 페이지 번호·offset 없이 keyset으로 넘긴다. 정렬 끝에 고유값을 두고, 정렬·`LIMIT`은 SQL에서 하며, 다음 페이지 유무는 한 개 더 읽어 판단하고, 총 개수는 첫 요청에서만 센다. 새 목록 쿼리는 `sqlite_stat1`이 있는 DB에서 `EXPLAIN QUERY PLAN`으로 확인한다.
 - dbx 쿼리는 행을 고르고 묶는 데(조인·조건·정렬·집계)만 쓴다. 자르기·형 변환·포맷은 읽은 뒤 코드에서. `pbQuery`의 `where`는 필터 문법이라 dbx에 넣지 않는다.
-- 읽기: 고쳐 저장할 레코드나 id 한 건은 레코드 API(`findRecordById`·`findRecordsByFilter`), 레코드가 필요한데(rule 검사 등) 레코드 API로 표현할 수 없으면 `recordQuery`, 값만 읽으면 `app.db().select()` builder를 `selectRows`·`selectRow`로. SQL 문장 문자열 금지. 조건은 `dbx.hashExp`·`dbx.in`·`dbx.not`, dbx에 없는 것(`COLLATE`·`GLOB`·FTS `MATCH`·`LIKE ... ESCAPE`·OR 묶음)만 `dbx.exp`. 같은 조인·조건을 쓰는 조회는 같은 방식으로 쓰고 한 함수로 붙인다.
-- 쓰기: 넣기·고치기는 `save`(id·autodate·검증·레코드 훅이 이 경로에서 돈다), 서버 전용 컬렉션 지우기는 `app.db().delete()`.
+- 읽기: 고쳐 저장할 레코드나 id 한 건은 레코드 API(`findRecordById`·`findRecordsByFilter`), 레코드가 필요한데(rule 검사 등) 레코드 API로 표현할 수 없으면 `recordQuery`, 값만 읽으면 `app.db().select()` builder를 `selectRows`·`selectRow`로. builder로 만들 수 없는 문장(UNION 전체에 거는 `LIMIT` 등)만 `newQuery`로 쓴다. 조건은 `dbx.hashExp`·`dbx.in`·`dbx.not`, dbx에 없는 것(`COLLATE`·`GLOB`·FTS `MATCH`·`LIKE ... ESCAPE`·OR 묶음)만 `dbx.exp`. 같은 조인·조건을 쓰는 조회는 같은 방식으로 쓰고 한 함수로 붙인다.
+- 쓰기: 넣기·고치기는 `save`(id·autodate·검증·레코드 훅이 이 경로에서 돈다), 서버 전용 컬렉션 지우기는 `app.db().delete()`, `save` 경로가 필요 없는 복제 열 일괄 수정은 `app.db().update()`.
+- 고치거나 지울 레코드는 repository `find<Thing>Record`로 한 번 찾아 그 레코드를 값 해석(`parse<Thing>Record`)과 저장·삭제 함수에 넘긴다. 같은 레코드를 다시 찾지 않는다.
 - 서버 전용 컬렉션은 API 규칙을 모두 `null`로 두고 훅으로만 쓴다. 커스텀 라우트는 `/api/dazbeat/…`, 오류 응답은 `{ status, code(snake_case), message }`.
 
 ## 5. 코딩 룰
@@ -83,13 +85,14 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 
 - Correctness > Simplicity > Readability > Testability > Reusability.
 - Reusability는 결과다. 재사용·확장성을 위한 선행 추상화를 만들지 않는다. 같은 개념·규칙·변경 이유가 2곳 이상이면 차이를 인자·데이터로 표현해 공통화하고, 모양만 비슷한 코드나 공통화가 분기·옵션·콜백을 늘리는 경우는 중복을 둔다.
-- 새 코드 판단 순서: 기존 함수로 가능한가 → 기존 모듈 책임에 맞는가 → 순수 함수로 가능한가.
+- 새 코드 판단 순서: 플랫폼 기본 기능(PocketBase 대시보드·레코드 훅 등)으로 가능한가 → 기존 함수로 가능한가 → 기존 모듈 책임에 맞는가 → 순수 함수로 가능한가.
 
 ### 5.2 타입
 
 - strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes 유지. `// @ts-ignore` 금지, 이유를 적은 `// @ts-expect-error <reason>`만.
 - `any` 대신 `unknown`과 좁히기. `enum` 대신 union.
 - union 판별 필드는 `kind`(도메인이 정한 `Note.type`·`outcome`은 유지). `undefined`는 호출자가 이어 처리하는 파싱·조회 실패, `null`은 의도된 빈 값.
+- 의도된 빈 값의 필드는 `cursor?.releasedOn`·`?? null`로 꺼낸다. 키를 빼는 `...(x === null ? {} : { … })`는 키가 없는 것과 빈 값이 다르게 읽힐 때만 쓴다(dbx `hashExp`의 `IS NULL`, 선택 필드). SDK `query`는 빈 값을 스스로 뺀다.
 
 ### 5.3 클래스 / 함수 / 모듈
 
@@ -125,7 +128,7 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 
 - 도메인 로직과 화면 상태 전이는 프레임워크·I/O·저장소·DOM에 의존하지 않는다. 프레임워크 코드는 표시와 부수효과만.
 - 순환 의존·전역 Singleton·전역 Event Bus 금지. 조립은 Composition Root에서.
-- Named export만. default export와 `index.ts` barrel 금지.
+- Named export만. default export는 도구가 그 형태만 읽는 설정 파일(`*.config.ts`)에만 쓰고, `index.ts` barrel은 금지.
 - 파일 분리 기준은 라인 수가 아니라 독립적인 책임·변경 이유·테스트 이유.
 
 #### mutable state의 source of truth는 하나만 둔다.
@@ -138,6 +141,7 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 
 - I/O: 요청 하나에서 같은 데이터를 다시 읽지 않고, 관계를 한 건씩 나눠 읽지 않고, 쓰지 않는 열·행을 읽지 않는다.
 - 계산: hot path에서 반복 parse·전체 순회·대량 객체 생성을 하지 않고, 같은 입력의 같은 계산은 메모이제이션한다. hot path가 아니어도 같은 목록에서 결과 여러 개를 만들면 루프 하나에서 함께 채운다.
+- 검사: 지워도 동작이 같은 조건(다음 단계가 이미 막거나 일어날 수 없는 경우)은 두지 않는다.
 - 수명·무효화를 따로 관리하는 최적화(캐시·풀링)는 프로파일링으로 병목을 확인한 뒤에만.
 
 ### 5.4 Naming
@@ -146,6 +150,7 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 - 파일: 클래스 중심 `PascalCase.ts`, 함수 모듈 `camelCase.ts`. 변수/함수 `camelCase`, 클래스/타입 `PascalCase`, 전역 상수만 `UPPER_SNAKE_CASE`. Boolean은 `isX`·`hasX`·`canX`.
 - 단위가 있는 값은 이름에 단위(`timeoutMs`, `widthPx`, `sizeBytes`). `time`·`offset`·`duration`·`size` 단독 금지. 같은 종류 값은 한 단위로 통일(시간은 ms).
 - 벽시계 시각은 `…AtMs`, 곡 타임라인 위치는 `…TimeMs`.
+- 저장소에서 읽은 레코드·행을 도메인 값으로 바꾸는 함수는 `parse<Thing>Record`·`parse<Thing>Row`. `to<Thing>` 은 쓰지 않는다.
 
 ### 5.5 오류 / 로그
 
@@ -162,7 +167,7 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 직접 import하지 않고 `src
 ## 6. 변경 범위
 
 - 모든 변경 라인은 요청과 직접 연결된다. 요청하지 않은 리팩터링·재편·스타일 변경·인접 코드 개선은 하지 않고, 리팩터링은 현재 변경이 기존 구조 때문에 불가능하거나 중복·오류를 만들 때만 최소로 한다.
-- 최소 변경은 줄 수가 아니라 새 개념(타입·영역·함수·상수) 수로 잰다. 기존 것을 고쳐 얹을 수 있으면 새로 만들지 않는다.
+- 최소 변경은 diff 가 아니라 변경 뒤 손댄 흐름으로 잰다. 한 요구에서 나온 값·조건·단계가 두 곳에 있거나 기존 분기를 피하려는 중간 값·재검사가 있으면 덜 고친 것이고, 이름 하나로 묶고 분기를 새 경우가 처음부터 있던 모양으로 짜는 것까지가 그 변경이다.
 - 내 변경으로 생긴 dead import/변수/함수는 제거하고, 기존 dead code는 삭제하지 않고 언급만 한다.
 - 새 npm package는 직접 구현이 위험·복잡하거나 표준 라이브러리가 있을 때만, 이유·대체 가능성·runtime/dev 여부를 명시해 추가한다.
 - 스킬 스크립트·스키마·훅 변경은 피처의 명시적 범위에 있을 때만.
