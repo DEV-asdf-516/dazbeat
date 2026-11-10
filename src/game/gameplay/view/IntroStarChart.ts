@@ -9,7 +9,7 @@ import type { CelestialTextureUse } from '../../celestial/view/celestialSprites.
 import { ZODIAC_FIGURES, fitZodiacFigure } from '../../celestial/state/zodiacFigures.js';
 import type { FigurePoint } from '../../celestial/state/zodiacFigures.js';
 import { getZodiacSign, strokeZodiacLine } from '../../celestial/view/zodiacSign.js';
-import { GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
+import { GAMEPLAY_DEPTH, isReducedMotionPreferred } from '../../ui/view/theme.js';
 
 // 곡 선택 화면과 같은 밤하늘·질감을 깔아 곡 선택에서 보던 하늘이 이어지게 한다.
 const BACKDROP_ID = 'R02';
@@ -96,7 +96,7 @@ export class IntroStarChart {
     );
     this.applyVisibility();
 
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (isReducedMotionPreferred()) {
       drawLines(first, first.edges.length);
       return;
     }

@@ -1,8 +1,8 @@
 import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import type { YouTubeErrorKind } from '../../../audio/YouTubePlayer.js';
-import { getAvailableDifficulties } from '../../../data/songs.js';
-import type { Song } from '../../../data/songs.js';
+import { findChart, getAvailableDifficulties } from '../../../data/songs.js';
+import type { ChartRef, Song } from '../../../data/songs.js';
 import type { Difficulty, LaneCount, Note } from '../../../rhythm/types.js';
 import {
   getButtonView,
@@ -43,8 +43,21 @@ export type SaveNotice =
   | { readonly kind: 'saveConflict' }
   | { readonly kind: 'invalidChart'; readonly reason: string };
 
+export const SAVE_FAILURE_NOTICES: Readonly<Record<'failed' | 'conflict', SaveNotice>> = {
+  failed: { kind: 'saveFailed' },
+  conflict: { kind: 'saveConflict' },
+};
+
 /** 전체 삭제는 되돌릴 수 없으므로 저장 여부와 관계없이 묻는다. */
-export type PendingAction = Navigation | { readonly kind: 'clearNotes' } | SaveNotice;
+export type PendingAction =
+  Navigation | { readonly kind: 'clearNotes' } | SaveNotice | TestPlayNotice;
+
+export type TestPlayNotice =
+  { readonly kind: 'testPlayUnsaved' } | { readonly kind: 'testPlayNoChart' };
+
+export type TestPlayDecision =
+  | { readonly kind: 'notice'; readonly notice: TestPlayNotice }
+  | { readonly kind: 'start'; readonly chart: ChartRef };
 
 export type SaveProgress = { readonly kind: 'idle' } | { readonly kind: 'saving' };
 
@@ -58,7 +71,6 @@ export interface EditorSession {
 }
 
 export type EditPhase =
-  | { readonly kind: 'empty' }
   | { readonly kind: 'loading'; readonly selection: Selection }
   | { readonly kind: 'loadFailed'; readonly selection: Selection }
   | { readonly kind: 'editing'; readonly session: EditorSession }
@@ -91,6 +103,8 @@ export type EditorButton =
   | 'previousSong'
   | 'nextSong'
   | 'save'
+  | 'testPlay'
+  | 'restart'
   | 'play'
   | 'delete'
   | 'clear'
@@ -108,7 +122,6 @@ export interface ChartEditorState {
 }
 
 export type EditorStatus =
-  | { readonly kind: 'noSongs' }
   | { readonly kind: 'loading' }
   | { readonly kind: 'loadFailed' }
   | { readonly kind: 'unsaved' }
@@ -116,6 +129,7 @@ export type EditorStatus =
 
 export type NavigationDecision =
   | { readonly kind: 'ignore' }
+  | { readonly kind: 'cancelPending' }
   | { readonly kind: 'proceed' }
   | { readonly kind: 'settle'; readonly session: EditorSession }
   | { readonly kind: 'settleAndProceed'; readonly session: EditorSession }
@@ -131,6 +145,7 @@ export type EditorRegion =
   | 'status'
   | 'confirm'
   | 'panel'
+  | 'restartButton'
   | 'playButton'
   | 'playhead'
   | 'seekMarks'
@@ -145,6 +160,7 @@ export type EditorRegion =
   | 'previousSongButton'
   | 'nextSongButton'
   | 'saveButton'
+  | 'testPlayButton'
   | 'deleteButton'
   | 'clearButton'
   | 'confirmButtons';
@@ -152,9 +168,9 @@ export type EditorRegion =
 type EditorReader = StateReader<ChartEditorState>;
 
 const readPhaseKind: EditorReader = (state) => state.phase.kind;
-const readSong: EditorReader = (state) => getSelection(state)?.song;
-const readLaneCount: EditorReader = (state) => getSelection(state)?.laneCount;
-const readDifficulty: EditorReader = (state) => getSelection(state)?.difficulty;
+const readSong: EditorReader = (state) => getSelection(state).song;
+const readLaneCount: EditorReader = (state) => getSelection(state).laneCount;
+const readDifficulty: EditorReader = (state) => getSelection(state).difficulty;
 const readNotes: EditorReader = (state) => getNotes(state);
 const readSelected: EditorReader = (state) => getSession(state)?.draft.selected;
 const readSavedNotes: EditorReader = (state) => getSession(state)?.draft.savedNotes;
@@ -166,9 +182,9 @@ const readPlayer: EditorReader = (state) => state.player;
 const readHoveredLaneCount: EditorReader = (state) => getHoveredLaneCount(state);
 const readHoveredTool: EditorReader = (state) => getHoveredTool(state);
 const readCanSave: EditorReader = (state) => canSave(state);
+const readCanTestPlay: EditorReader = (state) => canTestPlay(state);
 const readCanDelete: EditorReader = (state) => canDeleteSelected(state);
 const readCanClear: EditorReader = (state) => canClearNotes(state);
-const readIsConfirming: EditorReader = (state) => getPending(state) !== null;
 
 function readButton(button: EditorButton): readonly EditorReader[] {
   return [
@@ -184,6 +200,7 @@ const REGION_SOURCES: Readonly<Record<EditorRegion, readonly EditorReader[]>> = 
   status: [readPhaseKind, readNotes, readPending, readSavedNotes],
   confirm: [readPending, readNotes],
   panel: [readNotes, readSelected, readTool],
+  restartButton: readButton('restart'),
   playButton: [readTransport, ...readButton('play')],
   playhead: [readTimeMs, readSong],
   seekMarks: [readNotes, readSong],
@@ -199,16 +216,13 @@ const REGION_SOURCES: Readonly<Record<EditorRegion, readonly EditorReader[]>> = 
   previousSongButton: readButton('previousSong'),
   nextSongButton: readButton('nextSong'),
   saveButton: [readCanSave, ...readButton('save')],
+  testPlayButton: [readCanTestPlay, ...readButton('testPlay')],
   deleteButton: [readCanDelete, ...readButton('delete')],
   clearButton: [readCanClear, ...readButton('clear')],
-  confirmButtons: [
-    readIsConfirming,
-    ...readButton('confirmCancel'),
-    ...readButton('confirmAccept'),
-  ],
+  confirmButtons: [...readButton('confirmCancel'), ...readButton('confirmAccept')],
 };
 
-const DISABLEABLE_BUTTONS: readonly EditorButton[] = ['save', 'delete', 'clear'];
+const DISABLEABLE_BUTTONS: readonly EditorButton[] = ['save', 'testPlay', 'delete', 'clear'];
 const NO_NOTES: readonly Note[] = [];
 
 export function withDraft(session: EditorSession, draft: ChartDraft): EditorSession {
@@ -264,7 +278,7 @@ export function decideNavigation(
 ): NavigationDecision {
   const { phase } = state;
   if (phase.kind === 'confirming') {
-    return { kind: 'ignore' };
+    return { kind: navigation.kind === 'leave' ? 'cancelPending' : 'ignore' };
   }
   const isCurrent = isSelected(getSelection(state), navigation);
   if (phase.kind !== 'editing') {
@@ -288,10 +302,9 @@ export function decideNavigation(
       };
 }
 
-function isSelected(selection: Selection | null, navigation: Navigation): boolean {
+function isSelected(selection: Selection, navigation: Navigation): boolean {
   return (
     navigation.kind === 'select' &&
-    selection !== null &&
     selection.song.id === navigation.song.id &&
     selection.laneCount === navigation.laneCount &&
     selection.difficulty === navigation.difficulty
@@ -303,11 +316,9 @@ export function getSession(state: ChartEditorState): EditorSession | null {
   return phase.kind === 'editing' || phase.kind === 'confirming' ? phase.session : null;
 }
 
-export function getSelection(state: ChartEditorState): Selection | null {
+export function getSelection(state: ChartEditorState): Selection {
   const { phase } = state;
   switch (phase.kind) {
-    case 'empty':
-      return null;
     case 'loading':
     case 'loadFailed':
       return phase.selection;
@@ -353,6 +364,30 @@ export function canClearNotes(state: ChartEditorState): boolean {
   return getNotes(state).length > 0;
 }
 
+export function canTestPlay(state: ChartEditorState): boolean {
+  const { phase } = state;
+  return phase.kind === 'editing' && phase.session.saveProgress.kind !== 'saving';
+}
+
+export function decideTestPlay({ draft }: EditorSession): TestPlayDecision {
+  if (isDraftDirty(draft)) {
+    return {
+      kind: 'notice',
+      notice: { kind: 'testPlayUnsaved' },
+    };
+  }
+  const chart = findChart(draft.song, draft.laneCount, draft.difficulty);
+  return chart === undefined
+    ? {
+        kind: 'notice',
+        notice: { kind: 'testPlayNoChart' },
+      }
+    : {
+        kind: 'start',
+        chart,
+      };
+}
+
 export function canSave(state: ChartEditorState): boolean {
   const { phase } = state;
   return (
@@ -365,8 +400,6 @@ export function canSave(state: ChartEditorState): boolean {
 export function getEditorStatus(state: ChartEditorState): EditorStatus {
   const { phase } = state;
   switch (phase.kind) {
-    case 'empty':
-      return { kind: 'noSongs' };
     case 'loading':
       return { kind: 'loading' };
     case 'loadFailed':
@@ -379,19 +412,19 @@ export function getEditorStatus(state: ChartEditorState): EditorStatus {
 }
 
 export function getChangedRegions(
-  previous: ChartEditorState,
+  previous: ChartEditorState | null,
   next: ChartEditorState,
 ): readonly EditorRegion[] {
+  if (previous === null) {
+    return filterChangedRegions(REGION_SOURCES, null, next);
+  }
   const before = getSession(previous);
   const after = getSession(next);
   const isSessionChanged =
     previous.phase !== next.phase && (before === null || after === null || before.id !== after.id);
   const regions = filterChangedRegions(REGION_SOURCES, isSessionChanged ? null : previous, next);
-  // 도구 표시기는 채보가 바뀌어도 진행 중인 이동을 끊지 않도록 도구가 바뀌거나 처음 그릴 때만 칠한다.
-  return regions.filter(
-    (region) =>
-      region !== 'toolIndicator' || previous.tool !== next.tool || previous.phase.kind === 'empty',
-  );
+  // 도구 표시기는 채보가 바뀌어도 진행 중인 이동을 끊지 않도록 도구가 바뀔 때만 칠한다.
+  return regions.filter((region) => region !== 'toolIndicator' || previous.tool !== next.tool);
 }
 
 export function getEditorDecorations(state: ChartEditorState): EditorDecorations {
@@ -407,9 +440,6 @@ export type DifficultyLook =
 
 export function getDifficultyLook(state: ChartEditorState, difficulty: Difficulty): DifficultyLook {
   const selection = getSelection(state);
-  if (selection === null) {
-    return 'withoutChart';
-  }
   const hasChart = getAvailableDifficulties(selection.song, selection.laneCount).includes(
     difficulty,
   );
@@ -454,8 +484,8 @@ export function readEditorKey(
   return action === 'back' ? 'back' : null;
 }
 
-export function getPlayButtonLabel(state: ChartEditorState): 'PLAY' | 'PAUSE' {
-  return getTransport(state).kind === 'paused' ? 'PLAY' : 'PAUSE';
+export function getPlayButtonIcon(state: ChartEditorState): 'play' | 'pause' {
+  return getTransport(state).kind === 'paused' ? 'play' : 'pause';
 }
 
 export function hoverSegment(state: ChartEditorState, target: SegmentHover): ChartEditorState {
@@ -484,17 +514,17 @@ export function getHoveredTool(state: ChartEditorState): EditTool | null {
   return state.hover?.kind === 'tool' ? state.hover.tool : null;
 }
 
-// 선택이 없던 레인 수 표시기는 처음 놓이는 것이라 옮기지 않고 바로 놓는다.
-export function getLaneCountMotion(previous: ChartEditorState): 'snap' | 'slide' {
-  return getSelection(previous) === null ? 'snap' : 'slide';
+// 첫 그림의 레인 수 표시기는 처음 놓이는 것이라 옮기지 않고 바로 놓는다.
+export function getLaneCountMotion(previous: ChartEditorState | null): 'snap' | 'slide' {
+  return previous === null ? 'snap' : 'slide';
 }
 
 // 도구는 처음부터 값이 있으므로 바뀐 때만 옮기고, 같은 도구를 다시 칠하는 첫 그림은 바로 놓는다.
 export function getToolMotion(
-  previous: ChartEditorState,
+  previous: ChartEditorState | null,
   next: ChartEditorState,
 ): 'snap' | 'slide' {
-  return previous.tool === next.tool ? 'snap' : 'slide';
+  return previous === null || previous.tool === next.tool ? 'snap' : 'slide';
 }
 
 function isSameHover(hover: ChartEditorHover | null, target: SegmentHover): boolean {
@@ -515,16 +545,18 @@ function isEditorButtonEnabled(state: ChartEditorState, button: EditorButton): b
   switch (button) {
     case 'save':
       return canSave(state);
+    case 'testPlay':
+      return canTestPlay(state);
     case 'delete':
       return canDeleteSelected(state);
     case 'clear':
       return canClearNotes(state);
     case 'confirmCancel':
     case 'confirmAccept':
-      return getPending(state) !== null;
     case 'back':
     case 'previousSong':
     case 'nextSong':
+    case 'restart':
     case 'play':
       return true;
   }

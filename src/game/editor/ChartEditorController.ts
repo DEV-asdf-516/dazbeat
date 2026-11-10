@@ -23,8 +23,8 @@ import {
 import type { ChartDraft } from './state/chartDraft.js';
 import {
   decideNavigation,
+  decideTestPlay,
   getActiveSelection,
-  getPending,
   getSelection,
   getSession,
   hoverEditorButton,
@@ -38,6 +38,7 @@ import {
   unhoverEditorButton,
   unhoverSegment,
   withDraft,
+  SAVE_FAILURE_NOTICES,
 } from './state/chartEditorState.js';
 import type {
   ChartEditorState,
@@ -63,7 +64,7 @@ import {
   togglePlayback,
 } from './state/chartPlayback.js';
 import type { Playhead } from './state/chartPlayback.js';
-import { getOpeningTimeMs } from './state/editorTimeline.js';
+import { getOpeningTimeMs, getPlayStartMs, toEditTimeMs } from './state/editorTimeline.js';
 
 interface PlaybackPlayer {
   play(fromSec: number): Pick<YouTubeTimeSource, 'getTimeAt'> | null;
@@ -114,8 +115,9 @@ type VideoState =
     };
 
 interface EditorScreen {
-  leave(focusedSongId: string | null): void;
-  render(previous: ChartEditorState, next: ChartEditorState): void;
+  leave(focusedSongId: string): void;
+  render(previous: ChartEditorState | null, next: ChartEditorState): void;
+  startTestPlay(chart: ChartRef, startTimeMs: number): void;
 }
 
 interface EditorTiming {
@@ -124,19 +126,11 @@ interface EditorTiming {
   readonly pickToleranceMs: number;
 }
 
-const INITIAL_STATE: ChartEditorState = {
-  phase: { kind: 'empty' },
-  tool: 'tap',
-  playhead: createPlayhead(0),
-  player: { kind: 'loading' },
-  hover: null,
-};
-
 // 닫힌 뒤에는 입력과 늦은 결과를 받지 않는다.
-type ScreenState = ChartEditorState | { readonly kind: 'closed' };
+type ScreenState = ChartEditorState | { readonly kind: 'closed'; readonly last: ChartEditorState };
 
 export class ChartEditorController {
-  private screenState: ScreenState = INITIAL_STATE;
+  private screenState: ScreenState;
   /** player 이벤트와 늦은 API 로드 결과는 시작 때 잡은 토큰이 아직 현재일 때만 반영한다. */
   private playerToken: object | null = null;
   private video: VideoState = { kind: 'none' };
@@ -163,37 +157,50 @@ export class ChartEditorController {
     private readonly ports: EditorPlayerPorts,
     private readonly screen: EditorScreen,
     private readonly timing: EditorTiming,
-  ) {}
+    private readonly first: Selection,
+    private readonly resumeTimeMs: number | null = null,
+  ) {
+    this.screenState = {
+      phase: {
+        kind: 'loading',
+        selection: first,
+      },
+      tool: 'tap',
+      playhead: createPlayhead(first.song.gameStartMs),
+      player: { kind: 'loading' },
+      hover: null,
+    };
+  }
+
+  // 씬의 render 가 view 를 참조하므로 생성자가 아니라 생성 뒤에 시작한다.
+  start(): void {
+    this.screen.render(null, this.current);
+    this.replacePlayer(this.first.song);
+    void this.open(
+      this.first,
+      this.resumeTimeMs === null ? null : toEditTimeMs(this.resumeTimeMs, this.first.song),
+    );
+  }
 
   get state(): ChartEditorState {
     return this.current;
   }
 
   private get current(): ChartEditorState {
-    return 'kind' in this.screenState ? INITIAL_STATE : this.screenState;
+    return 'kind' in this.screenState ? this.screenState.last : this.screenState;
   }
 
   /** 씬이 닫힌 뒤 끝나는 로드·저장 결과가 반영되지 않도록 세션을 버린다. 화면이 없으므로 다시 그리지 않는다. */
   close(): void {
-    this.screenState = { kind: 'closed' };
+    this.screenState = {
+      kind: 'closed',
+      last: this.current,
+    };
     this.playerToken = null;
     this.releasePlayer();
   }
 
-  select(song: Song, laneCount: LaneCount, difficulty: Difficulty): void {
-    this.requestNavigation({
-      kind: 'select',
-      song,
-      laneCount,
-      difficulty,
-    });
-  }
-
   back(): void {
-    if (getPending(this.current) !== null) {
-      this.cancelPending();
-      return;
-    }
     this.requestNavigation({ kind: 'leave' });
   }
 
@@ -227,6 +234,8 @@ export class ChartEditorController {
       case 'saveFailed':
       case 'saveConflict':
       case 'invalidChart':
+      case 'testPlayUnsaved':
+      case 'testPlayNoChart':
         this.edit(session);
         return;
     }
@@ -282,7 +291,7 @@ export class ChartEditorController {
           session: withDraft(session, selectNote(draft, note)),
           pending: notice,
         },
-        playhead: pausePlayback(seekPlayback(this.current.playhead, draft.song, note.timeMs)),
+        playhead: seekPlayback(this.current.playhead, draft.song, note.timeMs),
       });
       return;
     }
@@ -297,52 +306,44 @@ export class ChartEditorController {
           `Failed to save chart for song ${draft.song.id} ${draft.laneCount}K difficulty ${draft.difficulty}`,
           error,
         );
-        return null;
+        return { kind: 'failed' } as const;
       });
-    // 저장이 겹칠 수 있으므로 요청 때의 스냅샷이 아니라 지금의 편집 목록 곡에 chart id 를 더한다.
-    const result =
-      outcome?.kind === 'saved'
-        ? {
-            kind: outcome.kind,
-            revision: outcome.revision,
-            song: requireDefined(
-              this.list.applySavedChart(
-                draft.song.id,
-                draft.laneCount,
-                draft.difficulty,
-                outcome.chartId,
-              ),
-              'Saved chart song is not in the edit list',
-              draft.song.id,
-            ),
-          }
-        : outcome;
-    const current = getSession(this.current);
-    if (current?.id !== session.id) {
-      return;
-    }
-    // 다른 확인 팝업이 떠 있어도 실패를 놓치지 않게 알림으로 바꾼다.
-    // 충돌이면 초안과 기준 revision 은 그대로 두고, 다시 열 때만 서버 최신으로 바꾼다.
-    if (result === null || result.kind === 'conflict') {
+    if (outcome.kind !== 'saved') {
+      const current = getSession(this.current);
+      if (current?.id !== session.id) {
+        return;
+      }
+      // 다른 확인 팝업이 떠 있어도 실패를 놓치지 않게 알림으로 바꾼다.
+      // 충돌이면 초안과 기준 revision 은 그대로 두고, 다시 열 때만 서버 최신으로 바꾼다.
       this.confirm(
         {
           ...current,
           saveProgress: { kind: 'idle' },
         },
-        { kind: result === null ? 'saveFailed' : 'saveConflict' },
+        SAVE_FAILURE_NOTICES[outcome.kind],
       );
+      return;
+    }
+    // 편집 목록은 곡 고르기 화면으로 돌아가도 쓰이므로 세션 확인 전에 반영한다. 저장이 겹칠 수 있으므로 요청 때의
+    // 스냅샷이 아니라 지금의 편집 목록 곡에 chart id 를 더한다.
+    const song = requireDefined(
+      this.list.applySavedChart(draft.song.id, draft.laneCount, draft.difficulty, outcome.chartId),
+      'Saved chart song is not in the edit list',
+      draft.song.id,
+    );
+    const current = getSession(this.current);
+    if (current?.id !== session.id) {
       return;
     }
     this.setSession({
       ...current,
-      draft: completeSave(current.draft, draft.notes, result.song, result.revision),
+      draft: completeSave(current.draft, draft.notes, song, outcome.revision),
       saveProgress: { kind: 'idle' },
     });
   }
 
   selectTool(tool: EditTool): void {
-    // 곡이 없는 빈 편집기에서도 도구는 고를 수 있어야 하므로 선택 유무는 보지 않고 확인 팝업만 본다.
-    if (getPending(this.current) !== null || this.current.tool === tool) {
+    if (this.current.tool === tool) {
       return;
     }
     this.setState({
@@ -390,6 +391,12 @@ export class ChartEditorController {
         return;
       case 'save':
         void this.save();
+        return;
+      case 'testPlay':
+        this.requestTestPlay();
+        return;
+      case 'restart':
+        this.seek(getSelection(this.current).song.gameStartMs);
         return;
       case 'play':
         this.togglePlayback();
@@ -521,11 +528,14 @@ export class ChartEditorController {
   }
 
   advancePlayback(): void {
-    const selection = getSelection(this.current);
     const { playhead } = this.current;
-    if (selection !== null && playhead.transport.kind === 'playing') {
+    if (playhead.transport.kind === 'playing') {
       this.setPlayhead(
-        advancePlayback(playhead, selection.song, playhead.transport.clock.getTimeMs()),
+        advancePlayback(
+          playhead,
+          getSelection(this.current).song,
+          playhead.transport.clock.getTimeMs(),
+        ),
       );
     }
   }
@@ -534,25 +544,19 @@ export class ChartEditorController {
     delta: number,
     change: { readonly laneCount?: LaneCount; readonly difficulty?: Difficulty },
   ): void {
-    const selection = getActiveSelection(this.current);
-    if (selection === null) {
-      return;
-    }
+    const selection = getSelection(this.current);
     const songs = this.list.songs;
-    if (songs.length === 0) {
-      this.enter({ kind: 'empty' }, this.current.playhead.currentTimeMs);
-      return;
-    }
     const listed = requireDefined(
       songs.find((song) => song.id === selection.song.id),
       'Selected song is not in the song list',
       selection.song.id,
     );
-    this.select(
-      stepItem(songs, listed, delta),
-      change.laneCount ?? selection.laneCount,
-      change.difficulty ?? selection.difficulty,
-    );
+    this.requestNavigation({
+      kind: 'select',
+      song: stepItem(songs, listed, delta),
+      laneCount: change.laneCount ?? selection.laneCount,
+      difficulty: change.difficulty ?? selection.difficulty,
+    });
   }
 
   /** 확인 팝업을 띄우기 전에 진행 중인 drag 를 거두므로, 취소 뒤에 만들다 만 Hold 가 남지 않는다. */
@@ -563,6 +567,9 @@ export class ChartEditorController {
     const decision = decideNavigation(this.current, navigation);
     switch (decision.kind) {
       case 'ignore':
+        return;
+      case 'cancelPending':
+        this.cancelPending();
         return;
       case 'proceed':
         this.proceed(navigation);
@@ -582,24 +589,28 @@ export class ChartEditorController {
 
   private proceed(navigation: Navigation): void {
     if (navigation.kind === 'leave') {
-      this.screen.leave(getSelection(this.current)?.song.id ?? null);
+      this.screen.leave(getSelection(this.current).song.id);
       return;
     }
-    void this.open({
-      song: navigation.song,
-      laneCount: navigation.laneCount,
-      difficulty: navigation.difficulty,
-    });
+    // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지하고, 보던 위치에서 이어 편집한다.
+    const isSameSong = getSelection(this.current).song.id === navigation.song.id;
+    if (!isSameSong) {
+      this.replacePlayer(navigation.song);
+    }
+    void this.open(
+      {
+        song: navigation.song,
+        laneCount: navigation.laneCount,
+        difficulty: navigation.difficulty,
+      },
+      isSameSong ? this.current.playhead.currentTimeMs : null,
+    );
   }
 
-  private async open(selection: Selection): Promise<void> {
+  /** keptTimeMs 가 있으면 그 위치에서 이어 편집하고, null 이면 채보를 읽은 뒤 첫 노트 앞으로 간다. */
+  private async open(selection: Selection, keptTimeMs: number | null): Promise<void> {
     const { song, laneCount, difficulty } = selection;
-    // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지하고, 보던 위치에서 이어 편집한다.
-    const isSameSong = getSelection(this.current)?.song.id === song.id;
-    if (!isSameSong) {
-      this.replacePlayer(song);
-    }
-    const startTimeMs = isSameSong ? this.current.playhead.currentTimeMs : song.gameStartMs;
+    const startTimeMs = keptTimeMs ?? song.gameStartMs;
     // 에디터는 채보가 없는 레인 수·난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
     const chartId = song.chartIds[laneCount]?.[difficulty];
     if (chartId === undefined) {
@@ -641,9 +652,9 @@ export class ChartEditorController {
     const draft = createDraft(song, loaded.chart, loaded.revision);
     this.enter(
       startEditing(draft),
-      isSameSong
-        ? this.current.playhead.currentTimeMs
-        : getOpeningTimeMs(draft.notes, this.timing.openingLeadMs, song),
+      keptTimeMs === null
+        ? getOpeningTimeMs(draft.notes, this.timing.openingLeadMs, song)
+        : this.current.playhead.currentTimeMs,
     );
   }
 
@@ -760,6 +771,25 @@ export class ChartEditorController {
       kind: 'editing',
       session,
     });
+  }
+
+  private requestTestPlay(): void {
+    const session = this.getEditableSession();
+    if (session === null) {
+      return;
+    }
+    const decision = decideTestPlay(session);
+    switch (decision.kind) {
+      case 'notice':
+        this.confirm(session, decision.notice);
+        return;
+      case 'start':
+        this.screen.startTestPlay(
+          decision.chart,
+          getPlayStartMs(this.current.playhead.currentTimeMs, session.draft.song),
+        );
+        return;
+    }
   }
 
   private confirm(session: EditorSession, pending: PendingAction): void {

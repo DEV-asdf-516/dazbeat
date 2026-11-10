@@ -72,9 +72,6 @@ function compareNotes(a: Note, b: Note): number {
 }
 
 export function addNote(draft: ChartDraft, note: Note): ChartDraft {
-  if (note.type === 'hold' && note.endTimeMs <= note.timeMs) {
-    return draft;
-  }
   return {
     ...draft,
     notes: insertNote(draft.notes, note),

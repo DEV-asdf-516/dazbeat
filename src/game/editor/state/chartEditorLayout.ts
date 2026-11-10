@@ -15,9 +15,9 @@ const WORK_AREA_MARGIN_Y_PX = 24;
 const PLAYER_TEXT_GAP_PX = 12;
 const TITLE_MAX_WIDTH_PX = 400;
 const TITLE_DIFFICULTY_GAP_PX = 32;
-/** PAUSE 라벨 폭에도 겹치지 않는 고정값이다. */
 const TIME_OFFSET_X_PX = 96;
 const SEEK_OFFSET_X_PX = 288;
+const TRANSPORT_ICON_SPACING_PX = 44;
 const PLAYHEAD_ABOVE_BOTTOM_PX = 140;
 const GRID_LABEL_COLUMN_PX = 56;
 
@@ -45,7 +45,8 @@ export interface EditorLayout {
   readonly laneColumn: { readonly leftPx: number; readonly widthPx: number };
   readonly title: { readonly leftPx: number; readonly maxWidthPx: number };
   readonly difficultiesLeftPx: number;
-  readonly playLeftPx: number;
+  readonly restartCenterXPx: number;
+  readonly playCenterXPx: number;
   readonly timeXPx: number;
   readonly seek: { readonly leftPx: number; readonly widthPx: number };
   readonly timeline: {
@@ -104,7 +105,8 @@ export function createEditorLayout(screenWidthPx: number, screenHeightPx: number
       maxWidthPx: TITLE_MAX_WIDTH_PX,
     },
     difficultiesLeftPx: laneColumnLeftPx + TITLE_MAX_WIDTH_PX + TITLE_DIFFICULTY_GAP_PX,
-    playLeftPx: laneColumnLeftPx,
+    restartCenterXPx: laneColumnLeftPx + TRANSPORT_ICON_SPACING_PX / 2,
+    playCenterXPx: laneColumnLeftPx + (TRANSPORT_ICON_SPACING_PX * 3) / 2,
     timeXPx: laneColumnLeftPx + TIME_OFFSET_X_PX,
     seek: {
       leftPx: seekLeftPx,

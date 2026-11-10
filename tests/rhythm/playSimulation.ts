@@ -9,8 +9,8 @@ export interface ClientPlay {
 
 export function getLastJudgmentDeadlineMs(chart: Chart): number {
   return Math.max(
-    ...chart.notes.map((note) =>
-      Math.max(note.timeMs + JUDGMENT_WINDOWS.badMs, note.type === 'hold' ? note.endTimeMs : 0),
+    ...chart.notes.map(
+      (note) => (note.type === 'hold' ? note.endTimeMs : note.timeMs) + JUDGMENT_WINDOWS.badMs,
     ),
   );
 }

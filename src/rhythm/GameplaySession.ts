@@ -1,6 +1,6 @@
 import { getDistance } from '../range.js';
 import { calculateAccuracy, isCleared } from './accuracy.js';
-import { judgeHoldRelease, judgeTap } from './judgment.js';
+import { judgeTap } from './judgment.js';
 import { getLanes } from './lanes.js';
 import { getJudgmentScore, getNextCombo } from './score.js';
 import { getNextHp, MAX_HP } from './starlight.js';
@@ -39,7 +39,6 @@ interface UpdateCandidate {
   laneState: LaneState;
   entry: LaneEntry;
   kind: JudgmentEvent['kind'];
-  judgment: Judgment;
 }
 
 function atLane<T>(values: readonly T[], lane: Lane): T {
@@ -229,10 +228,10 @@ export class GameplaySession {
     if (this.hasFailed || holding === null) {
       return null;
     }
-    const judgment = judgeHoldRelease(holding.note.endTimeMs, songTimeMs, this.windows);
+    const judgment = judgeTap(holding.note.endTimeMs, songTimeMs, this.windows);
     this.applyJudgment(judgment);
     laneState.holding = null;
-    this.settle(laneState, holding, judgment === 'perfect' ? 'hit' : 'missed');
+    this.settle(laneState, holding, judgment === 'miss' ? 'missed' : 'hit');
     return {
       noteIndex: holding.noteIndex,
       lane,
@@ -248,14 +247,16 @@ export class GameplaySession {
     const candidates: UpdateCandidate[] = [];
     for (const laneState of this.laneStates) {
       const { holding, entries } = laneState;
-      if (holding !== null && holding.note.endTimeMs < songTimeMs) {
-        candidates.push({
-          judgedAtMs: holding.note.endTimeMs,
-          laneState,
-          entry: holding,
-          kind: 'holdEnd',
-          judgment: 'perfect',
-        });
+      if (holding !== null) {
+        const endMissTimeMs = holding.note.endTimeMs + this.windows.badMs;
+        if (endMissTimeMs < songTimeMs) {
+          candidates.push({
+            judgedAtMs: endMissTimeMs,
+            laneState,
+            entry: holding,
+            kind: 'holdEnd',
+          });
+        }
       }
       for (let i = laneState.cursor; i < entries.length; i++) {
         const entry = entries[i];
@@ -263,8 +264,8 @@ export class GameplaySession {
           break;
         }
 
-        const lateMs = songTimeMs - entry.note.timeMs;
-        if (lateMs <= this.windows.badMs) {
+        const missTimeMs = entry.note.timeMs + this.windows.badMs;
+        if (missTimeMs >= songTimeMs) {
           break;
         }
 
@@ -272,30 +273,25 @@ export class GameplaySession {
           continue;
         }
 
-        const judgedAtMs = entry.note.timeMs + this.windows.badMs;
-
         if (entry.note.type === 'tap') {
           candidates.push({
-            judgedAtMs,
+            judgedAtMs: missTimeMs,
             laneState,
             entry,
             kind: 'tap',
-            judgment: 'miss',
           });
         } else {
           candidates.push({
-            judgedAtMs,
+            judgedAtMs: missTimeMs,
             laneState,
             entry,
             kind: 'holdStart',
-            judgment: 'miss',
           });
           candidates.push({
-            judgedAtMs,
+            judgedAtMs: missTimeMs,
             laneState,
             entry,
             kind: 'holdEnd',
-            judgment: 'miss',
           });
         }
       }
@@ -303,20 +299,20 @@ export class GameplaySession {
     candidates.sort((a, b) => a.judgedAtMs - b.judgedAtMs || a.entry.note.lane - b.entry.note.lane);
 
     const events: JudgmentEvent[] = [];
-    for (const { laneState, entry, kind, judgment } of candidates) {
+    for (const { laneState, entry, kind } of candidates) {
       const lane = entry.note.lane;
-      this.applyJudgment(judgment);
-      if (kind === 'holdEnd' && judgment === 'perfect') {
-        laneState.holding = null;
-        this.settle(laneState, entry, 'hit');
-      } else if (kind !== 'holdStart') {
+      this.applyJudgment('miss');
+      if (kind !== 'holdStart') {
+        if (laneState.holding === entry) {
+          laneState.holding = null;
+        }
         this.settle(laneState, entry, 'missed');
       }
       events.push({
         noteIndex: entry.noteIndex,
         lane,
         kind,
-        judgment,
+        judgment: 'miss',
       });
       if (this.hasFailed) {
         break;

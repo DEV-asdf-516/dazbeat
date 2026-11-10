@@ -111,7 +111,6 @@ function editing(session: EditorSession): ChartEditorState {
   });
 }
 
-const empty = inPhase({ kind: 'empty' });
 const loading = inPhase({
   kind: 'loading',
   selection: SELECTION,
@@ -166,7 +165,6 @@ describe('getSelection', () => {
       ),
     );
 
-    expect(getSelection(empty)).toBeNull();
     expect(getSelection(loading)).toBe(SELECTION);
     expect(getSelection(loadFailed)).toBe(SELECTION);
     expect(getSelection(saved)).toEqual({
@@ -179,7 +177,6 @@ describe('getSelection', () => {
 
 describe('getEditorStatus', () => {
   it('follows the phase, then unsaved changes whether or not a save is in progress', () => {
-    expect(getEditorStatus(empty)).toEqual({ kind: 'noSongs' });
     expect(getEditorStatus(loading)).toEqual({ kind: 'loading' });
     expect(getEditorStatus(loadFailed)).toEqual({ kind: 'loadFailed' });
     expect(
@@ -224,7 +221,7 @@ describe('panel and button state', () => {
 
   it('gives the same empty notes and no unsaved changes without a draft', () => {
     expect(getNotes(loading)).toEqual([]);
-    expect(getNotes(loading)).toBe(getNotes(empty));
+    expect(getNotes(loading)).toBe(getNotes(loadFailed));
     expect(hasUnsavedChanges(loadFailed)).toBe(false);
     expect(hasUnsavedChanges(dirty)).toBe(true);
   });
@@ -232,7 +229,7 @@ describe('panel and button state', () => {
 
 describe('getEditorDecorations', () => {
   it('hides the divider glint only while the dialog is open', () => {
-    for (const state of [empty, loading, loadFailed, clean, dirty]) {
+    for (const state of [loading, loadFailed, clean, dirty]) {
       expect(getPending(state)).toBeNull();
       expect(getEditorDecorations(state)).toEqual({ isDividerGlintVisible: true });
     }
@@ -264,6 +261,7 @@ describe('getChangedRegions', () => {
     'status',
     'confirm',
     'panel',
+    'restartButton',
     'playButton',
     'playhead',
     'seekMarks',
@@ -278,6 +276,7 @@ describe('getChangedRegions', () => {
     'previousSongButton',
     'nextSongButton',
     'saveButton',
+    'testPlayButton',
     'deleteButton',
     'clearButton',
     'confirmButtons',
@@ -286,7 +285,7 @@ describe('getChangedRegions', () => {
   const allButToolIndicator = all.filter((region) => region !== 'toolIndicator');
 
   it('redraws every region when the first chart opens', () => {
-    expect(getChangedRegions(empty, loading)).toEqual(all);
+    expect(getChangedRegions(null, loading)).toEqual(all);
   });
 
   it('redraws every region but the tool indicator when the phase changes or another chart opens', () => {
@@ -345,20 +344,20 @@ describe('getChangedRegions', () => {
     ).toEqual(['selection', 'status', 'playhead', 'seekMarks', 'notes', 'saveButton']);
   });
 
-  it('redraws SAVE with the dialog and the decorations when it opens or closes', () => {
+  it('redraws SAVE and TEST PLAY with the dialog and the decorations when it opens or closes', () => {
     expect(getChangedRegions(dirty, withPending(dirtySession))).toEqual([
       'status',
       'confirm',
       'decorations',
       'saveButton',
-      'confirmButtons',
+      'testPlayButton',
     ]);
     expect(getChangedRegions(withPending(dirtySession), dirty)).toEqual([
       'status',
       'confirm',
       'decorations',
       'saveButton',
-      'confirmButtons',
+      'testPlayButton',
     ]);
   });
 
@@ -443,10 +442,6 @@ describe('getDifficultyLook', () => {
     expect(getDifficultyLook(hardSelection, 'normal')).toBe('withChart');
     expect(getDifficultyLook(loading, 'expert')).toBe('withoutChart');
   });
-
-  it('shows every difficulty without a chart when nothing is selected', () => {
-    expect(getDifficultyLook(empty, 'normal')).toBe('withoutChart');
-  });
 });
 
 describe('getInitialDifficulty', () => {
@@ -458,7 +453,7 @@ describe('getInitialDifficulty', () => {
 
 describe('getSelectionPanel', () => {
   it('has no note count without a draft', () => {
-    expect(getSelectionPanel(empty)).toEqual({
+    expect(getSelectionPanel(loading)).toEqual({
       titleKey: 'chartEditor.noSelection',
       noteCount: null,
     });
@@ -519,8 +514,8 @@ describe('segments', () => {
     ).toBe(hovered);
   });
 
-  it('snaps the lane count indicator only when there was no selection', () => {
-    expect(getLaneCountMotion(empty)).toBe('snap');
+  it('snaps the lane count indicator only on the first draw', () => {
+    expect(getLaneCountMotion(null)).toBe('snap');
     expect(getLaneCountMotion(clean)).toBe('slide');
   });
 });

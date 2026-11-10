@@ -7,6 +7,8 @@ import { HUD_LABEL, HUD_SHADOW_COLOR, addHudText, withHudOutline } from './hudOb
 import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
 import { COLORS, GAMEPLAY_DEPTH, STATUS_COLORS, typeStyle } from '../../ui/view/theme.js';
 import { MOTION } from '../../ui/state/motion.js';
+import { addBrushRect } from '../../ui/view/textures/brushRect.js';
+import { strokeGrainedLine } from '../../ui/view/textures/grain.js';
 
 const WIDTH_PX = 256;
 const FILL_HEIGHT_PX = 6;
@@ -80,28 +82,39 @@ export class StarlightGauge {
         widthPx + inset * 2,
         RAIL_HEIGHT_PX,
         RAIL_HEIGHT_PX / 2,
-      )
-      .fillStyle(COLORS.background, TRACK_ALPHA)
-      .fillRoundedRect(
-        leftXPx - inset,
-        yPx - RAIL_HEIGHT_PX / 2,
-        widthPx + inset * 2,
-        RAIL_HEIGHT_PX,
-        RAIL_HEIGHT_PX / 2,
-      )
-      .lineStyle(RAIL_STROKE_PX, COLORS.noteShade, RAIL_ALPHA)
-      .strokeRoundedRect(
-        leftXPx - inset,
-        yPx - RAIL_HEIGHT_PX / 2,
-        widthPx + inset * 2,
-        RAIL_HEIGHT_PX,
-        RAIL_HEIGHT_PX / 2,
-      )
-      .lineStyle(RAIL_STROKE_PX, COLORS.noteShade, TICK_ALPHA);
+      );
+    addBrushRect(scene, {
+      widthPx: widthPx + inset * 2,
+      heightPx: RAIL_HEIGHT_PX,
+      radiusPx: RAIL_HEIGHT_PX / 2,
+      fillColor: COLORS.background,
+      fillAlpha: TRACK_ALPHA,
+      border: {
+        color: COLORS.noteShade,
+        alpha: RAIL_ALPHA,
+        widthPx: RAIL_STROKE_PX,
+      },
+    })
+      .setOrigin(0, 0)
+      .setPosition(leftXPx - inset, yPx - RAIL_HEIGHT_PX / 2)
+      .setDepth(depth);
     const tickTopYPx = yPx + RAIL_HEIGHT_PX / 2 + TICK_GAP_PX;
     for (const ratio of TICK_RATIOS) {
       const xPx = Math.round(leftXPx + widthPx * ratio) + RAIL_STROKE_PX / 2;
-      rail.lineBetween(xPx, tickTopYPx, xPx, tickTopYPx + TICK_LENGTH_PX);
+      strokeGrainedLine(
+        rail,
+        {
+          fromXPx: xPx,
+          fromYPx: tickTopYPx,
+          toXPx: xPx,
+          toYPx: tickTopYPx + TICK_LENGTH_PX,
+        },
+        {
+          widthPx: RAIL_STROKE_PX,
+          color: COLORS.noteShade,
+          alpha: TICK_ALPHA,
+        },
+      );
     }
     this.fill = scene.add
       .image(leftXPx, yPx, ensureStarlightFillTexture(scene, widthPx, FILL_HEIGHT_PX))

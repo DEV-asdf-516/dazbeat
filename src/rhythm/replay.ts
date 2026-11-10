@@ -19,10 +19,8 @@ export function replayGameplay(chart: Chart, inputs: readonly InputEvent[]): Rep
   const hits: ReplayHit[] = [];
   for (const { lane, kind, songTimeMs } of inputs) {
     if (kind === 'press') {
-      // press 가 돌려주는 만료 판정은 miss·holdEnd 뿐이라, 남는 하나가 이 press 의 판정이다.
-      const hit = session
-        .press(lane, songTimeMs)
-        .find((event) => event.kind !== 'holdEnd' && event.judgment !== 'miss');
+      // press 가 돌려주는 만료 판정은 모두 miss 라, 남는 하나가 이 press 의 판정이다.
+      const hit = session.press(lane, songTimeMs).find((event) => event.judgment !== 'miss');
       if (hit !== undefined) {
         hits.push({
           noteTimeMs: requireDefined(
