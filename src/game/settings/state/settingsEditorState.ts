@@ -19,11 +19,9 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import {
-  getControlsCloseView,
-  isControlsButtonEnabled,
-  isControlsEntryHovered,
-} from '../../app/controlsGuide.js';
+import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
+import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
 import { readMenuAction } from '../../ui/state/menuAction.js';
 import { readKeyCapture } from './keyCapture.js';
@@ -43,6 +41,7 @@ export type SettingsButton =
   | 'resetCancel'
   | 'resetAccept'
   | ControlsButton
+  | AccountPanelButton
   | `keyBox:${number}`
   | `step:${number}:${StepDirection}`
   | `mute:${number}`;
@@ -243,12 +242,10 @@ export function startWaiting(state: SettingsEditorState, index: number): Setting
 }
 
 export function requestReset(state: SettingsEditorState): SettingsEditorState {
-  return state.mode.kind === 'confirmingReset'
-    ? state
-    : {
-        ...state,
-        mode: { kind: 'confirmingReset' },
-      };
+  return {
+    ...state,
+    mode: { kind: 'confirmingReset' },
+  };
 }
 
 export function bindWaitingKey(state: SettingsEditorState, code: string): SettingsEditorState {
@@ -547,7 +544,7 @@ export function isSettingsControlsEntryHovered(state: SettingsEditorState): bool
 }
 
 export function getSettingsControlsCloseView(state: SettingsEditorState): ButtonView {
-  return getControlsCloseView(state.hover, state.isControlsOpen);
+  return getControlsCloseView(state.hover);
 }
 
 export type SettingsRegion =
@@ -558,6 +555,7 @@ export type SettingsRegion =
   | 'selectedHalo'
   | 'waitingText'
   | 'controlsEntry'
+  | 'accountButton'
   | 'resetDialog'
   | 'controls'
   | 'rowButtons'
@@ -599,6 +597,7 @@ const REGION_SOURCES: Readonly<Record<SettingsRegion, readonly SettingsReader[]>
   selectedHalo: [readRowIndex],
   waitingText: [readMode, readDisplayedLanguage],
   controlsEntry: [readMode, readEntryHovered],
+  accountButton: [(state) => getAccountPanelPointerKey(state.hover)],
   // 열림이 바뀔 때만 골라져야 확인 창 페이드가 열고 닫을 때만 돈다. 문구는 칠할 때의 언어로 번역한다.
   resetDialog: [readIsConfirmingReset],
   controls: [readControlsOpen],
@@ -606,14 +605,8 @@ const REGION_SOURCES: Readonly<Record<SettingsRegion, readonly SettingsReader[]>
   rowButtons: [readRowButtonHover, readSettings, readDisplayedLanguage, readRowIndex],
   backButton: [readBackHovered, readBackPressed],
   resetEntry: [readResetEntryHovered],
-  resetButtons: [
-    readCancelHovered,
-    readCancelPressed,
-    readAcceptHovered,
-    readAcceptPressed,
-    readIsConfirmingReset,
-  ],
-  controlsClose: [readCloseHovered, readClosePressed, readControlsOpen],
+  resetButtons: [readCancelHovered, readCancelPressed, readAcceptHovered, readAcceptPressed],
+  controlsClose: [readCloseHovered, readClosePressed],
 };
 
 export function getChangedRegions(
@@ -633,9 +626,6 @@ function settleHover(state: SettingsEditorState): SettingsEditorState {
         hover = null;
       }
       hover = unhoverButton(hover, getKeyBoxButton(index));
-      continue;
-    }
-    if (row.kind === 'key') {
       continue;
     }
     for (const direction of STEP_DIRECTIONS) {
@@ -698,14 +688,13 @@ function isSettingsButtonEnabled(state: SettingsEditorState, button: SettingsBut
   switch (button) {
     case 'back':
     case 'resetEntry':
-      return true;
     case 'resetCancel':
     case 'resetAccept':
-      return state.mode.kind === 'confirmingReset';
     case 'controlsEntry':
     case 'controlsClose':
     case 'controlsBackdrop':
-      return isControlsButtonEnabled(button, state.isControlsOpen);
+    case 'accountProfile':
+      return true;
   }
   const rowButton = requireDefined(findRowButton(state, button), 'Not a settings button', button);
   switch (rowButton.kind) {

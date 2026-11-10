@@ -12,11 +12,9 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import {
-  getControlsCloseView,
-  isControlsButtonEnabled,
-  isControlsEntryHovered,
-} from '../../app/controlsGuide.js';
+import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
+import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
 import type { ControlsButton } from '../../app/controlsGuide.js';
 import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 
@@ -36,7 +34,7 @@ export interface CreditCell {
   readonly lines: readonly string[];
 }
 
-export type CreditsButton = 'back' | ControlsButton;
+export type CreditsButton = 'back' | ControlsButton | AccountPanelButton;
 
 export interface CreditsState {
   readonly entries: readonly CreditEntry[];
@@ -108,7 +106,7 @@ export function getCreditCells(state: CreditsState, grid: CreditsGrid): readonly
 }
 
 export function getCreditScroll(state: CreditsState, grid: CreditsGrid): ScrollBarScroll {
-  const totalCount = Math.max(getCreditRowCount(state, grid), 1);
+  const totalCount = getCreditRowCount(state, grid);
   if (totalCount <= grid.visibleRowCount) {
     return { kind: 'track' };
   }
@@ -118,10 +116,6 @@ export function getCreditScroll(state: CreditsState, grid: CreditsGrid): ScrollB
     visibleCount: grid.visibleRowCount,
     totalCount,
   };
-}
-
-function isCreditsButtonEnabled(state: CreditsState, button: CreditsButton): boolean {
-  return button === 'back' || isControlsButtonEnabled(button, state.isControlsOpen);
 }
 
 function withHover(state: CreditsState, hover: CreditsState['hover']): CreditsState {
@@ -142,7 +136,7 @@ export function unhoverCreditsButton(state: CreditsState, button: CreditsButton)
 }
 
 export function pressCreditsButton(state: CreditsState, button: CreditsButton): CreditsState {
-  return withHover(state, pressButton(state.hover, button, isCreditsButtonEnabled(state, button)));
+  return withHover(state, pressButton(state.hover, button, true));
 }
 
 export function releaseCreditsButton(state: CreditsState, button: CreditsButton): CreditsState {
@@ -154,7 +148,7 @@ export function getBackButtonView(state: CreditsState): ButtonView {
 }
 
 export function getCreditsControlsCloseView(state: CreditsState): ButtonView {
-  return getControlsCloseView(state.hover, state.isControlsOpen);
+  return getControlsCloseView(state.hover);
 }
 
 export function isCreditsControlsEntryHovered(state: CreditsState): boolean {
@@ -162,7 +156,13 @@ export function isCreditsControlsEntryHovered(state: CreditsState): boolean {
 }
 
 export type CreditsRegion =
-  'cells' | 'scrollBar' | 'controls' | 'backButton' | 'controlsEntry' | 'controlsClose';
+  | 'cells'
+  | 'scrollBar'
+  | 'controls'
+  | 'backButton'
+  | 'controlsEntry'
+  | 'controlsClose'
+  | 'accountButton';
 
 type CreditsReader = StateReader<CreditsState>;
 
@@ -181,7 +181,8 @@ const REGION_SOURCES: Readonly<Record<CreditsRegion, readonly CreditsReader[]>> 
   controls: [readControlsOpen],
   backButton: [readBackHovered, readBackPressed],
   controlsEntry: [readEntryHovered],
-  controlsClose: [readCloseHovered, readClosePressed, readControlsOpen],
+  accountButton: [(state) => getAccountPanelPointerKey(state.hover)],
+  controlsClose: [readCloseHovered, readClosePressed],
 };
 
 export function getChangedRegions(

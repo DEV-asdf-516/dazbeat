@@ -345,6 +345,21 @@ async function explain(
   return rows.map((row) => row['detail'] ?? '');
 }
 
+/** The hook hands these parts to a songs record query and a count query, which build these statements. */
+function searchStatements(search: ReturnType<typeof buildSongSearchQuery>): {
+  list: string;
+  count: string | null;
+} {
+  const matches =
+    'FROM songs' +
+    (search.join === null ? '' : ` INNER JOIN ${search.join.table} ON ${search.join.on}`) +
+    (search.condition === null ? '' : ` WHERE ${search.condition}`);
+  return {
+    list: `SELECT songs.* ${matches} ORDER BY ${search.orderBy.join(', ')} LIMIT ${search.limit}`,
+    count: search.shouldCount ? `SELECT COUNT(*) AS total ${matches}` : null,
+  };
+}
+
 describe('song title search API', () => {
   it('matches prefixes up to two characters and substrings from three, literally', async () => {
     const { url, superuser } = await startSearchServer();
@@ -415,7 +430,6 @@ describe('song title search API', () => {
     const { url } = await startSearchServer();
     const guest = createClient(url);
 
-    await expectInvalidRequest(search(guest, {}));
     await expectInvalidRequest(search(guest, { title: '   ' }));
     await expectInvalidRequest(search(guest, { title: 'a'.repeat(101) }));
     await expectInvalidRequest(
@@ -537,7 +551,7 @@ describe('song title search API', () => {
     expect(originals.items.map((item) => item.id)).toEqual([original.id]);
   });
 
-  it('pages 99, 100, 101 and 200 matches by cursor without gaps or duplicates, counting them first', async () => {
+  it('pages 99, 100, 101, 200 and 300 matches by cursor with or without a title, counting them first', async () => {
     const { url, superuser } = await startSearchServer();
     const releaseDates = ['2026-01-01', '2026-01-02', '2026-01-03'];
     const createGroup = (prefix: string, count: number, category: string) =>
@@ -567,8 +581,8 @@ describe('song title search API', () => {
     });
     await expect(searchAll(guest, { title: 'Hundred' })).resolves.toEqual({
       ids: newestFirst(hundred),
-      batchSizes: [100, 0],
-      totals: [100, null],
+      batchSizes: [100],
+      totals: [100],
     });
     await expect(
       searchAll(guest, {
@@ -583,13 +597,23 @@ describe('song title search API', () => {
     const everyPage = newestFirst([...pageCovers, ...pageOriginals]);
     await expect(searchAll(guest, { title: 'Paging' })).resolves.toEqual({
       ids: everyPage,
-      batchSizes: [100, 100, 0],
-      totals: [200, null, null],
+      batchSizes: [100, 100],
+      totals: [200, null],
     });
     await expect(searchAll(guest, { title: 'Pa' })).resolves.toEqual({
       ids: everyPage,
-      batchSizes: [100, 100, 0],
-      totals: [200, null, null],
+      batchSizes: [100, 100],
+      totals: [200, null],
+    });
+    await expect(searchAll(guest, {})).resolves.toEqual({
+      ids: newestFirst([...pageCovers, ...pageOriginals, ...hundred]),
+      batchSizes: [100, 100, 100],
+      totals: [300, null, null],
+    });
+    await expect(searchAll(guest, { category: 'original' })).resolves.toEqual({
+      ids: newestFirst([...pageOriginals, ...hundred]),
+      batchSizes: [100, 99],
+      totals: [199, null],
     });
   });
 
@@ -630,23 +654,27 @@ describe('song title search API', () => {
     });
 
     for (const client of [guest, player.client, editor.client]) {
-      const found = await search(client, { title: 'Guarded' });
-      expect(found.items.map((item) => item.id)).toEqual([published.id]);
-      expect(found.totalItems).toBe(1);
-      expect(found.items[0]?.expand).toEqual(summary(publishedChart));
+      for (const params of [{ title: 'Guarded' }, {}]) {
+        const found = await search(client, params);
+        expect(found.items.map((item) => item.id)).toEqual([published.id]);
+        expect(found.totalItems).toBe(1);
+        expect(found.items[0]?.expand).toEqual(summary(publishedChart));
+      }
     }
 
     for (const client of [editor.client, superuser]) {
-      const found = await search(client, {
-        title: 'Guarded',
-        scope: 'all',
-      });
-      expect(found.items.map((item) => item.id)).toEqual([hidden.id, published.id]);
-      expect(found.totalItems).toBe(2);
-      expect(found.items.map((item) => item.expand)).toEqual([
-        summary(hiddenChart),
-        summary(publishedChart),
-      ]);
+      for (const params of [{ title: 'Guarded' }, {}]) {
+        const found = await search(client, {
+          ...params,
+          scope: 'all',
+        });
+        expect(found.items.map((item) => item.id)).toEqual([hidden.id, published.id]);
+        expect(found.totalItems).toBe(2);
+        expect(found.items.map((item) => item.expand)).toEqual([
+          summary(hiddenChart),
+          summary(publishedChart),
+        ]);
+      }
     }
 
     for (const client of [guest, player.client]) {
@@ -662,6 +690,19 @@ describe('song title search API', () => {
         },
       });
     }
+  });
+
+  it('stops searching once the charts view rule no longer matches what the search filters', async () => {
+    const { url, superuser } = await startSearchServer();
+    await createSong(superuser, 'visible', undefined, { title: 'Visible Song' });
+    const guest = createClient(url);
+    await expect(search(guest, {})).resolves.toMatchObject({ totalItems: 1 });
+
+    await superuser.collections.update('charts', { viewRule: '' });
+
+    const error: unknown = await search(guest, {}).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ClientResponseError);
+    expect(error).toMatchObject({ status: 400 });
   });
 
   it('plans prefixes on the NOCASE index and longer titles on the FTS index, counts included', async () => {
@@ -699,16 +740,8 @@ describe('song title search API', () => {
             canListUnpublished: true,
           }),
         );
-        // The hook hands these parts to a songs record query and a count query, which build these statements.
-        const matches =
-          'FROM songs' +
-          (search.join === null ? '' : ` INNER JOIN ${search.join.table} ON ${search.join.on}`) +
-          ` WHERE ${search.condition}`;
-        const statements = [
-          `SELECT songs.* ${matches} ORDER BY ${search.orderBy.join(', ')} LIMIT ${search.limit}`,
-          ...(search.shouldCount ? [`SELECT COUNT(*) AS total ${matches}`] : []),
-        ];
-        for (const sql of statements) {
+        const { list, count } = searchStatements(search);
+        for (const sql of [list, ...(count === null ? [] : [count])]) {
           const plan = await explain(superuser, sql, search.params);
           expect(
             plan.some((detail) => detail.includes(expected)),
@@ -719,34 +752,51 @@ describe('song title search API', () => {
     }
   });
 
-  it('counts, lists and continues a category on its list order index', async () => {
+  it('lists without a title on the list order indexes, counts included', async () => {
     const { superuser } = await startSearchServer();
-    const category = { category: 'cover' };
-    const continuation = {
-      ...category,
+    const cursor = {
       afterReleasedOn: '2026-01-01',
       afterId: 'abc',
     };
 
-    for (const [sql, bindings] of [
-      ['SELECT COUNT(*) FROM songs WHERE category = {:category}', category],
+    for (const [params, expected] of [
+      [{}, 'idx_songs_released_on_id'],
+      [cursor, 'idx_songs_released_on_id'],
+      [{ category: 'cover' }, 'idx_songs_category_released_on_id'],
       [
-        'SELECT id FROM songs WHERE category = {:category} ORDER BY releasedOn DESC, id DESC LIMIT 100',
-        category,
-      ],
-      [
-        'SELECT id FROM songs WHERE category = {:category} AND ' +
-          '(releasedOn < {:afterReleasedOn} OR (releasedOn = {:afterReleasedOn} AND id < {:afterId})) ' +
-          'ORDER BY releasedOn DESC, id DESC LIMIT 100',
-        continuation,
+        {
+          category: 'cover',
+          ...cursor,
+        },
+        'idx_songs_category_released_on_id',
       ],
     ] as const) {
-      const plan = await explain(superuser, sql, bindings);
-      expect(
-        plan.some((detail) => detail.includes('idx_songs_category_released_on_id')),
-        plan.join('\n'),
-      ).toBe(true);
-      expect(plan.join('\n')).not.toContain('TEMP B-TREE');
+      for (const scope of [undefined, 'all']) {
+        const search = buildSongSearchQuery(
+          parseSongSearchInput({
+            title: undefined,
+            category: 'category' in params ? params.category : undefined,
+            afterReleasedOn: 'afterReleasedOn' in params ? params.afterReleasedOn : undefined,
+            afterId: 'afterId' in params ? params.afterId : undefined,
+            scope,
+            canListUnpublished: true,
+          }),
+        );
+        const { list, count } = searchStatements(search);
+        const listPlan = await explain(superuser, list, search.params);
+        expect(
+          listPlan.some((detail) => detail.includes(expected)),
+          listPlan.join('\n'),
+        ).toBe(true);
+        expect(listPlan.join('\n')).not.toContain('TEMP B-TREE');
+        if (count !== null && 'category' in params) {
+          const countPlan = await explain(superuser, count, search.params);
+          expect(
+            countPlan.some((detail) => detail.includes(expected)),
+            countPlan.join('\n'),
+          ).toBe(true);
+        }
+      }
     }
   });
 });

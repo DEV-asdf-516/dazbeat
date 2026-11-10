@@ -24,7 +24,7 @@ import {
   getLaneCountMotion,
   getNotes,
   getPending,
-  getPlayButtonLabel,
+  getPlayButtonIcon,
   getSelection,
   getSelectionPanel,
   getSession,
@@ -70,6 +70,7 @@ import { createAuxiliaryButton } from '../ui/view/widgets/auxiliaryButton.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer, PointerActions } from '../ui/view/input/hoverTarget.js';
 import { createCenteredEditorButton, createEditorButton } from './view/editorButton.js';
+import { EDITOR_ICON_HIT_SIZE_PX, EditorIconButton } from './view/EditorIconButton.js';
 import { EditorNoteLayer } from './view/EditorNoteLayer.js';
 import { SegmentedControl } from './view/SegmentedControl.js';
 import { getSegmentAppearance } from './state/segmentAppearance.js';
@@ -83,20 +84,22 @@ import {
   CELESTIAL_COLORS,
   GAMEPLAY_DEPTH,
   RADIUS,
-  addTextUnderline,
   setTextColor,
   typeStyle,
 } from '../ui/view/theme.js';
+import { addTextUnderline } from '../ui/view/widgets/cometUnderline.js';
 import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './view/editorTheme.js';
 import { addBarHairlines } from './view/hairline.js';
 import { addHairline, HAIRLINE_PX } from '../ui/view/textures/hairline.js';
 import { requireDefined } from '../../invariant.js';
 import { msToSec, secToMs } from '../../time.js';
+import { addBrushRect } from '../ui/view/textures/brushRect.js';
+import { strokeGrainedLine } from '../ui/view/textures/grain.js';
 
 interface DifficultyItem {
   difficulty: Difficulty;
   text: Phaser.GameObjects.Text;
-  underline: Phaser.GameObjects.Rectangle;
+  underline: Phaser.GameObjects.Image;
 }
 
 interface SegmentActions<T> {
@@ -107,18 +110,20 @@ interface SegmentActions<T> {
 
 interface EditorView {
   backButton: Button;
-  previousSongButton: Button;
-  nextSongButton: Button;
+  previousSongButton: EditorIconButton;
+  nextSongButton: EditorIconButton;
   songTitle: Phaser.GameObjects.Text;
   difficulties: DifficultyItem[];
   status: NoticeText;
   saveButton: Button;
+  testPlayButton: Button;
   unsavedDot: Phaser.GameObjects.Arc;
   timeText: Phaser.GameObjects.Text;
   seekFill: Phaser.GameObjects.Rectangle;
   seekThumb: Phaser.GameObjects.Arc;
   seekMarks: Phaser.GameObjects.Graphics;
-  playButton: Button;
+  restartButton: EditorIconButton;
+  playButton: EditorIconButton;
   playerText: Phaser.GameObjects.Text;
   noteLayer: EditorNoteLayer;
   grid: Phaser.GameObjects.Graphics;
@@ -161,6 +166,7 @@ const DIFFICULTY_LOOKS: Readonly<
 };
 const SAVE_WIDTH_PX = 88;
 const SAVE_HEIGHT_PX = 38;
+const TEST_PLAY_HEIGHT_PX = 56;
 const STATUS_GAP_PX = 16;
 const STATUS_MAX_LINES = 2;
 const UNSAVED_DOT_RADIUS_PX = 5;
@@ -173,6 +179,8 @@ const MV_FRAME_PROPERTIES: Record<keyof PxRect, string> = {
   heightPx: '--mv-frame-height',
 };
 const PLAYHEAD_THICKNESS_PX = 2;
+// 스크롤 때마다 다시 그리는 선이 많아 토막을 넓게 잡는다.
+const GRID_GRAIN_STEP_PX = 12;
 const PLAYHEAD_GLOW_HEIGHT_PX = 18;
 const PLAYHEAD_GLOW_ALPHA = 0.14;
 const PX_PER_SECOND = 400;
@@ -239,6 +247,13 @@ export class ChartEditorScene extends Phaser.Scene {
     const onResize = (): void => this.placeVideoPreview();
     onResize();
     this.scale.on(Phaser.Scale.Events.RESIZE, onResize);
+    // 곡 목록 화면이 같은 편집 목록에서 고른 곡이므로 없으면 진입 경로의 오류다.
+    const song = requireDefined(
+      data.list.songs.find((listed) => listed.id === data.songId),
+      'Chart editor opened for a song not in the list',
+      data.songId,
+    );
+    const { laneMode } = settings;
     const editor = new ChartEditorController(
       this.catalog,
       data.list,
@@ -259,12 +274,32 @@ export class ChartEditorScene extends Phaser.Scene {
             focusedSongId,
           }),
         render: (previous, next) => this.renderChanges(view, previous, next),
+        startTestPlay: (chart, startTimeMs) =>
+          startScene(this, 'gameplay', {
+            ...chart,
+            origin: {
+              kind: 'chartEditor',
+              mode: 'practice',
+              quitKey: 'leave',
+              start: {
+                kind: 'from',
+                timeMs: startTimeMs,
+              },
+              list: data.list,
+            },
+          }),
       },
       {
         openingLeadMs: OPENING_LEAD_MS,
         snapThresholdMs: SNAP_THRESHOLD_MS,
         pickToleranceMs: PICK_TOLERANCE_MS,
       },
+      {
+        song,
+        laneCount: data.chart?.laneCount ?? laneMode,
+        difficulty: data.chart?.difficulty ?? getInitialDifficulty(song, laneMode),
+      },
+      data.resumeTimeMs ?? null,
     );
     const view = this.createView(editor);
     keyboard.on(
@@ -289,14 +324,7 @@ export class ChartEditorScene extends Phaser.Scene {
       editor.close();
     });
 
-    // 곡 목록 화면이 같은 편집 목록에서 고른 곡이므로 없으면 진입 경로의 오류다.
-    const song = requireDefined(
-      data.list.songs.find((listed) => listed.id === data.songId),
-      'Chart editor opened for a song not in the list',
-      data.songId,
-    );
-    const { laneMode } = settings;
-    editor.select(song, laneMode, getInitialDifficulty(song, laneMode));
+    editor.start();
   }
 
   private placeVideoPreview(): void {
@@ -345,25 +373,21 @@ export class ChartEditorScene extends Phaser.Scene {
       label: 'BACK',
       pointer: pointButton(pointer, 'back'),
     });
-    const songBackButton = createCenteredEditorButton(
+    const previousSongCenterXPx =
+      backButton.x + backButton.width + BUTTON_GAP_PX + EDITOR_ICON_HIT_SIZE_PX / 2;
+    const songBackButton = new EditorIconButton(
       this,
-      backButton.x + backButton.width + BUTTON_GAP_PX,
+      previousSongCenterXPx,
       topCenterYPx,
-      {
-        variant: 'quiet',
-        label: '◀',
-        pointer: pointButton(pointer, 'previousSong'),
-      },
+      'previous',
+      pointButton(pointer, 'previousSong'),
     );
-    const nextSongButton = createCenteredEditorButton(
+    const nextSongButton = new EditorIconButton(
       this,
-      songBackButton.x + songBackButton.width + BUTTON_GAP_PX,
+      previousSongCenterXPx + EDITOR_ICON_HIT_SIZE_PX + BUTTON_GAP_PX,
       topCenterYPx,
-      {
-        variant: 'quiet',
-        label: '▶',
-        pointer: pointButton(pointer, 'nextSong'),
-      },
+      'next',
+      pointButton(pointer, 'nextSong'),
     );
     const saveButton = createCenteredEditorButton(this, 0, topCenterYPx, {
       variant: 'secondary',
@@ -442,11 +466,32 @@ export class ChartEditorScene extends Phaser.Scene {
       seekThumb: this.add
         .circle(LAYOUT.seek.leftPx, transportYPx, SEEK_THUMB_RADIUS_PX, CELESTIAL_COLORS.highlight)
         .setDepth(GAMEPLAY_DEPTH.text),
-      playButton: createCenteredEditorButton(this, LAYOUT.playLeftPx, transportYPx, {
-        variant: 'quiet',
-        label: 'PLAY',
-        pointer: pointButton(pointer, 'play'),
-      }),
+      testPlayButton: createEditorButton(
+        this,
+        LAYOUT.tools.leftPx,
+        LAYOUT.timeline.bottomYPx - TEST_PLAY_HEIGHT_PX,
+        {
+          variant: 'secondary',
+          label: 'TEST PLAY',
+          pointer: pointButton(pointer, 'testPlay'),
+          widthPx: LAYOUT.tools.widthPx,
+          heightPx: TEST_PLAY_HEIGHT_PX,
+        },
+      ),
+      restartButton: new EditorIconButton(
+        this,
+        LAYOUT.restartCenterXPx,
+        transportYPx,
+        'restart',
+        pointButton(pointer, 'restart'),
+      ),
+      playButton: new EditorIconButton(
+        this,
+        LAYOUT.playCenterXPx,
+        transportYPx,
+        'play',
+        pointButton(pointer, 'play'),
+      ),
       playerText: this.add.text(LAYOUT.playerText.leftPx, LAYOUT.playerText.topYPx, '', {
         ...typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
         wordWrap: {
@@ -718,15 +763,16 @@ export class ChartEditorScene extends Phaser.Scene {
       )
       .setOrigin(0, 0.5)
       .setDepth(GAMEPLAY_DEPTH.judgeLine);
-    this.add
-      .rectangle(
-        lanes.leftPx,
-        timeline.playheadYPx,
-        lanes.widthPx,
-        PLAYHEAD_THICKNESS_PX,
-        CELESTIAL_COLORS.highlight,
-      )
+    addBrushRect(this, {
+      widthPx: lanes.widthPx,
+      heightPx: PLAYHEAD_THICKNESS_PX,
+      radiusPx: 0,
+      fillColor: CELESTIAL_COLORS.highlight,
+      fillAlpha: 1,
+      border: null,
+    })
       .setOrigin(0, 0.5)
+      .setPosition(lanes.leftPx, timeline.playheadYPx)
       .setDepth(GAMEPLAY_DEPTH.judgeLine);
     this.add
       .zone(lanes.leftPx, timeline.topYPx, lanes.widthPx, TIMELINE_HEIGHT_PX)
@@ -747,34 +793,22 @@ export class ChartEditorScene extends Phaser.Scene {
         },
       )
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-        const timelinePointer = this.getTimelinePointer(editor, pointer);
-        if (timelinePointer !== null) {
-          editor.pointerDown(timelinePointer);
-        }
+        editor.pointerDown(this.getTimelinePointer(editor, pointer));
       });
     // drag 중에는 pointer 가 timeline 밖으로 나가도 따라간다. lane·시각은 변환 함수가 제한한다.
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      const timelinePointer = this.getTimelinePointer(editor, pointer);
-      if (timelinePointer !== null) {
-        editor.pointerMove(timelinePointer);
-      }
+      editor.pointerMove(this.getTimelinePointer(editor, pointer));
     });
     this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
-      const timelinePointer = this.getTimelinePointer(editor, pointer);
-      if (timelinePointer !== null) {
-        editor.pointerUp(timelinePointer.timeMs);
-      }
+      editor.pointerUp(this.getTimelinePointer(editor, pointer).timeMs);
     });
   }
 
   private getTimelinePointer(
     editor: ChartEditorController,
     pointer: Phaser.Input.Pointer,
-  ): TimelinePointer | null {
+  ): TimelinePointer {
     const selection = getSelection(editor.state);
-    if (selection === null) {
-      return null;
-    }
     return {
       lane: getLaneAtXPx(LAYOUT, selection.laneCount, pointer.x),
       timeMs: getNoteTimeAtY(
@@ -788,7 +822,7 @@ export class ChartEditorScene extends Phaser.Scene {
 
   private renderChanges(
     view: EditorView,
-    previous: ChartEditorState,
+    previous: ChartEditorState | null,
     next: ChartEditorState,
   ): void {
     for (const region of getChangedRegions(previous, next)) {
@@ -798,32 +832,28 @@ export class ChartEditorScene extends Phaser.Scene {
 
   private renderRegion(
     view: EditorView,
-    previous: ChartEditorState,
+    previous: ChartEditorState | null,
     state: ChartEditorState,
     region: EditorRegion,
   ): void {
     switch (region) {
       case 'selection': {
-        const selection = getSelection(state);
-        this.renderSongTitle(view, selection?.song.title ?? '');
+        this.renderSongTitle(view, getSelection(state).song.title);
         view.difficulties.forEach((item) => this.renderDifficulty(item, state));
         return;
       }
-      case 'laneCountIndicator': {
-        const selection = getSelection(state);
-        if (selection !== null) {
-          view.laneCountSwitch.renderIndicator(selection.laneCount, getLaneCountMotion(previous));
-        }
+      case 'laneCountIndicator':
+        view.laneCountSwitch.renderIndicator(
+          getSelection(state).laneCount,
+          getLaneCountMotion(previous),
+        );
         return;
-      }
       case 'laneCountSegments': {
         const selection = getSelection(state);
-        if (selection !== null) {
-          const hovered = getHoveredLaneCount(state);
-          view.laneCountSwitch.renderSegments((laneCount) =>
-            getSegmentAppearance(laneCount, selection.laneCount, hovered),
-          );
-        }
+        const hovered = getHoveredLaneCount(state);
+        view.laneCountSwitch.renderSegments((laneCount) =>
+          getSegmentAppearance(laneCount, selection.laneCount, hovered),
+        );
         return;
       }
       case 'toolIndicator':
@@ -835,7 +865,7 @@ export class ChartEditorScene extends Phaser.Scene {
         return;
       }
       case 'laneLines':
-        this.renderLaneLines(view, getSelection(state)?.laneCount ?? null);
+        this.renderLaneLines(view, getSelection(state).laneCount);
         return;
       case 'status':
         this.renderStatus(view, state);
@@ -846,8 +876,11 @@ export class ChartEditorScene extends Phaser.Scene {
       case 'panel':
         this.renderPanel(view, state);
         return;
+      case 'restartButton':
+        view.restartButton.render(getEditorButtonView(state, 'restart'), 'restart');
+        return;
       case 'playButton':
-        this.renderPlayButton(view, state);
+        view.playButton.render(getEditorButtonView(state, 'play'), getPlayButtonIcon(state));
         return;
       case 'playhead':
         this.renderPlayhead(view, state);
@@ -868,13 +901,16 @@ export class ChartEditorScene extends Phaser.Scene {
         view.backButton.render(getEditorButtonView(state, 'back'));
         return;
       case 'previousSongButton':
-        view.previousSongButton.render(getEditorButtonView(state, 'previousSong'));
+        view.previousSongButton.render(getEditorButtonView(state, 'previousSong'), 'previous');
         return;
       case 'nextSongButton':
-        view.nextSongButton.render(getEditorButtonView(state, 'nextSong'));
+        view.nextSongButton.render(getEditorButtonView(state, 'nextSong'), 'next');
         return;
       case 'saveButton':
         view.saveButton.render(getEditorButtonView(state, 'save'));
+        return;
+      case 'testPlayButton':
+        view.testPlayButton.render(getEditorButtonView(state, 'testPlay'));
         return;
       case 'deleteButton':
         view.deleteButton.render(getEditorButtonView(state, 'delete'));
@@ -909,17 +945,10 @@ export class ChartEditorScene extends Phaser.Scene {
       .setInteractive({ cursor: DRAG_CURSOR });
     this.input.setDraggable(zone);
     const seekToPointer = (pointer: Phaser.Input.Pointer): void => {
-      const selection = getSelection(editor.state);
-      if (selection !== null) {
-        editor.seek(getSeekTimeMs(LAYOUT, pointer.x, selection.song));
-      }
+      editor.seek(getSeekTimeMs(LAYOUT, pointer.x, getSelection(editor.state).song));
     };
     zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, seekToPointer);
     zone.on(Phaser.Input.Events.GAMEOBJECT_DRAG, seekToPointer);
-  }
-
-  private renderPlayButton(view: EditorView, state: ChartEditorState): void {
-    view.playButton.setLabel(getPlayButtonLabel(state)).render(getEditorButtonView(state, 'play'));
   }
 
   private renderPlayerStatus(view: EditorView, player: EditorPlayerStatus): void {
@@ -1014,6 +1043,22 @@ export class ChartEditorScene extends Phaser.Scene {
           acceptLabel: 'OK',
           acceptTone: 'default',
         };
+      case 'testPlayUnsaved':
+        return {
+          title: this.i18n.t('chartEditor.testPlayBlockedTitle'),
+          body: this.i18n.t('chartEditor.testPlayUnsavedBody'),
+          cancelLabel: null,
+          acceptLabel: 'OK',
+          acceptTone: 'default',
+        };
+      case 'testPlayNoChart':
+        return {
+          title: this.i18n.t('chartEditor.testPlayBlockedTitle'),
+          body: this.i18n.t('chartEditor.testPlayNoChartBody'),
+          cancelLabel: null,
+          acceptLabel: 'OK',
+          acceptTone: 'default',
+        };
     }
   }
 
@@ -1043,11 +1088,6 @@ export class ChartEditorScene extends Phaser.Scene {
 
   private getStatusMessage(status: EditorStatus): Notice {
     switch (status.kind) {
-      case 'noSongs':
-        return {
-          kind: 'text',
-          text: this.i18n.t('chartEditor.noSongs'),
-        };
       case 'loading':
         // 채보 로딩은 문구 없이 별만 돈다.
         return {
@@ -1069,14 +1109,6 @@ export class ChartEditorScene extends Phaser.Scene {
   private renderPlayhead(view: EditorView, state: ChartEditorState): void {
     const { currentTimeMs } = state.playhead;
     const selection = getSelection(state);
-    if (selection === null) {
-      view.timeText.setText('');
-      view.seekFill.setSize(0, SEEK_TRACK_HEIGHT_PX);
-      view.seekThumb.setVisible(false);
-      view.grid.clear();
-      view.gridLabels.forEach((label) => label.setVisible(false));
-      return;
-    }
     view.timeText.setText(
       `${formatEditorTime(currentTimeMs)} / ${formatEditorTime(selection.song.gameEndMs)}`,
     );
@@ -1088,18 +1120,7 @@ export class ChartEditorScene extends Phaser.Scene {
 
   /** 노트는 playhead 기준 위치에 그리므로 시각이 바뀌어도 다시 그린다. */
   private renderNotes(view: EditorView, state: ChartEditorState): void {
-    const selection = getSelection(state);
-    if (selection === null) {
-      view.noteLayer.render({
-        notes: [],
-        selected: null,
-        currentTimeMs: state.playhead.currentTimeMs,
-        laneCenterXPx: [],
-        accentColor: CELESTIAL_COLORS.textPrimary,
-      });
-      return;
-    }
-    const { song, laneCount } = selection;
+    const { song, laneCount } = getSelection(state);
     view.noteLayer.render({
       notes: getNotes(state),
       selected: getSession(state)?.draft.selected ?? null,
@@ -1113,9 +1134,6 @@ export class ChartEditorScene extends Phaser.Scene {
     const { seekMarks } = view;
     seekMarks.clear();
     const selection = getSelection(state);
-    if (selection === null) {
-      return;
-    }
     seekMarks.lineStyle(HAIRLINE_PX, CELESTIAL_COLORS.selected, SEEK_MARK_ALPHA);
     const { centerYPx: transportYPx } = LAYOUT.bottomBar;
     getNotes(state).forEach((note) => {
@@ -1149,13 +1167,21 @@ export class ChartEditorScene extends Phaser.Scene {
     grid.clear();
     for (const timeMs of getGridTimesMs(fromMs, toMs, GRID_MINOR_STEP_MS)) {
       const isMajor = timeMs % GRID_MAJOR_STEP_MS === 0;
-      grid
-        .lineStyle(
-          HAIRLINE_PX,
-          CELESTIAL_COLORS.selected,
-          isMajor ? GRID_MAJOR_ALPHA : GRID_MINOR_ALPHA,
-        )
-        .lineBetween(lanes.leftPx, toY(timeMs), lanes.leftPx + lanes.widthPx, toY(timeMs));
+      strokeGrainedLine(
+        grid,
+        {
+          fromXPx: lanes.leftPx,
+          fromYPx: toY(timeMs),
+          toXPx: lanes.leftPx + lanes.widthPx,
+          toYPx: toY(timeMs),
+        },
+        {
+          widthPx: HAIRLINE_PX,
+          color: CELESTIAL_COLORS.selected,
+          alpha: isMajor ? GRID_MAJOR_ALPHA : GRID_MINOR_ALPHA,
+          stepPx: GRID_GRAIN_STEP_PX,
+        },
+      );
     }
     const majorTimesMs = getGridTimesMs(fromMs, toMs, GRID_MAJOR_STEP_MS);
     view.gridLabels.forEach((label, index) => {
@@ -1171,11 +1197,8 @@ export class ChartEditorScene extends Phaser.Scene {
     });
   }
 
-  private renderLaneLines(view: EditorView, laneCount: LaneCount | null): void {
+  private renderLaneLines(view: EditorView, laneCount: LaneCount): void {
     view.laneLines.clear();
-    if (laneCount === null) {
-      return;
-    }
     const { lanes, timeline } = LAYOUT;
     const laneWidthPx = getLaneWidthPx(LAYOUT, laneCount);
     [...getLanes(laneCount), laneCount].forEach((boundary) => {

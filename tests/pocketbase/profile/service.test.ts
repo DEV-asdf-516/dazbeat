@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { pickDefaultNickname } from '../../../pocketbase/lib/profile/service.js';
 import type { DbApp, DbxExpression, JsvmRuntime } from '../../../pocketbase/lib/jsvm.js';
+import { requireDefined } from '../../../src/invariant.js';
 import { isString } from '../../../src/typeGuards.js';
 
 const PREFIX = '과즙이';
 const ALL_FOUR_DIGITS = Array.from({ length: 10_000 }, (_, index) => index);
 
-// 대역 쿼리는 where 에 넘긴 식만 보고 답한다. 후보 묶음 조회는 in 의 값, 자릿수별 사용 번호 조회는 GLOB pattern 파라미터다.
+// 대역 쿼리는 where 에 넘긴 식만 보고 답한다. 자릿수별 사용 번호 조회는 GLOB pattern 파라미터가 있고,
+// 후보 묶음 조회는 파라미터 값이 후보다.
 interface FakeExpression {
-  readonly values?: readonly string[];
   readonly params?: Readonly<Record<string, unknown>> | undefined;
 }
 
@@ -22,7 +23,7 @@ const runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'> = {
     exp: (_sql, params) => fake({ params }),
     hashExp: (params) => fake({ params }),
     not: (expression) => expression,
-    in: (_column, ...values) => fake({ values }),
+    in: () => fake({}),
   },
 };
 
@@ -38,15 +39,14 @@ function usersWith(nicknames: readonly string[]): DbApp {
       where: (expression: DbxExpression) => queryWhere(expression as unknown as FakeExpression),
       orderBy: () => query,
       all: (rows: object[]) => {
-        if (where?.values !== undefined) {
-          where.values
+        const params = requireDefined(where?.params, 'Unexpected users query', 'users');
+        const pattern = params['pattern'];
+        if (!isString(pattern)) {
+          Object.values(params)
+            .filter(isString)
             .filter((nickname) => taken.has(nickname))
             .forEach((nickname) => rows.push({ nickname }));
           return;
-        }
-        const pattern = where?.params?.['pattern'];
-        if (!isString(pattern)) {
-          throw new Error('Unexpected users query');
         }
         const digits = pattern.split('[0-9]').length - 1;
         const numbered = new RegExp(`^${PREFIX}\\d{${digits}}$`);

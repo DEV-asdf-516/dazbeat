@@ -8,13 +8,15 @@ import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type { SceneRequest } from '../app/sceneRoutes.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
-import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import { createFooterAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
 import type { Button } from '../ui/view/widgets/Button.js';
 import { queueCelestialTextures } from '../celestial/view/celestialSprites.js';
 import { requireDefined } from '../../invariant.js';
 import { setFittedText } from '../ui/view/widgets/fitText.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
+import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import { ScrollBar } from '../ui/view/widgets/ScrollBar.js';
@@ -72,6 +74,7 @@ export class CreditsScene extends Phaser.Scene {
     private readonly catalog: SongFeed,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
+    private readonly account: AccountSource,
   ) {
     super(SCENE_KEYS.credits);
   }
@@ -96,6 +99,11 @@ export class CreditsScene extends Phaser.Scene {
       {
         celestial: this.celestial,
         screen: 'secondary',
+        account: {
+          kind: 'nameplate',
+          catalog: this.account.catalog,
+          pointer,
+        },
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
@@ -104,13 +112,14 @@ export class CreditsScene extends Phaser.Scene {
       },
       pointer,
     );
+    chrome.renderAccount(this.account.getIdentity());
     const title = this.add.text(
       SCREEN_LAYOUT.leftXPx,
       SCREEN_LAYOUT.headerYPx,
       this.i18n.t('credits.title'),
       textStyle('heading', COLORS.textPrimary),
     );
-    const [backButton] = createHeaderAuxiliaryButtons(this, [
+    const [backButton] = createFooterAuxiliaryButtons(this, [
       {
         label: 'BACK',
         pointer: pointButton(pointer, 'back'),
@@ -137,6 +146,17 @@ export class CreditsScene extends Phaser.Scene {
           }
         },
         playSound: (sound) => soundEffects.play(sound),
+        openProfile: () => {
+          this.exit = exitScene(this, this.exit, {
+            key: 'profile',
+            data: {
+              returnTo: {
+                key: 'credits',
+                data: undefined,
+              },
+            },
+          });
+        },
         leave: () => {
           this.exit = exitScene(this, this.exit, {
             key: 'main',
@@ -200,6 +220,9 @@ export class CreditsScene extends Phaser.Scene {
         return;
       case 'controlsClose':
         view.chrome.renderControlsClose(getCreditsControlsCloseView(state));
+        return;
+      case 'accountButton':
+        view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));
         return;
       case 'scrollBar':
         view.scrollBar.render(getCreditScroll(state, GRID), {

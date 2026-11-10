@@ -51,9 +51,7 @@ export function registerCelestialAnimations(scene: Phaser.Scene, catalog: Celest
     }
     const texture = scene.textures.get(textureKey);
     frames.forEach(({ frameName, xPx, yPx, widthPx, heightPx }) => {
-      if (!texture.has(frameName)) {
-        texture.add(frameName, 0, xPx, yPx, widthPx, heightPx);
-      }
+      texture.add(frameName, 0, xPx, yPx, widthPx, heightPx);
     });
   });
   const presentations = [

@@ -15,12 +15,13 @@ import {
   hoverToastClose,
   moveResultFocus,
   pressResultButton,
-  queueAchievements,
+  queueToasts,
   removeToast,
   selectRetryDifficulty,
   stepRetryChart,
   unhoverDifficulty,
 } from '../../../../src/game/result/state/resultState.js';
+import type { ToastContent } from '../../../../src/game/result/state/resultState.js';
 
 const SONG: Song = {
   id: 'easy-hard',
@@ -141,6 +142,13 @@ function achievementOf(id: AchievementId): NamedAchievementDefinition {
 const FIRST_FINISH = achievementOf('FIRST_FINISH');
 const FIRST_CLEAR = achievementOf('FIRST_CLEAR');
 
+function achievementToast(achievement: NamedAchievementDefinition): ToastContent {
+  return {
+    kind: 'achievement',
+    achievement,
+  };
+}
+
 describe('getChangedRegions', () => {
   const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
@@ -150,7 +158,7 @@ describe('getChangedRegions', () => {
         ...state,
         isControlsOpen: true,
       }),
-    ).toEqual(['controls', 'controlsClose']);
+    ).toEqual(['controls']);
   });
 
   it('redraws every button and plays the focus motion for the first render', () => {
@@ -162,6 +170,7 @@ describe('getChangedRegions', () => {
       'toastClose',
       'controls',
       'controlsEntry',
+      'accountButton',
       'controlsClose',
       'rankingNotice',
       'rankingNoticeButtons',
@@ -195,7 +204,7 @@ describe('getChangedRegions', () => {
   });
 
   it('redraws the toasts when the queue changes', () => {
-    expect(getChangedRegions(state, queueAchievements(state, [FIRST_FINISH]))).toEqual([
+    expect(getChangedRegions(state, queueToasts(state, [achievementToast(FIRST_FINISH)]))).toEqual([
       'toasts',
       'toastClose',
     ]);
@@ -206,8 +215,8 @@ describe('getToastChanges', () => {
   const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
 
   it('reports entered toasts and moved older toasts', () => {
-    const one = queueAchievements(state, [FIRST_FINISH]);
-    const two = queueAchievements(one, [FIRST_CLEAR]);
+    const one = queueToasts(state, [achievementToast(FIRST_FINISH)]);
+    const two = queueToasts(one, [achievementToast(FIRST_CLEAR)]);
 
     expect(getToastChanges(state, one)).toEqual({
       entered: one.toasts.shown,
@@ -222,7 +231,7 @@ describe('getToastChanges', () => {
   });
 
   it('reports leaving toasts once', () => {
-    const shown = queueAchievements(state, [FIRST_FINISH]);
+    const shown = queueToasts(state, [achievementToast(FIRST_FINISH)]);
     const leaving = dismissToast(shown, 0);
 
     expect(getToastChanges(shown, leaving)).toEqual({
@@ -234,7 +243,7 @@ describe('getToastChanges', () => {
   });
 
   it('releases the close hover of a removed toast', () => {
-    const hovered = hoverToastClose(queueAchievements(state, [FIRST_FINISH]), 0);
+    const hovered = hoverToastClose(queueToasts(state, [achievementToast(FIRST_FINISH)]), 0);
 
     expect(removeToast(dismissToast(hovered, 0), 0).hover).toBeNull();
   });

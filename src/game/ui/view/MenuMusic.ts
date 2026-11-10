@@ -38,14 +38,6 @@ export class MenuMusic {
     });
   }
 
-  queue(scene: Phaser.Scene): void {
-    if (scene.cache.audio.exists(MENU_MUSIC_KEY)) {
-      return;
-    }
-    scene.load.audio(MENU_MUSIC_KEY, MENU_MUSIC_URLS);
-    warnOnLoadError(scene, [MENU_MUSIC_KEY], 'menu music');
-  }
-
   setVolume(settings: Pick<Settings, 'backgroundVolume' | 'mutedVolumes'>): void {
     this.music?.setVolume(getMenuMusicVolume(settings));
   }
@@ -53,7 +45,17 @@ export class MenuMusic {
   // 잠긴 오디오 컨텍스트에서 시작한 소리는 첫 사용자 입력으로 풀릴 때 들리기 시작하고,
   // 그 전에 메뉴 밖으로 나가면 stop 으로 사라져 뒤늦게 울리지 않는다.
   private play(scene: Phaser.Scene): void {
-    if (this.music !== null || !scene.cache.audio.exists(MENU_MUSIC_KEY)) {
+    if (this.music !== null) {
+      return;
+    }
+    if (!scene.cache.audio.exists(MENU_MUSIC_KEY)) {
+      scene.load.audio(MENU_MUSIC_KEY, MENU_MUSIC_URLS);
+      warnOnLoadError(scene, [MENU_MUSIC_KEY], 'menu music');
+      // 씬이 끝나면 로더 리스너가 함께 사라지므로 메뉴 음악이 없는 화면에서는 재생되지 않는다.
+      scene.load.once(`${Phaser.Loader.Events.FILE_KEY_COMPLETE}audio-${MENU_MUSIC_KEY}`, () =>
+        this.play(scene),
+      );
+      scene.load.start();
       return;
     }
     const music = scene.sound.add(MENU_MUSIC_KEY);

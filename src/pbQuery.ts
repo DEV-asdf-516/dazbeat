@@ -1,6 +1,5 @@
 // Where 의 필드 이름이 무엇이든(예: kind) 혼동되지 않도록 노드 종류는 모듈 밖에서 만들 수 없는 심볼 값으로 표시한다.
 const COMPARISON = Symbol('comparison');
-const ANY_OF = Symbol('anyOf');
 
 export type FilterValue = string | number | boolean;
 
@@ -19,7 +18,7 @@ export function collectionSpec<const N extends string, const F extends string>(
   };
 }
 
-type Operator = '<' | '>' | '!=' | '~';
+type Operator = '!=' | '~';
 
 export interface Comparison {
   readonly kind: typeof COMPARISON;
@@ -35,14 +34,6 @@ function comparison(operator: Operator, value: FilterValue): Comparison {
   };
 }
 
-export function lt(value: FilterValue): Comparison {
-  return comparison('<', value);
-}
-
-export function gt(value: FilterValue): Comparison {
-  return comparison('>', value);
-}
-
 export function ne(value: FilterValue): Comparison {
   return comparison('!=', value);
 }
@@ -53,24 +44,8 @@ export function like(value: FilterValue): Comparison {
 
 export type Where<F extends string> = { readonly [K in F]?: FilterValue | Comparison };
 
-export interface AnyOf<F extends string> {
-  readonly kind: typeof ANY_OF;
-  readonly groups: readonly Where<F>[];
-  // Where 는 선택 필드뿐이라 spec 밖 필드가 섞여도 대입되므로, 쓴 필드 집합을 공변으로 남겨 spec 밖 필드를 거른다.
-  readonly fields?: readonly F[];
-}
-
-export function anyOf<F extends string>(...groups: Where<F>[]): AnyOf<F> {
-  return {
-    kind: ANY_OF,
-    groups,
-  };
-}
-
-export type Condition<F extends string> = Where<F> | AnyOf<F>;
-
 // 변수로 넘긴 Where 는 초과 속성 검사를 받지 못하므로 spec 밖 키를 never 로 막는다.
-type CheckedCondition<F extends string, T> = T extends null | AnyOf<F>
+type CheckedCondition<F extends string, T> = T extends null
   ? T
   : T extends Where<F>
     ? T & { readonly [K in Exclude<keyof T, F>]: never }
@@ -91,7 +66,7 @@ export function where<F extends string, const C extends readonly (object | null)
 ): CompiledFilter | null;
 export function where<F extends string>(
   _spec: CollectionSpec<F>,
-  conditions: readonly (Condition<F> | null)[],
+  conditions: readonly (Where<F> | null)[],
 ): CompiledFilter | null {
   const params: Record<string, FilterValue> = {};
   let nextParam = 0;
@@ -118,23 +93,9 @@ export function where<F extends string>(
     }
     return parts;
   };
-  const parts = conditions.flatMap((condition) => {
-    if (condition === null) {
-      return [];
-    }
-    if (!('kind' in condition) || condition.kind !== ANY_OF) {
-      // 제네릭 키를 가진 Where 는 kind 검사로 AnyOf 와 좁혀지지 않는다.
-      return [compileWhere(condition as Where<F>).join(' && ')];
-    }
-    if (condition.groups.length === 0) {
-      throw new Error('anyOf condition has no groups');
-    }
-    const groups = condition.groups.map((group) => {
-      const groupParts = compileWhere(group);
-      return groupParts.length === 1 ? groupParts.join('') : `(${groupParts.join(' && ')})`;
-    });
-    return [`(${groups.join(' || ')})`];
-  });
+  const parts = conditions.flatMap((condition) =>
+    condition === null ? [] : [compileWhere(condition).join(' && ')],
+  );
   return parts.length === 0
     ? null
     : {
@@ -160,31 +121,6 @@ export function desc<const F extends string>(field: F): SortKey<F> {
     field,
     direction: 'desc',
   };
-}
-
-export function sort<F extends string>(
-  _spec: CollectionSpec<F>,
-  order: readonly SortKey<NoInfer<F>>[],
-): string {
-  return order
-    .map(({ field, direction }) => (direction === 'desc' ? `-${field}` : field))
-    .join(',');
-}
-
-export function after<F extends string, V extends { readonly [K in F]: FilterValue }>(
-  order: readonly SortKey<F>[],
-  values: V & { readonly [K in Exclude<keyof V, F>]: never },
-): AnyOf<F> {
-  return anyOf(
-    ...order.map(({ field, direction }, index) => {
-      const group: { [K in F]?: FilterValue | Comparison } = {};
-      order.slice(0, index).forEach((previous) => {
-        group[previous.field] = values[previous.field];
-      });
-      group[field] = direction === 'desc' ? lt(values[field]) : gt(values[field]);
-      return group;
-    }),
-  );
 }
 
 export interface Expansion<N extends string = string> {

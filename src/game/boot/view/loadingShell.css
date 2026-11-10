@@ -1,0 +1,87 @@
+html {
+  background: #050c1a;
+}
+#loading-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+#loading-backdrop {
+  position: absolute;
+  inset: -6%;
+  width: 112%;
+  height: 112%;
+  object-fit: cover;
+  filter: blur(48px) brightness(0.62);
+}
+#loading-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+#loading-logo {
+  fill: #f2f0eb;
+}
+#loading-track {
+  stroke: #acd9f0;
+  stroke-opacity: 0.24;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+#loading-fill {
+  stroke: url(#loading-thread);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transform-origin: 166px 505px;
+  transform: scaleX(0);
+  animation: loading-crawl-fill 8s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+  transition: transform 400ms ease-out;
+}
+#loading-front {
+  transform: translateX(0);
+  animation: loading-crawl-front 8s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+  transition: transform 400ms ease-out;
+}
+#loading-notice {
+  font:
+    500 20px system-ui,
+    sans-serif;
+  fill: #85837d;
+  dominant-baseline: central;
+}
+.loading-twinkle {
+  animation: loading-twinkle 1.84s steps(10) infinite;
+}
+@keyframes loading-crawl-fill {
+  to {
+    transform: scaleX(0.12);
+  }
+}
+@keyframes loading-crawl-front {
+  to {
+    transform: translateX(87.48px);
+  }
+}
+@keyframes loading-twinkle {
+  to {
+    transform: translateX(-800px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #loading-fill {
+    animation: none;
+    transition: none;
+  }
+  #loading-front {
+    animation: none;
+    transition: none;
+    transform: translateX(729px) !important;
+  }
+  .loading-twinkle {
+    animation: none;
+    transform: translateX(-400px);
+  }
+}

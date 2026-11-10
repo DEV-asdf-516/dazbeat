@@ -38,7 +38,7 @@ describe('createAccountState', () => {
   it('starts as guest without a failed sign-in when there is no user', () => {
     expect(createAccountState(null)).toEqual({
       kind: 'guest',
-      hasSignInFailed: false,
+      signInFailure: 'none',
     });
   });
 });
@@ -85,7 +85,7 @@ describe('cancelSignIn', () => {
     const attempt = startSignIn();
     expect(cancelSignIn(attempt, attempt)).toEqual({
       kind: 'guest',
-      hasSignInFailed: false,
+      signInFailure: 'none',
     });
   });
 
@@ -100,9 +100,9 @@ describe('failSignIn', () => {
   it('returns guest with a failed sign-in while the attempt is the current state', () => {
     const attempt = startSignIn();
 
-    expect(failSignIn(attempt, attempt)).toEqual({
+    expect(failSignIn(attempt, attempt, new Error('popup closed'))).toEqual({
       kind: 'guest',
-      hasSignInFailed: true,
+      signInFailure: 'failed',
     });
   });
 
@@ -110,14 +110,14 @@ describe('failSignIn', () => {
     const attempt = startSignIn();
     const cancelled = createAccountState(null);
 
-    expect(failSignIn(cancelled, attempt)).toBe(cancelled);
+    expect(failSignIn(cancelled, attempt, new Error('popup closed'))).toBe(cancelled);
   });
 
   it('keeps a later attempt pending when an earlier attempt fails', () => {
     const first = startSignIn();
     const second = startSignIn();
 
-    expect(failSignIn(second, first)).toBe(second);
+    expect(failSignIn(second, first, new Error('popup closed'))).toBe(second);
   });
 });
 

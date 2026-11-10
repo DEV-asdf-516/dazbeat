@@ -135,7 +135,7 @@ export class EditorNoteLayer {
   }
 
   private highlight({ selected, currentTimeMs, laneCenterXPx }: EditorNotesView): void {
-    if (selected === null || !this.views.has(selected)) {
+    if (selected === null) {
       this.selectionOutline.setVisible(false);
       return;
     }

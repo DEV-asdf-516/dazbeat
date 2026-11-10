@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type PocketBase from 'pocketbase';
 import type { CollectionModel, RecordModel } from 'pocketbase';
 import { afterEach, describe, expect, it } from 'vitest';
+import { requireDefined } from '../../../src/invariant.js';
 import {
   REPO_MIGRATIONS_DIR,
   createClient,
@@ -245,6 +246,70 @@ const READ_RULES_AFTER_PUBLISH = {
   charts: `song.isPublished = true || (${EDITOR_RULE})`,
   scores: 'chartRevision = chart.revision && chart.song.isPublished = true',
 };
+const ACCOUNT_DELETION_MIGRATION = '1794103200_add_account_deletion.js';
+const PLAY_REVIEWS_MIGRATION = '1794016800_add_play_reviews.js';
+const REVIEW_EXISTING_PLAYS_MIGRATION = '1794016900_review_existing_plays.js';
+const REVIEW_MIGRATIONS = [PLAY_REVIEWS_MIGRATION, REVIEW_EXISTING_PLAYS_MIGRATION];
+const RANKING_INDEXES_MIGRATION = '1794189600_add_ranking_indexes.js';
+const REVIEW_PAGE_INDEXES_MIGRATION = '1794276000_add_review_page_indexes.js';
+const REVIEW_NOTE_MIGRATION = '1794362400_add_review_note.js';
+const MY_RANKING_INDEXES_MIGRATION = '1794448800_denormalize_score_chart_fields.js';
+const COVERING_INDEXES_MIGRATION = '1794535200_add_covering_indexes.js';
+const CLOSE_SONG_LISTS_MIGRATION = '1794621600_close_song_list_apis.js';
+// 순위·검토 페이지 인덱스와 검토 사유 칸은 검토 마이그레이션이 더한 열과 컬렉션에 얹고, 곡 목록 닫기는 공개 규칙을 바꾼다.
+const REVIEW_DEPENDENT_MIGRATIONS = [
+  ...REVIEW_MIGRATIONS,
+  RANKING_INDEXES_MIGRATION,
+  REVIEW_PAGE_INDEXES_MIGRATION,
+  REVIEW_NOTE_MIGRATION,
+  MY_RANKING_INDEXES_MIGRATION,
+  COVERING_INDEXES_MIGRATION,
+  CLOSE_SONG_LISTS_MIGRATION,
+];
+const RANKING_INDEXES = {
+  scores:
+    'CREATE INDEX idx_scores_chart_revision_rank ON scores (chart, chartRevision, score DESC, accuracy DESC, achievedAt, id)',
+  playResults: 'CREATE INDEX idx_play_results_user_review ON play_results (user, reviewStatus)',
+};
+const MY_RANKING_INDEXES = {
+  scores: [
+    'CREATE INDEX idx_scores_user_score_chart_lane_difficulty ON scores (user, score DESC, chart, laneCount, difficulty)',
+    'CREATE INDEX idx_scores_user_achieved_chart_lane_difficulty ON scores (user, achievedAt DESC, chart, laneCount, difficulty)',
+  ],
+  charts: 'CREATE INDEX idx_charts_id_revision_song ON charts (id, revision, song)',
+};
+const COVERING_INDEXES = {
+  scores:
+    'CREATE INDEX idx_scores_user_chart_best_fields ON scores (user, chart, score, accuracy, maxCombo, cleared)',
+  charts: [
+    'CREATE INDEX idx_charts_song_difficulty_lane_count_id ON charts (song, difficulty, laneCount, id)',
+    'CREATE INDEX idx_charts_id_revision_song_lane_difficulty ON charts (id, revision, song, laneCount, difficulty)',
+  ],
+};
+const REVIEW_PAGE_INDEXES = {
+  oldPlayResults:
+    'CREATE INDEX `idx_play_results_review_status_created` ON `play_results` (reviewStatus, created)',
+  playResults:
+    'CREATE INDEX idx_play_results_review_status_created_id ON play_results (reviewStatus, created, id)',
+  playReviews: 'CREATE INDEX idx_play_reviews_created_id ON play_reviews (created, id)',
+};
+// 검토 상태 마이그레이션이 scores 를 서버 전용으로 닫는다.
+const READ_RULES_AFTER_PLAY_REVIEWS = {
+  ...READ_RULES_AFTER_PUBLISH,
+  scores: null,
+};
+// 곡 목록 닫기 마이그레이션이 곡 목록을 에디터 전용으로, 곡 단건과 채보 목록을 서버 전용으로 닫는다.
+const READ_RULES_AFTER_CLOSING_SONG_LISTS = {
+  ...READ_RULES_AFTER_PLAY_REVIEWS,
+  songs: {
+    listRule: EDITOR_RULE,
+    viewRule: null,
+  },
+  charts: {
+    listRule: null,
+    viewRule: READ_RULES_AFTER_PUBLISH.charts,
+  },
+};
 const DAZBEAT_LABELS = ['POST /api/dazbeat/play-sessions', 'POST /api/dazbeat/play-sessions/'];
 
 const tempDirs: string[] = [];
@@ -280,15 +345,22 @@ async function hasCollection(superuser: PocketBase, name: string): Promise<boole
   return (await superuser.collections.getFullList()).some((collection) => collection.name === name);
 }
 
+type ReadRule = string | null;
+
+/** 목록과 단건 규칙이 같으면 규칙 하나로 적는다. */
 async function expectReadRules(
   superuser: PocketBase,
-  rules: Record<string, string>,
+  rules: Record<string, ReadRule | { listRule: ReadRule; viewRule: ReadRule }>,
 ): Promise<void> {
   for (const [name, rule] of Object.entries(rules)) {
-    expect(await superuser.collections.getOne(name)).toMatchObject({
-      listRule: rule,
-      viewRule: rule,
-    });
+    expect(await superuser.collections.getOne(name)).toMatchObject(
+      rule === null || typeof rule === 'string'
+        ? {
+            listRule: rule,
+            viewRule: rule,
+          }
+        : rule,
+    );
   }
 }
 
@@ -449,6 +521,21 @@ describe('migrations', () => {
         type: 'autodate',
         required: false,
       },
+      {
+        name: 'achievedAt',
+        type: 'date',
+        required: true,
+      },
+      {
+        name: 'laneCount',
+        type: 'number',
+        required: true,
+      },
+      {
+        name: 'difficulty',
+        type: 'select',
+        required: true,
+      },
     ]);
     expect(scores).toMatchObject({
       createRule: null,
@@ -456,7 +543,9 @@ describe('migrations', () => {
       deleteRule: null,
       indexes: [
         'CREATE UNIQUE INDEX idx_scores_user_chart_revision ON scores (user, chart, chartRevision)',
-        'CREATE INDEX `idx_scores_chart_revision_score` ON `scores` (chart, chartRevision, score DESC)',
+        RANKING_INDEXES.scores,
+        ...MY_RANKING_INDEXES.scores,
+        COVERING_INDEXES.scores,
       ],
     });
 
@@ -575,7 +664,7 @@ describe('migrations', () => {
         album: sample.album === '' ? '' : await albumIdOf(server.superuser, sample.album),
       });
     }
-    await expectReadRules(server.superuser, READ_RULES_AFTER_PUBLISH);
+    await expectReadRules(server.superuser, READ_RULES_AFTER_CLOSING_SONG_LISTS);
     await expectDazbeatRules(server.superuser, 30);
   });
 
@@ -866,8 +955,8 @@ describe('migrations', () => {
     await Promise.all(
       repoMigrations
         // The profile update migration edits the rule the profile fields migration adds, the
-        // autoplay check migration adds fields to play_results, and the rename migration renames
-        // the mark collections, all of which the old server lacks.
+        // autoplay check and review migrations change play_results, and the rename migration
+        // renames the mark collections, all of which the old server lacks.
         .filter(
           (file) =>
             ![
@@ -875,9 +964,18 @@ describe('migrations', () => {
               PROFILE_UPDATE_MIGRATION,
               AUTOPLAY_CHECK_MIGRATION,
               EARNED_MARKS_RENAME_MIGRATION,
+              ...REVIEW_DEPENDENT_MIGRATIONS,
             ].includes(file),
         )
         .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    // The review migrations isolate scores without plays, which every score here is, so the
+    // backfill is checked without them.
+    const upgradeMigrationsDir = await tempDir('migrations-achievements-upgrade');
+    await Promise.all(
+      repoMigrations
+        .filter((file) => !REVIEW_DEPENDENT_MIGRATIONS.includes(file))
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(upgradeMigrationsDir, file))),
     );
     const startOld = () =>
       start({
@@ -986,6 +1084,7 @@ describe('migrations', () => {
 
     const upgraded = await start({
       dataDir,
+      migrationsDir: upgradeMigrationsDir,
       hooksDir: emptyHooksDir,
     });
     expect(await findMarks(upgraded.superuser)).toEqual(expect.arrayContaining(expectedMarks));
@@ -1053,6 +1152,7 @@ describe('migrations', () => {
 
     const reapplied = await start({
       dataDir,
+      migrationsDir: upgradeMigrationsDir,
       hooksDir: emptyHooksDir,
     });
     expect(await findCollectionNames(reapplied.superuser)).toEqual(
@@ -1285,6 +1385,8 @@ describe('migrations', () => {
     const playResult = await upgraded.superuser.collection('play_results').create({
       user: user.id,
       ...playedFields,
+      reviewStatus: 'pending',
+      achievedAt: new Date().toISOString(),
       autoplayCheck: 'suspicious',
       autoplayReasons: ['low_std_dev'],
       inputStats: {
@@ -1392,6 +1494,85 @@ describe('migrations', () => {
     );
   });
 
+  it('add the deleted account identities and close users delete and sign-up until rollback', async () => {
+    const dataDir = await tempDir('migrations-account-deletion');
+    const oldMigrationsDir = await tempDir('migrations-before-account-deletion');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file !== ACCOUNT_DELETION_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+
+    const old = await startOld();
+    const oldUsers = await old.superuser.collections.getOne('users');
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    const identities = await upgraded.superuser.collections.getOne('deleted_account_identities');
+    expect(identities).toMatchObject({
+      type: 'base',
+      listRule: null,
+      viewRule: null,
+      createRule: null,
+      updateRule: null,
+      deleteRule: null,
+    });
+    expect(fieldSummary(identities)).toEqual([
+      {
+        name: 'provider',
+        type: 'text',
+        required: true,
+      },
+      {
+        name: 'identityDigest',
+        type: 'text',
+        required: true,
+      },
+      {
+        name: 'keyId',
+        type: 'text',
+        required: true,
+      },
+      {
+        name: 'deletedAt',
+        type: 'autodate',
+        required: false,
+      },
+    ]);
+    expect(identities.fields.find((field) => field.name === 'deletedAt')).toMatchObject({
+      onCreate: true,
+      onUpdate: false,
+    });
+    expect(identities.indexes).toEqual([
+      'CREATE UNIQUE INDEX idx_deleted_account_identities_identity ON deleted_account_identities (provider, identityDigest)',
+      'CREATE INDEX idx_deleted_account_identities_key ON deleted_account_identities (keyId)',
+    ]);
+    const upgradedUsers = await upgraded.superuser.collections.getOne('users');
+    expect(upgradedUsers.deleteRule).toBeNull();
+    expect(upgradedUsers.createRule).toContain('@request.context = "oauth2"');
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > ACCOUNT_DELETION_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    expect(await hasCollection(rolledBack.superuser, 'deleted_account_identities')).toBe(false);
+    expect(await rolledBack.superuser.collections.getOne('users')).toMatchObject({
+      createRule: oldUsers.createRule,
+      deleteRule: oldUsers.deleteRule,
+    });
+  });
+
   it('publish existing songs and restore the rules on rollback', async () => {
     const dataDir = await tempDir('migrations-publish');
     const oldMigrationsDir = await tempDir('migrations-before-publish');
@@ -1399,7 +1580,8 @@ describe('migrations', () => {
     const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
     await Promise.all(
       repoMigrations
-        .filter((file) => file !== PUBLISH_MIGRATION)
+        // The play review migration closes the scores rules this migration expects to replace.
+        .filter((file) => file !== PUBLISH_MIGRATION && !REVIEW_DEPENDENT_MIGRATIONS.includes(file))
         .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
     );
     const startOld = () =>
@@ -1443,14 +1625,690 @@ describe('migrations', () => {
       ),
     });
     expect(created['isPublished']).toBe(false);
-    await expectReadRules(superuser, READ_RULES_AFTER_PUBLISH);
+    await expectReadRules(superuser, READ_RULES_AFTER_CLOSING_SONG_LISTS);
     await upgraded.stop();
 
-    await migrateDown(dataDir, 1);
+    await migrateDown(dataDir, REVIEW_DEPENDENT_MIGRATIONS.length + 1);
     const rolledBack = await startOld();
     await expectReadRules(rolledBack.superuser, READ_RULES_BEFORE_PUBLISH);
     expect(await hasIsPublished(rolledBack.superuser)).toBe(false);
     const songs = await rolledBack.superuser.collection('songs').getFullList();
     expect(songs.map((record) => record.id).sort()).toEqual([existing.id, created.id].sort());
+  });
+
+  it('add the review fields and play_reviews, close scores and restore them on rollback', async () => {
+    const dataDir = await tempDir('migrations-play-reviews');
+    const oldMigrationsDir = await tempDir('migrations-before-play-reviews');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < PLAY_REVIEWS_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+    const serverOnlyRules = {
+      listRule: null,
+      viewRule: null,
+      createRule: null,
+      updateRule: null,
+      deleteRule: null,
+    };
+
+    const old = await startOld();
+    await excludeLoopbackFromRateLimits(old.superuser);
+    const oldPlayResults = await old.superuser.collections.getOne('play_results');
+    const oldScores = await old.superuser.collections.getOne('scores');
+    expect(await hasCollection(old.superuser, 'play_reviews')).toBe(false);
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    const { collections } = upgraded.superuser;
+    const playResults = await collections.getOne('play_results');
+    expect(fieldSummary(playResults)).toEqual([
+      ...fieldSummary(oldPlayResults),
+      {
+        name: 'reviewStatus',
+        type: 'select',
+        required: true,
+      },
+      {
+        name: 'achievedAt',
+        type: 'date',
+        required: true,
+      },
+      // 뒤의 검토 사유 마이그레이션이 더한다.
+      {
+        name: 'reviewNote',
+        type: 'text',
+        required: false,
+      },
+    ]);
+    expect(playResults.fields.find(({ name }) => name === 'reviewStatus')).toMatchObject({
+      values: ['approved', 'pending', 'rejected'],
+    });
+    expect(playResults.fields.find(({ name }) => name === 'reviewNote')).toMatchObject({
+      max: 500,
+    });
+    expect(playResults).toMatchObject(serverOnlyRules);
+    // 뒤의 순위 인덱스 마이그레이션이 사용자 인덱스와 점수 인덱스를, 검토 페이지 인덱스 마이그레이션이
+    // 검토 상태 인덱스를 바꾼다.
+    expect(playResults.indexes).toEqual([
+      'CREATE UNIQUE INDEX idx_play_results_session ON play_results (session)',
+      RANKING_INDEXES.playResults,
+      REVIEW_PAGE_INDEXES.playResults,
+    ]);
+    const scores = await collections.getOne('scores');
+    expect(fieldSummary(scores)).toEqual([
+      ...fieldSummary(oldScores),
+      {
+        name: 'achievedAt',
+        type: 'date',
+        required: true,
+      },
+      {
+        name: 'laneCount',
+        type: 'number',
+        required: true,
+      },
+      {
+        name: 'difficulty',
+        type: 'select',
+        required: true,
+      },
+    ]);
+    expect(scores).toMatchObject(serverOnlyRules);
+    expect(scores.indexes).toEqual([
+      'CREATE UNIQUE INDEX idx_scores_user_chart_revision ON scores (user, chart, chartRevision)',
+      RANKING_INDEXES.scores,
+      ...MY_RANKING_INDEXES.scores,
+      COVERING_INDEXES.scores,
+    ]);
+    const playReviews = await collections.getOne('play_reviews');
+    expect(fieldSummary(playReviews)).toEqual(
+      [
+        ['playResult', 'text', true],
+        ['decision', 'select', true],
+        ['reviewerId', 'text', true],
+        ['reviewerEmail', 'text', true],
+        ['note', 'text', false],
+        ['created', 'autodate', false],
+      ].map(([name, type, required]) => ({
+        name,
+        type,
+        required,
+      })),
+    );
+    expect(playReviews.fields.find(({ name }) => name === 'decision')).toMatchObject({
+      values: ['approved', 'rejected'],
+    });
+    expect(playReviews.fields.find(({ name }) => name === 'note')).toMatchObject({ max: 500 });
+    expect(playReviews).toMatchObject({
+      ...serverOnlyRules,
+      indexes: [
+        'CREATE UNIQUE INDEX idx_play_reviews_play_result ON play_reviews (playResult)',
+        REVIEW_PAGE_INDEXES.playReviews,
+      ],
+    });
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > PLAY_REVIEWS_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    expect(await hasCollection(rolledBack.superuser, 'play_reviews')).toBe(false);
+    const rolledBackPlayResults = await rolledBack.superuser.collections.getOne('play_results');
+    expect(fieldSummary(rolledBackPlayResults)).toEqual(fieldSummary(oldPlayResults));
+    expect(rolledBackPlayResults.indexes).toEqual(oldPlayResults.indexes);
+    const rolledBackScores = await rolledBack.superuser.collections.getOne('scores');
+    expect(fieldSummary(rolledBackScores)).toEqual(fieldSummary(oldScores));
+    expect(rolledBackScores).toMatchObject({
+      listRule: oldScores.listRule,
+      viewRule: oldScores.viewRule,
+    });
+    await expectReadRules(rolledBack.superuser, READ_RULES_AFTER_PUBLISH);
+  });
+
+  it('review existing plays and roll them back', async () => {
+    const dataDir = await tempDir('migrations-review-existing');
+    const oldMigrationsDir = await tempDir('migrations-before-review-existing');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < PLAY_REVIEWS_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+    const counts = (great: number, miss: number) => ({
+      perfect: 10,
+      great,
+      good: 0,
+      bad: 0,
+      miss,
+    });
+
+    const old = await startOld();
+    const { superuser: oldSuperuser } = old;
+    await excludeLoopbackFromRateLimits(oldSuperuser);
+    // With empty hooks no hook fills the default nickname or chart revision, so they are given here.
+    const createReviewUser = (name: string) =>
+      oldSuperuser.collection('users').create({
+        email: `${name}@example.com`,
+        password: PROFILE_PASSWORD,
+        passwordConfirm: PROFILE_PASSWORD,
+        nickname: name,
+      });
+    const player = await createReviewUser('Reviewed');
+    const other = await createReviewUser('Earlier');
+    const song = await createSong(oldSuperuser, 'review');
+    const createReviewChart = (difficulty: string) =>
+      oldSuperuser.collection('charts').create({
+        song: song.id,
+        difficulty,
+        laneCount: 4,
+        data: fakeChartData('review', difficulty),
+        revision: 'rev-1',
+      });
+    const easy = await createReviewChart('easy');
+    const expert = await createReviewChart('expert');
+    let sessionCount = 0;
+    const createPlay = (fields: {
+      user: string;
+      chart: RecordModel;
+      chartRevision: string;
+      score: number;
+      accuracy: number;
+      counts: ReturnType<typeof counts>;
+      autoplayCheck: string;
+    }) => {
+      sessionCount += 1;
+      const { chart, ...played } = fields;
+      return oldSuperuser.collection('play_results').create({
+        ...played,
+        session: `review-session-${sessionCount}`,
+        song: song.id,
+        chart: chart.id,
+        difficulty: String(chart['difficulty']),
+        laneCount: 4,
+        constellation: 'leo',
+        maxCombo: 10,
+        cleared: true,
+      });
+    };
+    const clearPlay = await createPlay({
+      user: player.id,
+      chart: easy,
+      chartRevision: 'rev-1',
+      score: 800_000,
+      accuracy: 0.96,
+      counts: counts(2, 0),
+      autoplayCheck: 'clear',
+    });
+    const suspiciousPlay = await createPlay({
+      user: player.id,
+      chart: easy,
+      chartRevision: 'rev-1',
+      score: 950_000,
+      accuracy: 0.99,
+      counts: counts(0, 0),
+      autoplayCheck: 'suspicious',
+    });
+    const lowerPlay = await createPlay({
+      user: player.id,
+      chart: expert,
+      chartRevision: 'rev-1',
+      score: 700_000,
+      accuracy: 0.9,
+      counts: counts(1, 1),
+      autoplayCheck: 'unjudged',
+    });
+    // Recorded on the revision issued before the chart changed.
+    const earlierPlay = await createPlay({
+      user: other.id,
+      chart: easy,
+      chartRevision: 'rev-0',
+      score: 600_000,
+      accuracy: 0.92,
+      counts: counts(3, 0),
+      autoplayCheck: 'unjudged',
+    });
+    const createScore = (fields: {
+      user: string;
+      chart: RecordModel;
+      score: number;
+      accuracy: number;
+      counts: ReturnType<typeof counts>;
+    }) =>
+      oldSuperuser.collection('scores').create({
+        ...fields,
+        chart: fields.chart.id,
+        chartRevision: 'rev-1',
+        maxCombo: 10,
+        cleared: true,
+      });
+    await createScore({
+      user: player.id,
+      chart: easy,
+      score: 950_000,
+      accuracy: 0.99,
+      counts: counts(0, 0),
+    });
+    // Saved on the current revision when the play was submitted.
+    await createScore({
+      user: other.id,
+      chart: easy,
+      score: 600_000,
+      accuracy: 0.92,
+      counts: counts(3, 0),
+    });
+    const createMark = (fields: {
+      user: string;
+      kind: string;
+      chart: RecordModel;
+      chartRevision: string;
+      constellation: string;
+      source: string;
+    }) =>
+      oldSuperuser.collection('earned_chart_marks').create({
+        ...fields,
+        song: song.id,
+        difficulty: String(fields.chart['difficulty']),
+        chart: fields.chart.id,
+      });
+    const suspiciousMark = await createMark({
+      user: player.id,
+      kind: 'ap',
+      chart: easy,
+      chartRevision: 'rev-1',
+      constellation: 'leo',
+      source: 'play',
+    });
+    const provenMark = await createMark({
+      user: player.id,
+      kind: 'clear',
+      chart: easy,
+      chartRevision: 'rev-1',
+      constellation: 'leo',
+      source: 'play',
+    });
+    const unprovenMark = await createMark({
+      user: other.id,
+      kind: 'fc',
+      chart: expert,
+      chartRevision: 'rev-9',
+      constellation: '',
+      source: 'backfill',
+    });
+    await oldSuperuser.collection('earned_achievements').create({
+      user: player.id,
+      achievement: 'FIRST_AP',
+    });
+    const oldAchievements = await oldSuperuser.collection('earned_achievements').getFullList();
+    const oldPlayResultFields = fieldSummary(await oldSuperuser.collections.getOne('play_results'));
+    const oldScoreFields = fieldSummary(await oldSuperuser.collections.getOne('scores'));
+    await old.stop();
+
+    const listScores = async (superuser: PocketBase) =>
+      (await superuser.collection('scores').getFullList()).map((record) => ({
+        user: record['user'] as unknown,
+        chart: record['chart'] as unknown,
+        chartRevision: record['chartRevision'] as unknown,
+        score: record['score'] as unknown,
+      }));
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    const { superuser } = upgraded;
+    const plays = await superuser.collection('play_results').getFullList();
+    const playOf = (id: string) =>
+      requireDefined(
+        plays.find((play) => play.id === id),
+        'Missing play',
+        id,
+      );
+    for (const [play, reviewStatus] of [
+      [clearPlay, 'approved'],
+      [suspiciousPlay, 'pending'],
+      [lowerPlay, 'approved'],
+      [earlierPlay, 'approved'],
+    ] as const) {
+      expect(playOf(play.id)).toMatchObject({
+        reviewStatus,
+        achievedAt: play['created'] as unknown,
+      });
+    }
+    expect(await listScores(superuser)).toEqual(
+      expect.arrayContaining([
+        {
+          user: player.id,
+          chart: easy.id,
+          chartRevision: 'rev-1',
+          score: 800_000,
+        },
+        {
+          user: player.id,
+          chart: expert.id,
+          chartRevision: 'rev-1',
+          score: 700_000,
+        },
+        {
+          user: other.id,
+          chart: easy.id,
+          chartRevision: 'rev-0',
+          score: 600_000,
+        },
+      ]),
+    );
+    expect(await superuser.collection('scores').getFullList()).toHaveLength(3);
+    // 다시 만든 최고 점수는 고른 플레이의 달성 시각을 그대로 갖는다.
+    expect(
+      (await superuser.collection('scores').getFullList()).map((record) => ({
+        user: record['user'] as unknown,
+        chart: record['chart'] as unknown,
+        achievedAt: record['achievedAt'] as unknown,
+      })),
+    ).toEqual(
+      expect.arrayContaining(
+        [clearPlay, lowerPlay, earlierPlay].map((play) => ({
+          user: play['user'] as unknown,
+          chart: play['chart'] as unknown,
+          achievedAt: play['created'] as unknown,
+        })),
+      ),
+    );
+    const marks = await superuser.collection('earned_chart_marks').getFullList();
+    expect(marks.map(({ id }) => id).sort()).toEqual([provenMark.id, unprovenMark.id].sort());
+    expect(await superuser.collection('earned_achievements').getFullList()).toEqual(
+      oldAchievements,
+    );
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > REVIEW_EXISTING_PLAYS_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + REVIEW_MIGRATIONS.length);
+    const rolledBack = await startOld();
+    const { superuser: rolledBackSuperuser } = rolledBack;
+    expect(
+      (await rolledBackSuperuser.collection('play_results').getFullList())
+        .map(({ id }) => id)
+        .sort(),
+    ).toEqual([clearPlay.id, suspiciousPlay.id, lowerPlay.id, earlierPlay.id].sort());
+    expect(await listScores(rolledBackSuperuser)).toEqual(
+      expect.arrayContaining([
+        {
+          user: player.id,
+          chart: easy.id,
+          chartRevision: 'rev-1',
+          score: 950_000,
+        },
+        {
+          user: player.id,
+          chart: expert.id,
+          chartRevision: 'rev-1',
+          score: 700_000,
+        },
+      ]),
+    );
+    const restoredMarks = await rolledBackSuperuser.collection('earned_chart_marks').getFullList();
+    expect(restoredMarks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          user: player.id,
+          kind: suspiciousMark['kind'] as unknown,
+          chart: easy.id,
+          chartRevision: 'rev-1',
+          constellation: 'leo',
+          source: 'play',
+        }),
+      ]),
+    );
+    expect(fieldSummary(await rolledBackSuperuser.collections.getOne('play_results'))).toEqual(
+      oldPlayResultFields,
+    );
+    expect(fieldSummary(await rolledBackSuperuser.collections.getOne('scores'))).toEqual(
+      oldScoreFields,
+    );
+  });
+
+  it('replace the ranking indexes and restore them on rollback', async () => {
+    const dataDir = await tempDir('migrations-ranking-indexes');
+    const oldMigrationsDir = await tempDir('migrations-before-ranking-indexes');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < RANKING_INDEXES_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+    // 되돌린 인덱스는 목록 끝에 붙으므로 순서는 보지 않는다.
+    const readIndexes = async (superuser: PocketBase) => ({
+      scores: (await superuser.collections.getOne('scores')).indexes.sort(),
+      playResults: (await superuser.collections.getOne('play_results')).indexes.sort(),
+    });
+
+    const old = await startOld();
+    const oldIndexes = await readIndexes(old.superuser);
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await readIndexes(upgraded.superuser)).toEqual({
+      scores: [
+        ...oldIndexes.scores.filter((index) => !index.includes('idx_scores_chart_revision_score')),
+        RANKING_INDEXES.scores,
+        ...MY_RANKING_INDEXES.scores,
+        COVERING_INDEXES.scores,
+      ].sort(),
+      // 뒤의 검토 페이지 인덱스 마이그레이션이 검토 상태 인덱스를 바꾼다.
+      playResults: [
+        ...oldIndexes.playResults.filter(
+          (index) =>
+            !index.includes('idx_play_results_user ON') &&
+            index !== REVIEW_PAGE_INDEXES.oldPlayResults,
+        ),
+        RANKING_INDEXES.playResults,
+        REVIEW_PAGE_INDEXES.playResults,
+      ].sort(),
+    });
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > RANKING_INDEXES_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    expect(await readIndexes(rolledBack.superuser)).toEqual(oldIndexes);
+  });
+
+  it('replace the review page indexes and restore them on rollback', async () => {
+    const dataDir = await tempDir('migrations-review-page-indexes');
+    const oldMigrationsDir = await tempDir('migrations-before-review-page-indexes');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < REVIEW_PAGE_INDEXES_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+    // 되돌린 인덱스는 목록 끝에 붙으므로 순서는 보지 않는다.
+    const readIndexes = async (superuser: PocketBase) => ({
+      playResults: (await superuser.collections.getOne('play_results')).indexes.sort(),
+      playReviews: (await superuser.collections.getOne('play_reviews')).indexes.sort(),
+    });
+
+    const old = await startOld();
+    const oldIndexes = await readIndexes(old.superuser);
+    await old.stop();
+    expect(oldIndexes.playResults).toContain(REVIEW_PAGE_INDEXES.oldPlayResults);
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await readIndexes(upgraded.superuser)).toEqual({
+      playResults: [
+        ...oldIndexes.playResults.filter((index) => index !== REVIEW_PAGE_INDEXES.oldPlayResults),
+        REVIEW_PAGE_INDEXES.playResults,
+      ].sort(),
+      playReviews: [...oldIndexes.playReviews, REVIEW_PAGE_INDEXES.playReviews].sort(),
+    });
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > REVIEW_PAGE_INDEXES_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    expect(await readIndexes(rolledBack.superuser)).toEqual(oldIndexes);
+  });
+
+  it('add my ranking indexes and remove them on rollback', async () => {
+    const dataDir = await tempDir('my-ranking-indexes-data');
+    const oldMigrationsDir = await tempDir('my-ranking-indexes-migrations');
+    const emptyHooksDir = await tempDir('my-ranking-indexes-hooks');
+    const repoMigrations = (await readdir(REPO_MIGRATIONS_DIR)).filter((file) =>
+      file.endsWith('.js'),
+    );
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < MY_RANKING_INDEXES_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+    const readIndexes = async (superuser: PocketBase) => ({
+      scores: (await superuser.collections.getOne('scores')).indexes.sort(),
+      charts: (await superuser.collections.getOne('charts')).indexes.sort(),
+    });
+
+    const old = await startOld();
+    const oldIndexes = await readIndexes(old.superuser);
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await readIndexes(upgraded.superuser)).toEqual({
+      scores: [...oldIndexes.scores, ...MY_RANKING_INDEXES.scores, COVERING_INDEXES.scores].sort(),
+      // 뒤의 커버링 인덱스 마이그레이션이 채보 인덱스를 바꾼다.
+      charts: [...oldIndexes.charts, ...COVERING_INDEXES.charts].sort(),
+    });
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > MY_RANKING_INDEXES_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    expect(await readIndexes(rolledBack.superuser)).toEqual(oldIndexes);
+  });
+
+  it('add the covering indexes and restore them on rollback', async () => {
+    const dataDir = await tempDir('covering-indexes-data');
+    const oldMigrationsDir = await tempDir('covering-indexes-migrations');
+    const emptyHooksDir = await tempDir('covering-indexes-hooks');
+    const repoMigrations = (await readdir(REPO_MIGRATIONS_DIR)).filter((file) =>
+      file.endsWith('.js'),
+    );
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < COVERING_INDEXES_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+    const readIndexes = async (superuser: PocketBase) => ({
+      scores: (await superuser.collections.getOne('scores')).indexes.sort(),
+      charts: (await superuser.collections.getOne('charts')).indexes.sort(),
+    });
+
+    const old = await startOld();
+    const oldIndexes = await readIndexes(old.superuser);
+    await old.stop();
+    expect(oldIndexes.charts).toContain(MY_RANKING_INDEXES.charts);
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await readIndexes(upgraded.superuser)).toEqual({
+      scores: [...oldIndexes.scores, COVERING_INDEXES.scores].sort(),
+      charts: [
+        ...oldIndexes.charts.filter((index) => index !== MY_RANKING_INDEXES.charts),
+        ...COVERING_INDEXES.charts,
+      ].sort(),
+    });
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > COVERING_INDEXES_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    expect(await readIndexes(rolledBack.superuser)).toEqual(oldIndexes);
+  });
+
+  it('close the song lists and reopen them on rollback', async () => {
+    const dataDir = await tempDir('close-song-lists-data');
+    const oldMigrationsDir = await tempDir('close-song-lists-migrations');
+    const emptyHooksDir = await tempDir('close-song-lists-hooks');
+    const repoMigrations = (await readdir(REPO_MIGRATIONS_DIR)).filter((file) =>
+      file.endsWith('.js'),
+    );
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < CLOSE_SONG_LISTS_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+
+    const old = await startOld();
+    await expectReadRules(old.superuser, READ_RULES_AFTER_PLAY_REVIEWS);
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    await expectReadRules(upgraded.superuser, READ_RULES_AFTER_CLOSING_SONG_LISTS);
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > CLOSE_SONG_LISTS_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    await expectReadRules(rolledBack.superuser, READ_RULES_AFTER_PLAY_REVIEWS);
   });
 });

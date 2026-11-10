@@ -33,6 +33,7 @@ import {
   selectSong,
   setHover,
   withFilter,
+  withLocalRecords,
   withSongs,
 } from '../../../../src/game/songSelect/state/songSelectState.js';
 import type {
@@ -91,7 +92,6 @@ const COVER_SONG = makeSong('cover', 'cover', {
 const NO_CHART_SONG = makeSong('no-chart', 'original', {});
 const SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG, COVER_SONG];
 const ORIGINAL_SONGS: readonly Song[] = [FULL_SONG, EASY_HARD_SONG];
-const NO_RECORDS: ChartRecords = new Map();
 const PLAYED: ChartRecord = {
   score: 500000,
   accuracy: 0.8,
@@ -118,7 +118,6 @@ function viewOf(
     notice: null,
     isLoadingMore: false,
     songCount: state.songs.length,
-    records: NO_RECORDS,
     ...overrides,
   };
 }
@@ -553,7 +552,7 @@ describe('getSongRows', () => {
     rows.map((row) => (row.kind === 'song' ? [row.song, row.appearance] : null));
 
   it('is all empty rows when there are no songs', () => {
-    expect(getSongRows(createSongSelectState([], 'all', 4), 3, NO_RECORDS)).toEqual([
+    expect(getSongRows(createSongSelectState([], 'all', 4), 3)).toEqual([
       { kind: 'empty' },
       { kind: 'empty' },
       { kind: 'empty' },
@@ -561,20 +560,20 @@ describe('getSongRows', () => {
   });
 
   it('selects the first row and fills the rest of a short page with empty rows', () => {
-    expect(
-      getSongRows(createSongSelectState([FULL_SONG, EASY_HARD_SONG], 'all', 4), 3, NO_RECORDS),
-    ).toEqual([
+    expect(getSongRows(createSongSelectState([FULL_SONG, EASY_HARD_SONG], 'all', 4), 3)).toEqual([
       {
         kind: 'song',
         song: FULL_SONG,
         appearance: 'selected',
         nodeId: 'R17',
+        topRank: null,
       },
       {
         kind: 'song',
         song: EASY_HARD_SONG,
         appearance: 'idle',
         nodeId: 'R15',
+        topRank: null,
       },
       { kind: 'empty' },
     ]);
@@ -584,9 +583,7 @@ describe('getSongRows', () => {
     const list = songs(4);
 
     expect(
-      songAndSelection(
-        getSongRows(selectSong(createSongSelectState(list, 'all', 4), 2), 3, NO_RECORDS),
-      ),
+      songAndSelection(getSongRows(selectSong(createSongSelectState(list, 'all', 4), 2), 3)),
     ).toEqual([
       [list[0], 'idle'],
       [list[1], 'idle'],
@@ -598,9 +595,7 @@ describe('getSongRows', () => {
     const list = songs(4);
 
     expect(
-      songAndSelection(
-        getSongRows(selectSong(createSongSelectState(list, 'all', 4), 3), 3, NO_RECORDS),
-      ),
+      songAndSelection(getSongRows(selectSong(createSongSelectState(list, 'all', 4), 3), 3)),
     ).toEqual([[list[3], 'selected'], null, null]);
   });
 
@@ -615,7 +610,6 @@ describe('getSongRows', () => {
             slot: 1,
           }),
           3,
-          NO_RECORDS,
         ),
       ).map((row) => row?.[1]),
     ).toEqual(['selected', 'hovered', 'idle']);
@@ -627,7 +621,6 @@ describe('getSongRows', () => {
             slot: 0,
           }),
           3,
-          NO_RECORDS,
         ),
       ).map((row) => row?.[1]),
     ).toEqual(['selected', 'idle', 'idle']);
@@ -640,24 +633,28 @@ describe('getSongRows', () => {
       [recordKey(COVER_SONG.id, 4, 'normal'), PLAYED],
     ]);
 
-    expect(nodeIds(getSongRows(onNormal, 3, records))).toEqual(['R17', 'R15', 'C:node-played']);
+    expect(nodeIds(getSongRows(withLocalRecords(onNormal, records), 3))).toEqual([
+      'R17',
+      'R15',
+      'C:node-played',
+    ]);
   });
 
   it('has no record chart in any row while a song without charts is selected', () => {
-    expect(
-      getSongRows(createSongSelectState([NO_CHART_SONG, FULL_SONG], 'all', 4), 2, NO_RECORDS),
-    ).toEqual([
+    expect(getSongRows(createSongSelectState([NO_CHART_SONG, FULL_SONG], 'all', 4), 2)).toEqual([
       {
         kind: 'song',
         song: NO_CHART_SONG,
         appearance: 'selected',
         nodeId: 'R17',
+        topRank: null,
       },
       {
         kind: 'song',
         song: FULL_SONG,
         appearance: 'idle',
         nodeId: 'R15',
+        topRank: null,
       },
     ]);
   });
@@ -977,21 +974,33 @@ describe('lane count', () => {
     ]);
 
     expect(
-      nodeIds(getSongRows(createSongSelectState([MIXED_SONG, FULL_SONG], 'all', 4), 2, records)),
+      nodeIds(
+        getSongRows(
+          withLocalRecords(createSongSelectState([MIXED_SONG, FULL_SONG], 'all', 4), records),
+          2,
+        ),
+      ),
     ).toEqual(['R17', 'R18']);
     expect(
-      nodeIds(getSongRows(createSongSelectState([MIXED_SONG, FULL_SONG], 'all', 5), 2, records)),
+      nodeIds(
+        getSongRows(
+          withLocalRecords(createSongSelectState([MIXED_SONG, FULL_SONG], 'all', 5), records),
+          2,
+        ),
+      ),
     ).toEqual(['R17', 'R15']);
   });
 });
 
 describe('getSelectedRecord', () => {
   it('reads the record of the playable selection', () => {
-    const state = createSongSelectState(SONGS, 'all', 4);
-    const records: ChartRecords = new Map([[recordKey(FULL_SONG.id, 4, 'easy'), PLAYED]]);
+    const state = withLocalRecords(
+      createSongSelectState(SONGS, 'all', 4),
+      new Map([[recordKey(FULL_SONG.id, 4, 'easy'), PLAYED]]),
+    );
 
-    expect(getSelectedRecord(state, records)).toBe(PLAYED);
-    expect(getSelectedRecord(moveSong(state, 1), records)).toBeNull();
+    expect(getSelectedRecord(state)).toBe(PLAYED);
+    expect(getSelectedRecord(moveSong(state, 1))).toBeNull();
   });
 });
 
@@ -1048,7 +1057,12 @@ describe('getChangedRegions', () => {
       'jacketLoads',
       'controls',
       'settingsButton',
+      'backButton',
+      'rankingButton',
+      'retryButton',
+      'recordsRetryButton',
       'controlsEntry',
+      'accountButton',
       'controlsClose',
       'rowShift',
     ]);
@@ -1057,7 +1071,6 @@ describe('getChangedRegions', () => {
   it('redraws only the controls when only the controls open', () => {
     expect(getChangedRegions(viewOf(state), viewOf(withControlsOpen(state, true)), 3)).toEqual([
       'controls',
-      'controlsClose',
     ]);
   });
 
@@ -1216,8 +1229,14 @@ describe('readSongSelectShortcut', () => {
     expect(readSongSelectShortcut(key('KeyR', true))).toBeNull();
   });
 
-  it('opens settings on Tab', () => {
+  it('opens the ranking on L but not on a repeat', () => {
+    expect(readSongSelectShortcut(key('KeyL'))).toBe('openRanking');
+    expect(readSongSelectShortcut(key('KeyL', true))).toBeNull();
+  });
+
+  it('opens settings on Tab but not on a repeat', () => {
     expect(readSongSelectShortcut(key('Tab'))).toBe('openSettings');
+    expect(readSongSelectShortcut(key('Tab', true))).toBeNull();
   });
 
   it('ignores other keys', () => {

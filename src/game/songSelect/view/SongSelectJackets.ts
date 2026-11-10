@@ -25,10 +25,7 @@ export class SongSelectJackets {
   constructor(private readonly textures: JacketTextures) {}
 
   preload(range: JacketRange): void {
-    const songs = this.findUnready(range.visible);
-    if (songs.length > 0) {
-      this.textures.queue(songs, this.recordFailure);
-    }
+    this.textures.queue(this.findUnready(range.visible), this.recordFailure);
   }
 
   show(range: JacketRange, inUse: readonly string[]): void {
@@ -91,10 +88,7 @@ export class SongSelectJackets {
       ...[...range.visible, ...range.adjacent].map((song) => song.id),
       ...inUse,
     ]);
-    const songIds = this.textures.loadedSongIds().filter((songId) => !keep.has(songId));
-    if (songIds.length > 0) {
-      this.textures.remove(songIds);
-    }
+    this.textures.remove(this.textures.loadedSongIds().filter((songId) => !keep.has(songId)));
   }
 
   private startNextBatch(range: JacketRange): void {

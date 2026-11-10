@@ -246,7 +246,7 @@ describe('GameplaySession hold notes', () => {
     lane: 1,
   };
 
-  it('starts holding on press and succeeds when update reaches the end', () => {
+  it('starts holding on press and misses when held past the end window', () => {
     const session = makeSession([hold]);
 
     expect(session.press(1, 1000)).toEqual([
@@ -258,33 +258,124 @@ describe('GameplaySession hold notes', () => {
       },
     ]);
     expect(session.getNoteStatus(0)).toBe('holding');
-    expect(session.update(2000)).toEqual([]);
-    expect(session.update(2001)).toEqual([
+    expect(session.update(2000 + 130)).toEqual([]);
+    expect(session.getNoteStatus(0)).toBe('holding');
+    expect(session.update(2000 + 131)).toEqual([
       {
         noteIndex: 0,
         lane: 1,
         kind: 'holdEnd',
-        judgment: 'perfect',
+        judgment: 'miss',
       },
     ]);
-    expect(session.getNoteStatus(0)).toBe('hit');
-    expect(session.release(1, 2010)).toEqual([]);
+    expect(session.getNoteStatus(0)).toBe('missed');
+    expect(session.release(1, 2140)).toEqual([]);
+    expect(session.getState().counts).toEqual({
+      ...emptyCounts,
+      perfect: 1,
+      miss: 1,
+    });
   });
 
-  it('judges a release inside the end window as perfect', () => {
+  it.each([
+    [-40, 'perfect'],
+    [40, 'perfect'],
+    [-41, 'great'],
+    [41, 'great'],
+    [-80, 'great'],
+    [80, 'great'],
+    [-81, 'good'],
+    [81, 'good'],
+    [-100, 'good'],
+    [100, 'good'],
+    [-101, 'bad'],
+    [101, 'bad'],
+    [-130, 'bad'],
+    [130, 'bad'],
+  ] as const)('judges a release %ims from the end as %s', (diffMs, judgment) => {
     const session = makeSession([hold]);
     session.press(1, 1000);
 
-    expect(session.release(1, 2000 - 130)).toEqual([
+    expect(session.release(1, 2000 + diffMs)).toEqual([
       {
         noteIndex: 0,
         lane: 1,
         kind: 'holdEnd',
-        judgment: 'perfect',
+        judgment,
       },
     ]);
     expect(session.getNoteStatus(0)).toBe('hit');
   });
+
+  it('settles a bad release after the end and frees the lane for the next note', () => {
+    const session = makeSession([
+      hold,
+      {
+        type: 'tap',
+        timeMs: 2200,
+        lane: 1,
+      },
+    ]);
+    session.press(1, 1000);
+
+    expect(session.release(1, 2130).map((event) => event.judgment)).toEqual(['bad']);
+    expect(session.getNoteStatus(0)).toBe('hit');
+    expect(session.release(1, 2140)).toEqual([]);
+    expect(session.press(1, 2200)).toEqual([
+      {
+        noteIndex: 1,
+        lane: 1,
+        kind: 'tap',
+        judgment: 'perfect',
+      },
+    ]);
+  });
+
+  it('judges the next note on the lane within 130ms after the end once released', () => {
+    const session = makeSession([
+      hold,
+      {
+        type: 'tap',
+        timeMs: 2100,
+        lane: 1,
+      },
+    ]);
+    session.press(1, 1000);
+    session.release(1, 2050);
+
+    expect(session.press(1, 2100)).toEqual([
+      {
+        noteIndex: 1,
+        lane: 1,
+        kind: 'tap',
+        judgment: 'perfect',
+      },
+    ]);
+    expect(session.getNoteStatus(0)).toBe('hit');
+    expect(session.getNoteStatus(1)).toBe('hit');
+  });
+
+  it.each([
+    [1500, 'miss', 'missed'],
+    [2050, 'great', 'hit'],
+  ] as const)(
+    'judges a release at the stopped clock time %i as %s',
+    (stoppedTimeMs, judgment, status) => {
+      const session = makeSession([hold]);
+      session.press(1, 1000);
+      session.update(stoppedTimeMs);
+
+      expect(session.release(1, stoppedTimeMs)).toEqual([
+        {
+          noteIndex: 0,
+          lane: 1,
+          kind: 'holdEnd',
+          judgment,
+        },
+      ]);
+      expect(session.getNoteStatus(0)).toBe(status);
+    },
+  );
 
   it('misses an early release', () => {
     const session = makeSession([hold]);
@@ -352,7 +443,7 @@ describe('GameplaySession hold notes', () => {
 });
 
 describe('GameplaySession.update ordering', () => {
-  it('applies judgments by judgment time then lane and reflects that order in maxCombo', () => {
+  it('applies judgments by judgment time then lane', () => {
     const session = makeSession([
       {
         type: 'tap',
@@ -361,8 +452,8 @@ describe('GameplaySession.update ordering', () => {
       },
       {
         type: 'hold',
-        timeMs: 1000,
-        endTimeMs: 1100,
+        timeMs: 900,
+        endTimeMs: 970,
         lane: 2,
       },
       {
@@ -376,15 +467,15 @@ describe('GameplaySession.update ordering', () => {
         lane: 1,
       },
     ]);
-    session.press(2, 1000);
+    session.press(2, 900);
 
-    // lane 0 tap MISS at 1130, lane 2 hold success at 1100, lanes 1/3 tap MISS at 1180.
+    // lane 2 hold MISS at 1100, lane 0 tap MISS at 1130, lanes 1/3 tap MISS at 1180.
     expect(session.update(1200)).toEqual([
       {
         noteIndex: 1,
         lane: 2,
         kind: 'holdEnd',
-        judgment: 'perfect',
+        judgment: 'miss',
       },
       {
         noteIndex: 0,
@@ -407,7 +498,7 @@ describe('GameplaySession.update ordering', () => {
     ]);
     expect(session.getState()).toMatchObject({
       combo: 0,
-      maxCombo: 2,
+      maxCombo: 1,
     });
   });
 
@@ -514,7 +605,7 @@ describe('GameplaySession state and result', () => {
     session.press(0, 1000);
     session.press(1, 1000);
     expect(session.getProgress()).toEqual({ outcome: 'playing' });
-    session.update(1501);
+    session.release(1, 1500);
     expect(session.getProgress()).toEqual({ outcome: 'playing' });
 
     session.update(2131);
@@ -1076,7 +1167,7 @@ describe('GameplaySession deterministic judgment time', () => {
     });
   });
 
-  it('completes a held hold before judging a release after its end', () => {
+  it('judges a release just after the end by the tail window', () => {
     const session = makeSession([
       {
         type: 'hold',
@@ -1101,7 +1192,7 @@ describe('GameplaySession deterministic judgment time', () => {
     });
   });
 
-  it('completes a hold only after its end time', () => {
+  it('misses a held hold only after the end window', () => {
     const session = makeSession([
       {
         type: 'hold',
@@ -1112,14 +1203,14 @@ describe('GameplaySession deterministic judgment time', () => {
     ]);
     session.press(1, 1000);
 
-    expect(session.update(2000)).toEqual([]);
+    expect(session.update(2130)).toEqual([]);
     expect(session.getNoteStatus(0)).toBe('holding');
-    expect(session.update(2001)).toEqual([
+    expect(session.update(2131)).toEqual([
       {
         noteIndex: 0,
         lane: 1,
         kind: 'holdEnd',
-        judgment: 'perfect',
+        judgment: 'miss',
       },
     ]);
   });
@@ -1143,23 +1234,23 @@ describe('GameplaySession deterministic judgment time', () => {
     ]);
   });
 
-  it.each([[[1101]], [[1100, 1101]], [[1050, 1100, 1100, 1101]]])(
-    'orders a hold completion and a miss at the same judgment time by lane for updates %j',
+  it.each([[[1131]], [[1130, 1131]], [[1050, 1130, 1130, 1131]]])(
+    'orders a held hold miss and a tap miss at the same judgment time by lane for updates %j',
     (updateTimesMs) => {
       const session = makeSession([
         {
           type: 'tap',
-          timeMs: 970,
+          timeMs: 1000,
           lane: 0,
         },
         {
           type: 'hold',
-          timeMs: 1000,
-          endTimeMs: 1100,
+          timeMs: 900,
+          endTimeMs: 1000,
           lane: 2,
         },
       ]);
-      session.press(2, 1000);
+      session.press(2, 900);
 
       const events = updateTimesMs.flatMap((timeMs) => session.update(timeMs));
       expect(events).toEqual([
@@ -1173,11 +1264,11 @@ describe('GameplaySession deterministic judgment time', () => {
           noteIndex: 1,
           lane: 2,
           kind: 'holdEnd',
-          judgment: 'perfect',
+          judgment: 'miss',
         },
       ]);
       expect(session.getState()).toMatchObject({
-        combo: 1,
+        combo: 0,
         maxCombo: 1,
       });
     },

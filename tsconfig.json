@@ -22,6 +22,7 @@
     "src/**/*.ts",
     "tests/**/*.ts",
     "pocketbase/**/*.ts",
+    "vite.config.ts",
     "vitest.config.ts",
     "vite.hooks.config.ts",
     "vitest.integration.config.ts"

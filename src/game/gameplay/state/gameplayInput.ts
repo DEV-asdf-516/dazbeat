@@ -1,5 +1,6 @@
 import type { PlaybackStatus } from '../../../audio/LeadInPlayback.js';
 import type { Lane } from '../../../rhythm/types.js';
+import type { PlayQuitKey } from '../../app/sceneRoutes.js';
 import type { GameplayCommand } from './gameplayCommand.js';
 import { getQuitConfirmAction } from './quitConfirm.js';
 
@@ -26,6 +27,10 @@ export type LaneReleaseAction =
 
 const NONE = { kind: 'none' } as const;
 const LEAVE = { kind: 'leave' } as const;
+const QUIT_KEY_ACTIONS = {
+  confirm: { kind: 'openQuitConfirm' },
+  leave: LEAVE,
+} as const satisfies Record<PlayQuitKey, PlayingKeyAction>;
 
 export function getLoadingKeyAction(key: GameplayKey, isRepeat: boolean): CommonKeyAction {
   if (key.command === 'back') {
@@ -40,6 +45,7 @@ export function getErrorKeyAction(key: GameplayKey, isRepeat: boolean): ErrorKey
 
 // Esc 반복이 확인창을 여닫지 않게 반복 입력을 모두 무시한다.
 export function getPlayingKeyAction(
+  quitKey: PlayQuitKey,
   isQuitConfirmOpen: boolean,
   status: PlaybackStatus,
   key: GameplayKey,
@@ -50,7 +56,7 @@ export function getPlayingKeyAction(
   }
   switch (getQuitConfirmAction(isQuitConfirmOpen, key.command)) {
     case 'open':
-      return { kind: 'openQuitConfirm' };
+      return QUIT_KEY_ACTIONS[quitKey];
     case 'quit':
       return LEAVE;
     case 'cancel':

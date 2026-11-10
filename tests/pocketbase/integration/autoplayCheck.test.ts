@@ -2,7 +2,7 @@ import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { requireDefined } from '../../../src/invariant.js';
-import { PLAY_RESULTS, SCORES } from '../../../src/pbCollections.js';
+import { EARNED_CHART_MARKS, PLAY_RESULTS, SCORES } from '../../../src/pbCollections.js';
 import { where } from '../../../src/pbQuery.js';
 import { replayGameplay } from '../../../src/rhythm/replay.js';
 import type { Chart, InputEvent, Lane, Note } from '../../../src/rhythm/types.js';
@@ -24,11 +24,11 @@ const SLOT_GAP_MS = 200;
 const SCATTERED_OFFSETS_MS = [-23, 17, -8, 31, -15, 6, 27, -30, 12, -4];
 const RESPONSE_KEYS = [
   'accuracy',
-  'bestScore',
   'cleared',
   'counts',
   'maxCombo',
   'newAchievements',
+  'review',
   'score',
 ];
 
@@ -129,6 +129,13 @@ async function submitResult(
   };
 }
 
+async function readPlayCount(client: PocketBase): Promise<unknown> {
+  const profile = await client.send<{ stats: { playCount: unknown } }>('/api/dazbeat/profile', {
+    method: 'GET',
+  });
+  return profile.stats.playCount;
+}
+
 async function findPlayResult(sessionId: string): Promise<RecordModel> {
   const { expression, params } = where(PLAY_RESULTS, [{ session: sessionId }]);
   return server.superuser
@@ -153,11 +160,12 @@ afterAll(async () => {
 });
 
 describe('POST /api/dazbeat/play-sessions/{sessionId}/result autoplay check', () => {
-  it('records an exact play as suspicious without changing the response or the best score', async () => {
+  it('records an exact play as suspicious and holds it for review without ranking it', async () => {
     const player = await newPlayer();
     const inputs = pressAll(longChart, () => 0);
     const { outcome, ...expected } = replayGameplay(longChart, inputs).result;
     expect(outcome).toBe('finished');
+    const playCount = await readPlayCount(player.client);
     const sessionId = await startRankedPlay(player, longChartRecord);
 
     const { status, body: response } = await submitResult(player.client, sessionId, inputs);
@@ -166,20 +174,20 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result autoplay check', ()
     expect(Object.keys(response).sort()).toEqual(RESPONSE_KEYS);
     expect(response).toMatchObject({
       ...expected,
-      bestScore: expected.score,
+      newAchievements: [],
+      review: { kind: 'pending' },
     });
-    const { expression, params } = where(SCORES, [{ user: player.id }]);
-    expect(
-      await server.superuser
-        .collection(SCORES.name)
-        .getFullList({ filter: server.superuser.filter(expression, params) }),
-    ).toEqual([
-      expect.objectContaining({
-        chart: longChartRecord.id,
-        score: expected.score,
-      }),
-    ]);
+    for (const spec of [SCORES, EARNED_CHART_MARKS]) {
+      const { expression, params } = where(spec, [{ user: player.id }]);
+      expect(
+        await server.superuser
+          .collection(spec.name)
+          .getFullList({ filter: server.superuser.filter(expression, params) }),
+      ).toEqual([]);
+    }
+    expect(await readPlayCount(player.client)).toBe(playCount);
     const playResult = await findPlayResult(sessionId);
+    expect(playResult['reviewStatus']).toBe('pending');
     expect(playResult['autoplayCheck']).toBe('suspicious');
     // The reasons are a set, so their order is not checked.
     expect(playResult['autoplayReasons']).toHaveLength(3);
@@ -196,11 +204,11 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result autoplay check', ()
     });
   });
 
-  it('records a human-like play as clear with every stat', async () => {
+  it('records a human-like play as clear with every stat and approves it', async () => {
     const player = await newPlayer();
     const sessionId = await startRankedPlay(player, longChartRecord);
 
-    await submitResult(
+    const { body: response } = await submitResult(
       player.client,
       sessionId,
       pressAll(longChart, (index) =>
@@ -212,8 +220,10 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result autoplay check', ()
       ),
     );
 
+    expect(response['review']).toMatchObject({ kind: 'approved' });
     const playResult = await findPlayResult(sessionId);
     expect(playResult).toMatchObject({
+      reviewStatus: 'approved',
       autoplayCheck: 'clear',
       autoplayReasons: [],
       inputStats: {
@@ -227,17 +237,19 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result autoplay check', ()
     expect(playResult['inputStats']).toHaveProperty('stdDevMs', expect.closeTo(19.687813, 5));
   });
 
-  it('leaves a play with fewer samples than the minimum unjudged', async () => {
+  it('leaves a play with fewer samples than the minimum unjudged and approves it', async () => {
     const player = await newPlayer();
     const sessionId = await startRankedPlay(player, shortChartRecord);
 
-    await submitResult(
+    const { body: response } = await submitResult(
       player.client,
       sessionId,
       pressAll(shortChart, () => 0),
     );
 
+    expect(response['review']).toMatchObject({ kind: 'approved' });
     expect(await findPlayResult(sessionId)).toMatchObject({
+      reviewStatus: 'approved',
       autoplayCheck: 'unjudged',
       autoplayReasons: [],
       inputStats: {

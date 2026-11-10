@@ -37,7 +37,8 @@ export function isNicknameTaken(
   userId: string,
 ): boolean {
   const { dbx } = runtime;
-  // NOCASE 는 ASCII 만 접는데, 닉네임에서 대소문자가 있는 글자는 ASCII 영문뿐이다. 저장 여부는 유니크 인덱스가 판정한다.
+  // 닉네임 유니크 인덱스가 NOCASE 라 비교도 NOCASE 여야 인덱스로 찾는다. NOCASE 는 ASCII 만 접는데,
+  // 닉네임에서 대소문자가 있는 글자는 ASCII 영문뿐이다. 저장 여부는 유니크 인덱스가 판정한다.
   const { total } = selectRow(
     runtime,
     { total: 'int' },
@@ -45,7 +46,7 @@ export function isNicknameTaken(
       .db()
       .select('COUNT(*) AS total')
       .from(USERS.name)
-      .where(dbx.exp(`${column(USERS, 'nickname')} = {:nickname} COLLATE NOCASE`, { nickname }))
+      .where(dbx.exp(`${column(USERS, 'nickname')} COLLATE NOCASE = {:nickname}`, { nickname }))
       .andWhere(dbx.not(dbx.hashExp({ [column(USERS, 'id')]: userId }))),
   );
   return total > 0;
@@ -56,6 +57,9 @@ export function readTakenNicknames(
   app: DbApp,
   candidates: readonly string[],
 ): ReadonlySet<string> {
+  const params = Object.fromEntries(
+    candidates.map((nickname, index) => [`candidate${index}`, nickname]),
+  );
   const takenRows = selectRows(
     runtime,
     { nickname: 'text' },
@@ -63,7 +67,14 @@ export function readTakenNicknames(
       .db()
       .select(column(USERS, 'nickname'))
       .from(USERS.name)
-      .where(runtime.dbx.in(column(USERS, 'nickname'), ...candidates)),
+      .where(
+        runtime.dbx.exp(
+          `${column(USERS, 'nickname')} COLLATE NOCASE IN (${Object.keys(params)
+            .map((name) => `{:${name}}`)
+            .join(', ')})`,
+          params,
+        ),
+      ),
   );
   return new Set(takenRows.map((row) => row.nickname));
 }
@@ -75,18 +86,27 @@ export function readNumberedNicknames(
   prefix: string,
   digits: number,
 ): string[] {
+  const nicknameColumn = column(USERS, 'nickname');
+  // GLOB 은 NOCASE 인덱스를 쓰지 못해, 같은 자릿수 번호의 범위로 인덱스를 좁힌 뒤 GLOB 으로 거른다.
+  // 정렬도 NOCASE 여야 인덱스 순서로 읽는다. 거른 행은 접두어가 같고 뒤가 숫자뿐이라 순서는 BINARY 와 같다.
   return selectRows(
     runtime,
     { nickname: 'text' },
     app
       .db()
-      .select(column(USERS, 'nickname'))
+      .select(nicknameColumn)
       .from(USERS.name)
       .where(
-        runtime.dbx.exp(`${column(USERS, 'nickname')} GLOB {:pattern}`, {
-          pattern: `${prefix}${'[0-9]'.repeat(digits)}`,
-        }),
+        runtime.dbx.exp(
+          `${nicknameColumn} COLLATE NOCASE BETWEEN {:lowest} AND {:highest} AND ${nicknameColumn} GLOB {:pattern}`,
+          {
+            lowest: `${prefix}${'0'.repeat(digits)}`,
+            highest: `${prefix}${'9'.repeat(digits)}`,
+            pattern: `${prefix}${'[0-9]'.repeat(digits)}`,
+          },
+        ),
       )
-      .orderBy(column(USERS, 'nickname')),
+      // dbx 는 orderBy 문자열을 열 이름 하나로 인용하므로 [[ ]] 로 열만 감싼다.
+      .orderBy(`[[${nicknameColumn}]] COLLATE NOCASE`),
   ).map(({ nickname }) => nickname);
 }

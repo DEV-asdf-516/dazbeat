@@ -7,7 +7,8 @@ function readAll(events: ReadonlyArray<[deltaYPx: number, atMs: number]>, rowPx:
   return events.map(([deltaYPx, atMs]) => {
     const read = readWheelRows(gesture, deltaYPx, atMs, rowPx);
     gesture = read.gesture;
-    return read.rows;
+    // 위로 굴려 한 줄을 못 넘기면 -0 이 나오는데, 쓰는 쪽은 더하거나 0 과 비교만 해서 차이가 없다.
+    return read.rows + 0;
   });
 }
 

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
 import type { Song, SongBatch, SongBatchCursor, SongQuery } from '../../../src/data/songs.js';
 import { SharedSongFeeds, SongFeed } from '../../../src/game/app/SongFeed.js';
+import type { SongBatchLoader } from '../../../src/game/app/SongFeed.js';
 
 const PAGE_SIZE = 100;
 
@@ -89,6 +90,18 @@ function deferred<T>() {
   };
 }
 
+async function loadFeedOf(songs: readonly Song[]): Promise<SongFeed> {
+  const feed = new SongFeed(ALL_SONGS_QUERY, () =>
+    Promise.resolve({
+      songs,
+      next: null,
+      totalCount: songs.length,
+    }),
+  );
+  await feed.requestMore();
+  return feed;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -133,7 +146,7 @@ describe('SongFeed', () => {
     ]);
   });
 
-  it('starts empty with more to load when no first batch is given', () => {
+  it('starts empty with more to load', () => {
     const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch);
 
     expect(feed.songs).toEqual([]);
@@ -144,12 +157,14 @@ describe('SongFeed', () => {
     const entries = makeServerSongs(150);
     const server = createServer(entries);
     const first = await server.loadBatch(ALL_SONGS_QUERY, null);
-    server.calls.length = 0;
-    const feed = new SongFeed(ALL_SONGS_QUERY, server.loadBatch, first);
+    const feed = new SongFeed(ALL_SONGS_QUERY, server.loadBatch);
 
-    expect(feed.songs).toBe(first.songs);
+    await feed.requestMore();
+
+    expect(feed.songs).toEqual(first.songs);
     expect(feed.status).toBe('hasMore');
 
+    server.calls.length = 0;
     await feed.requestMore();
 
     expect(server.calls).toEqual([
@@ -163,17 +178,47 @@ describe('SongFeed', () => {
 
   it('does not request again after a last first batch', async () => {
     const server = createServer(makeServerSongs(3));
-    const first = await server.loadBatch(ALL_SONGS_QUERY, null);
-    server.calls.length = 0;
-    const feed = new SongFeed(ALL_SONGS_QUERY, server.loadBatch, first);
+    const feed = new SongFeed(ALL_SONGS_QUERY, server.loadBatch);
+
+    await feed.requestMore();
+    const { songs } = feed;
 
     expect(feed.status).toBe('complete');
 
+    server.calls.length = 0;
     await feed.requestMore();
     await feed.requestRemaining();
 
     expect(server.calls).toEqual([]);
-    expect(feed.songs).toBe(first.songs);
+    expect(feed.songs).toBe(songs);
+  });
+
+  it('becomes failed when the first request fails and receives it again when asked by the user', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const entries = makeServerSongs(3);
+    const server = createServer(entries);
+    let isFailing = true;
+    const calls: (SongBatchCursor | null)[] = [];
+    const feed = new SongFeed(ALL_SONGS_QUERY, (query, after) => {
+      calls.push(after);
+      return isFailing ? Promise.reject(new Error('offline')) : server.loadBatch(query, after);
+    });
+
+    await feed.requestMore();
+
+    expect(feed.status).toBe('failed');
+    expect(feed.songs).toEqual([]);
+
+    await feed.requestMore();
+
+    expect(calls).toEqual([null]);
+
+    isFailing = false;
+    await feed.requestMoreFromUser();
+
+    expect(calls).toEqual([null, null]);
+    expect(feed.status).toBe('complete');
+    expect(feed.songs).toEqual(entries.map((entry) => entry.song));
   });
 
   it('shares the in-flight request instead of loading again', async () => {
@@ -259,15 +304,17 @@ describe('SongFeed', () => {
   it('follows the received songs when the count drifted while loading', async () => {
     const entries = makeServerSongs(150);
     const server = createServer(entries);
-    const first = await server.loadBatch(ALL_SONGS_QUERY, null);
-    const shrunk = new SongFeed(ALL_SONGS_QUERY, server.loadBatch, {
-      ...first,
-      totalCount: 160,
-    });
-    const grown = new SongFeed(ALL_SONGS_QUERY, server.loadBatch, {
-      ...first,
-      totalCount: 90,
-    });
+    const withFirstTotal =
+      (totalCount: number): SongBatchLoader =>
+      async (query, after) => ({
+        ...(await server.loadBatch(query, after)),
+        ...(after === null ? { totalCount } : {}),
+      });
+    const shrunk = new SongFeed(ALL_SONGS_QUERY, withFirstTotal(160));
+    const grown = new SongFeed(ALL_SONGS_QUERY, withFirstTotal(90));
+
+    await shrunk.requestMore();
+    await grown.requestMore();
 
     expect(shrunk.songCount).toBe(160);
     expect(grown.songCount).toBe(PAGE_SIZE);
@@ -277,7 +324,7 @@ describe('SongFeed', () => {
     expect(shrunk.songCount).toBe(150);
   });
 
-  it('applies a saved chart id to its lane count and difficulty of a listed song', () => {
+  it('applies a saved chart id to its lane count and difficulty of a listed song', async () => {
     const song = makeSong('a', {
       chartIds: {
         4: { easy: 'c1' },
@@ -285,11 +332,7 @@ describe('SongFeed', () => {
       },
     });
     const other = makeSong('b');
-    const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
-      songs: [song, other],
-      next: null,
-      totalCount: 2,
-    });
+    const feed = await loadFeedOf([song, other]);
     const listener = vi.fn();
     feed.subscribe(listener);
 
@@ -310,13 +353,9 @@ describe('SongFeed', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the list when the saved chart id is already listed', () => {
+  it('keeps the list when the saved chart id is already listed', async () => {
     const song = makeSong('a', { chartIds: { 4: { easy: 'c1' } } });
-    const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
-      songs: [song],
-      next: null,
-      totalCount: 1,
-    });
+    const feed = await loadFeedOf([song]);
     const songs = feed.songs;
     const listener = vi.fn();
     feed.subscribe(listener);
@@ -326,12 +365,8 @@ describe('SongFeed', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('ignores a saved chart for a song it has not loaded', () => {
-    const feed = new SongFeed(ALL_SONGS_QUERY, createServer([]).loadBatch, {
-      songs: [makeSong('a')],
-      next: null,
-      totalCount: 1,
-    });
+  it('ignores a saved chart for a song it has not loaded', async () => {
+    const feed = await loadFeedOf([makeSong('a')]);
     const songs = feed.songs;
     const listener = vi.fn();
     feed.subscribe(listener);
@@ -374,11 +409,7 @@ describe('SharedSongFeeds', () => {
 
   it('keeps one feed per category and the catalog for all, but a new one per title search', async () => {
     const server = createServer(makeServerSongs(3));
-    const feeds = new SharedSongFeeds(
-      server.loadBatch,
-      await server.loadBatch(ALL_SONGS_QUERY, null),
-    );
-    server.calls.length = 0;
+    const feeds = new SharedSongFeeds(server.loadBatch);
 
     const coverFeed = feeds.create(cover);
     await coverFeed.requestMore();
@@ -393,7 +424,7 @@ describe('SharedSongFeeds', () => {
     expect(server.calls).toHaveLength(1);
   });
 
-  it('starts an empty catalog from the beginning when made without a first batch', async () => {
+  it('starts an empty catalog from the beginning', async () => {
     const server = createServer(makeServerSongs(3));
     const feeds = new SharedSongFeeds(server.loadBatch);
 
@@ -421,7 +452,8 @@ describe('SharedSongFeeds', () => {
         next: null,
         totalCount: 1,
       });
-    const feeds = new SharedSongFeeds(loadBatch, await loadBatch());
+    const feeds = new SharedSongFeeds(loadBatch);
+    await feeds.catalog.requestMore();
     const coverFeed = feeds.create(cover);
     await coverFeed.requestMore();
 

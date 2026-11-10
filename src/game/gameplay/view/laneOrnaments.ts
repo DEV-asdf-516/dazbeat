@@ -20,7 +20,7 @@ export const LANE_ORNAMENT_IMAGES = [LANE_RAIL, LANE_JUDGE_BAR] as const;
 const RAIL_WIDTH_PX = 20;
 // 바깥 경계는 플레이필드 테두리라 안쪽 구분선보다 밝게 둔다.
 const RAIL_EDGE_ALPHA = 0.85;
-const RAIL_DIVIDER_ALPHA = 0.4;
+const RAIL_DIVIDER_ALPHA = 0.25;
 // 막대 텍스처 양끝의 별점 하나와 사라지는 끝만 레인 바깥으로 짧게 내보내는 비율이다.
 const JUDGE_BAR_LANE_WIDTH_RATIO = 0.91;
 

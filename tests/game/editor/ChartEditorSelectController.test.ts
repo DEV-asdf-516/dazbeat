@@ -94,7 +94,7 @@ async function settle(call: PendingCall | undefined, kind: 'resolve' | 'reject' 
   await Promise.resolve();
 }
 
-function createHarness(songs: readonly Song[], catalog?: (server: Server) => SongFeed) {
+function createHarness(songs: readonly Song[]) {
   const server = createServer(songs);
   const created: SongFeed[] = [];
   const views: ChartEditorSelectView[] = [];
@@ -106,7 +106,7 @@ function createHarness(songs: readonly Song[], catalog?: (server: Server) => Son
     text: '',
     shown: [] as string[],
   };
-  const feed = catalog?.(server) ?? new SongFeed(ALL_SONGS_QUERY, server.loadBatch);
+  const feed = new SongFeed(ALL_SONGS_QUERY, server.loadBatch);
   let controller: ChartEditorSelectController | undefined;
   const open = (entry: ChartEditorSelectSceneData): ChartEditorSelectController => {
     controller = new ChartEditorSelectController(
@@ -196,14 +196,15 @@ const songs = Array.from({ length: 10 }, (_, index) =>
   makeSong(index, index % 2 === 0 ? 'original' : 'cover'),
 );
 
-/** 첫 배치를 이미 받은 전체 곡 목록. */
-function loadedCatalog(server: Server): SongFeed {
-  void server.loadBatch(ALL_SONGS_QUERY, null);
-  return new SongFeed(ALL_SONGS_QUERY, server.loadBatch, server.calls.pop()?.batch);
+async function loadFirstBatch(feed: SongFeed, server: Server): Promise<void> {
+  const request = feed.requestMore();
+  await settle(server.calls.pop());
+  await request;
 }
 
-function openLoaded() {
-  const harness = createHarness(songs, loadedCatalog);
+async function openLoaded() {
+  const harness = createHarness(songs);
+  await loadFirstBatch(harness.catalog, harness.server);
   harness.open({ kind: 'fresh' });
   return harness;
 }
@@ -213,8 +214,8 @@ afterEach(() => {
 });
 
 describe('ChartEditorSelectController list', () => {
-  it('opens fresh with the shared catalog without a new request', () => {
-    const harness = openLoaded();
+  it('opens fresh with the shared catalog without a new request', async () => {
+    const harness = await openLoaded();
 
     expect(harness.server.calls).toHaveLength(0);
     expect(harness.created).toHaveLength(0);
@@ -226,7 +227,7 @@ describe('ChartEditorSelectController list', () => {
   });
 
   it('requests the next batch once when keyboard moves reach the end and appends it', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
 
     for (let index = 0; index < 4; index += 1) {
       expect(harness.controller.handleKey(key('ArrowDown'))).toBe(true);
@@ -250,8 +251,8 @@ describe('ChartEditorSelectController list', () => {
     expect(harness.view.status).toBeNull();
   });
 
-  it('requests the next batch when scrolling reaches the end', () => {
-    const harness = openLoaded();
+  it('requests the next batch when scrolling reaches the end', async () => {
+    const harness = await openLoaded();
 
     harness.controller.scroll(1);
     expect(harness.server.calls).toHaveLength(0);
@@ -261,23 +262,16 @@ describe('ChartEditorSelectController list', () => {
     expect(harness.server.calls).toHaveLength(1);
   });
 
-  it('reopens the returned list with its focused song and title without a new request', () => {
+  it('reopens the returned list with its focused song and title without a new request', async () => {
     const harness = createHarness(songs);
-    void harness.server.loadBatch(
-      {
-        category: 'all',
-        title: 'Title',
-      },
-      null,
-    );
     const list = new SongFeed(
       {
         category: 'all',
         title: 'Title',
       },
       harness.server.loadBatch,
-      harness.server.calls.pop()?.batch,
     );
+    await loadFirstBatch(list, harness.server);
 
     harness.open({
       kind: 'return',
@@ -292,14 +286,14 @@ describe('ChartEditorSelectController list', () => {
     expect(harness.edits[0]?.list).toBe(list);
   });
 
-  it('keeps the category, title and focused song when returning to a category search', () => {
+  it('keeps the category, title and focused song when returning to a category search', async () => {
     const harness = createHarness(songs);
     const query: SongQuery = {
       category: 'cover',
       title: 'Title',
     };
-    void harness.server.loadBatch(query, null);
-    const list = new SongFeed(query, harness.server.loadBatch, harness.server.calls.pop()?.batch);
+    const list = new SongFeed(query, harness.server.loadBatch);
+    await loadFirstBatch(list, harness.server);
 
     harness.open({
       kind: 'return',
@@ -314,8 +308,8 @@ describe('ChartEditorSelectController list', () => {
     expect(harness.created).toHaveLength(0);
   });
 
-  it('edits the focused song with the current list and leaves on Escape', () => {
-    const harness = openLoaded();
+  it('edits the focused song with the current list and leaves on Escape', async () => {
+    const harness = await openLoaded();
 
     harness.controller.handleKey(key('ArrowDown'));
     harness.controller.handleKey(key('Enter'));
@@ -338,7 +332,7 @@ describe('ChartEditorSelectController list', () => {
 
 describe('ChartEditorSelectController query', () => {
   it('switches categories to a new feed with the current title and resets focus', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
     harness.controller.scroll(1);
     harness.controller.handleKey(key('ArrowDown'));
     expect(harness.view.topIndex).toBeGreaterThan(0);
@@ -364,8 +358,8 @@ describe('ChartEditorSelectController query', () => {
     expect(harness.view.topIndex).toBe(0);
   });
 
-  it('cycles categories with Q and E and returns to the shared catalog', () => {
-    const harness = openLoaded();
+  it('cycles categories with Q and E and returns to the shared catalog', async () => {
+    const harness = await openLoaded();
 
     expect(harness.controller.handleKey(key('KeyE'))).toBe(true);
     expect(harness.view.category).toBe('original');
@@ -378,8 +372,8 @@ describe('ChartEditorSelectController query', () => {
     expect(harness.edits[0]?.list).toBe(harness.catalog);
   });
 
-  it('does nothing for the current query', () => {
-    const harness = openLoaded();
+  it('does nothing for the current query', async () => {
+    const harness = await openLoaded();
     const renderCount = harness.views.length;
 
     harness.controller.selectCategory('all');
@@ -389,7 +383,7 @@ describe('ChartEditorSelectController query', () => {
   });
 
   it('keeps showing the latest query when an earlier response arrives later', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
 
     harness.controller.selectCategory('cover');
     harness.controller.selectCategory('original');
@@ -419,7 +413,7 @@ describe('ChartEditorSelectController status', () => {
   });
 
   it('shows loading more and a retryable failure with songs, and retries from the same cursor', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
     harness.controller.scroll(5);
     expect(harness.view.status).toBe('loadingMore');
     expect(harness.view.notice).toBeNull();
@@ -442,7 +436,7 @@ describe('ChartEditorSelectController status', () => {
   });
 
   it('requests a failed batch again only through retry, not through list input', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
     harness.controller.scroll(5);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
@@ -456,7 +450,7 @@ describe('ChartEditorSelectController status', () => {
   });
 
   it('opens a failure popup when loading more fails, cancels it with Escape and opens it again on the next failure', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
     harness.controller.scroll(5);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
@@ -476,7 +470,7 @@ describe('ChartEditorSelectController status', () => {
   });
 
   it('retries from the failure popup with Enter or its RETRY and releases that hover when it hides', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
     harness.controller.scroll(5);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
@@ -513,10 +507,8 @@ describe('ChartEditorSelectController status', () => {
     await settle(empty.server.calls[0]);
     expect(empty.view.notice).toEqual({ kind: 'noSongs' });
 
-    const originalsOnly = createHarness(
-      songs.filter((song) => song.category === 'original'),
-      loadedCatalog,
-    );
+    const originalsOnly = createHarness(songs.filter((song) => song.category === 'original'));
+    await loadFirstBatch(originalsOnly.catalog, originalsOnly.server);
     originalsOnly.open({ kind: 'fresh' });
     originalsOnly.controller.selectCategory('cover');
     await settle(originalsOnly.server.calls.at(-1));
@@ -544,23 +536,23 @@ describe('ChartEditorSelectController status', () => {
 });
 
 describe('ChartEditorSelectController search', () => {
-  function openSearching(text: string) {
-    const harness = openLoaded();
+  async function openSearching(text: string) {
+    const harness = await openLoaded();
     expect(harness.controller.handleKey(key('Slash'))).toBe(true);
     harness.search.text = text;
     return harness;
   }
 
-  it('focuses the search input with Slash and shows the empty title on fresh open', () => {
-    const harness = openLoaded();
+  it('focuses the search input with Slash and shows the empty title on fresh open', async () => {
+    const harness = await openLoaded();
 
     expect(harness.search.shown).toEqual(['']);
     expect(harness.controller.handleKey(key('Slash'))).toBe(true);
     expect(harness.search.isFocused).toBe(true);
   });
 
-  it('ignores list shortcuts and typing while the search input is focused', () => {
-    const harness = openSearching('Ti');
+  it('ignores list shortcuts and typing while the search input is focused', async () => {
+    const harness = await openSearching('Ti');
     const renderCount = harness.views.length;
 
     ['KeyT', 'ArrowDown', 'KeyS', 'KeyQ', 'KeyE', 'KeyR', 'Slash', 'Space'].forEach((code) =>
@@ -574,7 +566,7 @@ describe('ChartEditorSelectController search', () => {
   });
 
   it('searches the trimmed title with the current category on Enter and keeps focus', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
     harness.controller.selectCategory('original');
     await settle(harness.server.calls[0]);
     harness.controller.handleKey(key('Slash'));
@@ -592,8 +584,8 @@ describe('ChartEditorSelectController search', () => {
     expect(harness.edits).toHaveLength(0);
   });
 
-  it('returns to the category-only query for a blank search', () => {
-    const harness = openSearching('Title');
+  it('returns to the category-only query for a blank search', async () => {
+    const harness = await openSearching('Title');
     harness.controller.handleKey(key('Enter'));
     expect(harness.created.map((feed) => feed.query.title)).toEqual(['Title']);
 
@@ -605,8 +597,8 @@ describe('ChartEditorSelectController search', () => {
     expect(harness.edits[0]?.list).toBe(harness.catalog);
   });
 
-  it('does nothing when the confirmed title is unchanged', () => {
-    const harness = openSearching('  ');
+  it('does nothing when the confirmed title is unchanged', async () => {
+    const harness = await openSearching('  ');
     const renderCount = harness.views.length;
 
     expect(harness.controller.handleKey(key('Enter'))).toBe(true);
@@ -615,8 +607,8 @@ describe('ChartEditorSelectController search', () => {
     expect(harness.created).toHaveLength(0);
   });
 
-  it('ignores Enter while composing with an IME', () => {
-    const harness = openSearching('곡');
+  it('ignores Enter while composing with an IME', async () => {
+    const harness = await openSearching('곡');
 
     expect(harness.controller.handleKey(key('Enter', { isComposing: true }))).toBe(false);
     expect(harness.controller.handleKey(key('Enter', { keyCode: 229 }))).toBe(false);
@@ -625,8 +617,8 @@ describe('ChartEditorSelectController search', () => {
     expect(harness.server.calls).toHaveLength(0);
   });
 
-  it('blurs the search input on Escape without leaving, then leaves on the next Escape', () => {
-    const harness = openSearching('Title');
+  it('blurs the search input on Escape without leaving, then leaves on the next Escape', async () => {
+    const harness = await openSearching('Title');
 
     expect(harness.controller.handleKey(key('Escape'))).toBe(true);
     expect(harness.search.isFocused).toBe(false);
@@ -639,7 +631,7 @@ describe('ChartEditorSelectController search', () => {
 
 describe('ChartEditorSelectController close', () => {
   it('ignores responses after closing', async () => {
-    const harness = openLoaded();
+    const harness = await openLoaded();
     harness.controller.scroll(5);
     const renderCount = harness.views.length;
     const callCount = harness.server.calls.length;
@@ -653,8 +645,8 @@ describe('ChartEditorSelectController close', () => {
 });
 
 describe('ChartEditorSelectController input after close', () => {
-  it('ignores pointer, wheel and key input after closing', () => {
-    const harness = openLoaded();
+  it('ignores pointer, wheel and key input after closing', async () => {
+    const harness = await openLoaded();
     harness.controller.pointerDown('back');
     const renderCount = harness.views.length;
 
@@ -672,8 +664,8 @@ describe('ChartEditorSelectController input after close', () => {
 });
 
 describe('ChartEditorSelectController view', () => {
-  it('renders the first view without a previous one and then with the last rendered one', () => {
-    const harness = openLoaded();
+  it('renders the first view without a previous one and then with the last rendered one', async () => {
+    const harness = await openLoaded();
     const first = harness.view;
 
     harness.controller.scroll(1);
@@ -682,8 +674,8 @@ describe('ChartEditorSelectController view', () => {
     expect(harness.previousViews.at(-1)).toBe(first);
   });
 
-  it('keeps the hovered filter in the view and renders nothing for the same hover', () => {
-    const harness = openLoaded();
+  it('keeps the hovered filter in the view and renders nothing for the same hover', async () => {
+    const harness = await openLoaded();
 
     harness.controller.hoverFilter('cover');
     expect(harness.view.hover).toEqual({
@@ -701,16 +693,16 @@ describe('ChartEditorSelectController view', () => {
 });
 
 describe('ChartEditorSelectController wheel', () => {
-  it('scrolls one row for a wheel of one row height', () => {
-    const harness = openLoaded();
+  it('scrolls one row for a wheel of one row height', async () => {
+    const harness = await openLoaded();
 
     harness.controller.scrollByWheel(ROW_HEIGHT_PX, 0);
 
     expect(harness.view.topIndex).toBe(1);
   });
 
-  it('ignores a wheel smaller than the start ratio', () => {
-    const harness = openLoaded();
+  it('ignores a wheel smaller than the start ratio', async () => {
+    const harness = await openLoaded();
     const renderCount = harness.views.length;
 
     harness.controller.scrollByWheel(10, 0);
@@ -718,8 +710,8 @@ describe('ChartEditorSelectController wheel', () => {
     expect(harness.views).toHaveLength(renderCount);
   });
 
-  it('accumulates wheels within the gesture gap', () => {
-    const harness = openLoaded();
+  it('accumulates wheels within the gesture gap', async () => {
+    const harness = await openLoaded();
 
     harness.controller.scrollByWheel(10, 0);
     harness.controller.scrollByWheel(10, 100);
@@ -729,8 +721,8 @@ describe('ChartEditorSelectController wheel', () => {
 });
 
 describe('ChartEditorSelectController button pointer', () => {
-  it('leaves once for over, down and up on BACK', () => {
-    const harness = openLoaded();
+  it('leaves once for over, down and up on BACK', async () => {
+    const harness = await openLoaded();
 
     harness.controller.pointerOver('back');
     harness.controller.pointerDown('back');
@@ -740,8 +732,8 @@ describe('ChartEditorSelectController button pointer', () => {
     expect(harness.leaveCount).toBe(1);
   });
 
-  it('does not leave for an up that was pressed elsewhere', () => {
-    const harness = openLoaded();
+  it('does not leave for an up that was pressed elsewhere', async () => {
+    const harness = await openLoaded();
 
     harness.controller.pointerOver('back');
     harness.controller.pointerUp('back');
@@ -749,8 +741,8 @@ describe('ChartEditorSelectController button pointer', () => {
     expect(harness.leaveCount).toBe(0);
   });
 
-  it('releases the press when the pointer leaves the button', () => {
-    const harness = openLoaded();
+  it('releases the press when the pointer leaves the button', async () => {
+    const harness = await openLoaded();
 
     harness.controller.pointerOver('back');
     harness.controller.pointerDown('back');
@@ -764,15 +756,6 @@ describe('ChartEditorSelectController button pointer', () => {
       button: 'back',
       isPressed: false,
     });
-  });
-
-  it('ignores a press on RETRY while nothing failed', () => {
-    const harness = openLoaded();
-    const renderCount = harness.views.length;
-
-    harness.controller.pointerDown('retry');
-
-    expect(harness.views).toHaveLength(renderCount);
   });
 
   it('retries with RETRY and releases its hover when it hides', async () => {

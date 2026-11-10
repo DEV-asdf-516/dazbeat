@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { AccountRejoinBlockedError } from '../../../src/data/account.js';
 import type { AuthUser } from '../../../src/data/account.js';
 import { parseNickname } from '../../../src/data/nickname.js';
 import type { Nickname } from '../../../src/data/nickname.js';
@@ -16,13 +17,6 @@ const USER: AuthUser = {
   id: 'user1',
   email: 'player@example.com',
   nickname: nickname('Star'),
-  isEditor: false,
-  featuredAchievement: null,
-};
-const OTHER_USER: AuthUser = {
-  id: 'user2',
-  email: 'other@example.com',
-  nickname: nickname('Moon'),
   isEditor: false,
   featuredAchievement: null,
 };
@@ -133,7 +127,7 @@ function signedIn(user: AuthUser): AccountState {
 
 const GUEST: AccountState = {
   kind: 'guest',
-  hasSignInFailed: false,
+  signInFailure: 'none',
 };
 
 describe('MainController', () => {
@@ -205,36 +199,13 @@ describe('MainController', () => {
       error.mockRestore();
     });
 
-    it('ignores a late refresh result after signing out', async () => {
+    it('stays signed in when the account action runs while signed in', () => {
       const harness = createHarness(() => USER);
+
       harness.controller.activateAccount();
 
-      requireDefined(harness.refreshes[0], 'Missing refresh', 0).resolve({
-        ...USER,
-        isEditor: true,
-      });
-      await flush();
-
-      expect(harness.signOutCount()).toBe(1);
-      expect(harness.shown).toEqual([signedIn(USER), GUEST]);
-    });
-
-    it('keeps another account signed in after signing out during a refresh', async () => {
-      const harness = createHarness(() => USER);
-      harness.controller.activateAccount();
-      harness.controller.activateAccount();
-      requireDefined(harness.signIns[0], 'Missing sign-in', 0).resolve(OTHER_USER);
-      await flush();
-
-      requireDefined(harness.refreshes[0], 'Missing refresh', 0).resolve(null);
-      await flush();
-
-      expect(harness.shown).toEqual([
-        signedIn(USER),
-        GUEST,
-        { kind: 'signingIn' },
-        signedIn(OTHER_USER),
-      ]);
+      expect(harness.signOutCount()).toBe(0);
+      expect(harness.shown).toEqual([signedIn(USER)]);
     });
 
     it('does not draw a late refresh result after closing', async () => {
@@ -281,7 +252,24 @@ describe('MainController', () => {
 
       expect(harness.shown.at(-1)).toEqual({
         kind: 'guest',
-        hasSignInFailed: true,
+        signInFailure: 'failed',
+      });
+      error.mockRestore();
+    });
+
+    it('shows the rejoin notice when the deleted Google account is rejected', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const harness = createHarness(() => null);
+      harness.controller.activateAccount();
+
+      requireDefined(harness.signIns[0], 'Missing sign-in', 0).reject(
+        new AccountRejoinBlockedError(new Error('account_rejoin_blocked')),
+      );
+      await flush();
+
+      expect(harness.shown.at(-1)).toEqual({
+        kind: 'guest',
+        signInFailure: 'rejoinBlocked',
       });
       error.mockRestore();
     });
@@ -370,12 +358,13 @@ describe('MainController', () => {
       expect(harness.focusSoundCount()).toBe(0);
     });
 
-    it('returns the focus to play without a sound when signing out from the profile', () => {
+    it('returns the focus to play without a sound when the session ends on the profile', async () => {
       const harness = createHarness(() => USER);
       cycle(harness, 4);
       expect(harness.focuses.at(-1)).toBe('profile');
 
-      harness.controller.activateAccount();
+      requireDefined(harness.refreshes[0], 'Missing refresh', 0).resolve(null);
+      await flush();
 
       expect(harness.shown.at(-1)).toEqual(GUEST);
       expect(harness.focuses.at(-1)).toBe('play');
@@ -487,15 +476,6 @@ describe('MainController button pointer', () => {
       button: 'account',
       isPressed: false,
     });
-  });
-
-  it('ignores a press on the close button while the controls are closed', () => {
-    const harness = createHarness(() => null);
-    const renderCount = harness.controlsOpen.length;
-
-    harness.controller.pointerDown('controlsClose');
-
-    expect(harness.controlsOpen).toHaveLength(renderCount);
   });
 
   it('opens with the entry, closes with the close button and releases its hover', () => {

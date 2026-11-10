@@ -10,6 +10,11 @@ import type {
 } from '../../data/achievements.js';
 import { NICKNAME_MAX_LENGTH } from '../../data/nickname.js';
 import type { AchievementStatus, ProfileStats } from '../../data/profile.js';
+import { RANKED_CHART_SORTS } from '../../data/ranking.js';
+import { DIFFICULTIES } from '../../data/songs.js';
+import { LANE_COUNTS } from '../../rhythm/lanes.js';
+import type { Difficulty, LaneCount } from '../../rhythm/types.js';
+import type { RankedChart, RankedChartSort } from '../../data/ranking.js';
 import { requireDefined } from '../../invariant.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
@@ -18,32 +23,52 @@ import {
   queueCelestialTextures,
   setCelestialLoopActive,
 } from '../celestial/view/celestialSprites.js';
+import { renderZodiacFigure } from '../celestial/view/zodiacSign.js';
 import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
 import { getControlsGuide } from '../app/controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
-import type { SceneRequest } from '../app/sceneRoutes.js';
+import type { ProfileSceneData, SceneRequest } from '../app/sceneRoutes.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
 import { getAchievementName } from '../ui/state/achievementName.js';
+import { isButtonHovered } from '../ui/state/buttonPointer.js';
+import { formatLaneCount, formatScore } from '../ui/state/format.js';
+import { getPlainRankValue } from '../ui/state/topRank.js';
 import {
   getAchievementEmblemTexture,
   queueAchievementEmblemLoads,
 } from '../ui/view/widgets/achievementEmblem.js';
-import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import {
+  AUXILIARY_LABEL_TYPE,
+  FOOTER_AUXILIARY_ENTRY_GAP_PX,
+  createFooterAuxiliaryButtons,
+  getFooterAuxiliaryCenterYPx,
+} from '../ui/view/widgets/auxiliaryButton.js';
 import { Button, SURFACE_BUTTON_COLORS } from '../ui/view/widgets/Button.js';
+import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { readMenuAction } from '../ui/state/menuAction.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import { HOVER_CURSOR } from '../ui/view/input/cursor.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { addHairline } from '../ui/view/textures/hairline.js';
-import { bindHoverTarget, pointButton } from '../ui/view/input/hoverTarget.js';
+import { bindHoverTarget, bindPointer, pointButton } from '../ui/view/input/hoverTarget.js';
+import { getBrushRectTexture } from '../ui/view/textures/brushRect.js';
+import { addTextUnderline, placeTextUnderline } from '../ui/view/widgets/cometUnderline.js';
+import { getSortIconTexture } from '../ui/view/widgets/listControlIcons.js';
+import { createCanvasTexture } from '../ui/view/textures/canvasTexture.js';
+import { ICON_GRAIN, applyGrain, getGrainedImageTexture } from '../ui/view/textures/grain.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { MENU_KEY_HINT_STYLE, addKeyHintRow } from '../ui/view/widgets/keyHintView.js';
 import { TextInput } from '../ui/view/widgets/TextInput.js';
+import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import { setFittedText } from '../ui/view/widgets/fitText.js';
 import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
+import { LoadFailurePanel } from '../ui/view/widgets/LoadFailurePanel.js';
 import { NoticeText } from '../ui/view/widgets/NoticeText.js';
+import { ScrollBar } from '../ui/view/widgets/ScrollBar.js';
+import { TOP_RANK_GLINT_ID, TopRankBadge } from '../ui/view/widgets/TopRankBadge.js';
 import {
   CELESTIAL_COLORS,
   COLORS,
@@ -55,6 +80,8 @@ import {
   setTextColor,
   setTextWeight,
   textStyle,
+  cssColor,
+  typeStyle,
 } from '../ui/view/theme.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
 import {
@@ -66,11 +93,15 @@ import type { TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import { ProfileController } from './ProfileController.js';
 import type { ProfilePorts } from './ProfileController.js';
 import {
+  getAccountDeletion,
+  PROFILE_RANKING_VISIBLE_ROWS,
+  SUMMARY_TABS,
   getAchievementCondition,
   getCellLook,
   getChangedRegions,
   getChoiceAppearance,
   getCollectionRows,
+  getDeletionButtonViews,
   getEarnedProgress,
   getEarnedSummary,
   getFeaturedAction,
@@ -83,14 +114,18 @@ import {
   getPenAppearance,
   getProfileButtonView,
   getProfileControlsCloseView,
-  getProfileNotice,
   getProfilePage,
   getProgressDisplay,
+  getRankingRows,
+  getRankingsNotice,
+  getRankingsScroll,
   getSummaryFocusKind,
+  isDeleteEntryShown,
   isFocusedFeatured,
   isProfileControlsEntryHovered,
 } from './state/profileState.js';
 import type {
+  AccountDeletion,
   CollectionRegion,
   LoadedProfileState,
   LoadedScreen,
@@ -161,9 +196,18 @@ const TITLE_KEYS = {
   summary: 'profile.title',
   collection: 'collection.title',
 } as const satisfies Record<ProfilePageKind, string>;
+const DELETION_FAILURE_KEYS = {
+  failed: {
+    title: 'profile.deleteAccount.failedTitle',
+    body: 'profile.deleteAccount.failedBody',
+  },
+  unknown: {
+    title: 'profile.deleteAccount.unknownTitle',
+    body: 'profile.deleteAccount.unknownBody',
+  },
+} as const;
 const NOTICE_KEYS = {
   guest: ['profile.guestRecord', 'profile.guestSignIn'],
-  failed: ['profile.loadFailed', 'profile.retry'],
 } as const;
 const PAGE_VISIBILITY: Readonly<
   Record<
@@ -189,7 +233,7 @@ const PAGE_VISIBILITY: Readonly<
     isCollectionVisible: false,
   },
   failed: {
-    isNoticeVisible: true,
+    isNoticeVisible: false,
     isLoadingVisible: false,
     isSummaryVisible: false,
     isCollectionVisible: false,
@@ -218,12 +262,57 @@ const PEN_TEXTURE_KEY = 'ui:profile-pen';
 const PEN_PATH = '/assets/ui/profile/pen.png';
 const PEN_SIZE_PX = 24;
 const GROUP_TITLE_WEIGHT = 700;
-const SUMMARY_TABS: readonly SummaryTab[] = ['stats', 'collection'];
+const SUMMARY_TAB_LABEL_KEYS = {
+  stats: 'profile.groups.records',
+  collection: 'profile.groups.collection',
+  ranking: 'profile.groups.ranking',
+} as const satisfies Record<SummaryTab, string>;
 const SUMMARY_TAB_Y_PX = 332;
 const ROWS_TOP_Y_PX = 380;
 const ROW_HEIGHT_PX = 90;
 const SET_ROW_WIDTH_PX = 900;
 const VALUE_RIGHT_X_PX = LEFT_X_PX + 800;
+const RANKING_ROW_HEIGHT_PX = 60;
+const RANKING_ROWS_TOP_Y_PX = ROWS_TOP_Y_PX + 52;
+const RANKING_CONTROL_CENTER_Y_PX = ROWS_TOP_Y_PX + 16;
+const RANKING_CONTROL_HEIGHT_PX = 44;
+const RANKING_CONTROL_ICON_SIZE_PX = 26;
+const RANKING_CONTROL_ICON_GAP_PX = 8;
+const RANKING_CONTROL_GAP_PX = 44;
+const RANKING_FILTER_GAP_PX = 18;
+const RANKING_FILTER_SEPARATOR_HEIGHT_PX = 18;
+const RANKING_FILTER_SEPARATOR_ALPHA = 0.22;
+const RANKING_SORT_LABEL_KEYS = {
+  score: 'profile.rankingControls.score',
+  achieved: 'profile.rankingControls.achieved',
+} as const satisfies Record<RankedChartSort, string>;
+const RANKING_DIFFICULTY_LABEL_KEYS = {
+  easy: 'profile.rankingControls.easy',
+  normal: 'profile.rankingControls.normal',
+  hard: 'profile.rankingControls.hard',
+  expert: 'profile.rankingControls.expert',
+} as const satisfies Record<Difficulty, string>;
+const RANKING_BADGE_X_PX = LEFT_X_PX;
+// 가장 긴 TOP 100+ 표시가 별자리와 겹치지 않는 폭이다.
+const RANKING_ZODIAC_LEFT_X_PX = RANKING_BADGE_X_PX + 134;
+const RANKING_ZODIAC_RIGHT_X_PX = RANKING_ZODIAC_LEFT_X_PX + 44;
+const RANKING_ZODIAC_INSET_Y_PX = 8;
+// 별 크기에 하한이 있어 작은 크기로 바로 만들면 뭉개지므로 크게 만든 뒤 칸에 맞춰 줄인다.
+const RANKING_ZODIAC_SOURCE_SPAN_PX = 140;
+const RANKING_TITLE_X_PX = RANKING_ZODIAC_RIGHT_X_PX + 16;
+const RANKING_RIGHT_X_PX = LEFT_X_PX + 1080;
+const RANKINGS_NOTICE_CENTER_X_PX = (LEFT_X_PX + RANKING_RIGHT_X_PX) / 2;
+const RANKINGS_NOTICE_CENTER_Y_PX = ROWS_TOP_Y_PX + 190;
+const RANKING_CHART_X_PX = RANKING_RIGHT_X_PX - 286;
+const RANKING_DETAIL_TYPE = {
+  sizePx: 20,
+  weight: 400,
+} as const;
+const RANKING_SCORE_WEIGHT = 500;
+const RANKING_TITLE_CHART_GAP_PX = 24;
+const RANKING_BADGE_NUMBER_SIZE_PX = 34;
+const RANKING_SCROLLBAR_X_PX = RANKING_RIGHT_X_PX + 40;
+const RANKING_SCROLLBAR_INSET_Y_PX = 10;
 const SET_NODE_X_PX = LEFT_X_PX - LIST_ROW.nodeOffsetXPx;
 const SET_FILL_X_PX = LEFT_X_PX - 72;
 const SET_FILL_WIDTH_PX = SET_ROW_WIDTH_PX + 72 + 16;
@@ -234,6 +323,7 @@ const SET_NODE_SELECTED_ID = 'R17';
 const CHEVRON_CENTER_X_PX = LEFT_X_PX + 884;
 const CHEVRON_HALF_HEIGHT_PX = 9;
 const CHEVRON_STROKE_PX = 2;
+const ROW_CHEVRON_TEXTURE_KEY = 'ui:profile-row-chevron';
 const FOCUS_STAR_ID = 'R49';
 const FOCUS_STAR_GAP_PX = 24;
 const SELECTED_HALO_ID = 'R29';
@@ -294,6 +384,33 @@ interface RowView {
   value: Phaser.GameObjects.Text;
 }
 
+interface RankingControlView {
+  icon: Phaser.GameObjects.Image;
+  label: Phaser.GameObjects.Text;
+  hit: Phaser.GameObjects.Zone;
+}
+
+interface RankingFilterView {
+  target: Extract<
+    ProfileTarget,
+    { readonly kind: 'rankingAllOption' | 'rankingLaneOption' | 'rankingDifficultyOption' }
+  >;
+  label: Phaser.GameObjects.Text;
+  underline: Phaser.GameObjects.Image;
+  hit: Phaser.GameObjects.Zone;
+  leftXPx: number;
+}
+
+interface RankingRowView {
+  badge: TopRankBadge;
+  zodiacStars: Phaser.GameObjects.Image;
+  zodiacLines: Phaser.GameObjects.Graphics;
+  title: Phaser.GameObjects.Text;
+  chart: Phaser.GameObjects.Text;
+  score: Phaser.GameObjects.Text;
+  divider: readonly (Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible)[];
+}
+
 interface SetRowView {
   set: AchievementSet;
   marker: ListRowMarker;
@@ -322,8 +439,9 @@ interface ProfileView {
   notice: Phaser.GameObjects.Container;
   noticeLines: readonly Phaser.GameObjects.Text[];
   loading: NoticeText;
+  loadFailure: LoadFailurePanel;
   summary: Phaser.GameObjects.Container;
-  nicknameField: Phaser.GameObjects.Graphics;
+  nicknameField: Phaser.GameObjects.Image;
   nicknameHitArea: Phaser.GameObjects.Zone;
   nickname: Phaser.GameObjects.Text;
   nicknameCount: Phaser.GameObjects.Text;
@@ -340,6 +458,13 @@ interface ProfileView {
   setRows: readonly SetRowView[];
   setHalo: SelectedRowHalo;
   focusStar: Phaser.GameObjects.Sprite;
+  rankings: Phaser.GameObjects.Container;
+  rankingRows: readonly RankingRowView[];
+  rankingSortControl: RankingControlView;
+  rankingFilters: readonly RankingFilterView[];
+  rankingsScrollBar: ScrollBar;
+  rankingsNotice: NoticeText;
+  rankingsFailure: LoadFailurePanel;
   collection: Phaser.GameObjects.Container;
   tabs: TextTabs<AchievementSet>;
   tabStar: Phaser.GameObjects.Sprite;
@@ -358,14 +483,36 @@ interface ProfileView {
   unequipButton: Button;
   detailFailure: Phaser.GameObjects.Text;
   input: TextInput;
+  deleteEntry: Phaser.GameObjects.Text;
+  deleteDialog: ConfirmDialog;
 }
 
 interface ProfileViewActions {
   readonly selectTab: (tab: SummaryTab) => void;
+  readonly toggleRankingSort: () => void;
+  readonly clearRankingFilters: () => void;
+  readonly selectRankingLane: (filter: LaneCount) => void;
+  readonly selectRankingDifficulty: (filter: Difficulty) => void;
   readonly selectSet: (set: AchievementSet) => void;
   readonly hover: (hover: ProfileTarget) => void;
   readonly unhover: (hover: ProfileTarget) => void;
   readonly pointer: ButtonPointer<ProfileButton>;
+}
+
+function ensureRowChevronTexture(scene: Phaser.Scene): string {
+  const widthPx = CHEVRON_HALF_HEIGHT_PX + CHEVRON_STROKE_PX * 2;
+  const heightPx = CHEVRON_HALF_HEIGHT_PX * 2 + CHEVRON_STROKE_PX * 2;
+  createCanvasTexture(scene, ROW_CHEVRON_TEXTURE_KEY, widthPx, heightPx, (context) => {
+    context.strokeStyle = cssColor(COLORS.textSecondary);
+    context.lineWidth = CHEVRON_STROKE_PX;
+    context.beginPath();
+    context.moveTo(CHEVRON_STROKE_PX, CHEVRON_STROKE_PX);
+    context.lineTo(CHEVRON_STROKE_PX + CHEVRON_HALF_HEIGHT_PX, heightPx / 2);
+    context.lineTo(CHEVRON_STROKE_PX, heightPx - CHEVRON_STROKE_PX);
+    context.stroke();
+    applyGrain(context, widthPx, heightPx, ICON_GRAIN);
+  });
+  return ROW_CHEVRON_TEXTURE_KEY;
 }
 
 function formatNicknameCount(nickname: string): string {
@@ -404,6 +551,10 @@ function setLabel(set: AchievementSet): string {
 }
 
 export class ProfileScene extends Phaser.Scene {
+  private returnTo: SceneRequest = {
+    key: 'main',
+    data: undefined,
+  };
   private exit: SceneExit<SceneRequest> = STAYING;
 
   constructor(
@@ -411,6 +562,7 @@ export class ProfileScene extends Phaser.Scene {
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
     private readonly ports: ProfilePorts,
+    private readonly account: AccountSource,
   ) {
     super(SCENE_KEYS.profile);
   }
@@ -437,11 +589,13 @@ export class ProfileScene extends Phaser.Scene {
       this.celestial.atlasPresentations[SET_NODE_IDLE_ID],
       this.celestial.atlasPresentations[SET_NODE_HOVER_ID],
       this.celestial.atlasPresentations[SET_NODE_SELECTED_ID],
+      this.celestial.atlasPresentations[TOP_RANK_GLINT_ID],
     ]);
   }
 
-  create(): void {
+  create(data: ProfileSceneData): void {
     this.exit = STAYING;
+    this.returnTo = data.returnTo;
     const pointer: ButtonPointer<ProfileButton> = {
       pointerOver: (button) => controller.pointerOver(button),
       pointerOut: (button) => controller.pointerOut(button),
@@ -453,36 +607,59 @@ export class ProfileScene extends Phaser.Scene {
       {
         celestial: this.celestial,
         screen: 'result',
+        account: {
+          kind: 'card',
+          catalog: this.account.catalog,
+          pointer,
+        },
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
-        captureKey: (event) =>
-          controller.captureNicknameKey(readMenuAction(event), view.input.text),
+        captureKey: (event) => {
+          const action = readMenuAction(event);
+          return (
+            controller.captureDeletionKey(action) ||
+            controller.captureNicknameKey(action, view.input.text)
+          );
+        },
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => this.handleMenuKey(action, controller),
       },
       pointer,
     );
+    chrome.renderAccount(this.account.getIdentity());
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
     const view = this.createView({
       selectTab: (tab) => controller.selectTab(tab),
+      toggleRankingSort: () => controller.toggleRankingSort(),
+      clearRankingFilters: () => controller.clearRankingFilters(),
+      selectRankingLane: (filter) => controller.selectRankingLane(filter),
+      selectRankingDifficulty: (filter) => controller.selectRankingDifficulty(filter),
       selectSet: (set) => controller.selectSet(set),
       hover: (hover) => controller.hover(hover),
       unhover: (hover) => controller.unhover(hover),
       pointer,
     });
-    const controller = new ProfileController(this.ports, {
-      render: (previous, next) => this.render(view, chrome, backButton, next, previous, controller),
-      playSound: (sound) => soundEffects.play(sound),
-      leaveToMain: () => {
-        this.exit = exitScene(this, this.exit, {
-          key: 'main',
-          data: undefined,
-        });
+    const controller = new ProfileController(
+      this.ports,
+      {
+        render: (previous, next) =>
+          this.render(view, chrome, backButton, next, previous, controller),
+        playSound: (sound) => soundEffects.play(sound),
+        leave: () => {
+          this.exit = exitScene(this, this.exit, this.returnTo);
+        },
+        leaveToMain: () => {
+          this.exit = exitScene(this, this.exit, {
+            key: 'main',
+            data: undefined,
+          });
+        },
       },
-    });
+      ROW_HEIGHT_PX,
+    );
     const backButton = requireDefined(
-      createHeaderAuxiliaryButtons(this, [
+      createFooterAuxiliaryButtons(this, [
         {
           label: 'BACK',
           pointer: pointButton(pointer, 'back'),
@@ -491,6 +668,7 @@ export class ProfileScene extends Phaser.Scene {
       'Missing profile header button',
       'BACK',
     );
+    view.deleteEntry.setX(backButton.x - FOOTER_AUXILIARY_ENTRY_GAP_PX);
     const bindHover = (
       target: Phaser.GameObjects.GameObject,
       hover: ProfileTarget,
@@ -513,6 +691,12 @@ export class ProfileScene extends Phaser.Scene {
       ),
     );
     view.input.onInput((value) => controller.changeNicknameInput(value));
+    this.input.on(
+      Phaser.Input.Events.POINTER_WHEEL,
+      (_pointer: Phaser.Input.Pointer, _over: unknown, _deltaX: number, deltaY: number) => {
+        controller.scrollByWheel(deltaY, this.time.now);
+      },
+    );
     // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, () => view.input.blur());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -526,18 +710,16 @@ export class ProfileScene extends Phaser.Scene {
   private handleMenuKey(action: MenuAction | null, controller: ProfileController): void {
     switch (action) {
       case 'confirm':
-        // 두 동작은 각자 자기 상태에서만 반응하므로 Enter 하나로 실패 화면의 다시 시도와 선택을 함께 넘긴다.
-        controller.retry();
-        controller.select();
+        controller.confirm();
         return;
       case 'back':
         controller.back();
         return;
       case 'previousTab':
-        controller.switchSet(-1);
+        controller.switchTab(-1);
         return;
       case 'nextTab':
-        controller.switchSet(1);
+        controller.switchTab(1);
         return;
       case null:
         return;
@@ -596,8 +778,19 @@ export class ProfileScene extends Phaser.Scene {
         )
         .setOrigin(0.5),
     );
+    const retryPointer = pointButton(actions.pointer, 'retry');
+    const loadFailure = new LoadFailurePanel(
+      this,
+      {
+        leftXPx: LEFT_X_PX,
+        centerYPx: GAME_HEIGHT / 2,
+      },
+      retryPointer,
+    );
     const nicknameFieldRightXPx = LEFT_X_PX + NICKNAME_FIELD_WIDTH_PX;
-    const nicknameField = this.add.graphics();
+    const nicknameField = this.add
+      .image(LEFT_X_PX, NICKNAME_FIELD_TOP_Y_PX, '__DEFAULT')
+      .setOrigin(0, 0);
     const nicknameHitArea = this.add
       .zone(LEFT_X_PX, NICKNAME_FIELD_TOP_Y_PX, NICKNAME_FIELD_WIDTH_PX, NICKNAME_FIELD_HEIGHT_PX)
       .setOrigin(0, 0);
@@ -619,7 +812,7 @@ export class ProfileScene extends Phaser.Scene {
       .image(
         nicknameFieldRightXPx - NICKNAME_FIELD_PADDING_X_PX,
         NICKNAME_CENTER_Y_PX,
-        PEN_TEXTURE_KEY,
+        getGrainedImageTexture(this, PEN_TEXTURE_KEY, PEN_SIZE_PX),
       )
       .setOrigin(1, 0.5)
       .setDisplaySize(PEN_SIZE_PX, PEN_SIZE_PX)
@@ -651,9 +844,7 @@ export class ProfileScene extends Phaser.Scene {
       this,
       SUMMARY_TABS.map((tab) => ({
         key: tab,
-        label: this.i18n.t(
-          tab === 'stats' ? 'profile.groups.records' : 'profile.groups.collection',
-        ),
+        label: this.i18n.t(SUMMARY_TAB_LABEL_KEYS[tab]),
       })),
       {
         xPx: LEFT_X_PX,
@@ -693,25 +884,12 @@ export class ProfileScene extends Phaser.Scene {
       ...[...statRows, earnedRow].flatMap(({ label, value }) => [label, value]),
       ...statDividers,
     ]);
-    const chevrons = this.add.graphics().lineStyle(CHEVRON_STROKE_PX, COLORS.textSecondary);
+    const chevronTexture = ensureRowChevronTexture(this);
+    const chevrons: Phaser.GameObjects.Image[] = [];
     const setRows = ACHIEVEMENT_SETS.map((set, index) => {
       const topYPx = ROWS_TOP_Y_PX + ROW_HEIGHT_PX * index;
       const centerYPx = topYPx + ROW_HEIGHT_PX / 2;
-      chevrons.strokePoints(
-        [
-          new Phaser.Math.Vector2(
-            CHEVRON_CENTER_X_PX - CHEVRON_HALF_HEIGHT_PX / 2,
-            centerYPx - CHEVRON_HALF_HEIGHT_PX,
-          ),
-          new Phaser.Math.Vector2(CHEVRON_CENTER_X_PX + CHEVRON_HALF_HEIGHT_PX / 2, centerYPx),
-          new Phaser.Math.Vector2(
-            CHEVRON_CENTER_X_PX - CHEVRON_HALF_HEIGHT_PX / 2,
-            centerYPx + CHEVRON_HALF_HEIGHT_PX,
-          ),
-        ],
-        false,
-        false,
-      );
+      chevrons.push(this.add.image(CHEVRON_CENTER_X_PX, centerYPx, chevronTexture));
       return {
         set,
         marker: new ListRowMarker(
@@ -746,7 +924,7 @@ export class ProfileScene extends Phaser.Scene {
         count,
         hitArea,
       ]),
-      chevrons,
+      ...chevrons,
       setHalo.sprite,
     ]);
     const focusStar = addCelestialSprite(
@@ -755,6 +933,238 @@ export class ProfileScene extends Phaser.Scene {
       LEFT_X_PX - FOCUS_STAR_GAP_PX,
       NICKNAME_CENTER_Y_PX,
     );
+    const rankingRows = Array.from({ length: PROFILE_RANKING_VISIBLE_ROWS }, (_, index) => {
+      const topYPx = RANKING_ROWS_TOP_Y_PX + RANKING_ROW_HEIGHT_PX * index;
+      const centerYPx = topYPx + RANKING_ROW_HEIGHT_PX / 2;
+      const dividerYPx = topYPx + RANKING_ROW_HEIGHT_PX;
+      return {
+        badge: new TopRankBadge(this, this.celestial, {
+          xPx: RANKING_BADGE_X_PX,
+          yPx: centerYPx,
+          align: 'left',
+          hasWord: true,
+          numberSizePx: RANKING_BADGE_NUMBER_SIZE_PX,
+        }),
+        zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
+        zodiacLines: this.add.graphics(),
+        title: text(RANKING_TITLE_X_PX, centerYPx, 'primary', COLORS.textPrimary).setOrigin(0, 0.5),
+        chart: this.add
+          .text(RANKING_CHART_X_PX, centerYPx, '', typeStyle(RANKING_DETAIL_TYPE, COLORS.textMuted))
+          .setOrigin(0, 0.5),
+        score: text(
+          RANKING_RIGHT_X_PX,
+          centerYPx,
+          'primary',
+          COLORS.textPrimary,
+          RANKING_SCORE_WEIGHT,
+        ).setOrigin(1, 0.5),
+        divider: [
+          addHairline(this, LEFT_X_PX, dividerYPx, RANKING_RIGHT_X_PX),
+          addCelestialSprite(
+            this,
+            this.celestial.atlasPresentations[DIVIDER_GLINT_ID],
+            RANKING_RIGHT_X_PX,
+            dividerYPx,
+          ),
+        ],
+      };
+    });
+    const addRankingFilter = (
+      rightXPx: number,
+      {
+        text,
+        target,
+        onActivate,
+      }: {
+        text: string;
+        target: RankingFilterView['target'];
+        onActivate: () => void;
+      },
+    ): RankingFilterView => {
+      const label = this.add
+        .text(
+          0,
+          RANKING_CONTROL_CENTER_Y_PX,
+          text,
+          typeStyle(RANKING_DETAIL_TYPE, COLORS.textMuted),
+        )
+        .setOrigin(0.5);
+      // 켜지면 글자가 굵어져 폭이 늘므로, 옆 항목이 밀리지 않게 굵은 폭으로 자리를 잡는다.
+      setTextWeight(label, RANKING_SCORE_WEIGHT);
+      const widthPx = label.width;
+      setTextWeight(label, RANKING_DETAIL_TYPE.weight);
+      const leftXPx = rightXPx - widthPx;
+      label.setX(leftXPx + widthPx / 2);
+      const hit = this.add
+        .zone(
+          leftXPx - RANKING_FILTER_GAP_PX / 2,
+          RANKING_CONTROL_CENTER_Y_PX,
+          widthPx + RANKING_FILTER_GAP_PX,
+          RANKING_CONTROL_HEIGHT_PX,
+        )
+        .setOrigin(0, 0.5);
+      bindHoverTarget(hit, {
+        onOver: () => actions.hover(target),
+        onOut: () => actions.unhover(target),
+        onActivate,
+      });
+      return {
+        target,
+        label,
+        underline: addTextUnderline(this, label, COLORS.textPrimary).setVisible(false),
+        hit,
+        leftXPx,
+      };
+    };
+    const addRankingFilterGroup = (
+      rightXPx: number,
+      items: readonly Parameters<typeof addRankingFilter>[1][],
+    ): readonly RankingFilterView[] => {
+      let nextRightXPx = rightXPx;
+      return items.toReversed().map((item) => {
+        const filter = addRankingFilter(nextRightXPx, item);
+        nextRightXPx = filter.leftXPx - RANKING_FILTER_GAP_PX;
+        return filter;
+      });
+    };
+    const addRankingFilterSeparator = (groupLeftXPx: number): Phaser.GameObjects.Rectangle =>
+      this.add.rectangle(
+        groupLeftXPx - RANKING_FILTER_GAP_PX,
+        RANKING_CONTROL_CENTER_Y_PX,
+        1,
+        RANKING_FILTER_SEPARATOR_HEIGHT_PX,
+        COLORS.textPrimary,
+        RANKING_FILTER_SEPARATOR_ALPHA,
+      );
+    const groupLeftXPx = (filters: readonly RankingFilterView[]): number =>
+      Math.min(...filters.map(({ leftXPx }) => leftXPx));
+    const rankingDifficultyFilters = addRankingFilterGroup(
+      RANKING_RIGHT_X_PX,
+      DIFFICULTIES.map((filter) => ({
+        text: this.i18n.t(RANKING_DIFFICULTY_LABEL_KEYS[filter]),
+        target: {
+          kind: 'rankingDifficultyOption',
+          filter,
+        },
+        onActivate: () => actions.selectRankingDifficulty(filter),
+      })),
+    );
+    const rankingDifficultySeparator = addRankingFilterSeparator(
+      groupLeftXPx(rankingDifficultyFilters),
+    );
+    const rankingLaneFilters = addRankingFilterGroup(
+      rankingDifficultySeparator.x - RANKING_FILTER_GAP_PX,
+      LANE_COUNTS.map((filter) => ({
+        text: formatLaneCount(filter),
+        target: {
+          kind: 'rankingLaneOption',
+          filter,
+        },
+        onActivate: () => actions.selectRankingLane(filter),
+      })),
+    );
+    const rankingLaneSeparator = addRankingFilterSeparator(groupLeftXPx(rankingLaneFilters));
+    const rankingAllFilters = addRankingFilterGroup(
+      rankingLaneSeparator.x - RANKING_FILTER_GAP_PX,
+      [
+        {
+          text: this.i18n.t('profile.rankingControls.all'),
+          target: { kind: 'rankingAllOption' },
+          onActivate: actions.clearRankingFilters,
+        },
+      ],
+    );
+    const rankingFilters = [
+      ...rankingAllFilters,
+      ...rankingLaneFilters,
+      ...rankingDifficultyFilters,
+    ];
+    const rankingFilterSeparators = [rankingLaneSeparator, rankingDifficultySeparator];
+    const rankingSortRightXPx = groupLeftXPx(rankingAllFilters) - RANKING_CONTROL_GAP_PX;
+    const rankingSortLabel = this.add
+      .text(
+        rankingSortRightXPx,
+        RANKING_CONTROL_CENTER_Y_PX,
+        '',
+        typeStyle(RANKING_DETAIL_TYPE, COLORS.textSecondary),
+      )
+      .setOrigin(0, 0.5);
+    // 값이 바뀌어도 아이콘이 흔들리지 않도록 가장 긴 글자 폭으로 자리를 잡는다.
+    const rankingSortLabelWidthPx = Math.max(
+      ...RANKED_CHART_SORTS.map(
+        (sort) => rankingSortLabel.setText(this.i18n.t(RANKING_SORT_LABEL_KEYS[sort])).width,
+      ),
+    );
+    rankingSortLabel.setX(rankingSortRightXPx - rankingSortLabelWidthPx);
+    const rankingSortIconXPx =
+      rankingSortLabel.x - RANKING_CONTROL_ICON_GAP_PX - RANKING_CONTROL_ICON_SIZE_PX / 2;
+    const rankingSortIcon = this.add
+      .image(
+        rankingSortIconXPx,
+        RANKING_CONTROL_CENTER_Y_PX,
+        getSortIconTexture(this, RANKING_CONTROL_ICON_SIZE_PX),
+      )
+      .setTint(COLORS.textSecondary);
+    const rankingSortLeftXPx = rankingSortIconXPx - RANKING_CONTROL_ICON_SIZE_PX / 2;
+    const rankingSortHit = this.add
+      .zone(
+        rankingSortLeftXPx,
+        RANKING_CONTROL_CENTER_Y_PX,
+        rankingSortRightXPx - rankingSortLeftXPx,
+        RANKING_CONTROL_HEIGHT_PX,
+      )
+      .setOrigin(0, 0.5);
+    bindHoverTarget(rankingSortHit, {
+      onOver: () => actions.hover({ kind: 'rankingSort' }),
+      onOut: () => actions.unhover({ kind: 'rankingSort' }),
+      onActivate: actions.toggleRankingSort,
+    });
+    const rankingSortControl: RankingControlView = {
+      icon: rankingSortIcon,
+      label: rankingSortLabel,
+      hit: rankingSortHit,
+    };
+    const rankingsScrollBar = new ScrollBar(this, RANKING_SCROLLBAR_X_PX);
+    const rankingsListCenterYPx =
+      RANKING_ROWS_TOP_Y_PX + (RANKING_ROW_HEIGHT_PX * PROFILE_RANKING_VISIBLE_ROWS) / 2;
+    const rankingsNoticeText = this.add
+      .text(
+        RANKINGS_NOTICE_CENTER_X_PX,
+        RANKINGS_NOTICE_CENTER_Y_PX,
+        '',
+        textStyle('secondary', CELESTIAL_COLORS.textNeutral),
+      )
+      .setOrigin(0.5);
+    const rankingsNotice = new NoticeText(this, this.celestial, rankingsNoticeText);
+    const rankingsFailure = new LoadFailurePanel(
+      this,
+      {
+        leftXPx: LEFT_X_PX,
+        centerYPx: rankingsListCenterYPx,
+      },
+      retryPointer,
+    );
+    const rankings = this.add.container(0, 0, [
+      ...rankingRows.flatMap(
+        ({ badge, zodiacStars, zodiacLines, title, chart, score, divider }) => [
+          ...badge.objects,
+          zodiacLines,
+          zodiacStars,
+          title,
+          chart,
+          score,
+          ...divider,
+        ],
+      ),
+      ...rankingsScrollBar.objects,
+      rankingsNoticeText,
+      ...rankingsFailure.objects,
+      rankingSortControl.icon,
+      rankingSortControl.label,
+      rankingSortControl.hit,
+      ...rankingFilterSeparators,
+      ...rankingFilters.flatMap(({ label, underline, hit }) => [label, underline, hit]),
+    ]);
     const summary = this.add.container(0, 0, [
       nicknameField,
       nicknameHitArea,
@@ -768,6 +1178,7 @@ export class ProfileScene extends Phaser.Scene {
       ...summaryTabs.getVisuals(),
       stats,
       sets,
+      rankings,
       focusStar,
     ]);
 
@@ -918,6 +1329,17 @@ export class ProfileScene extends Phaser.Scene {
       },
     );
     input.setVisible(false);
+    // 되돌릴 수 없는 동작이라 프로필 내용과 떨어뜨려 설정 RESET 처럼 화면 우하단에 둔다.
+    const deleteEntry = this.add
+      .text(
+        SCREEN_LAYOUT.rightXPx,
+        getFooterAuxiliaryCenterYPx(this),
+        this.i18n.t('profile.deleteAccount.entry'),
+        typeStyle(AUXILIARY_LABEL_TYPE, COLORS.textMuted),
+      )
+      .setOrigin(1, 0.5)
+      .setInteractive({ cursor: HOVER_CURSOR });
+    bindPointer(deleteEntry, pointButton(actions.pointer, 'deleteEntry'));
     const view: ProfileView = {
       title,
       notice: this.add.container(0, 0, noticeLines),
@@ -941,6 +1363,14 @@ export class ProfileScene extends Phaser.Scene {
       setRows,
       setHalo,
       focusStar,
+      rankings,
+      rankingRows,
+      rankingSortControl,
+      rankingFilters,
+      rankingsScrollBar,
+      rankingsNotice,
+      rankingsFailure,
+      loadFailure,
       collection,
       tabs,
       tabStar,
@@ -959,6 +1389,11 @@ export class ProfileScene extends Phaser.Scene {
       unequipButton,
       detailFailure,
       input,
+      deleteEntry,
+      deleteDialog: new ConfirmDialog(this, {
+        cancel: pointButton(actions.pointer, 'deleteCancel'),
+        accept: pointButton(actions.pointer, 'deleteAccept'),
+      }),
     };
     return view;
   }
@@ -987,12 +1422,34 @@ export class ProfileScene extends Phaser.Scene {
         case 'backButton':
           backButton.render(getProfileButtonView(screen, 'back'));
           break;
+        case 'retryButton':
+          view.loadFailure.renderRetry(getProfileButtonView(screen, 'retry'));
+          view.rankingsFailure.renderRetry(getProfileButtonView(screen, 'retry'));
+          break;
         case 'controlsEntry':
           chrome.renderControlsEntry(isProfileControlsEntryHovered(screen));
           break;
         case 'controlsClose':
           chrome.renderControlsClose(getProfileControlsCloseView(screen));
           break;
+        case 'accountButton':
+          chrome.renderAccountButton(getProfileButtonView(screen, 'accountSignOut'));
+          break;
+        case 'deleteEntry':
+          view.deleteEntry.setVisible(isDeleteEntryShown(screen));
+          setTextColor(
+            view.deleteEntry,
+            isButtonHovered(screen.hover, 'deleteEntry') ? COLORS.textSecondary : COLORS.textMuted,
+          );
+          break;
+        case 'deleteDialog':
+          this.renderDeleteDialog(view.deleteDialog, getAccountDeletion(screen));
+          break;
+        case 'deleteButtons': {
+          const { cancel, accept } = getDeletionButtonViews(screen);
+          view.deleteDialog.renderButtons(cancel, accept);
+          break;
+        }
         default:
           this.renderProfile(view, screen.page, region);
       }
@@ -1003,6 +1460,9 @@ export class ProfileScene extends Phaser.Scene {
     }
     for (const region of regions.summary) {
       this.renderSummary(view, loaded, region);
+      if (region === 'identity') {
+        chrome.renderAccount(this.account.getIdentity());
+      }
     }
     for (const region of regions.collection) {
       this.renderCollection(view, loaded, region, controller);
@@ -1012,7 +1472,18 @@ export class ProfileScene extends Phaser.Scene {
   private renderProfile(
     view: ProfileView,
     state: ProfileState,
-    region: Exclude<ProfileRegion, 'controls' | 'backButton' | 'controlsEntry' | 'controlsClose'>,
+    region: Exclude<
+      ProfileRegion,
+      | 'controls'
+      | 'backButton'
+      | 'retryButton'
+      | 'controlsEntry'
+      | 'controlsClose'
+      | 'accountButton'
+      | 'deleteEntry'
+      | 'deleteDialog'
+      | 'deleteButtons'
+    >,
   ): void {
     const page = getProfilePage(state);
     switch (region) {
@@ -1029,17 +1500,28 @@ export class ProfileScene extends Phaser.Scene {
         );
         view.summary.setVisible(visibility.isSummaryVisible);
         view.collection.setVisible(visibility.isCollectionVisible);
+        // 로딩 별은 요약 컨테이너 밖에 있어 요약을 숨길 때 함께 숨긴다.
+        view.rankingsNotice.setVisible(
+          visibility.isSummaryVisible && state.kind === 'loaded' && state.summaryTab === 'ranking',
+        );
         return;
       }
       case 'title':
         view.title.setText(this.i18n.t(TITLE_KEYS[page]));
         return;
       case 'notice': {
-        const notice = getProfileNotice(page);
-        if (notice !== null) {
+        view.loadFailure.render(
+          page === 'failed'
+            ? {
+                title: this.i18n.t('profile.loadFailed'),
+                body: this.i18n.t('loadFailure.body'),
+              }
+            : null,
+        );
+        if (page === 'guest') {
           view.noticeLines.forEach((line, index) =>
             line.setText(
-              this.i18n.t(requireDefined(NOTICE_KEYS[notice][index], 'Missing notice key', index)),
+              this.i18n.t(requireDefined(NOTICE_KEYS.guest[index], 'Missing notice key', index)),
             ),
           );
         }
@@ -1048,6 +1530,41 @@ export class ProfileScene extends Phaser.Scene {
       case 'nicknameInput':
         this.renderNicknameInput(view, getNicknameEdit(state));
         return;
+    }
+  }
+
+  private renderDeleteDialog(dialog: ConfirmDialog, deletion: AccountDeletion): void {
+    switch (deletion.kind) {
+      case 'closed':
+        dialog.render(null);
+        return;
+      case 'confirming':
+      case 'deleting':
+        dialog.render({
+          title: this.i18n.t('profile.deleteAccount.title'),
+          body: this.i18n.t('profile.deleteAccount.body'),
+          emphasis: this.i18n.t('profile.deleteAccount.emphasis'),
+          cancelLabel: this.i18n.t('profile.deleteAccount.cancel'),
+          acceptLabel: this.i18n.t(
+            deletion.kind === 'deleting'
+              ? 'profile.deleteAccount.deleting'
+              : 'profile.deleteAccount.accept',
+          ),
+          acceptTone: 'danger',
+        });
+        return;
+      case 'failed':
+      case 'unknown': {
+        const keys = DELETION_FAILURE_KEYS[deletion.kind];
+        dialog.render({
+          title: this.i18n.t(keys.title),
+          body: this.i18n.t(keys.body),
+          cancelLabel: this.i18n.t('profile.deleteAccount.close'),
+          acceptLabel: this.i18n.t('profile.deleteAccount.retry'),
+          acceptTone: 'danger',
+        });
+        return;
+      }
     }
   }
 
@@ -1119,6 +1636,7 @@ export class ProfileScene extends Phaser.Scene {
       case 'summaryTab':
         view.stats.setVisible(state.summaryTab === 'stats');
         view.sets.setVisible(state.summaryTab === 'collection');
+        view.rankings.setVisible(state.summaryTab === 'ranking');
         return;
       case 'tabs':
         view.summaryTabs.render(
@@ -1143,6 +1661,107 @@ export class ProfileScene extends Phaser.Scene {
             node: this.celestial.atlasPresentations[SET_NODE_IDS[appearance]],
             isSelected: appearance === 'selected',
           });
+        });
+        return;
+      case 'rankings': {
+        const rows = getRankingRows(state);
+        view.rankingRows.forEach((row, index) => this.renderRankingRow(row, rows[index] ?? null));
+        return;
+      }
+      case 'rankingControls':
+        this.renderRankingControls(view, screen);
+        return;
+      case 'rankingsScroll':
+        view.rankingsScrollBar.render(getRankingsScroll(state), {
+          topYPx: RANKING_ROWS_TOP_Y_PX + RANKING_SCROLLBAR_INSET_Y_PX,
+          heightPx:
+            RANKING_ROW_HEIGHT_PX * PROFILE_RANKING_VISIBLE_ROWS - RANKING_SCROLLBAR_INSET_Y_PX * 2,
+        });
+        return;
+      case 'rankingsNotice':
+        this.renderRankingsNotice(view, getRankingsNotice(state));
+        return;
+    }
+  }
+
+  private renderRankingControls(view: ProfileView, screen: LoadedScreen): void {
+    const { page: state } = screen;
+    const sortColor =
+      getChoiceAppearance(screen, { kind: 'rankingSort' }) === 'emphasized'
+        ? COLORS.textPrimary
+        : COLORS.textSecondary;
+    view.rankingSortControl.label.setText(this.i18n.t(RANKING_SORT_LABEL_KEYS[state.rankingSort]));
+    setTextColor(view.rankingSortControl.label, sortColor);
+    view.rankingSortControl.icon.setTint(sortColor);
+    view.rankingFilters.forEach(({ target, label, underline }) => {
+      const appearance = getChoiceAppearance(screen, target);
+      setTextWeight(
+        label,
+        appearance === 'selected' ? RANKING_SCORE_WEIGHT : RANKING_DETAIL_TYPE.weight,
+      );
+      setTextColor(label, appearance === 'normal' ? COLORS.textMuted : COLORS.textPrimary);
+      placeTextUnderline(underline, label).setVisible(appearance === 'selected');
+    });
+  }
+
+  private renderRankingRow(row: RankingRowView, entry: RankedChart | null): void {
+    const { badge, zodiacStars, zodiacLines, title, chart, score, divider } = row;
+    const isVisible = entry !== null;
+    [zodiacStars, zodiacLines, title, chart, score, ...divider].forEach((object) =>
+      object.setVisible(isVisible),
+    );
+    badge.render(entry?.rank ?? null);
+    const outsideTopRank = entry === null ? null : getPlainRankValue(entry.rank);
+    if (outsideTopRank !== null) {
+      badge.renderOutsideTop(outsideTopRank);
+    }
+    if (entry === null) {
+      return;
+    }
+    chart.setText(`${formatLaneCount(entry.laneCount)}   ${entry.difficulty.toUpperCase()}`);
+    renderZodiacFigure(
+      zodiacStars,
+      zodiacLines,
+      entry.constellation,
+      {
+        leftXPx: RANKING_ZODIAC_LEFT_X_PX,
+        rightXPx: RANKING_ZODIAC_RIGHT_X_PX,
+        topYPx: title.y - RANKING_ROW_HEIGHT_PX / 2 + RANKING_ZODIAC_INSET_Y_PX,
+        bottomYPx: title.y + RANKING_ROW_HEIGHT_PX / 2 - RANKING_ZODIAC_INSET_Y_PX,
+      },
+      RANKING_ZODIAC_SOURCE_SPAN_PX,
+    );
+    score.setText(formatScore(entry.score));
+    setFittedText(title, entry.songTitle, chart.x - RANKING_TITLE_CHART_GAP_PX - title.x);
+  }
+
+  private renderRankingsNotice(
+    view: ProfileView,
+    notice: ReturnType<typeof getRankingsNotice>,
+  ): void {
+    view.rankingsFailure.render(
+      notice === 'failed'
+        ? {
+            title: this.i18n.t('profile.rankingsFailed'),
+            body: this.i18n.t('loadFailure.body'),
+          }
+        : null,
+    );
+    switch (notice) {
+      case 'none':
+      case 'failed':
+        view.rankingsNotice.show({ kind: 'none' });
+        return;
+      case 'loading':
+        view.rankingsNotice.show({
+          kind: 'loading',
+          text: this.i18n.t('profile.rankingsLoading'),
+        });
+        return;
+      case 'empty':
+        view.rankingsNotice.show({
+          kind: 'text',
+          text: this.i18n.t('profile.rankingsEmpty'),
         });
         return;
     }
@@ -1172,24 +1791,20 @@ export class ProfileScene extends Phaser.Scene {
     const look = getNicknameLook(state);
     const { fillAlpha, borderColor, borderAlpha, isNameShown, isHintShown } =
       NICKNAME_FIELD_LOOKS[look.kind];
-    view.nicknameField
-      .clear()
-      .fillStyle(CELESTIAL_COLORS.surface, fillAlpha)
-      .fillRoundedRect(
-        LEFT_X_PX,
-        NICKNAME_FIELD_TOP_Y_PX,
-        NICKNAME_FIELD_WIDTH_PX,
-        NICKNAME_FIELD_HEIGHT_PX,
-        RADIUS.mediumPx,
-      )
-      .lineStyle(1, borderColor, borderAlpha)
-      .strokeRoundedRect(
-        LEFT_X_PX,
-        NICKNAME_FIELD_TOP_Y_PX,
-        NICKNAME_FIELD_WIDTH_PX,
-        NICKNAME_FIELD_HEIGHT_PX,
-        RADIUS.mediumPx,
-      );
+    view.nicknameField.setTexture(
+      getBrushRectTexture(this, {
+        widthPx: NICKNAME_FIELD_WIDTH_PX,
+        heightPx: NICKNAME_FIELD_HEIGHT_PX,
+        radiusPx: RADIUS.mediumPx,
+        fillColor: CELESTIAL_COLORS.surface,
+        fillAlpha,
+        border: {
+          color: borderColor,
+          alpha: borderAlpha,
+          widthPx: 1,
+        },
+      }),
+    );
     view.nickname.setText(profile.nickname).setVisible(isNameShown);
     view.nicknameHint.setVisible(isHintShown);
     switch (look.kind) {
@@ -1323,10 +1938,10 @@ export class ProfileScene extends Phaser.Scene {
         view.detailProgressValue.setText(this.i18n.t('collection.noAssignedSongs'));
         break;
     }
-    const earned = earning.kind === 'earned';
-    view.detailEarnedLabel.setVisible(earned);
-    view.detailEarnedDate.setVisible(earned);
-    view.detailRule.forEach((object) => object.setVisible(earned));
+    const isEarned = earning.kind === 'earned';
+    view.detailEarnedLabel.setVisible(isEarned);
+    view.detailEarnedDate.setVisible(isEarned);
+    view.detailRule.forEach((object) => object.setVisible(isEarned));
     if (earning.kind === 'earned') {
       view.detailEarnedDate.setText(formatDate(earning.earnedAtMs));
     }

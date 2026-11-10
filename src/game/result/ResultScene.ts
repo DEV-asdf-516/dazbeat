@@ -2,7 +2,7 @@ import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import { getControlsGuide } from '../app/controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
-import type { ResultSceneData, SceneRequest } from '../app/sceneRoutes.js';
+import type { ResultReport, ResultSceneData, SceneRequest } from '../app/sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import {
@@ -14,11 +14,13 @@ import {
 import type {
   ConstellationBox,
   ConstellationPlan,
+  ResultPresentation,
   ConstellationPoint,
 } from './state/resultConstellation.js';
 import type { AchievementCatalog } from '../../data/achievements.js';
 import { getAchievementName } from '../ui/state/achievementName.js';
-import { AchievementToasts } from './view/AchievementToasts.js';
+import { AchievementToasts, PENDING_MOTE_ID } from './view/AchievementToasts.js';
+import type { ToastPresentation } from './view/AchievementToasts.js';
 import { ResultController } from './ResultController.js';
 import { RESULT_NODE_ID, planResultFinish } from './state/resultFinish.js';
 import type { FinishAnchor, FinishCue } from './state/resultFinish.js';
@@ -35,24 +37,31 @@ import {
   isResultControlsEntryHovered,
   isResultFocused,
 } from './state/resultState.js';
-import type { ResultButton, ResultRegion, ResultState } from './state/resultState.js';
+import type { ResultButton, ResultRegion, ResultState, ToastContent } from './state/resultState.js';
 import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
 import type { Song } from '../../data/songs.js';
-import type { Difficulty } from '../../rhythm/types.js';
+import type { Difficulty, GameplayResult, LaneCount } from '../../rhythm/types.js';
 import { JUDGMENTS } from '../../rhythm/judgment.js';
 import { Button } from '../ui/view/widgets/Button.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
-import type { TextTabsLayout, TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
+import type { TextTabItem, TextTabsLayout, TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import {
   addCelestialSprite,
   playCelestialOnce,
   queueCelestialTextures,
 } from '../celestial/view/celestialSprites.js';
-import { formatAccuracy, formatScore } from '../ui/state/format.js';
+import {
+  formatAccuracy,
+  formatClockTime,
+  formatLaneCount,
+  formatScore,
+} from '../ui/state/format.js';
+import { JACKET_Y_PX } from '../ui/view/widgets/songDetailLayout.js';
 import { JacketView, queueJacketLoads } from '../ui/view/widgets/jacket.js';
+import { setFittedText } from '../ui/view/widgets/fitText.js';
 import {
   LIGHT_TEXTURES,
   addLight,
@@ -60,9 +69,14 @@ import {
 } from '../ui/view/textures/lightTextures.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { queueAchievementEmblemLoads } from '../ui/view/widgets/achievementEmblem.js';
+import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
+import { GradeLetter } from '../ui/view/widgets/GradeLetter.js';
+import { TOP_RANK_GLINT_ID } from '../ui/view/widgets/TopRankBadge.js';
 import { COLORS, JUDGMENT_COLORS, SCREEN_LAYOUT, TYPE_SCALE, textStyle } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
+import { strokeGrainedLine } from '../ui/view/textures/grain.js';
 
 interface ResultView {
   readonly chrome: MenuSceneChrome;
@@ -70,27 +84,33 @@ interface ResultView {
   readonly retryButton: Button;
   readonly songSelectButton: Button;
   readonly toasts: AchievementToasts;
+  readonly presentToast: (content: ToastContent) => ToastPresentation;
   readonly rankingNotice: ConfirmDialog;
 }
 
 const LEFT_X_PX = SCREEN_LAYOUT.leftXPx;
 const RIGHT_X_PX = SCREEN_LAYOUT.rightXPx;
-const TITLE_Y_PX = 120;
-const DIFFICULTY_Y_PX = 176;
+const TITLE_Y_PX = 152;
+const DIFFICULTY_Y_PX = 208;
 const PRACTICE_BADGE_GAP_PX = 24;
-const RANK_Y_PX = 230;
-const SCORE_Y_PX = 420;
-const STATS_Y_PX = 540;
+const RANK_Y_PX = 262;
+const SCORE_Y_PX = 452;
+const STATS_Y_PX = 572;
+const SECTION_RANGE_Y_PX = 292;
+const SECTION_ACCURACY_LABEL_Y_PX = 366;
+const SECTION_ACCURACY_VALUE_Y_PX = 432;
+const SECTION_COUNTS_Y_PX = 540;
 const MAX_COMBO_VALUE_GAP_PX = 16;
 const JUDGMENT_COLUMN_WIDTH_PX = 130;
-const JUDGMENT_LABEL_Y_PX = 640;
-const JUDGMENT_COUNT_Y_PX = 676;
+const JUDGMENT_LABEL_Y_PX = 672;
+const JUDGMENT_COUNT_Y_PX = 708;
 /** MAX COMBO 를 판정 열의 세 번째 줄(GOOD)에 맞춰 두 줄이 같은 격자를 쓰게 한다. */
 const MAX_COMBO_X_PX = LEFT_X_PX + JUDGMENT_COLUMN_WIDTH_PX * 2;
-// 자켓 윗변을 곡명에 맞춰 왼쪽 정보 열과 오른쪽 자켓이 한 줄에서 시작하게 한다.
 const JACKET_SIZE_PX = 480;
 const JACKET_X_PX = RIGHT_X_PX - JACKET_SIZE_PX;
-const JACKET_Y_PX = TITLE_Y_PX;
+// 긴 제목은 이 크기까지 줄이고, 그래도 재킷에 닿으면 줄임표로 자른다.
+const TITLE_MIN_SIZE_PX = 28;
+const TITLE_MAX_WIDTH_PX = JACKET_X_PX - 48 - LEFT_X_PX;
 /** 판정 표와는 넓게, RETRY 와는 좁게 띄워 한 묶음으로 보이게 한다. */
 const DIFFICULTY_TABS_Y_PX = 808;
 const DIFFICULTY_TABS_LAYOUT: TextTabsLayout = {
@@ -120,7 +140,7 @@ const FULL_COMBO_DELAY_MS = 1100;
 // 판정 표 오른쪽 끝과 자켓 사이 빈 칸에 둔다.
 const CONSTELLATION_BOX: ConstellationBox = {
   leftPx: 800,
-  topPx: 210,
+  topPx: 242,
   widthPx: 420,
   heightPx: 480,
 };
@@ -142,11 +162,19 @@ const CONSTELLATION_PULSE_SCALE = 1.6;
 const FULL_COMBO_LABEL_GAP_PX = 32;
 const FULL_COMBO_LABEL_BOTTOM_INSET_PX = 32;
 const NODE_X_PX = JACKET_X_PX - 80;
-const NODE_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 86;
+const NODE_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 10;
 const STARFALL_X_PX = JACKET_X_PX + 260;
-const STARFALL_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 144;
+const STARFALL_Y_PX = JACKET_Y_PX + JACKET_SIZE_PX + 68;
 const SCORE_SHIMMER_DX_PX = 128;
 const SCORE_SHIMMER_DY_PX = 12;
+
+interface ResultSummary {
+  readonly metaLabels: readonly string[];
+  readonly tabItems: readonly TextTabItem<Difficulty>[];
+  readonly focalBounds: Phaser.Geom.Rectangle;
+  readonly statTexts: readonly Phaser.GameObjects.Text[];
+  readonly reveal: () => void;
+}
 
 export class ResultScene extends Phaser.Scene {
   private exit: SceneExit<SceneRequest> = STAYING;
@@ -157,6 +185,7 @@ export class ResultScene extends Phaser.Scene {
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
     private readonly catalog: AchievementCatalog,
+    private readonly account: AccountSource,
   ) {
     super(SCENE_KEYS.result);
   }
@@ -172,6 +201,8 @@ export class ResultScene extends Phaser.Scene {
     queueCelestialTextures(this, this.celestial, [
       ...getMenuSceneTextureUses(this.celestial, 'result'),
       this.celestial.atlasPresentations[RESULT_NODE_ID],
+      this.celestial.atlasPresentations[TOP_RANK_GLINT_ID],
+      this.celestial.atlasPresentations[PENDING_MOTE_ID],
       ...this.celestial.nodeOnlyFinish.map((step) => step.presentation),
     ]);
   }
@@ -189,6 +220,11 @@ export class ResultScene extends Phaser.Scene {
       {
         celestial: this.celestial,
         screen: 'result',
+        account: {
+          kind: 'nameplate',
+          catalog: this.account.catalog,
+          pointer,
+        },
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
@@ -219,9 +255,10 @@ export class ResultScene extends Phaser.Scene {
       },
       pointer,
     );
+    chrome.renderAccount(this.account.getIdentity());
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
-    const { song, laneCount, difficulty, chartId, mode, result, ranking, restore } = data;
-    const presentation = getResultPresentation(mode, result);
+    const { song, laneCount, difficulty, chartId, origin, report, result, ranking } = data;
+    const presentation = getResultPresentation(origin.mode, result);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
     const titleText = this.add.text(
@@ -230,38 +267,185 @@ export class ResultScene extends Phaser.Scene {
       song.title,
       textStyle('heading', COLORS.textPrimary),
     );
-    const difficultyText = this.add.text(
-      LEFT_X_PX,
-      DIFFICULTY_Y_PX,
-      difficulty.toUpperCase(),
-      textStyle('meta', COLORS.textMuted),
-    );
-    const headerTexts: Phaser.GameObjects.Text[] = [titleText, difficultyText];
-    if (presentation.hasPracticeBadge) {
-      headerTexts.push(
+    let titleSizePx = TYPE_SCALE.heading.sizePx;
+    while (titleText.width > TITLE_MAX_WIDTH_PX && titleSizePx > TITLE_MIN_SIZE_PX) {
+      titleSizePx -= 1;
+      titleText.setFontSize(titleSizePx);
+    }
+    setFittedText(titleText, song.title, TITLE_MAX_WIDTH_PX);
+    const summary =
+      report.kind === 'section'
+        ? this.createSectionSummary(report, result, laneCount, difficulty)
+        : this.createGradedSummary(presentation, result, difficulty, song.accentColor);
+    const headerTexts: Phaser.GameObjects.Text[] = [titleText];
+    let metaXPx = LEFT_X_PX;
+    summary.metaLabels.forEach((label) => {
+      const metaText = this.add.text(
+        metaXPx,
+        DIFFICULTY_Y_PX,
+        label,
+        textStyle('meta', COLORS.textMuted),
+      );
+      headerTexts.push(metaText);
+      metaXPx += metaText.width + PRACTICE_BADGE_GAP_PX;
+    });
+    const statTexts: Phaser.GameObjects.Text[] = [...summary.statTexts];
+    // 판정 내역은 세로 표 대신 한 줄의 열로 펼쳐 왼쪽 열 높이를 줄이고, 그만큼을 묶음 사이 여백으로 쓴다.
+    JUDGMENTS.forEach((judgment, index) => {
+      const xPx = LEFT_X_PX + JUDGMENT_COLUMN_WIDTH_PX * index;
+      statTexts.push(
         this.add.text(
-          difficultyText.x + difficultyText.width + PRACTICE_BADGE_GAP_PX,
-          DIFFICULTY_Y_PX,
-          'PRACTICE',
-          textStyle('meta', COLORS.textMuted),
+          xPx,
+          JUDGMENT_LABEL_Y_PX,
+          judgment.toUpperCase(),
+          textStyle('secondary', JUDGMENT_COLORS[judgment]),
+        ),
+        this.add.text(
+          xPx,
+          JUDGMENT_COUNT_Y_PX,
+          `${result.counts[judgment]}`,
+          textStyle('primary', COLORS.textPrimary),
         ),
       );
-    }
-    // 랭크용 display 서체는 별자리 영역과 겹치므로 FAILED 는 더 작은 title 서체로 같은 자리에 둔다.
-    const rank =
-      presentation.rank.kind === 'failed'
-        ? {
-            label: 'FAILED',
-            style: textStyle('title', JUDGMENT_COLORS.miss),
+    });
+    const jacket = new JacketView(this, JACKET_X_PX, JACKET_Y_PX, JACKET_SIZE_PX).setSong(song);
+
+    const retryButton = new Button(this, 0, BUTTON_Y_PX, {
+      variant: 'quiet',
+      focus: 'slide',
+      label: 'RETRY',
+      // 화면의 기본 동작(Enter)이므로 TRACKS 보다 한 단계 크게 둔다.
+      labelType: TYPE_SCALE.heading,
+      isHoverUnderlined: true,
+      pointer: pointButton(pointer, 'retry'),
+    });
+    retryButton.setX(RIGHT_X_PX + QUIET_BUTTON_PADDING_X_PX - retryButton.width);
+    const tabs = new TextTabs(
+      this,
+      summary.tabItems,
+      DIFFICULTY_TABS_LAYOUT,
+      DIFFICULTY_TABS_STYLE,
+      {
+        onSelect: (tabDifficulty) => {
+          if (this.exit.kind !== 'leaving') {
+            controller.selectDifficulty(tabDifficulty);
           }
-        : {
-            label: presentation.rank.grade,
-            style: textStyle('display', COLORS.textPrimary),
-          };
-    const rankText = this.add.text(LEFT_X_PX, RANK_Y_PX, rank.label, rank.style);
-    const rankBounds = rankText.getBounds();
-    // scale 강조가 글자 중심에서 일어나도록 원점만 중심으로 옮긴다. 표시 위치는 그대로다.
-    rankText.setOrigin(0.5).setPosition(rankBounds.centerX, rankBounds.centerY);
+        },
+        onHover: (tabDifficulty) => controller.hoverDifficulty(tabDifficulty),
+        onUnhover: (tabDifficulty) => controller.unhoverDifficulty(tabDifficulty),
+      },
+    );
+    const songSelectButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, 0, {
+      variant: 'quiet',
+      focus: 'slide',
+      label: origin.kind === 'chartEditor' ? 'EDITOR' : 'TRACKS',
+      isHoverUnderlined: true,
+      pointer: pointButton(pointer, 'songSelect'),
+    });
+    // 글자 크기가 달라 아랫변을 맞춰야 RETRY 와 한 줄로 읽힌다.
+    songSelectButton.setY(retryButton.y + retryButton.height - songSelectButton.height);
+    chrome.start(summary.focalBounds);
+    summary.reveal();
+
+    this.fadeInAt([jacket, ...headerTexts], 1, HEADER_REVEAL_DELAY_MS);
+    this.fadeInAt(statTexts, 1, STATS_REVEAL_DELAY_MS);
+    this.fadeInAt([...tabs.getVisuals(), retryButton, songSelectButton], 1, MENU_REVEAL_DELAY_MS);
+    this.revealConstellation(
+      planSongConstellation(song.id, song.constellation, presentation.tier, CONSTELLATION_BOX),
+      song.accentColor,
+    );
+    const view: ResultView = {
+      chrome,
+      tabs,
+      retryButton,
+      songSelectButton,
+      toasts: new AchievementToasts({
+        scene: this,
+        catalog: this.catalog,
+        celestial: this.celestial,
+        onClose: (id) => controller.closeToast(id),
+        onHover: (id) => controller.hoverToastClose(id),
+        onUnhover: (id) => controller.unhoverToastClose(id),
+        onExpire: (id) => controller.dismissToast(id),
+        onRemoved: (id) => controller.removeToast(id),
+      }),
+      // 순위 알림의 곡과 난이도는 재시도 탭이 아니라 방금 플레이한 채보다.
+      presentToast: (content) => {
+        switch (content.kind) {
+          case 'achievement':
+            return {
+              label: this.i18n.t('achievements.unlocked'),
+              name: getAchievementName(this.i18n, content.achievement),
+              difficulty: null,
+            };
+          case 'ranking':
+            return {
+              label: this.i18n.t('ranking.toastRegistered'),
+              name: song.title,
+              difficulty: difficulty.toUpperCase(),
+            };
+          case 'rankingPending':
+            return {
+              label: 'RANKING',
+              name: this.i18n.t('ranking.toastPending'),
+              difficulty: null,
+            };
+        }
+      },
+      // 확인 버튼 하나뿐이라 숨긴 취소 버튼도 같은 닫기로 잇는다.
+      rankingNotice: new ConfirmDialog(this, {
+        cancel: pointButton(pointer, 'noticeClose'),
+        accept: pointButton(pointer, 'noticeClose'),
+      }),
+    };
+    const controller = new ResultController(
+      {
+        render: (previous, next) => {
+          for (const region of getChangedRegions(previous, next)) {
+            this.renderRegion(view, previous, next, region);
+          }
+        },
+        playSound: (sound) => soundEffects.play(sound),
+        leave: (request) => {
+          this.exit = exitScene(this, this.exit, request);
+        },
+        openProfile: (awaitedRanking) => {
+          this.exit = exitScene(this, this.exit, {
+            key: 'profile',
+            data: {
+              returnTo: {
+                key: 'result',
+                // 이미 보여 준 알림과 안내 팝업은 다시 뜨지 않고, 아직 응답을 못 받은 제출의 알림만 돌아와서 뜬다.
+                data: {
+                  ...data,
+                  ranking: awaitedRanking,
+                },
+              },
+            },
+          });
+        },
+      },
+      {
+        song,
+        laneCount,
+        difficulty,
+        chartId,
+      },
+      origin,
+      ranking,
+      report,
+    );
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
+  }
+
+  private createGradedSummary(
+    presentation: ResultPresentation,
+    result: GameplayResult,
+    difficulty: Difficulty,
+    accentColor: number,
+  ): ResultSummary {
+    const rank = this.createRank(presentation.rank);
+    const rankBounds = rank.bounds;
     const scoreText = this.add.text(
       LEFT_X_PX,
       SCORE_Y_PX,
@@ -289,147 +473,145 @@ export class ResultScene extends Phaser.Scene {
       )
       .setOrigin(0, 0.5);
     maxComboValue.setX(maxComboLabel.x + maxComboLabel.width + MAX_COMBO_VALUE_GAP_PX);
-    const statTexts: Phaser.GameObjects.Text[] = [accuracyText, maxComboLabel, maxComboValue];
-    // 판정 내역은 세로 표 대신 한 줄의 열로 펼쳐 왼쪽 열 높이를 줄이고, 그만큼을 묶음 사이 여백으로 쓴다.
-    JUDGMENTS.forEach((judgment, index) => {
-      const xPx = LEFT_X_PX + JUDGMENT_COLUMN_WIDTH_PX * index;
-      statTexts.push(
-        this.add.text(
-          xPx,
-          JUDGMENT_LABEL_Y_PX,
-          judgment.toUpperCase(),
-          textStyle('secondary', JUDGMENT_COLORS[judgment]),
-        ),
-        this.add.text(
-          xPx,
-          JUDGMENT_COUNT_Y_PX,
-          `${result.counts[judgment]}`,
-          textStyle('primary', COLORS.textPrimary),
-        ),
-      );
-    });
-    const jacket = new JacketView(this, JACKET_X_PX, JACKET_Y_PX, JACKET_SIZE_PX).setSong(song);
-
-    const retryButton = new Button(this, 0, BUTTON_Y_PX, {
-      variant: 'quiet',
-      focus: 'slide',
-      label: 'RETRY',
-      // 화면의 기본 동작(Enter)이므로 TRACKS 보다 한 단계 크게 둔다.
-      labelType: TYPE_SCALE.heading,
-      pointer: pointButton(pointer, 'retry'),
-    });
-    retryButton.setX(RIGHT_X_PX + QUIET_BUTTON_PADDING_X_PX - retryButton.width);
-    const tabs = new TextTabs(
-      this,
-      DIFFICULTY_TAB_ITEMS,
-      DIFFICULTY_TABS_LAYOUT,
-      DIFFICULTY_TABS_STYLE,
-      {
-        onSelect: (tabDifficulty) => {
-          if (this.exit.kind !== 'leaving') {
-            controller.selectDifficulty(tabDifficulty);
-          }
-        },
-        onHover: (tabDifficulty) => controller.hoverDifficulty(tabDifficulty),
-        onUnhover: (tabDifficulty) => controller.unhoverDifficulty(tabDifficulty),
-      },
-    );
-    const songSelectButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, 0, {
-      variant: 'quiet',
-      focus: 'slide',
-      label: 'TRACKS',
-      pointer: pointButton(pointer, 'songSelect'),
-    });
-    // 글자 크기가 달라 아랫변을 맞춰야 RETRY 와 한 줄로 읽힌다.
-    songSelectButton.setY(retryButton.y + retryButton.height - songSelectButton.height);
-    chrome.start(rankBounds);
-    this.playFinish(
-      planResultFinish(
-        presentation.hasFinish,
-        this.celestial.nodeOnlyFinish,
-        SCORE_COUNT_DELAY_MS + SCORE_COUNT_DURATION_MS,
-      ),
-      rankBounds,
-      scoreText.getBounds(),
-    );
-
-    this.fadeInAt([jacket, ...headerTexts], 1, HEADER_REVEAL_DELAY_MS);
-    rankText.setAlpha(0).setScale(RANK_REVEAL_SCALE);
-    this.tweens.add({
-      targets: rankText,
-      alpha: 1,
-      scale: 1,
-      delay: RANK_REVEAL_DELAY_MS,
-      duration: RANK_REVEAL_DURATION_MS,
-      ease: 'Cubic.Out',
-    });
+    rank.targets.forEach((text) => text.setAlpha(0).setScale(RANK_REVEAL_SCALE));
     scoreText.setAlpha(0);
-    this.tweens.addCounter({
-      from: 0,
-      to: result.score,
-      duration: SCORE_COUNT_DURATION_MS,
-      delay: SCORE_COUNT_DELAY_MS,
-      ease: 'Cubic.Out',
-      onStart: () => scoreText.setAlpha(1),
-      onUpdate: (_tween, _target, _key, current: number) =>
-        scoreText.setText(formatScore(Math.round(current))),
-      onComplete: () => scoreText.setText(formatScore(result.score)),
-    });
-    this.fadeInAt(statTexts, 1, STATS_REVEAL_DELAY_MS);
-    this.fadeInAt([...tabs.getVisuals(), retryButton, songSelectButton], 1, MENU_REVEAL_DELAY_MS);
-    this.revealConstellation(
-      planSongConstellation(song.id, song.constellation, presentation.tier, CONSTELLATION_BOX),
-      song.accentColor,
-    );
-    if (presentation.hasFullComboLabel) {
-      this.revealFullCombo(rankBounds, song.accentColor);
-    }
-    const view: ResultView = {
-      chrome,
-      tabs,
-      retryButton,
-      songSelectButton,
-      toasts: new AchievementToasts({
-        scene: this,
-        catalog: this.catalog,
-        label: this.i18n.t('achievements.unlocked'),
-        onClose: (id) => controller.closeToast(id),
-        onHover: (id) => controller.hoverToastClose(id),
-        onUnhover: (id) => controller.unhoverToastClose(id),
-        onExpire: (id) => controller.dismissToast(id),
-        onRemoved: (id) => controller.removeToast(id),
-      }),
-      // 확인 버튼 하나뿐이라 숨긴 취소 버튼도 같은 닫기로 잇는다.
-      rankingNotice: new ConfirmDialog(this, {
-        cancel: pointButton(pointer, 'noticeClose'),
-        accept: pointButton(pointer, 'noticeClose'),
-      }),
+    return {
+      metaLabels: [
+        difficulty.toUpperCase(),
+        ...(presentation.hasPracticeBadge ? ['PRACTICE'] : []),
+      ],
+      tabItems: DIFFICULTY_TAB_ITEMS,
+      focalBounds: rankBounds,
+      statTexts: [accuracyText, maxComboLabel, maxComboValue],
+      reveal: () => {
+        this.playFinish(
+          planResultFinish(
+            presentation.hasFinish,
+            this.celestial.nodeOnlyFinish,
+            SCORE_COUNT_DELAY_MS + SCORE_COUNT_DURATION_MS,
+          ),
+          rankBounds,
+          scoreText.getBounds(),
+        );
+        this.tweens.add({
+          targets: rank.targets,
+          alpha: 1,
+          scale: 1,
+          delay: RANK_REVEAL_DELAY_MS,
+          duration: RANK_REVEAL_DURATION_MS,
+          ease: 'Cubic.Out',
+          onComplete: () => rank.grade?.playSheen(),
+        });
+        this.tweens.addCounter({
+          from: 0,
+          to: result.score,
+          duration: SCORE_COUNT_DURATION_MS,
+          delay: SCORE_COUNT_DELAY_MS,
+          ease: 'Cubic.Out',
+          onStart: () => scoreText.setAlpha(1),
+          onUpdate: (_tween, _target, _key, current: number) =>
+            scoreText.setText(formatScore(Math.round(current))),
+          onComplete: () => scoreText.setText(formatScore(result.score)),
+        });
+        if (presentation.hasFullComboLabel) {
+          this.revealFullCombo(rankBounds, accentColor);
+        }
+      },
     };
-    const controller = new ResultController(
-      {
-        render: (previous, next) => {
-          for (const region of getChangedRegions(previous, next)) {
-            this.renderRegion(view, previous, next, region);
-          }
-        },
-        playSound: (sound) => soundEffects.play(sound),
-        leave: (request) => {
-          this.exit = exitScene(this, this.exit, request);
-        },
-      },
-      {
-        song,
-        laneCount,
-        difficulty,
-        chartId,
-      },
-      {
-        mode,
-        restore,
-      },
-      ranking,
+  }
+
+  private createSectionSummary(
+    report: Extract<ResultReport, { readonly kind: 'section' }>,
+    result: GameplayResult,
+    laneCount: LaneCount,
+    difficulty: Difficulty,
+  ): ResultSummary {
+    const addLabeledValue = (
+      xPx: number,
+      centerYPx: number,
+      labelText: string,
+      valueText: string,
+    ): readonly Phaser.GameObjects.Text[] => {
+      const label = this.add
+        .text(xPx, centerYPx, labelText, textStyle('meta', COLORS.textMuted))
+        .setOrigin(0, 0.5);
+      const value = this.add
+        .text(
+          label.x + label.width + MAX_COMBO_VALUE_GAP_PX,
+          centerYPx,
+          valueText,
+          textStyle('primary', COLORS.textPrimary),
+        )
+        .setOrigin(0, 0.5);
+      return [label, value];
+    };
+    const accuracyLabel = this.add
+      .text(LEFT_X_PX, SECTION_ACCURACY_LABEL_Y_PX, 'ACCURACY', textStyle('meta', COLORS.textMuted))
+      .setOrigin(0, 0.5);
+    const accuracyValue = this.add
+      .text(
+        LEFT_X_PX,
+        SECTION_ACCURACY_VALUE_Y_PX,
+        formatAccuracy(result.accuracy),
+        textStyle('number', COLORS.textPrimary),
+      )
+      .setOrigin(0, 0.5);
+    return {
+      metaLabels: [formatLaneCount(laneCount), difficulty.toUpperCase(), 'TEST PLAY'],
+      // 난이도는 에디터에서 고르므로 이 화면에서 바꾸지 않는다.
+      tabItems: [],
+      focalBounds: accuracyValue.getBounds(),
+      statTexts: [
+        ...addLabeledValue(
+          LEFT_X_PX,
+          SECTION_RANGE_Y_PX,
+          'SECTION',
+          `${formatClockTime(report.startTimeMs)} ~ ${formatClockTime(report.endTimeMs)}`,
+        ),
+        accuracyLabel,
+        accuracyValue,
+        ...addLabeledValue(
+          LEFT_X_PX,
+          SECTION_COUNTS_Y_PX,
+          'NOTES',
+          `${report.noteCount} / ${report.totalNoteCount}`,
+        ),
+        ...addLabeledValue(MAX_COMBO_X_PX, SECTION_COUNTS_Y_PX, 'MAX COMBO', `${result.maxCombo}`),
+      ],
+      reveal: () => undefined,
+    };
+  }
+
+  private createRank(rank: ResultPresentation['rank']): {
+    readonly bounds: Phaser.Geom.Rectangle;
+    readonly targets: readonly Phaser.GameObjects.Text[];
+    readonly grade: GradeLetter | null;
+  } {
+    if (rank.kind === 'grade') {
+      const grade = new GradeLetter(this, this.celestial, { role: 'display' });
+      grade.render(rank.grade);
+      grade.place(LEFT_X_PX, RANK_Y_PX);
+      return {
+        bounds: grade.getBounds(),
+        targets: grade.revealTargets,
+        grade,
+      };
+    }
+    // 랭크용 display 서체는 별자리 영역과 겹치므로 FAILED 는 더 작은 title 서체로 같은 자리에 둔다.
+    const failed = this.add.text(
+      LEFT_X_PX,
+      RANK_Y_PX,
+      'FAILED',
+      textStyle('title', JUDGMENT_COLORS.miss),
     );
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
+    const bounds = failed.getBounds();
+    // scale 강조가 글자 중심에서 일어나도록 원점만 중심으로 옮긴다. 표시 위치는 그대로다.
+    failed.setOrigin(0.5).setPosition(bounds.centerX, bounds.centerY);
+    return {
+      bounds,
+      targets: [failed],
+      grade: null,
+    };
   }
 
   private renderRegion(
@@ -461,10 +643,11 @@ export class ResultScene extends Phaser.Scene {
       case 'controlsClose':
         view.chrome.renderControlsClose(getResultControlsCloseView(state));
         return;
+      case 'accountButton':
+        view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));
+        return;
       case 'toasts':
-        view.toasts.apply(getToastChanges(previous, state), (achievement) =>
-          getAchievementName(this.i18n, achievement),
-        );
+        view.toasts.apply(getToastChanges(previous, state), view.presentToast);
         return;
       case 'toastClose':
         view.toasts.renderCloseHover(getHoveredToastId(state));
@@ -616,9 +799,20 @@ export class ResultScene extends Phaser.Scene {
             .lineStyle(CONSTELLATION_LINE_HALO_WIDTH_PX, accent, glow.lineHalo)
             .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
         }
-        lines
-          .lineStyle(CONSTELLATION_LINE_CORE_WIDTH_PX, COLORS.note, lineCore)
-          .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
+        strokeGrainedLine(
+          lines,
+          {
+            fromXPx,
+            fromYPx,
+            toXPx,
+            toYPx,
+          },
+          {
+            widthPx: CONSTELLATION_LINE_CORE_WIDTH_PX,
+            color: COLORS.note,
+            alpha: lineCore,
+          },
+        );
       });
     };
     this.tweens.addCounter({

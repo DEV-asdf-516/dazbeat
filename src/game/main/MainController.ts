@@ -66,7 +66,7 @@ export class MainController {
             ),
           (error: unknown) => {
             console.error('Failed to sign in with Google', error);
-            this.applyAccount((current) => failSignIn(current, attempt));
+            this.applyAccount((current) => failSignIn(current, attempt, error));
           },
         );
         return;
@@ -76,8 +76,6 @@ export class MainController {
         this.applyAccount(() => createAccountState(null));
         return;
       case 'signedIn':
-        this.auth.signOut();
-        this.applyAccount(() => createAccountState(null));
         return;
     }
   }

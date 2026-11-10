@@ -3447,7 +3447,7 @@
       "id": "R01",
       "name": "main-scene",
       "kind": "image",
-      "path": "public/assets/ui/celestial/scenes/dazbeat-orbit-painted-vivid.png",
+      "path": "public/assets/ui/celestial/scenes/dazbeat-orbit-painted-vivid.webp",
       "dimensionsPx": [
         1920,
         1080
@@ -3485,8 +3485,8 @@
       "placement": "full scene behind existing UI",
       "doNotUse": "Do not recolor, bake UI text, or put bright edge detail under small text.",
       "reuseOf": null,
-      "sha256": "2503a2cac93298f61e06dedfe2d17046530c280e1642b78bbace01e9617b18d8",
-      "bytes": 2408431
+      "sha256": "eef66077072113d3c8497ef36917ceaba332422a43af267f8eadfce95d8ba2cf",
+      "bytes": 422972
     },
     {
       "id": "R02",
@@ -6459,7 +6459,7 @@
       "id": "R50",
       "name": "grain",
       "kind": "image",
-      "path": "public/assets/ui/surface/grain.png",
+      "path": "public/assets/ui/surface/grain.webp",
       "dimensionsPx": [
         1024,
         1024
@@ -6501,8 +6501,8 @@
       "placement": "repeat XY on night base, behind all readable UI",
       "doNotUse": "Do not use as the celestial particle system; no grain layer over gameplay video.",
       "reuseOf": null,
-      "sha256": "e65bc8caab29b0247ea5141d5675edb734fb0f6e55d93baf4e5b8df3aca1ef8d",
-      "bytes": 1062384
+      "sha256": "c458a53911e6e95cf406376fecb0b5d429123abb2f1aaf25a3adc0ed1791a5b7",
+      "bytes": 221338
     }
   ],
   "sequenceManifest": "public/assets/ui/constellation/constellation-sequences.json",
@@ -6553,9 +6553,9 @@
       "sha256": "83b3db0a9f7ab7c243b7e8237b6630a8461932e4a2913f6af41625bf210ebfd6"
     },
     {
-      "path": "public/assets/ui/celestial/scenes/dazbeat-orbit-painted-vivid.png",
-      "bytes": 2408431,
-      "sha256": "2503a2cac93298f61e06dedfe2d17046530c280e1642b78bbace01e9617b18d8",
+      "path": "public/assets/ui/celestial/scenes/dazbeat-orbit-painted-vivid.webp",
+      "bytes": 422972,
+      "sha256": "eef66077072113d3c8497ef36917ceaba332422a43af267f8eadfce95d8ba2cf",
       "dimensionsPx": [
         1920,
         1080
@@ -6726,9 +6726,9 @@
       "sha256": "e5874c17e87e992a88c7b10d914ec9590848ca69c358d31df7f6bad7db6982f8"
     },
     {
-      "path": "public/assets/ui/surface/grain.png",
-      "bytes": 1062384,
-      "sha256": "e65bc8caab29b0247ea5141d5675edb734fb0f6e55d93baf4e5b8df3aca1ef8d",
+      "path": "public/assets/ui/surface/grain.webp",
+      "bytes": 221338,
+      "sha256": "c458a53911e6e95cf406376fecb0b5d429123abb2f1aaf25a3adc0ed1791a5b7",
       "dimensionsPx": [
         1024,
         1024

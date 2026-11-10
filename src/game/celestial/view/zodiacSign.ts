@@ -8,6 +8,7 @@ import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
 import { fillFourPointStar } from '../../ui/view/textures/starShapes.js';
 import { rgba } from '../../ui/view/textures/lightTextures.js';
 import { CELESTIAL_COLORS } from '../../ui/view/theme.js';
+import { strokeGrainedLine } from '../../ui/view/textures/grain.js';
 
 // 알데바란(0.85등급)이 가장 밝고 물고기자리 κ(4.9등급)가 가장 어둡다.
 // 실제 등급만 따르면 어두운 별자리가 배경에 묻혀서 가장 어두운 별도 보이게 크기와 불투명도의 아래를 올려 둔다.
@@ -125,9 +126,21 @@ export function strokeZodiacLine(
     .lineStyle(LINE.glowWidthPx, CELESTIAL_COLORS.selected, LINE.glowAlpha)
     .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
     .lineStyle(LINE.haloWidthPx, CELESTIAL_COLORS.selected, LINE.haloAlpha)
-    .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
-    .lineStyle(LINE.coreWidthPx, CELESTIAL_COLORS.highlight, LINE.coreAlpha)
     .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
+  strokeGrainedLine(
+    graphics,
+    {
+      fromXPx,
+      fromYPx,
+      toXPx,
+      toYPx,
+    },
+    {
+      widthPx: LINE.coreWidthPx,
+      color: CELESTIAL_COLORS.highlight,
+      alpha: LINE.coreAlpha,
+    },
+  );
 }
 
 function fillLight(
@@ -143,4 +156,39 @@ function fillLight(
   context.beginPath();
   context.arc(x, y, radius, 0, 2 * Math.PI);
   context.fill();
+}
+
+export function renderZodiacFigure(
+  stars: Phaser.GameObjects.Image,
+  lines: Phaser.GameObjects.Graphics,
+  zodiac: Zodiac,
+  area: {
+    readonly leftXPx: number;
+    readonly rightXPx: number;
+    readonly topYPx: number;
+    readonly bottomYPx: number;
+  },
+  maxSpanPx: number,
+): void {
+  const sign = getZodiacSign(stars.scene, zodiac, maxSpanPx);
+  const scale = Math.min(
+    1,
+    (area.rightXPx - area.leftXPx) / sign.figureWidthPx,
+    (area.bottomYPx - area.topYPx) / sign.figureHeightPx,
+  );
+  const centerXPx = (area.leftXPx + area.rightXPx) / 2;
+  const centerYPx = (area.topYPx + area.bottomYPx) / 2;
+  stars
+    .setTexture(sign.textureKey)
+    .setScale(scale)
+    .setPosition(centerXPx, centerYPx)
+    .setVisible(true);
+  const figure = ZODIAC_FIGURES[zodiac];
+  const points = fitZodiacFigure(figure, centerXPx, centerYPx, maxSpanPx * scale);
+  lines.clear().setVisible(true);
+  for (const [from, to] of figure.edges) {
+    const [fromXPx, fromYPx] = requireDefined(points[from], 'Zodiac edge outside the figure', from);
+    const [toXPx, toYPx] = requireDefined(points[to], 'Zodiac edge outside the figure', to);
+    strokeZodiacLine(lines, fromXPx, fromYPx, toXPx, toYPx);
+  }
 }

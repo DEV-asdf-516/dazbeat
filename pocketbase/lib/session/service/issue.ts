@@ -2,12 +2,12 @@ import { getPlayDurationMs } from '../../../../src/rhythm/playTiming.js';
 import { msToSec, secToMs } from '../../../../src/time.js';
 import { requireDefined } from '../../../../src/invariant.js';
 import type { JsvmRuntime, DbApp, TransactionalApp } from '../../jsvm.js';
-import { InvalidSessionRequestError } from '../dto.js';
 import type { SessionQuota, SessionRequest, VerificationSong } from '../dto.js';
 import {
   deletePlaySessions,
+  findQuotaRecord,
+  parseQuotaRecord,
   readSessionChart,
-  readSessionQuota,
   savePlaySession,
   saveSessionQuota,
 } from '../repository.js';
@@ -70,7 +70,9 @@ export function getSessionExpiresAtMs(song: VerificationSong, issuedAtMs: number
 type SessionChart = NonNullable<ReturnType<typeof readSessionChart>>;
 
 export type SessionChartLoad =
-  { readonly kind: 'loaded'; readonly chart: SessionChart } | { readonly kind: 'changed' };
+  | { readonly kind: 'loaded'; readonly chart: SessionChart }
+  | { readonly kind: 'changed' }
+  | { readonly kind: 'notFound' };
 
 /** 요청한 revision 그대로인 공개 곡의 채보만 돌려준다. */
 export function loadSessionChart(
@@ -80,7 +82,7 @@ export function loadSessionChart(
 ): SessionChartLoad {
   const chart = readSessionChart(runtime, app, request.chartId);
   if (chart === undefined) {
-    throw new InvalidSessionRequestError('chart_not_found');
+    return { kind: 'notFound' };
   }
   return chart.revision === request.chartRevision
     ? {
@@ -104,9 +106,12 @@ export function issuePlaySession(
   app.runInTransaction((tx) => {
     // quota 읽기, 판단, 쓰기를 한 트랜잭션에서 해야 같은 사용자의 동시 발급이 한도를 넘지 않는다.
     // 같은 이유로 시각은 quota 행을 읽은 뒤에 잰다.
-    const quota = readSessionQuota(tx, userId);
+    const quotaRecord = findQuotaRecord(tx, userId);
     const issuedAtMs = Date.now();
-    const decision = decideSessionIssue(quota, issuedAtMs);
+    const decision = decideSessionIssue(
+      quotaRecord === undefined ? null : parseQuotaRecord(quotaRecord),
+      issuedAtMs,
+    );
     if (decision.kind === 'limited') {
       issue = {
         kind: 'limited',
@@ -114,7 +119,15 @@ export function issuePlaySession(
       };
       return;
     }
-    saveSessionQuota(runtime, tx, userId, decision.quota);
+    saveSessionQuota(
+      runtime,
+      tx,
+      {
+        userId,
+        record: quotaRecord,
+      },
+      decision.quota,
+    );
     const expiresAtMs = getSessionExpiresAtMs(
       {
         key: chart.songKey,

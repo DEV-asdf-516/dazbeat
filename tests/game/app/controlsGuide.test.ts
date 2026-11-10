@@ -84,6 +84,10 @@ describe('getControlsGuide', () => {
             label: '랜덤 곡',
           },
           {
+            keys: ['L'],
+            label: '랭킹 보기',
+          },
+          {
             keys: ['Tab'],
             label: '설정 열기',
           },

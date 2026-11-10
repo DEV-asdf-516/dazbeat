@@ -1,5 +1,6 @@
 export const HTTP_STATUS = {
   ok: 200,
+  noContent: 204,
   badRequest: 400,
   unauthorized: 401,
   forbidden: 403,
@@ -10,4 +11,5 @@ export const HTTP_STATUS = {
   unprocessableContent: 422,
   tooManyRequests: 429,
   internalServerError: 500,
+  serviceUnavailable: 503,
 } as const;

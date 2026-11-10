@@ -13,6 +13,7 @@ import {
 } from '../../ui/view/theme.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 import { requireDefined } from '../../../invariant.js';
+import { getBrushRectTexture } from '../../ui/view/textures/brushRect.js';
 
 export interface SongListFrame {
   leftPx: number;
@@ -25,7 +26,7 @@ export interface SongListFrame {
 
 interface RowView {
   readonly background: Phaser.GameObjects.Rectangle;
-  readonly tag: Phaser.GameObjects.Rectangle;
+  readonly tag: Phaser.GameObjects.Image;
   readonly tagText: Phaser.GameObjects.Text;
   readonly title: Phaser.GameObjects.Text;
 }
@@ -50,6 +51,7 @@ export class SongListPanel {
   private readonly scene: Phaser.Scene;
   private readonly frame: SongListFrame;
   private readonly panel: Phaser.GameObjects.Rectangle;
+  private readonly panelBorder: Phaser.GameObjects.Image;
   private readonly rows: RowView[];
   private readonly scrollBar: ScrollBar;
 
@@ -70,10 +72,10 @@ export class SongListPanel {
     this.panel = scene.add
       .rectangle(0, 0, frame.widthPx, 0, CELESTIAL_COLORS.surface)
       .setOrigin(0, 0)
-      .setStrokeStyle(PANEL_BORDER_PX, CELESTIAL_COLORS.border)
       .setRounded(RADIUS.smallPx)
       .setInteractive()
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_WHEEL, onWheel);
+    this.panelBorder = scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0).setVisible(false);
     this.rows = Array.from({ length: frame.visibleRowCount }, (_, rowIndex) =>
       this.createRow(rowIndex, {
         onHover: () => actions.onHoverRow(rowIndex),
@@ -85,6 +87,7 @@ export class SongListPanel {
     this.scrollBar = new ScrollBar(scene, scrollXPx);
     scene.add.container(frame.leftPx, frame.topYPx, [
       this.panel,
+      this.panelBorder,
       ...this.rows.flatMap(({ background, tag, tagText, title }) => [
         background,
         tag,
@@ -109,7 +112,20 @@ export class SongListPanel {
       return;
     }
     const tagColor = CATEGORY_COLORS[content.category];
-    row.tag.setStrokeStyle(TAG_BORDER_PX, tagColor, TAG_BORDER_ALPHA);
+    row.tag.setTexture(
+      getBrushRectTexture(row.tag.scene, {
+        widthPx: TAG_WIDTH_PX,
+        heightPx: TAG_HEIGHT_PX,
+        radiusPx: RADIUS.smallPx,
+        fillColor: tagColor,
+        fillAlpha: 0,
+        border: {
+          color: tagColor,
+          alpha: TAG_BORDER_ALPHA,
+          widthPx: TAG_BORDER_PX,
+        },
+      }),
+    );
     row.tagText.setText(content.category.toUpperCase());
     setTextColor(row.tagText, tagColor);
     setFittedText(
@@ -138,6 +154,22 @@ export class SongListPanel {
     const listHeightPx = rowCount * rowHeightPx;
     // 곡이 없으면 빈 테두리만 남지 않게 패널째 숨긴다.
     this.panel.setSize(widthPx, listHeightPx + paddingPx).setVisible(frame.hasRows);
+    this.panelBorder
+      .setTexture(
+        getBrushRectTexture(this.scene, {
+          widthPx,
+          heightPx: listHeightPx + paddingPx,
+          radiusPx: RADIUS.smallPx,
+          fillColor: CELESTIAL_COLORS.border,
+          fillAlpha: 0,
+          border: {
+            color: CELESTIAL_COLORS.border,
+            alpha: 1,
+            widthPx: PANEL_BORDER_PX,
+          },
+        }),
+      )
+      .setVisible(frame.hasRows);
     this.scrollBar.render(frame.scroll, {
       topYPx: paddingPx / 2,
       heightPx: listHeightPx,
@@ -169,10 +201,7 @@ export class SongListPanel {
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, actions.onHover)
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, actions.onPick)
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_WHEEL, actions.onWheel);
-    const tag = this.scene.add
-      .rectangle(paddingPx, centerYPx, TAG_WIDTH_PX, TAG_HEIGHT_PX)
-      .setOrigin(0, 0.5)
-      .setRounded(RADIUS.smallPx);
+    const tag = this.scene.add.image(paddingPx, centerYPx, '__DEFAULT').setOrigin(0, 0.5);
     const tagText = this.scene.add
       .text(paddingPx + TAG_WIDTH_PX / 2, centerYPx, '', {
         ...typeStyle(TAG_TYPE, CELESTIAL_COLORS.textSecondary),

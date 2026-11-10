@@ -2,7 +2,8 @@ import type Phaser from 'phaser';
 import { requireDefined } from '../../../../invariant.js';
 import { DEFAULT_CURSOR, DISABLED_CURSOR, HOVER_CURSOR } from '../input/cursor.js';
 import { bindHoverTarget } from '../input/hoverTarget.js';
-import { COLORS, addTextUnderline, setTextColor, setTextWeight, typeStyle } from '../theme.js';
+import { COLORS, setTextColor, setTextWeight, typeStyle } from '../theme.js';
+import { addTextUnderline } from './cometUnderline.js';
 import type { TabAppearance } from '../../state/tabAppearance.js';
 
 export interface TextTabItem<T extends string> {
@@ -33,7 +34,7 @@ export interface TextTabsActions<T extends string> {
 interface Tab<T extends string> {
   readonly key: T;
   readonly text: Phaser.GameObjects.Text;
-  readonly underline: Phaser.GameObjects.Rectangle;
+  readonly underline: Phaser.GameObjects.Image;
 }
 
 export class TextTabs<T extends string> {
@@ -99,13 +100,13 @@ export class TextTabs<T extends string> {
     ).text.getBounds();
   }
 
-  getVisuals(): (Phaser.GameObjects.Text | Phaser.GameObjects.Rectangle)[] {
+  getVisuals(): (Phaser.GameObjects.Text | Phaser.GameObjects.Image)[] {
     return this.tabs.flatMap(({ text, underline }) => [text, underline]);
   }
 
   private renderTab(tab: Tab<T>, appearance: TabAppearance, underlineColor: number): void {
     const { text, underline } = tab;
-    underline.setFillStyle(underlineColor).setVisible(appearance === 'selected');
+    underline.setTint(underlineColor).setVisible(appearance === 'selected');
     const { type, selectedWeight, normalColor } = this.style;
     switch (appearance) {
       case 'disabled':

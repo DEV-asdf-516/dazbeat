@@ -14,7 +14,13 @@ import type { Chart, GameplayResult, JudgmentEvent, Lane } from '../../rhythm/ty
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { MV_MODES, getAudibleVolume } from '../../storage/settings.js';
 import type { MvMode, Settings } from '../../storage/settings.js';
-import type { GameplaySceneData, ResultRanking, ResultSceneData } from '../app/sceneRoutes.js';
+import { getPlayOriginRequest } from '../app/sceneRoutes.js';
+import type {
+  GameplaySceneData,
+  ResultRanking,
+  ResultSceneData,
+  SceneRequest,
+} from '../app/sceneRoutes.js';
 import {
   addPressedLane,
   getErrorKeyAction,
@@ -45,6 +51,8 @@ import type {
 } from './state/gameplayStatus.js';
 import { getRunEnding, getRunRecord } from './state/runEnding.js';
 import type { RunMode } from './state/runEnding.js';
+import { getRunSection } from './state/runStart.js';
+import type { RunSection } from './state/runStart.js';
 import { WorldActivation } from './state/worldActivation.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
 
@@ -85,13 +93,13 @@ export interface GameplayScreen {
   closeQuitConfirm(): void;
   beginPlay(chart: Chart): PlayScreen;
   showResult(data: ResultSceneData): void;
-  backToSongSelect(): void;
+  leave(request: SceneRequest): void;
 }
 
 export interface GameplayPorts {
   readonly save: Pick<LocalSave, 'saveSettings' | 'saveResult'>;
   readonly prepareChart: (ref: ChartRef) => Promise<PreparedChart>;
-  readonly loadPracticeChart: (ref: ChartRef) => Promise<Chart>;
+  readonly loadChart: (ref: ChartRef, isFresh: boolean) => Promise<Chart>;
   readonly rankedPlay: RankedPlay;
   readonly players: GameplayPlayerFactory;
   readonly now: () => number;
@@ -99,8 +107,7 @@ export interface GameplayPorts {
   readonly frameNow: () => number;
 }
 
-interface PreparedRun {
-  readonly chart: Chart;
+interface PreparedRun extends RunSection {
   readonly mode: RunMode;
   readonly player: GameplayPlayer;
 }
@@ -163,7 +170,7 @@ export class GameplayController {
     let mode: RunMode;
     let player: GameplayPlayer;
     try {
-      if (this.route.mode === 'standard') {
+      if (this.route.origin.mode === 'standard') {
         const prepared = await this.ports.prepareChart(this.route);
         chart = prepared.chart;
         mode = {
@@ -171,7 +178,8 @@ export class GameplayController {
           ranking: prepared.ranking,
         };
       } else {
-        chart = await this.ports.loadPracticeChart(this.route);
+        // 채보 에디터에서 방금 저장한 채보는 캐시가 아니라 서버에서 다시 읽는다.
+        chart = await this.ports.loadChart(this.route, this.route.origin.kind === 'chartEditor');
         mode = { kind: 'practice' };
       }
 
@@ -191,7 +199,7 @@ export class GameplayController {
             return;
           }
           this.requestStart({
-            chart,
+            ...getRunSection(this.route.origin.start, chart, this.route.song),
             mode,
             player,
           });
@@ -279,7 +287,13 @@ export class GameplayController {
       case 'playing':
         this.applyPlayingKeyAction(
           phase.run,
-          getPlayingKeyAction(this.buttons.isQuitConfirmOpen, phase.run.status, key, isRepeat),
+          getPlayingKeyAction(
+            this.route.origin.quitKey,
+            this.buttons.isQuitConfirmOpen,
+            phase.run.status,
+            key,
+            isRepeat,
+          ),
         );
         return;
     }
@@ -327,17 +341,6 @@ export class GameplayController {
     }
   }
 
-  closeQuitConfirm(): void {
-    const { phase } = this;
-    if (phase.kind !== 'playing' || !this.buttons.isQuitConfirmOpen) {
-      return;
-    }
-    this.applyButtons((buttons) => withQuitConfirmOpen(buttons, false));
-    this.screen.playSound('close');
-    this.screen.closeQuitConfirm();
-    phase.run.playback.resume();
-  }
-
   pointerOver(button: GameplayButton): void {
     this.applyButtons((buttons) => hoverGameplayButton(buttons, button));
   }
@@ -369,12 +372,16 @@ export class GameplayController {
   }
 
   leave(): void {
-    if (this.phase.kind === 'leaving' || this.phase.kind === 'closed') {
+    const { phase } = this;
+    if (phase.kind === 'leaving' || phase.kind === 'closed') {
       return;
     }
+    const stoppedTimeMs = phase.kind === 'playing' ? phase.run.clock.getTimeMs() : 0;
     this.phase = { kind: 'leaving' };
     this.screen.playSound('close');
-    this.screen.backToSongSelect();
+    this.screen.leave(
+      getPlayOriginRequest(this.route.origin, this.route, this.route, stoppedTimeMs),
+    );
   }
 
   close(): void {
@@ -424,7 +431,7 @@ export class GameplayController {
   private requestStart(run: PreparedRun): void {
     const { song } = this.route;
     const preload = new VideoPreload(run.player, this.ports.now, {
-      playbackStartMs: getPlaybackStartMs(song.gameStartMs),
+      playbackStartMs: getPlaybackStartMs(run.gameStartMs),
       preloadEndMs: song.gameEndMs,
     });
     this.showStatus({ kind: 'loading' });
@@ -445,7 +452,7 @@ export class GameplayController {
       firstNote === undefined
         ? null
         : firstNote.timeMs - playScreen.approachMs - this.settings.inputOffsetMs - chart.offsetMs;
-    const playbackStartMs = getPlaybackStartMs(this.route.song.gameStartMs);
+    const playbackStartMs = getPlaybackStartMs(run.gameStartMs);
     const playback = new LeadInPlayback(
       run.player,
       this.ports.now,
@@ -522,6 +529,17 @@ export class GameplayController {
     };
   }
 
+  private closeQuitConfirm(): void {
+    const { phase } = this;
+    if (phase.kind !== 'playing') {
+      return;
+    }
+    this.applyButtons((buttons) => withQuitConfirmOpen(buttons, false));
+    this.screen.playSound('close');
+    this.screen.closeQuitConfirm();
+    phase.run.playback.resume();
+  }
+
   private applyPlayingKeyAction(run: PlayRun, action: PlayingKeyAction): void {
     switch (action.kind) {
       case 'openQuitConfirm':
@@ -571,7 +589,7 @@ export class GameplayController {
     };
     run.playScreen.drawFrame(run.lastFrame, frame);
     run.lastFrame = frame;
-    if (run.isIntroVisible && run.frameClock.getPlaybackMs() >= song.gameStartMs) {
+    if (run.isIntroVisible && run.frameClock.getPlaybackMs() >= run.gameStartMs) {
       run.isIntroVisible = false;
       run.playScreen.hideIntro();
     }
@@ -630,7 +648,7 @@ export class GameplayController {
   }
 
   private finishRun(run: PlayRun, result: GameplayResult): void {
-    const { song, laneCount, difficulty, chartId, mode } = this.route;
+    const { song, laneCount, difficulty, chartId, origin } = this.route;
     let ranking: ResultRanking = { kind: 'none' };
     const record = getRunRecord(run.mode, result);
     if (record.kind === 'save') {
@@ -666,7 +684,8 @@ export class GameplayController {
       laneCount,
       difficulty,
       chartId,
-      mode,
+      origin,
+      report: run.report,
       result,
       ranking,
     });

@@ -10,6 +10,9 @@ import type { CelestialScreen } from '../../../celestial/state/celestialPlacemen
 import type { CelestialTextureUse } from '../../../celestial/view/celestialSprites.js';
 import type { ButtonView } from '../../state/buttonPointer.js';
 import type { ControlsButton, ControlsGroup } from '../../../app/controlsGuide.js';
+import type { AccountIdentity } from '../../state/accountIdentity.js';
+import { addAccountPanel } from './accountCard.js';
+import type { AccountPanelOptions } from './accountCard.js';
 import { ControlsOverlay, addControlsEntry } from './ControlsOverlay.js';
 import type { ButtonPointer } from '../input/hoverTarget.js';
 import { handleEachEventOnce, requireKeyboard } from '../input/menuInput.js';
@@ -31,6 +34,8 @@ export function getMenuSceneTextureUses(
 export interface MenuSceneChromeOptions {
   readonly celestial: CelestialCatalog;
   readonly screen: CelestialScreen;
+  /** 메인은 로그인 전 화면까지 함께 그리는 자기 패널을 쓴다. */
+  readonly account: AccountPanelOptions | null;
 }
 
 export interface MenuSceneKeys {
@@ -45,6 +50,7 @@ export interface MenuSceneKeys {
 /** 메뉴 씬이 함께 쓰는 배경 분위기, 조작 안내 팝업과 진입 버튼, 진입 연출, 키 처리 앞부분. */
 export class MenuSceneChrome {
   private readonly overlay: ControlsOverlay;
+  private readonly accountPanel: ReturnType<typeof addAccountPanel> | null;
   private entryLabel: Phaser.GameObjects.Text | null = null;
 
   // 닫기 버튼과 막 포인터는 팝업을 만들 때 묶어야 해서 키·포인터 처리를 생성자에서 받는다.
@@ -55,7 +61,16 @@ export class MenuSceneChrome {
     private readonly pointer: ButtonPointer<ControlsButton>,
   ) {
     addCelestialAtmosphere(scene, options.celestial, options.screen);
+    this.accountPanel = options.account === null ? null : addAccountPanel(scene, options.account);
     this.overlay = new ControlsOverlay(scene, pointer);
+  }
+
+  renderAccount(identity: AccountIdentity | null): void {
+    this.accountPanel?.render(identity);
+  }
+
+  renderAccountButton(view: ButtonView): void {
+    this.accountPanel?.renderButton(view);
   }
 
   renderControls(guide: readonly ControlsGroup[] | null): void {

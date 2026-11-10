@@ -7,7 +7,7 @@ import {
   SONGS,
 } from '../../../src/pbCollections.js';
 import { where } from '../../../src/pbQuery.js';
-import { column, columnAs, columns } from '../../../src/pbSql.js';
+import { column, columnAs, columns, joinOn } from '../../../src/pbSql.js';
 import { LANE_COUNTS } from '../../../src/rhythm/lanes.js';
 import type { Difficulty, FinishedGameplayResult, LaneCount } from '../../../src/rhythm/types.js';
 import { parseOneOf, selectRows } from '../jsvm.js';
@@ -38,7 +38,7 @@ export function readSessionChart(runtime: QueryRuntime, app: DbApp, chartId: str
         ...columns(SONGS, ['gameStartMs', 'gameEndMs']),
       )
       .from(CHARTS.name)
-      .innerJoin(SONGS.name, dbx.exp(`${column(SONGS, 'id')} = ${column(CHARTS, 'song')}`))
+      .innerJoin(SONGS.name, dbx.exp(joinOn(SONGS, 'id', CHARTS, 'song')))
       .where(
         dbx.hashExp({
           [column(CHARTS, 'id')]: chartId,
@@ -103,11 +103,8 @@ export function readOwnSession(
         column(SONGS, 'constellation'),
       )
       .from(PLAY_SESSIONS.name)
-      .innerJoin(
-        CHARTS.name,
-        dbx.exp(`${column(CHARTS, 'id')} = ${column(PLAY_SESSIONS, 'chart')}`),
-      )
-      .innerJoin(SONGS.name, dbx.exp(`${column(SONGS, 'id')} = ${column(CHARTS, 'song')}`))
+      .innerJoin(CHARTS.name, dbx.exp(joinOn(CHARTS, 'id', PLAY_SESSIONS, 'chart')))
+      .innerJoin(SONGS.name, dbx.exp(joinOn(SONGS, 'id', CHARTS, 'song')))
       .where(
         dbx.hashExp({
           [column(PLAY_SESSIONS, 'id')]: sessionId,
@@ -154,7 +151,7 @@ export function readCurrentChart(runtime: QueryRuntime, tx: DbApp, chartId: stri
       .db()
       .select(column(CHARTS, 'revision'), column(SONGS, 'isPublished'))
       .from(CHARTS.name)
-      .innerJoin(SONGS.name, dbx.exp(`${column(SONGS, 'id')} = ${column(CHARTS, 'song')}`))
+      .innerJoin(SONGS.name, dbx.exp(joinOn(SONGS, 'id', CHARTS, 'song')))
       .where(dbx.hashExp({ [column(CHARTS, 'id')]: chartId }))
       .limit(1),
   );
@@ -173,7 +170,7 @@ export function deletePlaySessions(
   tx.db().delete(PLAY_SESSIONS.name, runtime.dbx.hashExp(target)).execute();
 }
 
-function findQuotaRecord(tx: JsvmApp, userId: string): JsvmRecord | undefined {
+export function findQuotaRecord(tx: JsvmApp, userId: string): JsvmRecord | undefined {
   const quotaFilter = where(PLAY_SESSION_QUOTAS, [{ user: userId }]);
   return tx.findRecordsByFilter(
     PLAY_SESSION_QUOTAS.name,
@@ -185,26 +182,23 @@ function findQuotaRecord(tx: JsvmApp, userId: string): JsvmRecord | undefined {
   )[0];
 }
 
-export function readSessionQuota(tx: JsvmApp, userId: string): SessionQuota | null {
-  const record = findQuotaRecord(tx, userId);
-  return record === undefined
-    ? null
-    : {
-        windowStartedAtMs: record.getDateTime('windowStartedAt').time().unixMilli(),
-        issuedCount: record.getInt('issuedCount'),
-      };
+export function parseQuotaRecord(record: JsvmRecord): SessionQuota {
+  return {
+    windowStartedAtMs: record.getDateTime('windowStartedAt').time().unixMilli(),
+    issuedCount: record.getInt('issuedCount'),
+  };
 }
 
 export function saveSessionQuota(
   runtime: Pick<JsvmRuntime, 'Record'>,
   tx: JsvmApp,
-  userId: string,
+  target: { readonly userId: string; readonly record: JsvmRecord | undefined },
   quota: SessionQuota,
 ): void {
-  let record = findQuotaRecord(tx, userId);
+  let { record } = target;
   if (record === undefined) {
     record = new runtime.Record(tx.findCachedCollectionByNameOrId(PLAY_SESSION_QUOTAS.name));
-    record.set('user', userId);
+    record.set('user', target.userId);
   }
   record.set('windowStartedAt', new Date(quota.windowStartedAtMs).toISOString());
   record.set('issuedCount', quota.issuedCount);
@@ -254,22 +248,24 @@ export interface ScoreKey {
   readonly chartRevision: string;
 }
 
-function findScoreRecord(tx: JsvmApp, key: ScoreKey): JsvmRecord | undefined {
+export function findScoreRecord(tx: JsvmApp, key: ScoreKey): JsvmRecord | undefined {
   const bestFilter = where(SCORES, [key]);
   return tx.findRecordsByFilter(SCORES.name, bestFilter.expression, '', 1, 0, bestFilter.params)[0];
 }
 
-export function readBestScore(tx: JsvmApp, key: ScoreKey): number | null {
-  return findScoreRecord(tx, key)?.getFloat('score') ?? null;
+export function parseScoreRecord(record: JsvmRecord): number {
+  return record.getFloat('score');
 }
 
 export function saveBestScore(
   runtime: Pick<JsvmRuntime, 'Record'>,
   tx: JsvmApp,
-  key: ScoreKey,
-  result: FinishedGameplayResult,
+  target: { readonly key: ScoreKey; readonly record: JsvmRecord | undefined },
+  result: Pick<FinishedGameplayResult, 'score' | 'accuracy' | 'maxCombo' | 'counts' | 'cleared'>,
+  achievedAtMs: number,
 ): void {
-  let record = findScoreRecord(tx, key);
+  const { key } = target;
+  let { record } = target;
   if (record === undefined) {
     record = new runtime.Record(tx.findCachedCollectionByNameOrId(SCORES.name));
     record.set('user', key.user);
@@ -281,5 +277,6 @@ export function saveBestScore(
   record.set('maxCombo', result.maxCombo);
   record.set('cleared', result.cleared);
   record.set('counts', result.counts);
+  record.set('achievedAt', new Date(achievedAtMs).toISOString());
   tx.save(record);
 }

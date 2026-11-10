@@ -205,10 +205,6 @@ export function withQuitConfirmOpen(
   };
 }
 
-function isGameplayButtonEnabled(buttons: GameplayButtons, button: GameplayButton): boolean {
-  return button === 'back' || buttons.isQuitConfirmOpen;
-}
-
 function withHover(buttons: GameplayButtons, hover: GameplayButtons['hover']): GameplayButtons {
   return hover === buttons.hover
     ? buttons
@@ -236,10 +232,7 @@ export function pressGameplayButton(
   buttons: GameplayButtons,
   button: GameplayButton,
 ): GameplayButtons {
-  return withHover(
-    buttons,
-    pressButton(buttons.hover, button, isGameplayButtonEnabled(buttons, button)),
-  );
+  return withHover(buttons, pressButton(buttons.hover, button, true));
 }
 
 export function releaseGameplayButton(
@@ -253,19 +246,12 @@ export function getGameplayButtonView(
   buttons: GameplayButtons,
   button: GameplayButton,
 ): ButtonView {
-  return getButtonView(
-    buttons.hover,
-    button,
-    isGameplayButtonEnabled(buttons, button),
-    button === 'back',
-  );
+  return getButtonView(buttons.hover, button, true, button === 'back');
 }
 
 export type GameplayButtonRegion = 'backButton' | 'quitConfirmButtons';
 
 type ButtonsReader = StateReader<GameplayButtons>;
-
-const readQuitConfirmOpen: ButtonsReader = (buttons) => buttons.isQuitConfirmOpen;
 
 function readPointer(button: GameplayButton): readonly ButtonsReader[] {
   return [
@@ -276,11 +262,7 @@ function readPointer(button: GameplayButton): readonly ButtonsReader[] {
 
 const BUTTON_REGION_SOURCES: Readonly<Record<GameplayButtonRegion, readonly ButtonsReader[]>> = {
   backButton: readPointer('back'),
-  quitConfirmButtons: [
-    ...readPointer('quitCancel'),
-    ...readPointer('quitAccept'),
-    readQuitConfirmOpen,
-  ],
+  quitConfirmButtons: [...readPointer('quitCancel'), ...readPointer('quitAccept')],
 };
 
 export function getChangedButtonRegions(

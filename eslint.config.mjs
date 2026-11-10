@@ -13,6 +13,7 @@ const SCREEN_FOLDERS = [
   'credits',
   'editor',
   'profile',
+  'ranking',
   'boot',
 ];
 

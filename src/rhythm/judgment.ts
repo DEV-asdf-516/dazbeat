@@ -31,14 +31,6 @@ export function judgeTap(
   return 'miss';
 }
 
-export function judgeHoldRelease(
-  endTimeMs: number,
-  releaseTimeMs: number,
-  windows: JudgmentWindows,
-): Judgment {
-  return releaseTimeMs >= endTimeMs - windows.badMs ? 'perfect' : 'miss';
-}
-
 export function getJudgmentEventCount(notes: readonly Note[]): number {
   return notes.reduce((total, note) => total + (note.type === 'hold' ? 2 : 1), 0);
 }

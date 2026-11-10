@@ -81,6 +81,7 @@ interface Harness {
   readonly backgroundVolumes: Settings[];
   failSave(): void;
   leaveCount(): number;
+  profileOpenCount(): number;
   clickSoundCount(): number;
   closeSoundCount(): number;
   renders(): Extract<Event, { kind: 'render' }>[];
@@ -88,6 +89,7 @@ interface Harness {
 }
 
 function createHarness(): Harness {
+  let profileOpenCount = 0;
   const events: Event[] = [];
   const languageChanges: { language: Language; response: Pending<void> }[] = [];
   const backgroundVolumes: Settings[] = [];
@@ -132,6 +134,9 @@ function createHarness(): Harness {
       leave: () => {
         leaveCount += 1;
       },
+      openProfile: () => {
+        profileOpenCount += 1;
+      },
     },
     ROWS,
     DEFAULT_SETTINGS,
@@ -148,6 +153,7 @@ function createHarness(): Harness {
       isSaveFailing = true;
     },
     leaveCount: () => leaveCount,
+    profileOpenCount: () => profileOpenCount,
     clickSoundCount: () => countSounds(events, 'click'),
     closeSoundCount: () => countSounds(events, 'close'),
     renders,
@@ -566,5 +572,16 @@ describe('SettingsController button pointer', () => {
     harness.controller.handleControlsKey(ESCAPE_KEY);
 
     expect(harness.lastRender().next.hover).toBeNull();
+  });
+
+  it('opens the profile from the account panel', () => {
+    const harness = createHarness();
+
+    harness.controller.pointerDown('accountProfile');
+    harness.controller.pointerUp('accountProfile');
+    expect(harness.profileOpenCount()).toBe(1);
+
+    expect(harness.leaveCount()).toBe(0);
+    expect(harness.clickSoundCount()).toBe(1);
   });
 });

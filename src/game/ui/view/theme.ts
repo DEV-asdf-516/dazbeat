@@ -1,6 +1,11 @@
 import type Phaser from 'phaser';
 import type { SongCategory } from '../../../data/songs.js';
-import type { Judgment } from '../../../rhythm/types.js';
+import type { Judgment, Rank } from '../../../rhythm/types.js';
+import type { TopRankTier } from '../state/topRank.js';
+
+export function isReducedMotionPreferred(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 export const COLORS = {
   background: 0x0f0f10,
@@ -54,6 +59,103 @@ export const JUDGMENT_COLORS: Record<Judgment, number> = {
   good: 0x8faedc,
   bad: 0x9b8db5,
   miss: 0xd9787e,
+};
+
+/**
+ * 등급은 진주처럼 비껴 흐르는 그라데이션으로 칠하고, 등급마다 색 계열을 달리해 글자보다 색으로 먼저 구분된다.
+ * 달밤 배경 위 다른 글자보다 튀지 않게 채도를 낮추고, 빛은 S 에만 둘러 가장 높은 등급만 따로 빛난다.
+ * 각도는 글자 모양 범위에서 색이 흐르는 방향이며 0 은 왼쪽에서 오른쪽, 90 은 위에서 아래다.
+ */
+export const GRADE_FILLS: Record<
+  Rank,
+  {
+    readonly stops: readonly (readonly [offset: number, color: number])[];
+    readonly angleDeg: number;
+    readonly glow: number | null;
+  }
+> = {
+  S: {
+    stops: [
+      [0, 0xcdb8f2],
+      [0.32, 0xcdb8f2],
+      [0.42, 0xfbf8ff],
+      [0.52, 0xbfb6ef],
+      [0.82, 0x9fd3f0],
+      [1, 0xd4eef8],
+    ],
+    angleDeg: 35,
+    glow: 0xd6d4f4,
+  },
+  A: {
+    stops: [
+      [0, 0xfff9e8],
+      [1 / 3, 0xf8e6b8],
+      [2 / 3, 0xebcb84],
+      [1, 0xf6e0a8],
+    ],
+    angleDeg: 55,
+    glow: null,
+  },
+  B: {
+    stops: [
+      [0, 0xeef4f7],
+      [1 / 3, 0xc6d9e3],
+      [2 / 3, 0x9ab6c6],
+      [1, 0xc8d8e0],
+    ],
+    angleDeg: 55,
+    glow: null,
+  },
+  C: {
+    stops: [
+      [0, 0xe8e7e3],
+      [1 / 3, 0xc4c2bd],
+      [2 / 3, 0xa2a09b],
+      [1, 0xbfbdb8],
+    ],
+    angleDeg: 55,
+    glow: null,
+  },
+  D: {
+    stops: [
+      [0, 0xbfc1c7],
+      [1 / 3, 0x9c9fa7],
+      [2 / 3, 0x80838c],
+      [1, 0x9a9da5],
+    ],
+    angleDeg: 55,
+    glow: null,
+  },
+};
+
+export const TOP_RANK_COLORS: Record<
+  TopRankTier,
+  { readonly top: number; readonly middle: number; readonly bottom: number; readonly glow: number }
+> = {
+  gold: {
+    top: 0xfffaf0,
+    middle: 0xf3e2ae,
+    bottom: 0xd6ad58,
+    glow: 0xf3e2ae,
+  },
+  silver: {
+    top: 0xffffff,
+    middle: 0xdfe6ee,
+    bottom: 0x9eadbd,
+    glow: 0xdfe6ee,
+  },
+  bronze: {
+    top: 0xfff1e6,
+    middle: 0xe8b48a,
+    bottom: 0xb0703f,
+    glow: 0xe8b48a,
+  },
+  plain: {
+    top: 0xffffff,
+    middle: 0xf2f0eb,
+    bottom: 0xc8c8cb,
+    glow: 0xf2f0eb,
+  },
 };
 
 /** Pretendard 에 일본어 한자·가나가 대부분 없어 일본어는 Noto Sans JP 로 넘긴다. */
@@ -148,26 +250,9 @@ export const CARD_PANEL = {
 } as const;
 
 export const INDICATOR = {
-  underlineThicknessPx: 3,
+  underlineThicknessPx: 2,
   underlineOffsetPx: 8,
 } as const;
-
-export function addTextUnderline(
-  scene: Phaser.Scene,
-  text: Phaser.GameObjects.Text,
-  color: number,
-): Phaser.GameObjects.Rectangle {
-  const bottomLeft = text.getBottomLeft();
-  return scene.add
-    .rectangle(
-      bottomLeft.x,
-      bottomLeft.y + INDICATOR.underlineOffsetPx,
-      text.width,
-      INDICATOR.underlineThicknessPx,
-      color,
-    )
-    .setOrigin(0, 0);
-}
 
 export function cssColor(color: number): string {
   return `#${color.toString(16).padStart(6, '0')}`;

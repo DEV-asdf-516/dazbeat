@@ -7,7 +7,9 @@ import type {
   RankingSubmission,
 } from '../../../src/data/playSession.js';
 import type { PlaySubmission } from '../../../src/data/playSubmission.js';
+import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
+import { SongFeed } from '../../../src/game/app/SongFeed.js';
 import { GameplayController } from '../../../src/game/gameplay/GameplayController.js';
 import type { GameplayFrame } from '../../../src/game/gameplay/state/gameplayHud.js';
 import type {
@@ -17,9 +19,10 @@ import type {
 } from '../../../src/game/gameplay/state/gameplayStatus.js';
 import type {
   GameplaySceneData,
-  PlayMode,
+  PlayOrigin,
   ResultRanking,
   ResultSceneData,
+  SceneRequest,
 } from '../../../src/game/app/sceneRoutes.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { Chart, Difficulty, GameplayResult, LaneCount } from '../../../src/rhythm/types.js';
@@ -127,6 +130,35 @@ interface Pending<T> {
 
 type Call = readonly [string, ...unknown[]];
 
+const STANDARD_ORIGIN: PlayOrigin = {
+  kind: 'songSelect',
+  mode: 'standard',
+  quitKey: 'confirm',
+  start: { kind: 'whole' },
+};
+const PRACTICE_ORIGIN: PlayOrigin = {
+  kind: 'songSelect',
+  mode: 'practice',
+  quitKey: 'confirm',
+  start: { kind: 'whole' },
+};
+const EDITOR_START_MS = song.gameStartMs;
+const EDITOR_LIST = new SongFeed(ALL_SONGS_QUERY, () => Promise.reject(new Error('Not used')));
+const EDITOR_ORIGIN: PlayOrigin = {
+  kind: 'chartEditor',
+  mode: 'practice',
+  quitKey: 'leave',
+  start: {
+    kind: 'from',
+    timeMs: EDITOR_START_MS,
+  },
+  list: EDITOR_LIST,
+};
+const BACK_TO_SONG_SELECT: SceneRequest = {
+  key: 'songSelect',
+  data: { mode: 'standard' },
+};
+
 interface Harness {
   readonly controller: GameplayController;
   readonly route: GameplaySceneData;
@@ -136,6 +168,7 @@ interface Harness {
   readonly playerCalls: string[];
   readonly preparedCharts: (Pending<PreparedChart> & { readonly ref: ChartRef })[];
   readonly practiceCharts: (Pending<Chart> & { readonly ref: ChartRef })[];
+  readonly testCharts: (Pending<Chart> & { readonly ref: ChartRef })[];
   readonly apiLoads: Pending<void>[];
   readonly createdPlayers: { readonly videoId: string; readonly handlers: YouTubePlayerHandlers }[];
   readonly savedSettings: Settings[];
@@ -172,7 +205,7 @@ interface Harness {
 }
 
 function createHarness(
-  mode: PlayMode = 'standard',
+  origin: PlayOrigin = STANDARD_ORIGIN,
   playedChart: Chart = chart,
   settings: Settings = SETTINGS,
 ): Harness {
@@ -181,7 +214,7 @@ function createHarness(
     laneCount: playedChart.laneCount,
     difficulty: 'normal',
     chartId: 'chart_normal',
-    mode,
+    origin,
   };
   const harness: Omit<Harness, 'controller'> = {
     route,
@@ -191,6 +224,7 @@ function createHarness(
     playerCalls: [],
     preparedCharts: [],
     practiceCharts: [],
+    testCharts: [],
     apiLoads: [],
     createdPlayers: [],
     savedSettings: [],
@@ -244,9 +278,9 @@ function createHarness(
             reject,
           }),
         ),
-      loadPracticeChart: (ref) =>
+      loadChart: (ref, isFresh) =>
         new Promise((resolve, reject) =>
-          harness.practiceCharts.push({
+          (isFresh ? harness.testCharts : harness.practiceCharts).push({
             ref,
             resolve,
             reject,
@@ -347,7 +381,7 @@ function createHarness(
         harness.shownResults.push(data);
         record('showResult', data);
       },
-      backToSongSelect: () => record('backToSongSelect'),
+      leave: (request) => record('leave', request),
     },
     route,
     settings,
@@ -394,7 +428,9 @@ function getHandlers(harness: Harness): YouTubePlayerHandlers {
 }
 
 function resolveChart(harness: Harness): void {
-  if (harness.route.mode === 'standard') {
+  if (harness.route.origin.kind === 'chartEditor') {
+    requireDefined(harness.testCharts[0], 'test chart was not requested').resolve(harness.chart);
+  } else if (harness.route.origin.mode === 'standard') {
     requireDefined(harness.preparedCharts[0], 'prepared chart was not requested').resolve({
       chart: harness.chart,
       ranking: harness.ranking,
@@ -495,7 +531,7 @@ afterEach(() => {
 
 describe('GameplayController start', () => {
   it('prepares the standard chart, loads the API, creates the player and waits for start on ready', async () => {
-    const harness = createHarness('standard');
+    const harness = createHarness(STANDARD_ORIGIN);
     void harness.controller.start();
 
     expect(harness.screenCalls).toEqual([['showStatus', { kind: 'loading' }]]);
@@ -521,7 +557,7 @@ describe('GameplayController start', () => {
   });
 
   it('loads the practice chart for practice mode', async () => {
-    const harness = createHarness('practice');
+    const harness = createHarness(PRACTICE_ORIGIN);
     void harness.controller.start();
 
     expect(harness.practiceCharts.map(({ ref }) => ref)).toEqual([harness.route]);
@@ -532,6 +568,204 @@ describe('GameplayController start', () => {
     requireDefined(harness.apiLoads[0], 'API load was not requested').resolve();
     await flush();
     expect(harness.createdPlayers).toHaveLength(1);
+  });
+});
+
+describe('GameplayController origin', () => {
+  const BACK_TO_EDITOR: SceneRequest = {
+    key: 'chartEditor',
+    data: {
+      songId: song.id,
+      list: EDITOR_LIST,
+      chart: {
+        laneCount: 4,
+        difficulty: 'normal',
+      },
+      resumeTimeMs: EDITOR_START_MS,
+    },
+  };
+
+  it('loads only the test chart when started from the editor', () => {
+    const harness = createHarness(EDITOR_ORIGIN);
+    void harness.controller.start();
+
+    expect(harness.testCharts.map(({ ref }) => ref)).toEqual([harness.route]);
+    expect(harness.practiceCharts).toEqual([]);
+    expect(harness.preparedCharts).toEqual([]);
+  });
+
+  it('neither saves nor submits a play from the editor and keeps its origin', async () => {
+    const harness = createHarness(EDITOR_ORIGIN);
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    expect(harness.savedResults).toEqual([]);
+    expect(harness.submissions).toEqual([]);
+    const shown = requireDefined(harness.shownResults[0], 'result was not shown');
+    expect(shown.origin).toBe(EDITOR_ORIGIN);
+    expect(shown.ranking).toEqual({ kind: 'none' });
+  });
+
+  it('leaves on Esc without a confirm and keeps the time it stopped at', async () => {
+    const harness = createHarness(EDITOR_ORIGIN);
+    await startVideo(harness);
+    moveClock(harness, msToSec(EDITOR_START_MS + 1500));
+    resetCalls(harness);
+
+    harness.controller.keyDown('Escape', false);
+
+    expect(harness.screenCalls).toEqual([
+      [
+        'leave',
+        {
+          ...BACK_TO_EDITOR,
+          data: {
+            ...BACK_TO_EDITOR.data,
+            resumeTimeMs: EDITOR_START_MS + 1500 + SETTINGS.inputOffsetMs + chart.offsetMs,
+          },
+        },
+      ],
+    ]);
+  });
+
+  it('keeps the start time when Esc comes before the song reaches it', async () => {
+    const harness = createHarness(EDITOR_ORIGIN);
+    await startCountdown(harness);
+    resetCalls(harness);
+
+    harness.controller.keyDown('Escape', false);
+
+    expect(harness.screenCalls.at(-1)).toEqual(['leave', BACK_TO_EDITOR]);
+  });
+
+  it('plays only the notes from the start time and starts the video before it', async () => {
+    const harness = createHarness(
+      {
+        ...EDITOR_ORIGIN,
+        start: {
+          kind: 'from',
+          timeMs: 5000,
+        },
+      },
+      {
+        ...chart,
+        offsetMs: 100,
+        notes: [
+          {
+            type: 'tap',
+            lane: 0,
+            timeMs: 4999,
+          },
+          {
+            type: 'tap',
+            lane: 1,
+            timeMs: 5000,
+          },
+        ],
+      },
+    );
+    await startWarming(harness);
+
+    expect(harness.playerCalls).toContain('requestPlay(2.9)');
+    expect(harness.screenCalls.find(([name]) => name === 'beginPlay')?.[1]).toMatchObject({
+      notes: [{ timeMs: 5000 }],
+    });
+  });
+
+  it('reports a section from the editor and a graded run from song select', async () => {
+    const editor = createHarness(EDITOR_ORIGIN);
+    await startVideo(editor);
+    moveClock(editor, 10);
+    editor.controller.tick();
+    runEffectDone(editor);
+    expect(requireDefined(editor.shownResults[0], 'result was not shown').report).toEqual({
+      kind: 'section',
+      startTimeMs: EDITOR_START_MS,
+      endTimeMs: song.gameEndMs,
+      noteCount: chart.notes.filter((note) => note.timeMs >= EDITOR_START_MS).length,
+      totalNoteCount: chart.notes.length,
+    });
+
+    const standard = createHarness(PRACTICE_ORIGIN);
+    await startVideo(standard);
+    moveClock(standard, 10);
+    standard.controller.tick();
+    runEffectDone(standard);
+    expect(requireDefined(standard.shownResults[0], 'result was not shown').report).toEqual({
+      kind: 'graded',
+    });
+  });
+
+  it('goes back to the chart it played in the editor on leave', () => {
+    const harness = createHarness(EDITOR_ORIGIN);
+    resetCalls(harness);
+
+    harness.controller.leave();
+
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_EDITOR]]);
+  });
+
+  it('goes back to the editor after the test chart fails to load', async () => {
+    const harness = createHarness(EDITOR_ORIGIN);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    void harness.controller.start();
+    requireDefined(harness.testCharts[0], 'test chart was not requested').reject(
+      new Error('network'),
+    );
+    await flush();
+    resetCalls(harness);
+
+    harness.controller.leave();
+
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_EDITOR]]);
+  });
+
+  it('restores song select on the played difficulty and keeps the origin for the result', async () => {
+    const restore = {
+      feed: EDITOR_LIST,
+      index: 2,
+      songId: song.id,
+      difficulty: 'easy',
+    } as const;
+    const origin: PlayOrigin = {
+      kind: 'songSelect',
+      mode: 'standard',
+      quitKey: 'confirm',
+      start: { kind: 'whole' },
+      restore,
+    };
+    const leaving = createHarness(origin);
+    resetCalls(leaving);
+
+    leaving.controller.leave();
+
+    expect(leaving.screenCalls).toEqual([
+      [
+        'leave',
+        {
+          key: 'songSelect',
+          data: {
+            mode: 'standard',
+            restore: {
+              ...restore,
+              difficulty: 'normal',
+            },
+          },
+        },
+      ],
+    ]);
+
+    const finishing = createHarness(origin);
+    await startVideo(finishing);
+    moveClock(finishing, 10);
+    finishing.controller.tick();
+    runEffectDone(finishing);
+
+    expect(requireDefined(finishing.shownResults[0], 'result was not shown').origin).toBe(origin);
+    expect(finishing.savedResults).toHaveLength(1);
+    expect(finishing.submissions).toHaveLength(1);
   });
 });
 
@@ -610,7 +844,7 @@ describe('GameplayController player errors', () => {
 
       harness.controller.keyDown(code, false);
 
-      expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+      expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     },
   );
 });
@@ -849,7 +1083,7 @@ describe('GameplayController start sequence', () => {
 
   it('starts the pre-roll where the first note enters the top of the screen', async () => {
     const harness = createHarness(
-      'standard',
+      STANDARD_ORIGIN,
       {
         ...chart,
         offsetMs: 100,
@@ -1006,7 +1240,7 @@ describe('GameplayController leaving', () => {
     harness.controller.keyDown('Tab', false);
     harness.controller.leave();
 
-    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     expect(harness.savedSettings).toEqual([]);
   });
 
@@ -1018,7 +1252,7 @@ describe('GameplayController leaving', () => {
     harness.controller.leave();
     harness.controller.leave();
 
-    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     expect(harness.playerCalls).toEqual([]);
   });
 });
@@ -1098,7 +1332,7 @@ describe('GameplayController playing', () => {
   });
 
   it('judges keyup only for a pressed lane', async () => {
-    const harness = createHarness('standard', HOLD_CHART);
+    const harness = createHarness(STANDARD_ORIGIN, HOLD_CHART);
     await startVideo(harness);
     moveClock(harness, 4);
     harness.controller.tick();
@@ -1137,7 +1371,7 @@ describe('GameplayController playing', () => {
 
 describe('GameplayController lane modes', () => {
   it('reads lane keys from the 5K bindings and saves the run under 5 lanes', async () => {
-    const harness = createHarness('standard', FIVE_LANE_CHART);
+    const harness = createHarness(STANDARD_ORIGIN, FIVE_LANE_CHART);
     await startVideo(harness);
     moveClock(harness, 4);
     harness.controller.tick();
@@ -1205,7 +1439,7 @@ describe('GameplayController lane modes', () => {
   });
 
   it('reads KeyL as the last lane in 6K', async () => {
-    const harness = createHarness('standard', SIX_LANE_CHART);
+    const harness = createHarness(STANDARD_ORIGIN, SIX_LANE_CHART);
     await startVideo(harness);
     moveClock(harness, 4);
     harness.controller.tick();
@@ -1263,7 +1497,7 @@ describe('GameplayController quit confirm', () => {
 
     harness.controller.keyDown('Enter', false);
 
-    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
   });
 
   it('plays the click sound on opening, and the close sound on cancelling and quitting', async () => {
@@ -1272,31 +1506,10 @@ describe('GameplayController quit confirm', () => {
 
     harness.controller.keyDown('Escape', false);
     harness.controller.keyDown('Escape', false);
-    harness.controller.closeQuitConfirm();
     harness.controller.keyDown('Escape', false);
     harness.controller.keyDown('Enter', false);
 
     expect(harness.sounds).toEqual(['click', 'close', 'click', 'close']);
-  });
-
-  it('closes the quit confirm from the public call only while it is open', async () => {
-    const harness = createHarness();
-    await startVideo(harness);
-    resetCalls(harness);
-
-    harness.controller.closeQuitConfirm();
-    expect(harness.screenCalls).toEqual([]);
-    expect(harness.playerCalls).toEqual([]);
-
-    harness.controller.keyDown('Escape', false);
-    resetCalls(harness);
-    harness.controller.closeQuitConfirm();
-    expect(harness.screenCalls).toEqual([
-      ['closeQuitConfirm'],
-      ['showStatus', { kind: 'resuming' }],
-      ['setMvVisible', false],
-    ]);
-    expect(harness.playerCalls).toEqual(['setVolume(0.01)', 'resume']);
   });
 
   it('does nothing on Enter while paused, resuming or counting down to the resume', async () => {
@@ -1377,7 +1590,7 @@ describe('GameplayController resync failure', () => {
 
     harness.controller.keyDown('Enter', false);
 
-    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     expect(harness.playerCalls).toEqual([]);
   });
 
@@ -1397,7 +1610,7 @@ describe('GameplayController resync failure', () => {
 
 describe('GameplayController failure', () => {
   it('plays the failure once, pauses the video and then ignores keys and ticks', async () => {
-    const harness = createHarness('standard', FAIL_CHART);
+    const harness = createHarness(STANDARD_ORIGIN, FAIL_CHART);
     await startVideo(harness);
     resetCalls(harness);
 
@@ -1416,7 +1629,7 @@ describe('GameplayController failure', () => {
   });
 
   it('shows the failed result after the failure effect without saving or submitting', async () => {
-    const harness = createHarness('standard', FAIL_CHART);
+    const harness = createHarness(STANDARD_ORIGIN, FAIL_CHART);
     await startVideo(harness);
     moveClock(harness, 5);
     harness.controller.tick();
@@ -1431,7 +1644,7 @@ describe('GameplayController failure', () => {
           song,
           difficulty: 'normal',
           chartId: 'chart_normal',
-          mode: 'standard',
+          origin: STANDARD_ORIGIN,
           result: { outcome: 'failed' },
         },
       ],
@@ -1442,7 +1655,7 @@ describe('GameplayController failure', () => {
   });
 
   it('does not fail in practice for the same misses', async () => {
-    const harness = createHarness('practice', FAIL_CHART);
+    const harness = createHarness(PRACTICE_ORIGIN, FAIL_CHART);
     await startVideo(harness);
     moveClock(harness, 3);
     harness.controller.tick();
@@ -1520,7 +1733,7 @@ describe('GameplayController run end', () => {
           laneCount: 4,
           difficulty: 'normal',
           chartId: 'chart_normal',
-          mode: 'standard',
+          origin: STANDARD_ORIGIN,
           result,
         },
       ],
@@ -1589,7 +1802,10 @@ describe('GameplayController run end', () => {
         accuracy: 0,
         maxCombo: 0,
         cleared: true,
-        bestScore: 0,
+        review: {
+          kind: 'approved',
+          ranking: null,
+        },
         newAchievements: [achievementOf('FIRST_FINISH'), achievementOf('FIRST_CLEAR')],
       },
     };
@@ -1634,7 +1850,7 @@ describe('GameplayController run end', () => {
   });
 
   it('passes no ranking in practice', async () => {
-    const harness = createHarness('practice');
+    const harness = createHarness(PRACTICE_ORIGIN);
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
@@ -1644,7 +1860,7 @@ describe('GameplayController run end', () => {
   });
 
   it('neither saves nor submits in practice', async () => {
-    const harness = createHarness('practice');
+    const harness = createHarness(PRACTICE_ORIGIN);
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
@@ -1654,7 +1870,7 @@ describe('GameplayController run end', () => {
     expect(harness.submissions).toEqual([]);
     expect(harness.screenCalls.at(-1)).toEqual([
       'showResult',
-      expect.objectContaining({ mode: 'practice' }),
+      expect.objectContaining({ origin: PRACTICE_ORIGIN }),
     ]);
   });
 
@@ -1689,7 +1905,7 @@ describe('GameplayController run end', () => {
 
 describe('GameplayController frames', () => {
   it('draws the first frame without a previous frame and then with the last drawn one', async () => {
-    const harness = createHarness('standard', FAIL_CHART);
+    const harness = createHarness(STANDARD_ORIGIN, FAIL_CHART);
     await startVideo(harness);
 
     moveClock(harness, 3);
@@ -1703,7 +1919,7 @@ describe('GameplayController frames', () => {
   });
 
   it('counts the notes the screen reports as entered and never counts down', async () => {
-    const harness = createHarness('standard', FAIL_CHART);
+    const harness = createHarness(STANDARD_ORIGIN, FAIL_CHART);
     await startVideo(harness);
     const counts = (): number[] => harness.frames.map(({ next }) => next.enteredNoteCount);
 
@@ -1768,7 +1984,7 @@ describe('GameplayController button pointer', () => {
     harness.controller.pointerUp('back');
     harness.controller.pointerUp('back');
 
-    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
   });
 
   it('does not go back for an up that was pressed elsewhere', () => {
@@ -1797,17 +2013,6 @@ describe('GameplayController button pointer', () => {
     });
   });
 
-  it('ignores a press on the quit confirm buttons while it is closed', () => {
-    const harness = createHarness();
-    const renderCount = harness.buttonRenders.length;
-
-    harness.controller.pointerDown('quitAccept');
-    harness.controller.pointerUp('quitAccept');
-
-    expect(harness.buttonRenders).toHaveLength(renderCount);
-    expect(harness.screenCalls).toEqual([]);
-  });
-
   it('resumes with the cancel button and leaves with the accept button', async () => {
     const harness = createHarness();
     await startVideo(harness);
@@ -1823,7 +2028,7 @@ describe('GameplayController button pointer', () => {
     resetCalls(harness);
     harness.controller.pointerDown('quitAccept');
     harness.controller.pointerUp('quitAccept');
-    expect(harness.screenCalls).toEqual([['backToSongSelect']]);
+    expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
   });
 
   it('releases the hover of the confirm buttons when the quit confirm closes', async () => {

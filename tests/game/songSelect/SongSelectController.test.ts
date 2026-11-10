@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { YouTubePlayerHandlers } from '../../../src/audio/YouTubePlayer.js';
+import type { ChartTopRank, MyChartRecord } from '../../../src/data/ranking.js';
 import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
 import type {
   ChartRef,
@@ -15,7 +16,14 @@ import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
 import type { SongSelectRestore } from '../../../src/game/app/sceneRoutes.js';
 import { SongFeed } from '../../../src/game/app/SongFeed.js';
 import { SongSelectController } from '../../../src/game/songSelect/SongSelectController.js';
-import { getSongPage } from '../../../src/game/songSelect/state/songSelectState.js';
+import {
+  getChangedRegions,
+  getChangedRowSlots,
+  getRetryButtonView,
+  getSelectedRecordView,
+  getSongPage,
+  getSongRows,
+} from '../../../src/game/songSelect/state/songSelectState.js';
 import type { SongSelectView } from '../../../src/game/songSelect/state/songSelectState.js';
 import type { ChartRecords } from '../../../src/storage/chartRecords.js';
 import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
@@ -186,28 +194,34 @@ function createPreview(volume: number) {
   };
 }
 
-/** 이미 두 페이지 이상을 받아 둔 전체 곡 목록. */
-function createHarness(
+/** 전체 곡 목록을 아직 받지 않았다. */
+function createEmptyCatalogHarness(
   songs: readonly Song[],
   laneCount: LaneCount = 4,
   random: () => number = () => 0,
   volume = 0.5,
+  isSignedIn = false,
 ) {
   const preview = createPreview(volume);
   const server = createServer(songs);
-  const loaded = songs.slice(0, CATALOG_SIZE);
-  const last = loaded.at(-1);
-  const catalog = new SongFeed(ALL_SONGS_QUERY, server.loadBatch, {
-    songs: loaded,
-    next: songs.length > CATALOG_SIZE && last !== undefined ? server.cursorOf(last) : null,
-    totalCount: songs.length,
-  });
+  const catalog = new SongFeed(ALL_SONGS_QUERY, server.loadBatch);
   const created: SongFeed[] = [];
   const renders: { view: SongSelectView; previous: SongSelectView | null }[] = [];
   const plays: { chart: ChartRef; restore: SongSelectRestore }[] = [];
   const settings: SongSelectRestore[] = [];
+  const rankingOpens: { chart: ChartRef; restore: SongSelectRestore }[] = [];
+  const myRankingRequests: {
+    resolve: (ranked: readonly ChartTopRank[]) => void;
+    reject: (error: unknown) => void;
+  }[] = [];
   const sounds: SoundEffect[] = [];
+  const myRecordRequests: {
+    resolve: (items: readonly MyChartRecord[]) => void;
+    reject: (error: unknown) => void;
+  }[] = [];
+  let localRecordReads = 0;
   let mainExits = 0;
+  let profileOpens = 0;
   let controller: SongSelectController | undefined;
   const open = (restore?: SongSelectRestore): SongSelectController => {
     controller = new SongSelectController(
@@ -225,6 +239,27 @@ function createHarness(
         },
         random,
         preview: preview.ports,
+        rankings: {
+          isSignedIn: () => isSignedIn,
+          loadMyTopRanks: () =>
+            new Promise((resolve, reject) => {
+              myRankingRequests.push({
+                resolve,
+                reject,
+              });
+            }),
+          loadMyRecords: () =>
+            new Promise((resolve, reject) => {
+              myRecordRequests.push({
+                resolve,
+                reject,
+              });
+            }),
+        },
+        loadLocalRecords: () => {
+          localRecordReads += 1;
+          return RECORDS;
+        },
       },
       {
         render: (previous, view) =>
@@ -238,15 +273,22 @@ function createHarness(
             restore,
           }),
         openSettings: (restore) => settings.push(restore),
+        openRanking: (chart, restore) =>
+          rankingOpens.push({
+            chart,
+            restore,
+          }),
         backToMain: () => {
           mainExits += 1;
+        },
+        openProfile: () => {
+          profileOpens += 1;
         },
         playSound: (sound) => sounds.push(sound),
       },
       ROWS_PER_PAGE,
       laneCount,
       restore,
-      RECORDS,
       WHEEL_STEP_PX,
     );
     return controller;
@@ -259,7 +301,13 @@ function createHarness(
     renders,
     plays,
     settings,
+    rankingOpens,
+    myRankingRequests,
+    myRecordRequests,
     open,
+    get localRecordReads(): number {
+      return localRecordReads;
+    },
     get focusSounds(): number {
       return sounds.filter((sound) => sound === 'menuFocus').length;
     },
@@ -272,6 +320,9 @@ function createHarness(
     get mainExits(): number {
       return mainExits;
     },
+    get profileOpens(): number {
+      return profileOpens;
+    },
     get controller(): SongSelectController {
       return requireDefined(controller, 'Not opened');
     },
@@ -281,8 +332,35 @@ function createHarness(
   };
 }
 
-function openHarness(songs: readonly Song[], laneCount: LaneCount = 4, random?: () => number) {
-  const harness = createHarness(songs, laneCount, random);
+/** 이미 두 페이지 이상을 받아 둔 전체 곡 목록. */
+async function createHarness(
+  songs: readonly Song[],
+  laneCount?: LaneCount,
+  random?: () => number,
+  volume?: number,
+  isSignedIn?: boolean,
+) {
+  const harness = createEmptyCatalogHarness(songs, laneCount, random, volume, isSignedIn);
+  const { catalog, server } = harness;
+  const request = catalog.requestMore();
+  const loaded = songs.slice(0, CATALOG_SIZE);
+  const last = loaded.at(-1);
+  await settle(server.calls[0], 'resolve', {
+    songs: loaded,
+    next: songs.length > CATALOG_SIZE && last !== undefined ? server.cursorOf(last) : null,
+    totalCount: songs.length,
+  });
+  await request;
+  server.calls.length = 0;
+  return harness;
+}
+
+async function openHarness(
+  songs: readonly Song[],
+  laneCount: LaneCount = 4,
+  random?: () => number,
+) {
+  const harness = await createHarness(songs, laneCount, random);
   harness.open();
   return harness;
 }
@@ -308,8 +386,8 @@ const covers = songs.filter((song) => song.category === 'cover');
 const coverIds = covers.map((song) => song.id);
 
 describe('SongSelectController categories', () => {
-  it('opens ALL with the shared catalog and no request when it already holds two pages', () => {
-    const harness = openHarness(songs);
+  it('opens ALL with the shared catalog and no request when it already holds two pages', async () => {
+    const harness = await openHarness(songs);
 
     expect(harness.server.calls).toHaveLength(0);
     expect(harness.created).toHaveLength(0);
@@ -321,8 +399,51 @@ describe('SongSelectController categories', () => {
     expect(harness.view.notice).toBeNull();
   });
 
+  it('shows songs arriving on an empty catalog that was loading when opened', async () => {
+    const harness = createEmptyCatalogHarness(songs);
+    harness.open();
+
+    expect(harness.view.notice).toBe('loading');
+    expect(harness.server.calls).toHaveLength(1);
+    expect(harness.server.calls[0]?.after).toBeNull();
+
+    await settle(harness.server.calls[0]);
+
+    expect(harness.view.notice).toBeNull();
+    expect(songIds(harness.view)).toEqual(songs.slice(0, PAGE_SIZE).map((song) => song.id));
+    expect(selectedId(harness.view)).toBe('song-000');
+  });
+
+  it('shows a failed first catalog batch and receives it again on user input and on reopening', async () => {
+    const harness = createEmptyCatalogHarness(songs);
+    harness.open();
+
+    await settle(harness.server.calls[0], 'reject');
+
+    expect(harness.view.notice).toBe('loadFailed');
+    expect(harness.server.calls).toHaveLength(1);
+
+    harness.controller.moveSong(1);
+
+    expect(harness.server.calls).toHaveLength(2);
+    expect(harness.server.calls[1]?.after).toBeNull();
+    expect(harness.view.notice).toBe('loading');
+
+    await settle(harness.server.calls[1], 'reject');
+    harness.controller.close();
+    harness.open();
+
+    expect(harness.server.calls).toHaveLength(3);
+    expect(harness.server.calls[2]?.after).toBeNull();
+
+    await settle(harness.server.calls[2]);
+
+    expect(harness.view.notice).toBeNull();
+    expect(songIds(harness.view)).toEqual(songs.slice(0, PAGE_SIZE).map((song) => song.id));
+  });
+
   it('switches ORIGINAL and COVER to new category feeds and shows the server songs as they are', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
 
     harness.controller.selectFilter('cover');
 
@@ -380,8 +501,8 @@ describe('SongSelectController categories', () => {
     expect(harness.view.state.filter).toBe('original');
   });
 
-  it('returns to the shared catalog for ALL without a new request', () => {
-    const harness = openHarness(songs);
+  it('returns to the shared catalog for ALL without a new request', async () => {
+    const harness = await openHarness(songs);
     harness.controller.cycleFilter(-1);
     const callCount = harness.server.calls.length;
 
@@ -393,8 +514,8 @@ describe('SongSelectController categories', () => {
     expect(harness.server.calls).toHaveLength(callCount);
   });
 
-  it('does nothing when the current category is selected again', () => {
-    const harness = openHarness(songs);
+  it('does nothing when the current category is selected again', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.selectFilter('all');
     expect(harness.renders).toHaveLength(1);
@@ -410,7 +531,7 @@ describe('SongSelectController categories', () => {
   });
 
   it('shows only the latest category when an earlier category response arrives later', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('original');
     harness.controller.selectFilter('cover');
     const renderCount = harness.renders.length;
@@ -427,7 +548,7 @@ describe('SongSelectController categories', () => {
   });
 
   it('keeps the previous difficulty for the first song of the new category, even after loading', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectDifficulty('hard');
 
     harness.controller.selectFilter('cover');
@@ -445,7 +566,7 @@ describe('SongSelectController categories', () => {
 
 describe('SongSelectController notices', () => {
   it('shows loading, then a failure without retrying on its own, then retries on user input', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('cover');
     expect(harness.view.notice).toBe('loading');
 
@@ -467,7 +588,7 @@ describe('SongSelectController notices', () => {
   });
 
   it('shows no songs for a category that completes empty', async () => {
-    const harness = openHarness(songs.filter((song) => song.category === 'original'));
+    const harness = await openHarness(songs.filter((song) => song.category === 'original'));
     harness.controller.selectFilter('cover');
 
     await settle(harness.server.calls[0]);
@@ -479,7 +600,7 @@ describe('SongSelectController notices', () => {
 
 describe('SongSelectController batches', () => {
   it('requests the next batch only when the selection reaches the last loaded page', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
 
     harness.controller.moveSong(2);
     expect(harness.server.calls).toHaveLength(0);
@@ -498,7 +619,7 @@ describe('SongSelectController batches', () => {
   });
 
   it('reports the whole list size before every song is received', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
 
     expect(harness.view.state.songs).toHaveLength(CATALOG_SIZE);
     expect(harness.view.songCount).toBe(songs.length);
@@ -511,7 +632,7 @@ describe('SongSelectController batches', () => {
   });
 
   it('shows loading more only while the next batch of a listed category is on its way', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
 
     expect(harness.view.isLoadingMore).toBe(false);
 
@@ -531,7 +652,7 @@ describe('SongSelectController batches', () => {
   });
 
   it('requests the next batch after a response that leaves the selection on the last page', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('cover');
 
     await settle(harness.server.calls[0]);
@@ -544,8 +665,8 @@ describe('SongSelectController batches', () => {
 });
 
 describe('SongSelectController selection', () => {
-  it('selects a row of the current page', () => {
-    const harness = openHarness(songs);
+  it('selects a row of the current page', async () => {
+    const harness = await openHarness(songs);
     harness.controller.moveSong(3);
 
     harness.controller.selectRow(1);
@@ -556,7 +677,7 @@ describe('SongSelectController selection', () => {
 
   it('plays only a playable selection', async () => {
     const noChart = makeSong(200, 'cover', {});
-    const harness = openHarness([makeSong(0), noChart]);
+    const harness = await openHarness([makeSong(0), noChart]);
 
     harness.controller.moveDifficulty(1);
     harness.controller.play();
@@ -584,12 +705,12 @@ describe('SongSelectController selection', () => {
     expect(harness.plays).toHaveLength(1);
   });
 
-  it('plays the chart of the lane count it was opened with', () => {
+  it('plays the chart of the lane count it was opened with', async () => {
     const mixed = makeSong(300, 'original', {
       4: { easy: 'easy-4k' },
       6: { hard: 'hard-6k' },
     });
-    const harness = openHarness([mixed, makeSong(1)], 6);
+    const harness = await openHarness([mixed, makeSong(1)], 6);
 
     harness.controller.play();
 
@@ -603,8 +724,8 @@ describe('SongSelectController selection', () => {
     ]);
   });
 
-  it('ignores play for a song without charts of its lane count', () => {
-    const harness = openHarness([makeSong(0)], 5);
+  it('ignores play for a song without charts of its lane count', async () => {
+    const harness = await openHarness([makeSong(0)], 5);
 
     harness.controller.play();
 
@@ -614,8 +735,8 @@ describe('SongSelectController selection', () => {
 });
 
 describe('SongSelectController focus sound', () => {
-  it('plays the focus sound once when moveSong changes the selected song', () => {
-    const harness = openHarness(songs);
+  it('plays the focus sound once when moveSong changes the selected song', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.moveSong(1);
 
@@ -623,8 +744,8 @@ describe('SongSelectController focus sound', () => {
     expect(harness.focusSounds).toBe(1);
   });
 
-  it('stays silent when moveSong is blocked at the start of the list', () => {
-    const harness = openHarness(songs);
+  it('stays silent when moveSong is blocked at the start of the list', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.moveSong(-1);
 
@@ -632,8 +753,8 @@ describe('SongSelectController focus sound', () => {
     expect(harness.focusSounds).toBe(0);
   });
 
-  it('plays the focus sound when a clicked row changes the selected song', () => {
-    const harness = openHarness(songs);
+  it('plays the focus sound when a clicked row changes the selected song', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.selectRow(0);
     expect(harness.focusSounds).toBe(0);
@@ -643,8 +764,8 @@ describe('SongSelectController focus sound', () => {
     expect(harness.focusSounds).toBe(1);
   });
 
-  it('stays silent for selection changes other than moving or clicking a song', () => {
-    const harness = openHarness(songs, 4, () => 0.5);
+  it('stays silent for selection changes other than moving or clicking a song', async () => {
+    const harness = await openHarness(songs, 4, () => 0.5);
     const rendered = (): number => harness.renders.length;
     const changes = [
       () => harness.controller.moveDifficulty(1),
@@ -663,8 +784,8 @@ describe('SongSelectController focus sound', () => {
 });
 
 describe('SongSelectController click sound', () => {
-  it('plays the click sound once for each filter, difficulty, random, play and settings action', () => {
-    const harness = openHarness(songs, 4, () => 0.5);
+  it('plays the click sound once for each filter, difficulty, random, play and settings action', async () => {
+    const harness = await openHarness(songs, 4, () => 0.5);
     const actions = [
       () => harness.controller.cycleFilter(1),
       () => harness.controller.selectFilter('all'),
@@ -686,8 +807,8 @@ describe('SongSelectController click sound', () => {
     expect(harness.plays).toHaveLength(1);
   });
 
-  it('stays silent when the action changes nothing or is disabled', () => {
-    const harness = openHarness([makeSong(0), makeSong(1, 'original', {})]);
+  it('stays silent when the action changes nothing or is disabled', async () => {
+    const harness = await openHarness([makeSong(0), makeSong(1, 'original', {})]);
 
     harness.controller.selectFilter('all');
     harness.controller.selectDifficulty('easy');
@@ -701,8 +822,8 @@ describe('SongSelectController click sound', () => {
 });
 
 describe('SongSelectController back', () => {
-  it('plays the close sound and returns to main', () => {
-    const harness = openHarness(songs);
+  it('plays the close sound and returns to main', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.back();
 
@@ -711,8 +832,8 @@ describe('SongSelectController back', () => {
     expect(harness.clickSounds).toBe(0);
   });
 
-  it('does nothing after the controller is closed', () => {
-    const harness = openHarness(songs);
+  it('does nothing after the controller is closed', async () => {
+    const harness = await openHarness(songs);
     harness.controller.close();
 
     harness.controller.back();
@@ -723,8 +844,8 @@ describe('SongSelectController back', () => {
 });
 
 describe('SongSelectController hover', () => {
-  it('renders the hovered target with the previous hover', () => {
-    const harness = openHarness(songs);
+  it('renders the hovered target with the previous hover', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.hover({
       kind: 'filter',
@@ -752,8 +873,8 @@ describe('SongSelectController hover', () => {
     });
   });
 
-  it('renders nothing for the same target again or an unhovered target, and clears on its own out', () => {
-    const harness = openHarness(songs);
+  it('renders nothing for the same target again or an unhovered target, and clears on its own out', async () => {
+    const harness = await openHarness(songs);
     harness.controller.hover({
       kind: 'action',
       action: 'play',
@@ -780,8 +901,8 @@ describe('SongSelectController hover', () => {
     expect(harness.view.state.hover).toBeNull();
   });
 
-  it('plays no focus sound', () => {
-    const harness = openHarness(songs);
+  it('plays no focus sound', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.hover({
       kind: 'row',
@@ -800,8 +921,8 @@ describe('SongSelectController hover', () => {
     expect(harness.focusSounds).toBe(0);
   });
 
-  it('clears a row hover when the filter change leaves that row empty', () => {
-    const harness = openHarness(songs);
+  it('clears a row hover when the filter change leaves that row empty', async () => {
+    const harness = await openHarness(songs);
     harness.controller.hover({
       kind: 'row',
       slot: 2,
@@ -813,8 +934,8 @@ describe('SongSelectController hover', () => {
     expect(harness.view.state.hover).toBeNull();
   });
 
-  it('clears a PLAY hover when the selected song has no chart', () => {
-    const harness = openHarness([makeSong(0), makeSong(200, 'cover', {})]);
+  it('clears a PLAY hover when the selected song has no chart', async () => {
+    const harness = await openHarness([makeSong(0), makeSong(200, 'cover', {})]);
     harness.controller.hover({
       kind: 'action',
       action: 'play',
@@ -826,8 +947,8 @@ describe('SongSelectController hover', () => {
     expect(harness.view.state.hover).toBeNull();
   });
 
-  it('clears a RANDOM hover when no song is left to pick', () => {
-    const harness = openHarness(songs);
+  it('clears a RANDOM hover when no song is left to pick', async () => {
+    const harness = await openHarness(songs);
     harness.controller.hover({
       kind: 'action',
       action: 'random',
@@ -838,8 +959,8 @@ describe('SongSelectController hover', () => {
     expect(harness.view.state.hover).toBeNull();
   });
 
-  it('keeps filter and difficulty hovers across song and filter changes', () => {
-    const harness = openHarness(songs);
+  it('keeps filter and difficulty hovers across song and filter changes', async () => {
+    const harness = await openHarness(songs);
     const hovers = [
       {
         kind: 'filter',
@@ -862,8 +983,8 @@ describe('SongSelectController hover', () => {
 });
 
 describe('SongSelectController random song', () => {
-  it('selects the candidate the injected random value picks and renders it with the previous state', () => {
-    const harness = openHarness(songs.slice(0, CATALOG_SIZE), 4, () => 0.5);
+  it('selects the candidate the injected random value picks and renders it with the previous state', async () => {
+    const harness = await openHarness(songs.slice(0, CATALOG_SIZE), 4, () => 0.5);
     harness.controller.moveSong(1);
 
     harness.controller.selectRandomSong();
@@ -874,8 +995,8 @@ describe('SongSelectController random song', () => {
     expect(harness.plays).toHaveLength(0);
   });
 
-  it('does nothing with one playable song or less', () => {
-    const harness = openHarness([makeSong(0), makeSong(1, 'original', {})], 4, () => 0);
+  it('does nothing with one playable song or less', async () => {
+    const harness = await openHarness([makeSong(0), makeSong(1, 'original', {})], 4, () => 0);
     const renderCount = harness.renders.length;
 
     harness.controller.selectRandomSong();
@@ -886,7 +1007,7 @@ describe('SongSelectController random song', () => {
   });
 
   it('loads the remaining songs first so every song of the filter is a candidate', async () => {
-    const harness = openHarness(songs, 4, () => 0.99);
+    const harness = await openHarness(songs, 4, () => 0.99);
 
     harness.controller.selectRandomSong();
     expect(selectedId(harness.view)).toBe('song-000');
@@ -899,7 +1020,7 @@ describe('SongSelectController random song', () => {
   });
 
   it('drops a pending random pick when the filter changes', async () => {
-    const harness = openHarness(songs, 4, () => 0.99);
+    const harness = await openHarness(songs, 4, () => 0.99);
 
     harness.controller.selectRandomSong();
     harness.controller.selectFilter('cover');
@@ -911,8 +1032,37 @@ describe('SongSelectController random song', () => {
     expect(selectedId(harness.view)).toBe(coverIds[0]);
   });
 
+  it('requests the failed feed again from the RETRY button and Enter', async () => {
+    const harness = await openHarness(songs);
+    harness.controller.selectFilter('cover');
+    await settle(harness.server.calls[0], 'reject');
+
+    harness.controller.pointerOver('retry');
+    harness.controller.pointerDown('retry');
+    harness.controller.pointerUp('retry');
+    expect(harness.server.calls).toHaveLength(2);
+
+    await settle(harness.server.calls[1], 'reject');
+    harness.controller.play();
+    expect(harness.server.calls).toHaveLength(3);
+  });
+
+  it('does not keep the hidden RETRY hovered when the next attempt fails again', async () => {
+    const harness = await openHarness(songs);
+    harness.controller.selectFilter('cover');
+    await settle(harness.server.calls[0], 'reject');
+
+    harness.controller.pointerOver('retry');
+    harness.controller.pointerDown('retry');
+    harness.controller.pointerUp('retry');
+    await settle(harness.server.calls[1], 'reject');
+
+    expect(harness.view.notice).toBe('loadFailed');
+    expect(getRetryButtonView(harness.view).isPointerOver).toBe(false);
+  });
+
   it('does not retry a failed empty feed', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('cover');
     await settle(harness.server.calls[0], 'reject');
     const renderCount = harness.renders.length;
@@ -925,9 +1075,276 @@ describe('SongSelectController random song', () => {
   });
 });
 
+describe('SongSelectController ranking', () => {
+  it('opens the ranking of the selected chart with one click from the button or L', async () => {
+    const harness = await openHarness(songs);
+
+    harness.controller.pointerDown('ranking');
+    harness.controller.pointerUp('ranking');
+    harness.controller.openRanking();
+
+    const opened = {
+      chart: {
+        song: songs[0],
+        laneCount: 4,
+        difficulty: 'easy',
+        chartId: 'easy-0',
+      },
+      restore: {
+        feed: harness.catalog,
+        index: 0,
+        songId: 'song-000',
+        difficulty: 'easy',
+      },
+    };
+    expect(harness.rankingOpens).toEqual([opened, opened]);
+    expect(harness.clickSounds).toBe(2);
+  });
+
+  it('ignores the button and L without a chart', async () => {
+    const harness = await openHarness([makeSong(0, 'original', { 5: { easy: 'easy-5k' } })]);
+
+    harness.controller.pointerDown('ranking');
+    harness.controller.pointerUp('ranking');
+    harness.controller.openRanking();
+
+    expect(harness.rankingOpens).toEqual([]);
+    expect(harness.clickSounds).toBe(0);
+  });
+});
+
+describe('SongSelectController TOP ranks', () => {
+  function rankedChart(chartId: string, rank: number): ChartTopRank {
+    return {
+      chartId,
+      rank,
+    };
+  }
+
+  function topRanksOf(view: SongSelectView): (number | null)[] {
+    return getSongRows(view.state, ROWS_PER_PAGE).map((row) =>
+      row.kind === 'song' ? row.topRank : null,
+    );
+  }
+
+  async function signedInHarness() {
+    const harness = await createHarness(songs, 4, () => 0, 0.5, true);
+    harness.open();
+    return harness;
+  }
+
+  it('does not request my rankings when signed out', async () => {
+    const harness = await openHarness(songs);
+
+    expect(harness.myRankingRequests).toEqual([]);
+  });
+
+  it('shows TOP on the rows of the current lane count and difficulty only', async () => {
+    const harness = await signedInHarness();
+    expect(harness.myRankingRequests).toHaveLength(1);
+
+    requireDefined(harness.myRankingRequests[0], 'Missing request').resolve([
+      rankedChart('easy-1', 3),
+      rankedChart('hard-0', 1),
+    ]);
+    await flush();
+    expect(topRanksOf(harness.view)).toEqual([null, 3, null]);
+
+    harness.controller.moveDifficulty(1);
+    expect(topRanksOf(harness.view)).toEqual([1, null, null]);
+    expect(harness.myRankingRequests).toHaveLength(1);
+  });
+
+  it('shows no TOP and warns when my rankings fail', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const harness = await signedInHarness();
+    const renderCount = harness.renders.length;
+
+    requireDefined(harness.myRankingRequests[0], 'Missing request').reject(new Error('failed'));
+    await flush();
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(topRanksOf(harness.view)).toEqual([null, null, null]);
+    expect(warn).toHaveBeenCalledWith('Failed to load my top ranks', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it('ignores my rankings that arrive after close', async () => {
+    const harness = await signedInHarness();
+    const renderCount = harness.renders.length;
+    harness.controller.close();
+
+    requireDefined(harness.myRankingRequests[0], 'Missing request').resolve([
+      rankedChart('easy-0', 1),
+    ]);
+    await flush();
+
+    expect(harness.renders).toHaveLength(renderCount);
+  });
+
+  it('ignores a rankings failure that arrives after close', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const harness = await signedInHarness();
+    const renderCount = harness.renders.length;
+    harness.controller.close();
+
+    requireDefined(harness.myRankingRequests[0], 'Missing request').reject(new Error('failed'));
+    await flush();
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe('SongSelectController records', () => {
+  const SELECTED_RECORD: MyChartRecord = {
+    songId: 'song-000',
+    laneCount: 4,
+    difficulty: 'easy',
+    score: 800000,
+    accuracy: 0.9,
+    maxCombo: 100,
+    cleared: true,
+  };
+
+  async function signedInHarness() {
+    const harness = await createHarness(songs, 4, () => 0, 0.5, true);
+    harness.open();
+    return harness;
+  }
+
+  function requireRequest(harness: ReturnType<typeof createEmptyCatalogHarness>, index = 0) {
+    return requireDefined(harness.myRecordRequests[index], 'Missing request', index);
+  }
+
+  function retryRecords(harness: ReturnType<typeof createEmptyCatalogHarness>) {
+    harness.controller.pointerOver('recordsRetry');
+    harness.controller.pointerDown('recordsRetry');
+    harness.controller.pointerUp('recordsRetry');
+  }
+
+  it('shows the local records from the first render when signed out', async () => {
+    const harness = await openHarness(songs);
+
+    expect(harness.localRecordReads).toBe(1);
+    expect(harness.myRecordRequests).toEqual([]);
+    expect(
+      getSelectedRecordView(requireDefined(harness.renders[0], 'No render').view.state),
+    ).toMatchObject({
+      kind: 'record',
+      score: 900000,
+      accuracy: 0.95,
+    });
+  });
+
+  it('renders without waiting and shows my records once they arrive when signed in', async () => {
+    const harness = await signedInHarness();
+
+    expect(harness.localRecordReads).toBe(0);
+    expect(harness.myRecordRequests).toHaveLength(1);
+    expect(harness.view.state.records).toEqual({ kind: 'loading' });
+    expect(getSelectedRecordView(harness.view.state)).toEqual({ kind: 'hidden' });
+
+    requireRequest(harness).resolve([SELECTED_RECORD]);
+    await flush();
+
+    expect(harness.view.state.records.kind).toBe('ready');
+    expect(getSelectedRecordView(harness.view.state)).toMatchObject({
+      kind: 'record',
+      score: 800000,
+      accuracy: 0.9,
+    });
+  });
+
+  it('has no record for a chart the server does not answer when signed in', async () => {
+    const harness = await signedInHarness();
+
+    requireRequest(harness).resolve([]);
+    await flush();
+
+    expect(getSelectedRecordView(harness.view.state)).toEqual({ kind: 'none' });
+  });
+
+  it('fails, and RETRY asks again without leaving its hover behind', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const harness = await signedInHarness();
+
+    requireRequest(harness).reject(new Error('failed'));
+    await flush();
+    expect(harness.view.state.records).toEqual({ kind: 'failed' });
+    expect(getSelectedRecordView(harness.view.state)).toEqual({ kind: 'failed' });
+    expect(warn).toHaveBeenCalledWith('Failed to load my records', expect.any(Error));
+
+    retryRecords(harness);
+    expect(harness.clickSounds).toBe(1);
+    expect(harness.view.state.records).toEqual({ kind: 'loading' });
+    expect(harness.view.state.hover).toBeNull();
+    expect(harness.myRecordRequests).toHaveLength(2);
+
+    requireRequest(harness, 1).resolve([SELECTED_RECORD]);
+    await flush();
+    expect(getSelectedRecordView(harness.view.state)).toMatchObject({ kind: 'record' });
+    warn.mockRestore();
+  });
+
+  it.each([
+    ['records', (request: { resolve: (items: []) => void }) => request.resolve([])],
+    [
+      'a failure',
+      (request: { reject: (error: unknown) => void }) => request.reject(new Error('x')),
+    ],
+  ])('ignores %s that arrive after close', async (_case, settleRequest) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const harness = await signedInHarness();
+    const renderCount = harness.renders.length;
+    harness.controller.close();
+
+    settleRequest(requireRequest(harness));
+    await flush();
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('repaints only the rows whose record changed and the song info when records arrive', async () => {
+    const harness = await signedInHarness();
+
+    requireRequest(harness).resolve([
+      {
+        ...SELECTED_RECORD,
+        songId: 'song-001',
+      },
+    ]);
+    await flush();
+
+    const { previous, view } = requireDefined(harness.renders.at(-1), 'No render');
+    const regions = getChangedRegions(previous, view, ROWS_PER_PAGE);
+    expect(regions).toEqual(expect.arrayContaining(['rows', 'songInfo']));
+    for (const region of ['jacket', 'filterTabs', 'notice', 'actions'] as const) {
+      expect(regions).not.toContain(region);
+    }
+    expect(getChangedRowSlots(previous, view, ROWS_PER_PAGE)).toEqual([1]);
+  });
+
+  it('keeps the records when the filter changes', async () => {
+    const harness = await signedInHarness();
+    requireRequest(harness).resolve([SELECTED_RECORD]);
+    await flush();
+    const { records } = harness.view.state;
+
+    harness.controller.selectFilter('cover');
+
+    expect(harness.view.state.filter).toBe('cover');
+    expect(harness.view.state.records).toBe(records);
+    expect(harness.myRecordRequests).toHaveLength(1);
+  });
+});
+
 describe('SongSelectController close', () => {
   it('ignores responses after closing', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('cover');
     const renderCount = harness.renders.length;
 
@@ -939,7 +1356,7 @@ describe('SongSelectController close', () => {
 });
 
 /** 곡 선택을 닫고 받은 복원 정보로 새 컨트롤러를 열어, 그 사이 요청 수를 돌려준다. */
-function reopen(harness: ReturnType<typeof createHarness>, restore: SongSelectRestore) {
+function reopen(harness: ReturnType<typeof createEmptyCatalogHarness>, restore: SongSelectRestore) {
   harness.controller.close();
   const callCount = harness.server.calls.length;
   const createdCount = harness.created.length;
@@ -959,7 +1376,7 @@ function requireRestore(restore: SongSelectRestore | undefined): SongSelectResto
 
 describe('SongSelectController restore', () => {
   it('restores the song, difficulty, page and row after moving past two pages without requests', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.moveSong(4);
     await settle(harness.server.calls[0]);
     harness.controller.moveSong(3);
@@ -992,7 +1409,7 @@ describe('SongSelectController restore', () => {
   });
 
   it('restores the COVER feed and its category from settings', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('cover');
     await settle(harness.server.calls[0]);
     await settle(harness.server.calls[1]);
@@ -1018,8 +1435,8 @@ describe('SongSelectController restore', () => {
     expect(selectedId(harness.view)).toBe(coverIds[2]);
   });
 
-  it('selects the song at the nearest position when the restored song is not in the feed', () => {
-    const harness = openHarness(songs);
+  it('selects the song at the nearest position when the restored song is not in the feed', async () => {
+    const harness = await openHarness(songs);
 
     reopen(harness, {
       feed: harness.catalog,
@@ -1033,7 +1450,7 @@ describe('SongSelectController restore', () => {
   });
 
   it('opens settings with no song from an empty list and shows its notice on restore', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.moveDifficulty(1);
     harness.controller.selectFilter('original');
     await settle(harness.server.calls[0], 'resolve', {
@@ -1064,7 +1481,7 @@ describe('SongSelectController restore', () => {
   });
 
   it('shows the failure of a restored failed feed and retries on user input', async () => {
-    const harness = openHarness(songs);
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('cover');
     await settle(harness.server.calls[0], 'reject');
     harness.controller.openSettings();
@@ -1081,8 +1498,8 @@ describe('SongSelectController restore', () => {
     expect(songIds(harness.view)).toEqual(coverIds.slice(0, 2));
   });
 
-  it('restores the difficulty the result screen replaced', () => {
-    const harness = openHarness(songs);
+  it('restores the difficulty the result screen replaced', async () => {
+    const harness = await openHarness(songs);
     harness.controller.moveSong(1);
     harness.controller.play();
     const restore = requireRestore(harness.plays[0]?.restore);
@@ -1096,8 +1513,8 @@ describe('SongSelectController restore', () => {
     expect(difficultyOf(harness.view)).toBe('hard');
   });
 
-  it('opens without a restore at ALL and the first song', () => {
-    const harness = openHarness(songs);
+  it('opens without a restore at ALL and the first song', async () => {
+    const harness = await openHarness(songs);
     harness.controller.selectFilter('cover');
     harness.controller.close();
 
@@ -1121,17 +1538,20 @@ const previewSongs = songs.map((song, index): Song => ({
   gameEndMs: 60000,
 }));
 
-function tickAt(harness: ReturnType<typeof createHarness>, nowMs: number) {
+function tickAt(harness: ReturnType<typeof createEmptyCatalogHarness>, nowMs: number) {
   harness.preview.clock.nowMs = nowMs;
   harness.controller.tick();
 }
 
-function requirePlayer(harness: ReturnType<typeof createHarness>, index: number): FakePlayer {
+function requirePlayer(
+  harness: ReturnType<typeof createEmptyCatalogHarness>,
+  index: number,
+): FakePlayer {
   return requireDefined(harness.preview.players[index], 'Missing player');
 }
 
 /** 지금 포커스 곡의 시도를 nowMs 에 시작해 플레이어 준비까지 진행한다. */
-async function readyPreview(harness: ReturnType<typeof createHarness>, nowMs: number) {
+async function readyPreview(harness: ReturnType<typeof createEmptyCatalogHarness>, nowMs: number) {
   tickAt(harness, nowMs);
   requireDefined(harness.preview.loads.at(-1), 'Missing load').resolve();
   await flush();
@@ -1142,7 +1562,7 @@ async function readyPreview(harness: ReturnType<typeof createHarness>, nowMs: nu
 
 describe('SongSelectController preview timing', () => {
   it('creates one player for the focused song only after it stays 200ms', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
 
     tickAt(harness, 199);
@@ -1159,7 +1579,7 @@ describe('SongSelectController preview timing', () => {
   });
 
   it('creates a player only for the song it stops at while moving quickly', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
 
     harness.preview.clock.nowMs = 100;
@@ -1177,7 +1597,7 @@ describe('SongSelectController preview timing', () => {
   });
 
   it('destroys the playing player at once on a focus change and waits 200ms for the next song', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const first = await readyPreview(harness, 400);
 
@@ -1196,7 +1616,7 @@ describe('SongSelectController preview timing', () => {
   });
 
   it('drops a late API load of a previous focus', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     tickAt(harness, 400);
 
@@ -1208,7 +1628,7 @@ describe('SongSelectController preview timing', () => {
   });
 
   it('ignores ready and state reports of a destroyed player', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     tickAt(harness, 400);
     requireDefined(harness.preview.loads[0], 'Missing load').resolve();
@@ -1228,7 +1648,7 @@ describe('SongSelectController preview timing', () => {
 
 describe('SongSelectController preview loop', () => {
   it('starts muted at the chart start and fades in to the target volume', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
 
@@ -1245,7 +1665,7 @@ describe('SongSelectController preview loop', () => {
   });
 
   it('fades out before the 20 second span ends and replays from the chart start', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
     harness.preview.clock.nowMs = 0;
@@ -1265,7 +1685,7 @@ describe('SongSelectController preview loop', () => {
   });
 
   it('replays at the span end from position reports while frames are stopped', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
     harness.preview.clock.nowMs = 0;
@@ -1293,7 +1713,7 @@ describe('SongSelectController preview loop', () => {
       ...song,
       gameEndMs: 11000,
     }));
-    const harness = createHarness(short);
+    const harness = await createHarness(short);
     harness.open();
     const player = await readyPreview(harness, 400);
     harness.preview.clock.nowMs = 0;
@@ -1312,7 +1732,7 @@ describe('SongSelectController preview loop', () => {
       ...song,
       previewStartMs: 50000,
     }));
-    const harness = createHarness(chorus);
+    const harness = await createHarness(chorus);
     harness.open();
     const player = await readyPreview(harness, 400);
     harness.preview.clock.nowMs = 0;
@@ -1328,7 +1748,7 @@ describe('SongSelectController preview loop', () => {
   });
 
   it('does not count time while buffering', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
     harness.preview.clock.nowMs = 0;
@@ -1347,7 +1767,7 @@ describe('SongSelectController preview loop', () => {
   });
 
   it('replays at once when the video ends', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
     harness.preview.clock.nowMs = 0;
@@ -1361,7 +1781,7 @@ describe('SongSelectController preview loop', () => {
   });
 
   it('plays muted when the target volume is zero', async () => {
-    const harness = createHarness(previewSongs, 4, () => 0, 0);
+    const harness = await createHarness(previewSongs, 4, () => 0, 0);
     harness.open();
     const player = await readyPreview(harness, 400);
     harness.preview.clock.nowMs = 0;
@@ -1374,8 +1794,8 @@ describe('SongSelectController preview loop', () => {
 });
 
 describe('SongSelectController preview focus', () => {
-  it('creates no player without a focused song', () => {
-    const harness = createHarness([]);
+  it('creates no player without a focused song', async () => {
+    const harness = await createHarness([]);
     harness.open();
 
     tickAt(harness, 1000);
@@ -1384,7 +1804,7 @@ describe('SongSelectController preview focus', () => {
   });
 
   it('creates no player while the feed has failed', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
 
     harness.controller.selectFilter('cover');
@@ -1397,7 +1817,7 @@ describe('SongSelectController preview focus', () => {
   });
 
   it('destroys the player when the focused song disappears', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
 
@@ -1410,7 +1830,7 @@ describe('SongSelectController preview focus', () => {
   });
 
   it('keeps playing the same song across a difficulty change and a feed response', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     harness.controller.moveSong(3);
     const player = await readyPreview(harness, 400);
@@ -1429,7 +1849,7 @@ describe('SongSelectController preview focus', () => {
 
 describe('SongSelectController preview close', () => {
   it('destroys the player on close', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
 
@@ -1439,7 +1859,7 @@ describe('SongSelectController preview close', () => {
   });
 
   it('ignores a late API load and ticks after close', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     tickAt(harness, 400);
 
@@ -1453,7 +1873,7 @@ describe('SongSelectController preview close', () => {
   });
 
   it('ignores reports of the player after close', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     tickAt(harness, 400);
     requireDefined(harness.preview.loads[0], 'Missing load').resolve();
@@ -1468,8 +1888,8 @@ describe('SongSelectController preview close', () => {
     expect(player.playsSec).toEqual([]);
   });
 
-  it('ignores pointer, controls and wheel input after close', () => {
-    const harness = openHarness(songs);
+  it('ignores pointer, controls and wheel input after close', async () => {
+    const harness = await openHarness(songs);
     const renderCount = harness.renders.length;
 
     harness.controller.close();
@@ -1489,7 +1909,7 @@ describe('SongSelectController preview close', () => {
   });
 
   it('plays the restored song 200ms after reopening', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     harness.controller.moveSong(2);
     harness.controller.play();
@@ -1511,7 +1931,7 @@ describe('SongSelectController preview close', () => {
 
 describe('SongSelectController preview failures', () => {
   it('does not retry a failed API load for the same focus but tries the next song', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     tickAt(harness, 400);
     requireDefined(harness.preview.loads[0], 'Missing load').reject();
@@ -1530,7 +1950,7 @@ describe('SongSelectController preview failures', () => {
   });
 
   it('does not retry when creating the player throws', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     harness.preview.control.isCreateFailing = true;
     tickAt(harness, 400);
@@ -1543,7 +1963,7 @@ describe('SongSelectController preview failures', () => {
   });
 
   it('destroys the player on a player error and does not retry the same focus', async () => {
-    const harness = createHarness(previewSongs);
+    const harness = await createHarness(previewSongs);
     harness.open();
     const player = await readyPreview(harness, 400);
 
@@ -1561,15 +1981,8 @@ describe('SongSelectController preview failures', () => {
 });
 
 describe('SongSelectController view', () => {
-  it('passes the records it was given in every view', () => {
-    const harness = openHarness(songs);
-    harness.controller.moveSong(1);
-
-    expect(harness.renders.every(({ view }) => view.records === RECORDS)).toBe(true);
-  });
-
-  it('passes the previously rendered view', () => {
-    const harness = openHarness(songs);
+  it('passes the previously rendered view', async () => {
+    const harness = await openHarness(songs);
     const first = harness.view;
 
     harness.controller.moveSong(1);
@@ -1579,8 +1992,8 @@ describe('SongSelectController view', () => {
 });
 
 describe('SongSelectController wheel', () => {
-  it('moves one song with a focus sound for a wheel of one step', () => {
-    const harness = openHarness(songs);
+  it('moves one song with a focus sound for a wheel of one step', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.scrollByWheel(WHEEL_STEP_PX, 0);
 
@@ -1588,8 +2001,8 @@ describe('SongSelectController wheel', () => {
     expect(harness.focusSounds).toBe(1);
   });
 
-  it('ignores a wheel smaller than the start ratio', () => {
-    const harness = openHarness(songs);
+  it('ignores a wheel smaller than the start ratio', async () => {
+    const harness = await openHarness(songs);
     const renderCount = harness.renders.length;
 
     harness.controller.scrollByWheel(20, 0);
@@ -1598,8 +2011,8 @@ describe('SongSelectController wheel', () => {
     expect(harness.focusSounds).toBe(0);
   });
 
-  it('accumulates wheels within the gesture gap', () => {
-    const harness = openHarness(songs);
+  it('accumulates wheels within the gesture gap', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.scrollByWheel(20, 0);
     harness.controller.scrollByWheel(10, 100);
@@ -1622,15 +2035,15 @@ const DOWN_KEY = {
 };
 
 describe('SongSelectController controls', () => {
-  it('plays the click sound when H opens the controls', () => {
-    const harness = openHarness(songs);
+  it('plays the click sound when H opens the controls', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.handleControlsKey(H_KEY);
 
     expect(harness.clickSounds).toBe(1);
   });
-  it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
-    const harness = openHarness(songs);
+  it('opens with H, closes with H and Esc, and blocks other keys while open', async () => {
+    const harness = await openHarness(songs);
 
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
@@ -1643,8 +2056,8 @@ describe('SongSelectController controls', () => {
     expect(harness.view.state.isControlsOpen).toBe(false);
   });
 
-  it('ignores wheels while the controls are open', () => {
-    const harness = openHarness(songs);
+  it('ignores wheels while the controls are open', async () => {
+    const harness = await openHarness(songs);
     harness.controller.openControls();
     const renderCount = harness.renders.length;
 
@@ -1656,8 +2069,8 @@ describe('SongSelectController controls', () => {
 });
 
 describe('SongSelectController button pointer', () => {
-  it('opens the settings once for over, down and up on SETTINGS', () => {
-    const harness = openHarness(songs);
+  it('opens the settings once for over, down and up on SETTINGS', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.pointerOver('settings');
     harness.controller.pointerDown('settings');
@@ -1667,8 +2080,8 @@ describe('SongSelectController button pointer', () => {
     expect(harness.settings).toHaveLength(1);
   });
 
-  it('does not open the settings for an up that was pressed elsewhere', () => {
-    const harness = openHarness(songs);
+  it('does not open the settings for an up that was pressed elsewhere', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.pointerOver('settings');
     harness.controller.pointerUp('settings');
@@ -1676,8 +2089,8 @@ describe('SongSelectController button pointer', () => {
     expect(harness.settings).toHaveLength(0);
   });
 
-  it('releases the press when the pointer leaves the button', () => {
-    const harness = openHarness(songs);
+  it('releases the press when the pointer leaves the button', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.pointerOver('settings');
     harness.controller.pointerDown('settings');
@@ -1688,17 +2101,8 @@ describe('SongSelectController button pointer', () => {
     expect(harness.settings).toHaveLength(0);
   });
 
-  it('ignores a press on the close button while the controls are closed', () => {
-    const harness = openHarness(songs);
-    const renderCount = harness.renders.length;
-
-    harness.controller.pointerDown('controlsClose');
-
-    expect(harness.renders).toHaveLength(renderCount);
-  });
-
-  it('opens with the entry and closes with the close button and the backdrop', () => {
-    const harness = openHarness(songs);
+  it('opens with the entry and closes with the close button and the backdrop', async () => {
+    const harness = await openHarness(songs);
 
     harness.controller.pointerDown('controlsEntry');
     harness.controller.pointerUp('controlsEntry');
@@ -1714,13 +2118,23 @@ describe('SongSelectController button pointer', () => {
     expect(harness.view.state.isControlsOpen).toBe(false);
   });
 
-  it('releases the hover of the close button when the controls close', () => {
-    const harness = openHarness(songs);
+  it('releases the hover of the close button when the controls close', async () => {
+    const harness = await openHarness(songs);
     harness.controller.openControls();
     harness.controller.pointerOver('controlsClose');
 
     harness.controller.handleControlsKey(ESCAPE_KEY);
 
     expect(harness.view.state.hover).toBeNull();
+  });
+
+  it('opens the profile from the account panel', async () => {
+    const harness = await openHarness(songs);
+
+    harness.controller.pointerDown('accountProfile');
+    harness.controller.pointerUp('accountProfile');
+    expect(harness.profileOpens).toBe(1);
+
+    expect(harness.mainExits).toBe(0);
   });
 });

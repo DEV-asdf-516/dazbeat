@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
 import { clamp, getProgress, lerp } from '../../../../range.js';
 import { createCanvasTexture } from '../textures/canvasTexture.js';
+import { applyGrain, strokeGrainedLine } from '../textures/grain.js';
+import { isReducedMotionPreferred } from '../theme.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
+import { requireDefined } from '../../../../invariant.js';
 
 /** 좌표는 모두 선화(1122×1402) 픽셀 기준이고 크기만 화면 픽셀이다. */
 const CORE_TEXTURE_KEY = 'main:constellation-core';
@@ -17,9 +20,10 @@ const HALO_COLOR = 'rgba(110, 160, 255, 1)';
 const HALO_BLUR_PX = 18;
 const HALO_PASSES = 2;
 const HALO_ALPHA = 0.9;
-const GRAIN_CELL_PX = 3;
-const GRAIN_MIN_ALPHA = 0.4;
-const GRAIN_TILE_PX = 128;
+const GRAIN = {
+  cellPx: 3,
+  minAlpha: 0.4,
+} as const;
 const RANDOM_SEED = 'dazbee-constellation';
 const DISSOLVE_START = 0.62;
 const DISSOLVE_END_ALPHA = 0.08;
@@ -207,13 +211,25 @@ export function addConstellationFigure(
     .setTint(CORE_TINT)
     .setAlpha(0);
   const lines = scene.add.graphics().setAlpha(0);
-  lines.lineStyle(LINE_WIDTH_PX, LINE_COLOR, LINE_ALPHA);
   for (const path of CONSTELLATION_PATHS) {
-    lines.strokePoints(
-      path.map((name) => toScene(STARS[name].x, STARS[name].y)),
-      false,
-      false,
-    );
+    const points = path.map((name) => toScene(STARS[name].x, STARS[name].y));
+    points.slice(1).forEach((to, index) => {
+      const from = requireDefined(points[index], 'Constellation path gap', index);
+      strokeGrainedLine(
+        lines,
+        {
+          fromXPx: from.x,
+          fromYPx: from.y,
+          toXPx: to.x,
+          toYPx: to.y,
+        },
+        {
+          widthPx: LINE_WIDTH_PX,
+          color: LINE_COLOR,
+          alpha: LINE_ALPHA,
+        },
+      );
+    });
   }
   const starEntries = (Object.keys(STARS) as StarName[]).map((name) => {
     const star: Star = STARS[name];
@@ -244,7 +260,7 @@ export function addConstellationFigure(
   });
   const twinklers = [...starEntries.map(({ images }) => images), ...dust.map((image) => [image])];
 
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (isReducedMotionPreferred()) {
     halo.setAlpha(HALO_ALPHA);
     core.setAlpha(CORE_ALPHA);
     lines.setAlpha(1);
@@ -394,7 +410,7 @@ function createFigureTextures(
   createCanvasTexture(scene, CORE_TEXTURE_KEY, widthPx, heightPx, (context) => {
     context.drawImage(source, 0, 0);
     dissolveBottom(context, widthPx, heightPx);
-    applyGrain(context, widthPx, heightPx);
+    applyGrain(context, widthPx, heightPx, GRAIN);
   });
   createCanvasTexture(scene, HALO_TEXTURE_KEY, widthPx, heightPx, (context) => {
     // 선 자체는 캔버스 밖에 그리고 그림자만 제자리에 떨어뜨려 번짐만 남긴다.
@@ -487,36 +503,6 @@ function sampleLinePoints(
     }
   }
   return points;
-}
-
-function applyGrain(context: CanvasRenderingContext2D, widthPx: number, heightPx: number): void {
-  const random = new Phaser.Math.RandomDataGenerator([RANDOM_SEED]);
-  const tile = document.createElement('canvas');
-  tile.width = GRAIN_TILE_PX;
-  tile.height = GRAIN_TILE_PX;
-  const tileContext = tile.getContext('2d');
-  if (tileContext === null) {
-    throw new Error('Failed to create grain tile context');
-  }
-  const noise = tileContext.createImageData(GRAIN_TILE_PX, GRAIN_TILE_PX);
-  for (let index = 0; index < GRAIN_TILE_PX * GRAIN_TILE_PX; index++) {
-    noise.data.set(
-      [255, 255, 255, Math.round(random.realInRange(GRAIN_MIN_ALPHA, 1) * 255)],
-      index * 4,
-    );
-  }
-  tileContext.putImageData(noise, 0, 0);
-  const pattern = context.createPattern(tile, 'repeat');
-  if (pattern === null) {
-    throw new Error('Failed to create grain pattern');
-  }
-  context.save();
-  context.globalCompositeOperation = 'destination-in';
-  context.scale(GRAIN_CELL_PX, GRAIN_CELL_PX);
-  context.imageSmoothingEnabled = false;
-  context.fillStyle = pattern;
-  context.fillRect(0, 0, widthPx / GRAIN_CELL_PX, heightPx / GRAIN_CELL_PX);
-  context.restore();
 }
 
 function dissolveBottom(

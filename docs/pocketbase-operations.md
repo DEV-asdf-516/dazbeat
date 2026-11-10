@@ -218,8 +218,8 @@ IP 제한과 별도로 발급 hook(`pb_hooks/playSessions.pb.js`)이 로그인 �
 
 - **저장소**: json, required, `maxSize` 미지정이라 PocketBase 기본 한도 1MB 다. `charts.data` 와 같은 설정이므로 저장할 수 있는 어떤 채보든 담는다. 컬렉션의 모든 API rule 이 비어 있어 superuser 와 hook 만 읽고 쓴다.
 - **검증**: 결과 제출 hook 은 현재 채보가 아니라 세션 스냅샷으로 리플레이한다. 스냅샷의 sha256 이 세션 `chartRevision` 과 다를 때만 `chart_changed` 로 거절하며, 정상 운영에서는 일어나지 않는다. 그래서 플레이 도중 채보가 바뀌어도 그 판은 플레이한 채보 기준으로 판정된다.
-- **랭킹 반영**: 통과한 결과는 최고 기록 저장 트랜잭션 안에서 읽은 그 채보의 현재 `revision` 행에 저장되어 현재 랭킹에 보인다. 플레이한 revision 은 따로 남기지 않는다.
-- **feature 016 원칙의 예외 범위**: "채보 변경 전 기록은 새 채보 랭킹에 섞지 않는다" 의 예외는 채보가 바뀔 때 진행 중이던 세션의 결과뿐이다. 이미 저장된 옛 revision 기록은 계속 숨겨지고, 채보가 바뀐 뒤 옛 revision 으로 새 세션을 요청하면 여전히 `409 chart_changed` 다.
+- **랭킹 반영**: 통과한 결과는 세션에 고정된 revision(실제로 검증한 채보)으로 `play_results` 와 최고 기록(`scores`)에 저장된다. 랭킹은 채보의 현재 `revision` 기록만 보이므로, 플레이 도중 채보가 바뀌면 그 판의 기록은 남지만 현재 랭킹에는 나오지 않는다.
+- **채보 변경 전 기록**: "채보 변경 전 기록은 새 채보 랭킹에 섞지 않는다" 에 예외가 없다. 이전 revision 기록은 지우지 않고 현재 랭킹에서만 빠지며, 채보가 바뀐 뒤 옛 revision 으로 새 세션을 요청하면 `409 chart_changed` 다.
 
 ### 요청 수와 채보 캐시
 
@@ -345,7 +345,7 @@ done
 
 ### 오토플레이 의심 표시
 
-결과 제출 훅이 검증을 통과한 판마다 입력 통계를 계산해 `play_results` 행에 같은 저장으로 남긴다. 표시만 하며 제출 응답, 최고 점수, 업적, 랭킹에는 영향이 없다. 플레이어 API 로는 볼 수 없고 대시보드에서만 본다.
+결과 제출 훅이 검증을 통과한 판마다 입력 통계를 계산해 `play_results` 행에 같은 저장으로 남긴다. `suspicious` 판은 검토 대기(`reviewStatus = pending`)로 저장되어 승인 전까지 최고 점수, 랭킹, 채보 도장, 업적, 플레이 횟수에 반영되지 않는다(아래 "플레이 검토와 랭킹"). 플레이어 API 로는 볼 수 없고 대시보드와 검토 API 로만 본다.
 
 | 필드 | 값 |
 |---|---|
@@ -365,9 +365,128 @@ done
 `null` 은 표본이 없어 정의되지 않는 값이다. `sampleCount` 가 0 이면 `meanOffsetMs`, `stdDevMs`, `nearZeroRatio` 가, `chordCount` 가 0 이면 `syncedChordRatio` 가 `null` 이다.
 
 - 대시보드 필터 예: `autoplayCheck = 'suspicious'`, `autoplayReasons ?= 'synced_chords'`.
-- `1793239200_add_play_results_autoplay_check.js` 이전에 기록된 행은 세 필드가 빈 값이며 기능 배포 전 기록을 뜻한다.
-- 임계값과 최소 표본 수는 `pocketbase/verification/autoplayCheck.ts` 의 `AUTOPLAY_THRESHOLDS` 에 모여 있다. 처음 값이며 쌓인 `inputStats` 를 보고 다시 정한다.
+- 임계값과 최소 표본 수는 `pocketbase/lib/session/service/verify.ts` 의 `AUTOPLAY_THRESHOLDS` 에 모여 있다. 처음 값이며 쌓인 `inputStats` 를 보고 다시 정한다.
 - 이 마이그레이션을 되돌리면 세 필드와 그 값이 지워진다. 행과 다른 필드는 남는다.
+
+## 계정 삭제와 재가입 차단
+
+### 동작 요약
+
+- 로그인한 사용자는 `DELETE /api/dazbeat/account` 로 자기 계정을 지운다. 한 트랜잭션에서 사용자의 Google 연결로 차단 행을 저장하고, users 레코드를 지운다. 종속 기록(점수, 플레이 결과, 세션, 세션 발급 제한, 마크, 업적)과 외부 인증 연결은 PocketBase cascade 로 함께 지워진다. 성공은 `204` 다.
+- 서버 전용 컬렉션 `deleted_account_identities` 에는 `provider`, `identityDigest`(`HMAC-SHA256(키, "<provider>:<Google sub>")` 의 hex), `keyId`(키 지문), `deletedAt` 만 저장한다. 이메일, 닉네임, 원래 Google ID, PocketBase 사용자 ID 는 저장하지 않는다. 행은 가명처리 개인정보로 다룬다. API 규칙은 모두 `null` 이라 superuser 와 훅만 읽고 쓴다.
+- Google OAuth 인증(기존 로그인, 이메일로 기존 계정에 연결, 신규 가입)은 `e.next()` 전에 같은 트랜잭션에서 차단 목록을 확인한다. 차단된 Google 계정은 계정, 연결, 토큰 없이 거절된다.
+- 거절 응답(`{ status, code, message }`):
+
+| code | status | 상황 |
+|---|---|---|
+| `rejoin_block_unavailable` | 503 | 키 설정이 무효이거나, 설정에 없는 키로 만든 차단 행이 있음 |
+| `account_identity_missing` | 409 | 삭제할 사용자에게 Google 연결이 없거나, OAuth 사용자 ID 가 비어 있음 |
+| `account_not_found` | 404 | 같은 사용자의 삭제가 먼저 끝남(동시 요청) |
+| `account_rejoin_blocked` | 403 | 탈퇴한 Google 계정의 OAuth 인증 |
+| `external_auth_locked` | 403 | superuser 가 아닌 사용자의 `_externalAuths` 연결 삭제 |
+
+- 마이그레이션 `1794103200_add_account_deletion.js` 가 users 규칙을 바꾼다.
+  - `deleteRule` 이 `null` 이 된다. 표준 users 삭제 API 는 차단 행 없이 지우는 우회라 닫는다. superuser 대시보드 삭제는 운영자 작업으로 남는다(차단 행은 남지 않는다).
+  - `createRule` 에 `@request.context = "oauth2"` 가 붙는다. 이메일·비밀번호 직접 가입은 `400` 으로 막히고, 가입은 Google OAuth 로만 된다.
+  - 사용자는 자기 Google 연결을 해제할 수 없다(`external_auth_locked`).
+- 테스트 계정은 superuser 로 만든다. 관리 UI 나 superuser 로 인증한 API 로 users 레코드를 만들고, 그 계정은 비밀번호로 로그인한다(`passwordAuth` 는 켜 둔다). 이 계정에는 Google 연결이 없어 계정 삭제는 `409 account_identity_missing` 이다.
+- 브라우저에 저장된 로컬 기록과 설정은 계정 삭제로 지워지지 않는다.
+- 운영자 검토 이력 `play_reviews`(아래 "플레이 검토와 랭킹")는 감사 목적으로 계정 삭제 뒤에도 남긴다(사용자 결정). 지워진 판의 id(`playResult`)와 결정, 심사자, 사유만 담고 users 를 가리키지 않아, 판이 지워진 뒤에는 그 행으로 사용자를 찾을 수 없다.
+
+### 키 생성과 설정
+
+| 변수 | 설명 |
+|---|---|
+| `DAZBEAT_REJOIN_BLOCK_HMAC_KEY` | 현재 키. 새 차단 행은 이 키로 만든다. 앞뒤 공백을 뗀 뒤 32자 이상 |
+| `DAZBEAT_REJOIN_BLOCK_HMAC_RETIRED_KEYS` | 은퇴 키 목록, 쉼표 구분. 각 항목 32자 이상, 빈 항목은 무시한다. 없으면 빈 값 |
+
+1. `openssl rand -hex 32` 로 키(64자 hex)를 만든다. 키는 서버 전용 비밀값이라 저장소·문서·로그에 적지 않는다.
+2. 로컬: `.env` 에 두 변수를 넣고 `docker compose up -d` 로 컨테이너를 다시 만든다(`restart` 는 바뀐 환경변수를 읽지 않는다). `docker-compose.yml` 이 `.env` 에서 받아 넘긴다.
+3. PocketHost: 인스턴스 Secret 에 두 변수를 넣고 인스턴스를 재시작한다.
+4. 키 없이 띄우거나 키가 짧거나 은퇴 목록에 짧은 항목이 있으면 모든 Google 로그인과 계정 삭제가 `503 rejoin_block_unavailable` 이다. 차단 확인 없이 가입시키지 않기 위한 의도된 안전 실패다.
+
+### 키 회전
+
+1. 새 키를 만든다.
+2. 지금의 현재 키를 `DAZBEAT_REJOIN_BLOCK_HMAC_RETIRED_KEYS` 에 더하고, 새 키를 `DAZBEAT_REJOIN_BLOCK_HMAC_KEY` 에 넣는다.
+3. 재시작한다. 이후 새 차단 행은 새 키의 `keyId` 로 저장되고, 옛 키로 막힌 계정은 은퇴 키로 계속 막힌다.
+4. 은퇴 키는 그 키의 `keyId` 행이 하나라도 남아 있는 한 계속 보관한다. 원래 Google ID 를 보관하지 않으므로 옛 행을 새 키로 다시 계산하는 절차는 없다.
+
+### 키 분실과 복구
+
+- 차단 행의 `keyId` 가 현재 키와 은퇴 키 어느 지문과도 맞지 않으면 그 행을 확인할 수 없다. 이때 서버는 새 키로 조용히 넘어가지 않고 모든 Google 로그인과 계정 삭제를 `503 rejoin_block_unavailable` 로 거절한다. 은퇴 키를 목록에서 빼거나 키를 잘못 바꿔도 같다.
+- 복구는 원래 키를 현재 키나 은퇴 목록에 되돌리고 재시작하는 것이다.
+
+### 배포 순서
+
+1. 위 "PocketHost 배포" 절차로 서버(마이그레이션, 훅, `npm run build:hooks` 산출물)를 올리기 전에 Secret 두 변수를 넣는다. Secret 없이 서버를 올리면 그 사이 모든 Google 로그인이 `503` 이다.
+2. 재시작 뒤 관리 UI 에서 `deleted_account_identities` 컬렉션과 users 의 두 규칙을 확인한다.
+3. 그 뒤 클라이언트를 배포한다. 이전 클라이언트는 계정 삭제 진입점이 없을 뿐 그대로 동작한다.
+4. 마이그레이션 down 은 차단 컬렉션을 지우고 users 두 규칙을 원래 값으로 되돌린다. 규칙이 예상과 다르면 추측해서 고치지 않고 실패한다.
+
+### 운영 적용 전 승인 필요 항목
+
+아래 항목은 코드로 정할 수 없다. 승인되기 전에는 운영에 적용하지 않는다. 코드 구현이 끝났다는 것이 승인이나 배포가 끝났다는 뜻은 아니다.
+
+- [ ] 탈퇴 뒤에도 가명 식별자(`identityDigest`)를 기한 없이 보존하는 목적과 기간의 고지, 그리고 그 적법성
+- [ ] 계정 삭제 팝업과 개인정보 처리 안내의 고지 문구
+- [ ] 삭제 예외(차단 행 보관, 운영자 검토 이력 `play_reviews` 보관, 운영자 대시보드 삭제)의 근거
+- [ ] 키 보관, 복구, 회전의 책임자와 보관 장소
+- [ ] 운영 DB 백업(아래 "백업·복구")과 이 기능을 되돌릴 때의 롤백 방안
+
+## 플레이 검토와 랭킹
+
+### 검토 상태
+
+- `play_results.reviewStatus`: `approved`(순위와 업적에 반영됨), `pending`(검토 대기), `rejected`(반려). 제출 때 `clear`·`unjudged` 는 바로 승인, `suspicious` 는 대기다.
+- `play_results.achievedAt` 은 달성 시각, `play_results.reviewNote` 는 운영자가 적는 결정 사유다.
+- `scores` 는 승인된 최고 점수만 담고 API 규칙이 모두 `null` 이다. 랭킹은 `GET /api/dazbeat/leaderboards/{chartId}`, 내 플레이 곡 순위는 `GET /api/dazbeat/profile/rankings` 로만 본다.
+- `play_reviews` 는 관리자 결정 한 건마다 한 행(결정, 심사자 id 와 이메일, 사유, 시각)인 서버 전용 감사 이력이다. 한 플레이에 결정은 하나다.
+
+### 배포 순서
+
+1. 수동 백업을 만들고 내려받는다("백업·복구").
+2. `npm run build:hooks` 로 서버 번들을 만든다.
+3. 마이그레이션(`1794016800_add_play_reviews.js`, `1794016900_review_existing_plays.js`, `1794362400_add_review_note.js`)과 hook 을 올리고 재시작한다("PocketHost 배포" 절차). 서버를 먼저 배포한다.
+4. 클라이언트를 배포한다.
+
+3 과 4 사이에는 옛 클라이언트가 새 제출 응답(`bestScore` 없음, `review` 추가)을 읽지 못해 "기록 저장 확인 불가" 안내를 띄울 수 있다. 기록 자체는 서버에 저장된다. 이 창을 짧게 하려고 서버 배포 직후 클라이언트를 배포한다.
+
+### 이관 확인
+
+`1794016900_review_existing_plays.js` 는 기존 판에 검토 상태를 채우고(`suspicious` 만 대기), 승인 판으로 `scores` 를 다시 만들고, 대기 근거로만 증명되던 채보 도장을 뺀다. 배포 전후에 관리 UI 에서 아래 수를 기록해 비교한다.
+
+| 항목 | 대시보드 필터 |
+|---|---|
+| 상태별 `play_results` 수 | `reviewStatus = 'approved'`, `reviewStatus = 'pending'` |
+| `scores` 수 | 필터 없음 |
+| 뺀 채보 도장 수 | 배포 전후 `earned_chart_marks` 전체 수의 차이 |
+
+- 승인 판 수 + 대기 판 수 = 배포 전 `play_results` 수이고, `reviewStatus = 'pending'` 수 = 배포 전 `autoplayCheck = 'suspicious'` 수다.
+- `scores` 는 판으로만 다시 만들어, 같은 사용자, 채보, 점수의 판이 없는 `scores` 행은 사라진다. 운영에는 그런 행이 없음을 확인했다.
+
+### 롤백
+
+순서는 클라이언트 → hook → 마이그레이션 down(`1794362400`, `1794016900`, `1794016800` 순)이다. 데이터 down 은 이전 코드가 읽을 수 있는 상태만 만든다.
+
+- 대기 판이 자기 revision 의 최고보다 높으면 `scores` 에 반영하고, 대기 판이 증명하는 채보 도장을 다시 만든다.
+- 반려 결정, 감사 이력, 승인으로 바뀐 최고 점수 같은 이관 뒤 변화는 정확히 되돌리지 않는다. 정확한 원상태가 필요하면 1 단계의 백업을 복구한다("복구").
+
+### 검토 절차
+
+PocketBase 대시보드(`<서버 URL>/_/`)에 superuser 로 로그인해 `play_results` 를 고쳐 결정한다. 별도 도구나 비밀값 설정은 없다.
+
+1. `play_results` 에 `reviewStatus = 'pending'` 필터를 걸고 `created` 순으로 본다.
+2. 판을 열어 점수, 판정 수(`counts`), 오토플레이 판정과 사유(`autoplayCheck`, `autoplayReasons`), 입력 통계(`inputStats`)를 확인한다.
+3. `reviewStatus` 를 `approved` 나 `rejected` 로 바꾸고 `reviewNote` 에 사유를 적어 저장한다. 반려는 사유가 필수다(1~500자).
+
+- 저장하면 hook 이 한 트랜잭션에서 결정을 `play_reviews` 에 남기고(심사자는 로그인한 superuser), 승인이면 그 판의 revision 에 최고 점수와 도장, 업적, 플레이 횟수를 반영한다.
+- `pending` 에서 결정으로 바꾸는 것만 받는다. 이미 결정된 판의 상태나 사유를 바꾸면 `409 already_reviewed`, `pending` 으로 되돌리면 `400 invalid_review_status` 로 거절한다. 검토 필드를 건드리지 않은 수정은 그대로 저장된다.
+- 결정 이력은 `play_reviews` 를 `created` 역순으로 본다. 판이 계정 삭제로 지워져도 이력은 남는다.
+
+### 업적 보존 정책
+
+의심 판 때문에 이미 지급된 업적과 곡 도장은 어느 판 때문에 지급됐는지 연결이 없어 이관에서 지우지 않는다. 플레이 횟수(`reviewStatus = 'approved'` 인 판 수)와 채보 도장 진행도는 승인 근거만 반영한다.
 
 ## 백업·복구
 
@@ -407,11 +526,15 @@ done
 4. 로컬 게임(`npm run dev`)에서 각 채보가 로드되는지 확인한다.
 5. 관리 UI 에서 모든 `charts` 레코드의 `revision` 이 채워져 있는지 확인한다.
 
+## 쿼리 플래너 통계
+
+PocketBase 가 주기적으로 돌리는 `PRAGMA optimize` 는 그 연결에서 조회한 테이블만 다시 분석해, 행 수가 크게 바뀐 테이블의 `sqlite_stat1` 이 낡은 채 남을 수 있다. 낡은 통계에서는 플래너가 인덱스 대신 테이블 전체를 훑는다(예: 랭킹 상위 목록이 행마다 `users` 전체를 읽음). `pb_hooks/dbOptimize.pb.js` 가 매일 UTC 19:00(KST 04:00)에 `PRAGMA analysis_limit=1000` 과 `PRAGMA optimize=0x10002` 로 모든 테이블을 확인하고, 행 수가 크게 바뀐 테이블만 다시 분석한다. 쓰기 연결에서 돌아 그동안 쓰기 요청이 잠깐 줄을 선다.
+
 ## 보안 한계
 
 - 서버 리플레이 재계산은 점수·판정 숫자 위조와 비정상 요청을 줄이지만, 완벽하게 조작된 입력 타임라인이나 자동 플레이를 사람의 플레이와 구별하지 못한다. 완전한 안티치트가 아니다.
 - CORS 는 브라우저만 지키는 정책이다. curl·스크립트·봇은 Origin 을 생략하거나 위조할 수 있으므로 Origin 검사로 직접 HTTP 요청을 막았다고 보지 않는다. 실제 보호는 API Rules·인증·rate limit 이다.
-- `users` 컬렉션의 이메일/비밀번호 가입 API 가 열려 있어 계정을 쉽게 만들 수 있다. 로그인 정책은 이번 범위에서 바꾸지 않았으며, 여러 계정을 이용한 랭킹 남용 위험이 남는다.
+- `users` 의 이메일/비밀번호 직접 가입은 막혀 있고, 가입은 Google OAuth 로만 된다(`1794103200_add_account_deletion.js`, 위 "계정 삭제와 재가입 차단"). 다만 Google 계정을 여러 개 쓰면 계정도 여러 개 만들 수 있어, 여러 계정을 이용한 랭킹 남용 위험은 남는다. 탈퇴한 Google 계정의 재가입 차단은 그 Google 계정만 막고 같은 사람의 다른 계정은 막지 않는다.
 - 재킷·영상을 공개로 제공하려면 별도의 저작권 허락이 필요하다. 저장 위치를 PocketBase 로 옮긴 것이 허락을 대신하지 않는다.
 
 ## 운영 확인 체크리스트

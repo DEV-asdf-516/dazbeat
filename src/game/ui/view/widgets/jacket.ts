@@ -4,7 +4,8 @@ import { requireDefined } from '../../../../invariant.js';
 import { getCenteredSquare } from '../../state/jacketCrop.js';
 import { queueImageLoads } from '../textures/imageLoad.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
-import { COLORS, RADIUS } from '../theme.js';
+import { addGlassPanel } from './songDetailLayout.js';
+import { RADIUS } from '../theme.js';
 import { MOTION } from '../../state/motion.js';
 
 const SQUARE_FRAME = 'square';
@@ -64,11 +65,13 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
   }
 
   setSong(song: Song | null, transition = false): this {
+    return this.showContent(song === null ? [] : this.createContent(song), transition);
+  }
+
+  protected showContent(content: Phaser.GameObjects.GameObject[], transition: boolean): this {
     [this.front, this.back] = [this.back, this.front];
     this.front.removeAll(true);
-    if (song !== null) {
-      this.front.add(this.createContent(song));
-    }
+    this.front.add(content);
     this.moveAbove(this.front, this.back);
     crossfade(this.scene, this.front, this.back, transition);
     return this;
@@ -100,6 +103,11 @@ export class JacketView extends SongCrossfade {
     ensureLightTextures(scene);
   }
 
+  // 곡이 없어도 재킷 자리임을 알 수 있어야 한다.
+  setEmptySlot(transition = false): this {
+    return this.showContent([this.createSlot()], transition);
+  }
+
   protected hasTexture(song: Song): boolean {
     return this.scene.textures.exists(jacketTextureKey(song.id));
   }
@@ -118,15 +126,25 @@ export class JacketView extends SongCrossfade {
     }
     const center = this.sizePx / 2;
     return [
-      scene.add
-        .rectangle(0, 0, this.sizePx, this.sizePx, COLORS.surface)
-        .setOrigin(0, 0)
-        .setRounded(RADIUS.mediumPx),
+      this.createSlot(),
       addLight(scene, LIGHT_TEXTURES.glow, center, center)
         .setDisplaySize(this.sizePx, this.sizePx)
         .setTint(song.accentColor)
         .setAlpha(PLACEHOLDER_GLOW_ALPHA),
     ];
+  }
+
+  private createSlot(): Phaser.GameObjects.Image {
+    return addGlassPanel(
+      this.scene,
+      {
+        xPx: 0,
+        yPx: 0,
+        widthPx: this.sizePx,
+        heightPx: this.sizePx,
+      },
+      RADIUS.mediumPx,
+    );
   }
 }
 
@@ -140,9 +158,6 @@ function getJacketSongIds(container: Phaser.GameObjects.Container): string[] {
 
 function ensureSquareFrame(scene: Phaser.Scene, key: string): void {
   const texture = scene.textures.get(key);
-  if (texture.has(SQUARE_FRAME)) {
-    return;
-  }
   const source = texture.getSourceImage();
   const { x, y, size } = getCenteredSquare(source.width, source.height);
   texture.add(SQUARE_FRAME, 0, x, y, size, size);

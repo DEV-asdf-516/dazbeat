@@ -2,6 +2,7 @@ import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SESSION_GRACE_MS } from '../../../pocketbase/lib/session/service/issue.js';
+import type { PlayReview } from '../../../src/data/ranking.js';
 import { PLAY_RESULTS, PLAY_SESSIONS, SCORES } from '../../../src/pbCollections.js';
 import { where } from '../../../src/pbQuery.js';
 import { JUDGMENT_WINDOWS } from '../../../src/rhythm/judgment.js';
@@ -20,6 +21,7 @@ const UNPUBLISHED_SONG_KEY = 'unpublished';
 const WITHDRAWN_SONG_KEY = 'withdrawn';
 const SHORTENED_SONG_KEY = 'shortened';
 const REASSIGNED_SONG_KEY = 'reassigned';
+const RANKING_SONG_KEY = 'ranking';
 const GAME_END_MS = 5_000;
 // Longer than the minimum elapsed time (0.9 × play duration) of a 5 s song.
 const ELAPSED_PLAY_MS = 10_000;
@@ -31,6 +33,8 @@ const FRAME_TIMES_MS = Array.from(
 
 // The granted achievements are checked in achievements.test.ts; here only their presence is.
 const ANY_ACHIEVEMENTS: unknown = expect.any(Array);
+// Shared charts collect other tests' plays, so only the approval is checked there.
+const APPROVED_REVIEW: unknown = expect.objectContaining({ kind: 'approved' });
 
 interface SessionResponse {
   sessionId: string;
@@ -43,7 +47,8 @@ interface ResultResponse {
   maxCombo: number;
   counts: Record<string, number>;
   cleared: boolean;
-  bestScore: number;
+  newAchievements: string[];
+  review: PlayReview;
 }
 
 interface PlayBody {
@@ -159,6 +164,8 @@ const shortenedChart = chartOf(SHORTENED_SONG_KEY, 'easy', [
   },
 ]);
 const reassignedChart = chartOf(REASSIGNED_SONG_KEY, 'easy', tapChart.notes);
+// 순위를 확인하는 테스트만 플레이하는 채보다.
+const rankingChart = chartOf(RANKING_SONG_KEY, 'easy', tapChart.notes);
 
 // One tap per lane, the last lane included, on the same song and difficulty as tapChart.
 const wideLaneCharts = ([5, 6] as const).map((laneCount) =>
@@ -308,8 +315,8 @@ async function expectServerMatchesClient(
 
   expect(response).toEqual({
     ...expected,
-    bestScore: expected.score,
     newAchievements: ANY_ACHIEVEMENTS,
+    review: APPROVED_REVIEW,
   });
   const [stored, ...others] = await findScores(player.id, chart);
   expect(others).toEqual([]);
@@ -355,7 +362,7 @@ beforeAll(async () => {
     withdrawnChart,
     await createChart(editor.client, withdrawnSong.id, withdrawnChart.difficulty, withdrawnChart),
   );
-  for (const chart of [shortenedChart, reassignedChart]) {
+  for (const chart of [shortenedChart, reassignedChart, rankingChart]) {
     const chartSong = await createSong(server.superuser, chart.songId, GAME_END_MS);
     chartRecords.set(
       chart,
@@ -793,9 +800,8 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     expect(await findScores(owner.id, tapChart)).toHaveLength(1);
   });
 
-  it('verifies a play on the issued chart after the chart changed and ranks it on the current revision', async () => {
+  it('verifies a play on the issued chart after the chart changed and records it on the issued revision', async () => {
     const player = await newPlayer();
-    const viewer = await newPlayer();
     const record = recordOf(snapshotPassingChart);
     const changedChart = {
       ...snapshotPassingChart,
@@ -809,7 +815,7 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     );
 
     const sessionId = await startRankedPlay(player, snapshotPassingChart);
-    const changed = await editor.client.collection('charts').update(record.id, {
+    await editor.client.collection('charts').update(record.id, {
       data: changedChart,
       baseRevision: String(record['revision']),
     });
@@ -820,21 +826,19 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
 
     expect(response).toEqual({
       ...expected,
-      bestScore: expected.score,
       newAchievements: ANY_ACHIEVEMENTS,
+      review: {
+        kind: 'approved',
+        ranking: null,
+      },
     });
     expect(await sessionExists(sessionId)).toBe(false);
     const [stored, ...others] = await findScores(player.id, snapshotPassingChart);
     expect(others).toEqual([]);
     expect(stored).toMatchObject({
       ...expected,
-      chartRevision: revisionOf(changed),
+      chartRevision: revisionOf(record),
     });
-    const filter = where(SCORES, [{ chart: record.id }]);
-    const ranking = await viewer.client.collection(SCORES.name).getFullList({
-      filter: viewer.client.filter(filter.expression, filter.params),
-    });
-    expect(ranking.map((score) => score.id)).toEqual([stored?.id]);
   });
 
   it('stores a play whose song was unpublished after the session was issued', async () => {
@@ -854,8 +858,11 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
 
     expect(response).toEqual({
       ...expected,
-      bestScore: expected.score,
       newAchievements: ANY_ACHIEVEMENTS,
+      review: {
+        kind: 'approved',
+        ranking: null,
+      },
     });
     const [stored, ...others] = await findScores(player.id, withdrawnChart);
     expect(others).toEqual([]);
@@ -885,8 +892,14 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
 
     expect(response).toEqual({
       ...expected,
-      bestScore: expected.score,
       newAchievements: ANY_ACHIEVEMENTS,
+      review: {
+        kind: 'approved',
+        ranking: {
+          rank: 1,
+          isNewBest: true,
+        },
+      },
     });
     const [stored, ...others] = await findScores(player.id, shortenedChart);
     expect(others).toEqual([]);
@@ -904,7 +917,7 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     expect(outcome).toBe('finished');
 
     const sessionId = await startRankedPlay(player, reassignedChart);
-    const changed = await editor.client.collection('charts').update(record.id, {
+    await editor.client.collection('charts').update(record.id, {
       difficulty: 'hard',
       data: {
         ...reassignedChart,
@@ -919,14 +932,17 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
 
     expect(response).toEqual({
       ...expected,
-      bestScore: expected.score,
       newAchievements: ANY_ACHIEVEMENTS,
+      review: {
+        kind: 'approved',
+        ranking: null,
+      },
     });
     const [stored, ...others] = await findScores(player.id, reassignedChart);
     expect(others).toEqual([]);
     expect(stored).toMatchObject({
       ...expected,
-      chartRevision: revisionOf(changed),
+      chartRevision: revisionOf(record),
     });
     const filter = where(PLAY_RESULTS, [{ session: sessionId }]);
     const results = await server.superuser.collection(PLAY_RESULTS.name).getFullList({
@@ -1036,39 +1052,51 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     expect(await sessionExists(sessionId)).toBe(true);
   });
 
-  it('keeps only the best result of each user and chart revision', async () => {
+  it('keeps only the best result of each user and chart revision and answers its rank', async () => {
     const player = await newPlayer();
+    const rival = await newPlayer();
     const lowInputs = [tapPerfectInputs[0]!];
-    const low = simulateClientPlay(tapChart, lowInputs, FRAME_TIMES_MS).result;
-    const high = simulateClientPlay(tapChart, tapPerfectInputs, FRAME_TIMES_MS).result;
+    const low = simulateClientPlay(rankingChart, lowInputs, FRAME_TIMES_MS).result;
+    const high = simulateClientPlay(rankingChart, tapPerfectInputs, FRAME_TIMES_MS).result;
     expect(high.score).toBeGreaterThan(low.score);
-    const play = async (inputs: readonly InputEvent[]): Promise<ResultResponse> =>
-      submitResult(player.client, await startRankedPlay(player, tapChart), {
-        inputOffsetMs: 0,
-        events: inputs,
+    const play = async (
+      user: TestUser,
+      inputs: readonly InputEvent[],
+    ): Promise<ResultResponse['review']> =>
+      (
+        await submitResult(user.client, await startRankedPlay(user, rankingChart), {
+          inputOffsetMs: 0,
+          events: inputs,
+        })
+      ).review;
+    const approved = (rank: number, isNewBest: boolean): PlayReview => ({
+      kind: 'approved',
+      ranking: {
+        rank,
+        isNewBest,
+      },
+    });
+    const expectStoredBest = async (best: typeof low): Promise<void> => {
+      const [stored, ...others] = await findScores(player.id, rankingChart);
+      expect(others).toEqual([]);
+      expect(stored).toMatchObject({
+        score: best.score,
+        accuracy: best.accuracy,
+        maxCombo: best.maxCombo,
+        cleared: best.cleared,
+        counts: best.counts,
       });
+    };
 
-    expect(await play(lowInputs)).toMatchObject({
-      score: low.score,
-      bestScore: low.score,
-    });
-    expect(await play(tapPerfectInputs)).toMatchObject({
-      score: high.score,
-      bestScore: high.score,
-    });
-    expect(await play(lowInputs)).toMatchObject({
-      score: low.score,
-      bestScore: high.score,
-    });
-
-    const [stored, ...others] = await findScores(player.id, tapChart);
-    expect(others).toEqual([]);
-    expect(stored).toMatchObject({
-      score: high.score,
-      accuracy: high.accuracy,
-      maxCombo: high.maxCombo,
-      cleared: high.cleared,
-      counts: high.counts,
-    });
+    expect(await play(player, lowInputs)).toEqual(approved(1, true));
+    const [first] = await findScores(player.id, rankingChart);
+    expect(await play(player, lowInputs)).toEqual(approved(1, false));
+    expect(await findScores(player.id, rankingChart)).toEqual([first]);
+    expect(await play(rival, tapPerfectInputs)).toEqual(approved(1, true));
+    expect(await play(player, lowInputs)).toEqual(approved(2, false));
+    await expectStoredBest(low);
+    // 같은 점수와 정확도면 먼저 달성한 기록이 앞선다.
+    expect(await play(player, tapPerfectInputs)).toEqual(approved(2, true));
+    await expectStoredBest(high);
   });
 });

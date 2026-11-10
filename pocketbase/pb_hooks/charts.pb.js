@@ -90,3 +90,19 @@ onRecordUpdate((e) => {
   e.record.set('revision', $security.sha256(toString(e.record.get('data'))));
   e.next();
 }, 'charts');
+
+// 어떤 경로로 고쳐도 scores 의 복제 값이 함께 바뀌도록 모델 훅에서 같은 트랜잭션으로 묶는다.
+onRecordUpdate((e) => {
+  const { hasChangedScoreChartFields, saveScoreChartFields } = require(
+    `${__hooks}/lib/ranking/repository.cjs`,
+  );
+  if (!hasChangedScoreChartFields(e.record.original(), e.record)) {
+    e.next();
+    return;
+  }
+  e.app.runInTransaction((txApp) => {
+    e.app = txApp;
+    e.next();
+    saveScoreChartFields($dbx, txApp, e.record);
+  });
+}, 'charts');

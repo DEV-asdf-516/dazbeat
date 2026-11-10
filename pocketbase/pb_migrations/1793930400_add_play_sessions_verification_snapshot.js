@@ -3,9 +3,7 @@
 migrate(
   (app) => {
     // 이 마이그레이션 전에 발급된 세션에는 고정한 검증 기준이 없어, 값을 추측하지 않고 만료시킨다.
-    app.findAllRecords('play_sessions').forEach((record) => {
-      app.delete(record);
-    });
+    app.db().delete('play_sessions').execute();
 
     const playSessions = app.findCollectionByNameOrId('play_sessions');
     playSessions.fields.add(new TextField({ name: 'songKey', required: true }));

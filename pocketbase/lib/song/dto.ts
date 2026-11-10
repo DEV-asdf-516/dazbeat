@@ -128,7 +128,7 @@ export interface SongSearchCursor {
 }
 
 export interface SongSearchRequest {
-  readonly title: TitleSearch;
+  readonly title: TitleSearch | null;
   readonly category: SongCategory | null;
   readonly cursor: SongSearchCursor | null;
   readonly scope: SongScope;
@@ -143,7 +143,10 @@ export function parseSongSearchInput(input: SongSearchInput): SongSearchRequest 
   };
 }
 
-function parseTitle(value: unknown): TitleSearch {
+function parseTitle(value: unknown): TitleSearch | null {
+  if (value === undefined) {
+    return null;
+  }
   if (!isString(value)) {
     throw new InvalidSongSearchError('invalid_request', 'title must be a string.');
   }

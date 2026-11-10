@@ -4,6 +4,8 @@ import type { Messages } from '../../i18n/messages/ko.js';
 import type { Settings } from '../../storage/settings.js';
 import { formatKeyCode } from '../ui/state/format.js';
 import { readMenuAction } from '../ui/state/menuAction.js';
+import { readWheelRows } from '../ui/state/wheelRows.js';
+import type { WheelGesture } from '../ui/state/wheelRows.js';
 
 export type ControlsKeyAction = 'open' | 'close' | 'block' | 'pass';
 
@@ -27,6 +29,7 @@ const BACK_KEY = 'Esc';
 const ADJUST_KEYS = '←→';
 const CATEGORY_KEYS = 'Q/E';
 const RANDOM_KEY = 'R';
+const RANKING_KEY = 'L';
 const TAB_KEY = 'Tab';
 
 export function readControlsKey(
@@ -41,8 +44,19 @@ export function readControlsKey(
     : 'block';
 }
 
-export function isControlsButtonEnabled(button: ControlsButton, isOpen: boolean): boolean {
-  return button === 'controlsEntry' || isOpen;
+// 휠은 키 가로채기와 팝업 막을 거치지 않아 여기서 막는다.
+export function readControlsWheel(
+  isOpen: boolean,
+  gesture: WheelGesture,
+  wheel: { readonly deltaYPx: number; readonly atMs: number; readonly rowPx: number },
+): { gesture: WheelGesture; rows: number } {
+  if (isOpen) {
+    return {
+      gesture,
+      rows: 0,
+    };
+  }
+  return readWheelRows(gesture, wheel.deltaYPx, wheel.atMs, wheel.rowPx);
 }
 
 // Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 팝업을 닫을 때 그 안 버튼의 hover 를 푼다.
@@ -61,11 +75,8 @@ export function withControlsOpen<
   };
 }
 
-export function getControlsCloseView(
-  hover: { readonly kind: string } | null,
-  isOpen: boolean,
-): ButtonView {
-  return getButtonView(hover, 'controlsClose', isOpen, false);
+export function getControlsCloseView(hover: { readonly kind: string } | null): ButtonView {
+  return getButtonView(hover, 'controlsClose', true, false);
 }
 
 export function isControlsEntryHovered(hover: { readonly kind: string } | null): boolean {
@@ -116,6 +127,10 @@ export function getControlsGuide(
         {
           keys: [RANDOM_KEY],
           label: messages.menu.randomSong,
+        },
+        {
+          keys: [RANKING_KEY],
+          label: messages.menu.openRanking,
         },
         {
           keys: [TAB_KEY],

@@ -1,5 +1,6 @@
 import type { NamedAchievementDefinition } from '../../../data/achievements.js';
 import type { RankingSubmission } from '../../../data/playSession.js';
+import type { PlayReview } from '../../../data/ranking.js';
 import { findChart, getAvailableDifficulties, stepChart } from '../../../data/songs.js';
 import type { ChartRef } from '../../../data/songs.js';
 import type { Difficulty } from '../../../rhythm/types.js';
@@ -18,24 +19,27 @@ import {
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
   getControlsCloseView,
-  isControlsButtonEnabled,
   isControlsEntryHovered,
   readControlsKey,
   withControlsOpen,
 } from '../../app/controlsGuide.js';
+import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
 import type { ControlsButton, ControlsKeyAction } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
+import { getTopRankTier } from '../../ui/state/topRank.js';
+import { getPlayOriginRequest } from '../../app/sceneRoutes.js';
 import type {
-  PlayMode,
+  PlayOrigin,
   ResultRanking,
+  ResultReport,
   SceneRequest,
-  SongSelectRestore,
 } from '../../app/sceneRoutes.js';
 import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 
 export type ResultMenuItem = 'retry' | 'songSelect';
 
-export type ResultButton = ResultMenuItem | ControlsButton | 'noticeClose';
+export type ResultButton = ResultMenuItem | ControlsButton | AccountPanelButton | 'noticeClose';
 
 export type RankingNotice = 'issueFailed' | 'rejected' | 'unknown';
 
@@ -44,16 +48,21 @@ export type ResultHover =
   | { readonly kind: 'toastClose'; readonly toastId: number }
   | ButtonHover<ResultButton>;
 
+export type ToastContent =
+  | { readonly kind: 'achievement'; readonly achievement: NamedAchievementDefinition }
+  | { readonly kind: 'ranking'; readonly rank: number }
+  | { readonly kind: 'rankingPending' };
+
 export interface ShownToast {
   readonly id: number;
-  readonly achievement: NamedAchievementDefinition;
+  readonly content: ToastContent;
   readonly slot: number;
   readonly phase: 'shown' | 'leaving';
 }
 
 export interface ToastQueue {
   readonly shown: readonly ShownToast[];
-  readonly waiting: readonly NamedAchievementDefinition[];
+  readonly waiting: readonly ToastContent[];
   readonly nextId: number;
 }
 
@@ -64,23 +73,24 @@ export interface ResultState {
   readonly toasts: ToastQueue;
   readonly isControlsOpen: boolean;
   readonly rankingNotice: RankingNotice | null;
-}
-
-export interface ResultExit {
-  readonly mode: PlayMode;
-  readonly restore: SongSelectRestore | undefined;
+  readonly isRetryChartFixed: boolean;
 }
 
 const MENU_ITEMS: readonly ResultMenuItem[] = ['retry', 'songSelect'];
 const MAX_VISIBLE_TOASTS = 3;
 
-export function createResultState(retryChart: ChartRef, ranking: ResultRanking): ResultState {
+export function createResultState(
+  retryChart: ChartRef,
+  ranking: ResultRanking,
+  report: ResultReport = { kind: 'graded' },
+): ResultState {
   return {
     retryChart,
     hover: null,
     focus: 'retry',
     isControlsOpen: false,
     rankingNotice: ranking.kind === 'issueFailed' ? 'issueFailed' : null,
+    isRetryChartFixed: report.kind === 'section',
     toasts: {
       shown: [],
       waiting: [],
@@ -105,6 +115,9 @@ export function selectRetryDifficulty(state: ResultState, difficulty: Difficulty
 }
 
 export function stepRetryChart(state: ResultState, delta: 1 | -1): ResultState {
+  if (state.isRetryChartFixed) {
+    return state;
+  }
   const retryChart = stepChart(state.retryChart, delta);
   return retryChart === state.retryChart
     ? state
@@ -170,29 +183,14 @@ export function getRetryTabAppearance(state: ResultState, difficulty: Difficulty
 }
 
 export function moveResultFocus(state: ResultState, delta: 1 | -1): ResultState {
-  const focus = cycleItem(MENU_ITEMS, state.focus, delta);
-  return focus === state.focus
-    ? state
-    : {
-        ...state,
-        focus,
-      };
+  return {
+    ...state,
+    focus: cycleItem(MENU_ITEMS, state.focus, delta),
+  };
 }
 
 export function isResultFocused(state: ResultState, item: ResultMenuItem): boolean {
   return state.focus === item;
-}
-
-function isResultButtonEnabled(state: ResultState, button: ResultButton): boolean {
-  switch (button) {
-    case 'retry':
-    case 'songSelect':
-      return state.rankingNotice === null;
-    case 'noticeClose':
-      return state.rankingNotice !== null;
-    default:
-      return state.rankingNotice === null && isControlsButtonEnabled(button, state.isControlsOpen);
-  }
 }
 
 // 알림이 떠 있는 동안 뒤 화면의 메뉴·난이도·조작 안내 입력은 받지 않는다.
@@ -246,7 +244,7 @@ export function unhoverResultButton(state: ResultState, button: ResultButton): R
 }
 
 export function pressResultButton(state: ResultState, button: ResultButton): ResultState {
-  return withHover(state, pressButton(state.hover, button, isResultButtonEnabled(state, button)));
+  return withHover(state, pressButton(state.hover, button, true));
 }
 
 export function releaseResultButton(state: ResultState, button: ResultButton): ResultState {
@@ -258,16 +256,11 @@ export function getMenuButtonView(state: ResultState, item: ResultMenuItem): But
 }
 
 export function getRankingNoticeCloseView(state: ResultState): ButtonView {
-  return getButtonView(
-    state.hover,
-    'noticeClose',
-    isResultButtonEnabled(state, 'noticeClose'),
-    false,
-  );
+  return getButtonView(state.hover, 'noticeClose', true, false);
 }
 
 export function getResultControlsCloseView(state: ResultState): ButtonView {
-  return getControlsCloseView(state.hover, state.isControlsOpen);
+  return getControlsCloseView(state.hover);
 }
 
 export function isResultControlsEntryHovered(state: ResultState): boolean {
@@ -277,51 +270,49 @@ export function isResultControlsEntryHovered(state: ResultState): boolean {
 export function getResultExitRequest(
   state: ResultState,
   item: ResultMenuItem,
-  exit: ResultExit,
+  origin: PlayOrigin,
+  played: ChartRef,
 ): SceneRequest {
   const { retryChart } = state;
-  const { mode, restore } = exit;
-  const restoreData =
-    restore === undefined
-      ? {}
-      : {
-          restore: {
-            ...restore,
-            difficulty: retryChart.difficulty,
-          },
-        };
   switch (item) {
     case 'retry':
       return {
         key: 'gameplay',
         data: {
           ...retryChart,
-          mode,
-          ...restoreData,
+          origin,
         },
       };
     case 'songSelect':
-      return {
-        key: 'songSelect',
-        data: {
-          mode,
-          ...restoreData,
-        },
-      };
+      return getPlayOriginRequest(origin, played, retryChart);
   }
 }
 
-export function queueAchievements(
-  state: ResultState,
-  achievements: readonly NamedAchievementDefinition[],
-): ResultState {
+export function queueToasts(state: ResultState, contents: readonly ToastContent[]): ResultState {
   return {
     ...state,
     toasts: admitWaiting({
       ...state.toasts,
-      waiting: [...state.toasts.waiting, ...achievements],
+      waiting: [...state.toasts.waiting, ...contents],
     }),
   };
+}
+
+/** 이번 판으로 최고 기록이 바뀌어 TOP 안에 들었을 때만 순위를 알린다. */
+function getReviewToast(review: PlayReview): ToastContent | null {
+  switch (review.kind) {
+    case 'pending':
+      return { kind: 'rankingPending' };
+    case 'approved': {
+      const { ranking } = review;
+      return ranking !== null && ranking.isNewBest && getTopRankTier(ranking.rank) !== 'none'
+        ? {
+            kind: 'ranking',
+            rank: ranking.rank,
+          }
+        : null;
+    }
+  }
 }
 
 export function applyRankingSubmission(
@@ -329,10 +320,17 @@ export function applyRankingSubmission(
   submission: RankingSubmission,
 ): ResultState {
   switch (submission.kind) {
-    case 'saved':
-      return submission.play.newAchievements.length === 0
-        ? state
-        : queueAchievements(state, submission.play.newAchievements);
+    case 'saved': {
+      const reviewToast = getReviewToast(submission.play.review);
+      const contents: ToastContent[] = [
+        ...(reviewToast === null ? [] : [reviewToast]),
+        ...submission.play.newAchievements.map((achievement): ToastContent => ({
+          kind: 'achievement',
+          achievement,
+        })),
+      ];
+      return contents.length === 0 ? state : queueToasts(state, contents);
+    }
     case 'rejected':
     case 'unknown':
       return {
@@ -343,9 +341,6 @@ export function applyRankingSubmission(
 }
 
 export function closeRankingNotice(state: ResultState): ResultState {
-  if (state.rankingNotice === null) {
-    return state;
-  }
   return {
     ...state,
     rankingNotice: null,
@@ -394,13 +389,13 @@ function admitWaiting(queue: ToastQueue): ToastQueue {
   const waiting = [...queue.waiting];
   let { nextId } = queue;
   while (shown.length < MAX_VISIBLE_TOASTS) {
-    const achievement = waiting.shift();
-    if (achievement === undefined) {
+    const content = waiting.shift();
+    if (content === undefined) {
       break;
     }
     shown.push({
       id: nextId,
-      achievement,
+      content,
       slot: 0,
       phase: 'shown',
     });
@@ -450,6 +445,7 @@ export type ResultRegion =
   | 'toastClose'
   | 'controls'
   | 'controlsEntry'
+  | 'accountButton'
   | 'controlsClose'
   | 'rankingNotice'
   | 'rankingNoticeButtons'
@@ -484,10 +480,11 @@ const REGION_SOURCES: Readonly<
   toastClose: [readHoveredToastId, readShownToasts],
   controls: [readControlsOpen],
   controlsEntry: [readEntryHovered],
-  controlsClose: [readCloseHovered, readClosePressed, readControlsOpen],
+  accountButton: [(state) => getAccountPanelPointerKey(state.hover)],
+  controlsClose: [readCloseHovered, readClosePressed],
   // 열림이 바뀔 때만 골라져야 알림 창 페이드가 열고 닫을 때만 돈다.
   rankingNotice: [readRankingNotice],
-  rankingNoticeButtons: [readNoticeCloseHovered, readNoticeClosePressed, readRankingNotice],
+  rankingNoticeButtons: [readNoticeCloseHovered, readNoticeClosePressed],
 };
 
 export function getChangedRegions(

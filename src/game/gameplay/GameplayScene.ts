@@ -111,14 +111,14 @@ const SKY_SCRIM_PROFILE: VerticalProfile = [
 const LANE_PANEL_ALPHA = 0.95;
 // 세로 프로필은 [화면 높이 비율, alpha] 정지점이고 정지점 사이는 선형이다.
 const LANE_PANEL_PROFILE: VerticalProfile = [
-  [0, 0.2],
-  [0.3, 0.75],
+  [0, 0.5],
+  [0.3, 0.85],
   [0.7, 1],
   [1, 1],
 ];
 const LANE_LINE_PROFILE: VerticalProfile = [
-  [0, 0],
-  [0.35, 0.6],
+  [0, 0.45],
+  [0.2, 0.8],
   [0.85, 1],
   [1, 0.6],
 ];
@@ -131,9 +131,11 @@ const LANE_EDGE_SHADOW_ALPHA = 0.9;
 const LANE_BORDER_COLOR = 0xa9bedc;
 const LANE_BORDER_WIDTH_PX = 2;
 const LANE_BORDER_ALPHA = 0.75;
-const LANE_DIVIDER_COLOR = 0x7f93b3;
-const LANE_DIVIDER_WIDTH_PX = 1;
-const LANE_DIVIDER_ALPHA = 0.4;
+const LANE_DIVIDER_WIDTH_PX = 2;
+const LANE_DIVIDER_ALPHA = 0.62;
+const LANE_DIVIDER_SHADE_WIDTH_PX = 8;
+const LANE_DIVIDER_SHADE_ALPHA = 0.8;
+const LANE_STRIPE_ALPHA = 0.28;
 const KEY_LABEL_Y_PX = 968;
 const JUDGMENT_Y_PX = 780;
 const JUDGMENT_HOLD_MS = 300;
@@ -261,7 +263,7 @@ export class GameplayScene extends Phaser.Scene {
     private readonly save: LocalSave,
     private readonly mvLayer: HTMLElement,
     private readonly prepareChart: (ref: ChartRef) => Promise<PreparedChart>,
-    private readonly loadPracticeChart: (ref: ChartRef) => Promise<Chart>,
+    private readonly loadChart: (ref: ChartRef, isFresh: boolean) => Promise<Chart>,
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
     private readonly rankedPlay: RankedPlay,
@@ -379,26 +381,61 @@ export class GameplayScene extends Phaser.Scene {
         },
       ),
     );
-    const laneDividers = this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider);
-    getLanes(data.laneCount)
-      .slice(1)
+    const lanes = getLanes(data.laneCount);
+    const getLaneBoundaryXPx = (boundary: number): number =>
+      playfield.leftPx + playfield.laneWidthPx * boundary;
+    lanes
+      .filter((lane) => lane % 2 === 1)
       .forEach((lane) =>
         fillVerticalProfile(
-          laneDividers,
-          LANE_LINE_PROFILE,
-          getLineBand(
-            playfield,
-            playfield.leftPx + playfield.laneWidthPx * lane,
-            -LANE_DIVIDER_WIDTH_PX / 2,
-            LANE_DIVIDER_WIDTH_PX / 2,
-          ),
-          LANE_DIVIDER_COLOR,
+          laneChrome,
+          LANE_PANEL_PROFILE,
+          (topYPx, bottomYPx) =>
+            getPlayfieldTrapezoid(
+              playfield,
+              getLaneBoundaryXPx(lane),
+              getLaneBoundaryXPx(lane + 1),
+              topYPx,
+              bottomYPx,
+            ),
+          CELESTIAL_COLORS.surfaceHover,
           {
-            left: LANE_DIVIDER_ALPHA,
-            right: LANE_DIVIDER_ALPHA,
+            left: LANE_STRIPE_ALPHA,
+            right: LANE_STRIPE_ALPHA,
           },
         ),
       );
+    const dividerXPx = lanes.slice(1).map(getLaneBoundaryXPx);
+    dividerXPx.forEach((xPx) =>
+      fillVerticalProfile(
+        laneChrome,
+        LANE_LINE_PROFILE,
+        getLineBand(
+          playfield,
+          xPx,
+          -LANE_DIVIDER_SHADE_WIDTH_PX / 2,
+          LANE_DIVIDER_SHADE_WIDTH_PX / 2,
+        ),
+        LANE_EDGE_SHADE_COLOR,
+        {
+          left: LANE_DIVIDER_SHADE_ALPHA,
+          right: LANE_DIVIDER_SHADE_ALPHA,
+        },
+      ),
+    );
+    const laneDividers = this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider);
+    dividerXPx.forEach((xPx) =>
+      fillVerticalProfile(
+        laneDividers,
+        LANE_LINE_PROFILE,
+        getLineBand(playfield, xPx, -LANE_DIVIDER_WIDTH_PX / 2, LANE_DIVIDER_WIDTH_PX / 2),
+        LANE_BORDER_COLOR,
+        {
+          left: LANE_DIVIDER_ALPHA,
+          right: LANE_DIVIDER_ALPHA,
+        },
+      ),
+    );
     const laneOrnaments = addLaneOrnaments(this, playfield, data.laneCount);
     const comboLabel = addHudText(this, playfield.centerXPx, COMBO_LABEL_Y_PX, 'COMBO', {
       ...textStyle('meta', COMBO_FILL, COMBO_LABEL_WEIGHT),
@@ -418,7 +455,7 @@ export class GameplayScene extends Phaser.Scene {
     // STARLIGHT(연습이면 배지)는 SCORE 위에 두어 체력·점수를 우상단 한 묶음으로 읽게 한다.
     // YouTube 임베드가 재생 시작·일시정지 때 띄우는 제목 바(좌상단)·버튼(아래 양 구석)과도 겹치지 않는다.
     const modeHud: ModeHud =
-      data.mode === 'standard'
+      data.origin.mode === 'standard'
         ? {
             kind: 'standard',
             starlight: new StarlightGauge(this, SCORE_RIGHT_X_PX, STARLIGHT_Y_PX),
@@ -558,7 +595,11 @@ export class GameplayScene extends Phaser.Scene {
       }),
       backButton: new Button(this, 0, ERROR_BUTTON_Y_PX, {
         variant: 'primary',
-        label: this.i18n.t('gameplay.backToSongSelect'),
+        label: this.i18n.t(
+          data.origin.kind === 'chartEditor'
+            ? 'gameplay.backToEditor'
+            : 'gameplay.backToSongSelect',
+        ),
         pointer: pointButton(pointer, 'back'),
       })
         .alignX(SCREEN_CENTER_X_PX, 0.5)
@@ -568,7 +609,6 @@ export class GameplayScene extends Phaser.Scene {
     // 플레이어가 준비되기 전에는 보일 영상이 없으므로 가린 상태로 시작한다.
     this.setMvVisible(view, false);
 
-    const restoreData = data.restore === undefined ? {} : { restore: data.restore };
     const screen: GameplayScreen = {
       showStatus: (previous, next) => this.renderStatus(view, previous, next),
       renderButtons: (previous, next) => {
@@ -583,22 +623,14 @@ export class GameplayScene extends Phaser.Scene {
       closeQuitConfirm: () => this.closeQuitConfirm(view),
       playSound: (sound) => view.soundEffects.play(sound),
       beginPlay: (chart) => this.beginPlay(view, chart, settings.scrollSpeedPxPerSecond),
-      showResult: (result) =>
-        this.showResult({
-          ...result,
-          ...restoreData,
-        }),
-      backToSongSelect: () =>
-        startScene(this, 'songSelect', {
-          mode: data.mode,
-          ...restoreData,
-        }),
+      showResult: (result) => this.showResult(result),
+      leave: (request) => this.scene.start(SCENE_KEYS[request.key], request.data),
     };
     const controller = new GameplayController(
       {
         save: this.save,
         prepareChart: this.prepareChart,
-        loadPracticeChart: this.loadPracticeChart,
+        loadChart: this.loadChart,
         rankedPlay: this.rankedPlay,
         players: {
           loadApi: loadYouTubeIframeApi,

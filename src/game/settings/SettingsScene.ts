@@ -52,7 +52,13 @@ import {
 } from '../ui/view/widgets/keyHintView.js';
 import type { KeyCap } from '../ui/view/widgets/keyHintView.js';
 import { createCanvasTexture } from '../ui/view/textures/canvasTexture.js';
-import { createHeaderAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import { ICON_GRAIN, applyGrain } from '../ui/view/textures/grain.js';
+import {
+  AUXILIARY_LABEL_TYPE,
+  FOOTER_AUXILIARY_ENTRY_GAP_PX,
+  createFooterAuxiliaryButtons,
+  getFooterAuxiliaryCenterYPx,
+} from '../ui/view/widgets/auxiliaryButton.js';
 import { queueCelestialTextures } from '../celestial/view/celestialSprites.js';
 import {
   ListRowMarker,
@@ -60,6 +66,8 @@ import {
   slideSelectedRowContent,
 } from '../ui/view/widgets/listRowFocus.js';
 import { requireKeyboard } from '../ui/view/input/menuInput.js';
+import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { renderTextEntry } from '../ui/view/widgets/textEntry.js';
@@ -72,8 +80,11 @@ import {
   setTextColor,
   setTextWeight,
   textStyle,
+  typeStyle,
+  cssColor,
 } from '../ui/view/theme.js';
 import { requireDefined } from '../../invariant.js';
+import { rgba } from '../ui/view/textures/lightTextures.js';
 
 type SettingsGroup = 'audio' | 'input' | 'general';
 type SettingsColumn = 'left' | 'right';
@@ -257,7 +268,7 @@ type RowControl =
   | { kind: 'step'; value: Phaser.GameObjects.Text; steps: readonly StepControl[] }
   | {
       kind: 'volume';
-      meter: Phaser.GameObjects.Graphics;
+      meter: Phaser.GameObjects.Image;
       mute: Phaser.GameObjects.Image;
       steps: readonly StepControl[];
     };
@@ -301,6 +312,7 @@ export class SettingsScene extends Phaser.Scene {
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
     private readonly menuMusic: MenuMusic,
+    private readonly account: AccountSource,
   ) {
     super(SCENE_KEYS.settings);
   }
@@ -330,6 +342,11 @@ export class SettingsScene extends Phaser.Scene {
       {
         celestial: this.celestial,
         screen: 'secondary',
+        account: {
+          kind: 'nameplate',
+          catalog: this.account.catalog,
+          pointer,
+        },
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
@@ -339,6 +356,7 @@ export class SettingsScene extends Phaser.Scene {
       },
       pointer,
     );
+    chrome.renderAccount(this.account.getIdentity());
     const keyboard = requireKeyboard(this);
 
     const widgets: Omit<SettingsView, 'controlsEntry' | 'backButton'> = {
@@ -367,12 +385,16 @@ export class SettingsScene extends Phaser.Scene {
       }),
       resetEntry: this.addResetEntry(pointer),
     };
-    const [backButton] = createHeaderAuxiliaryButtons(this, [
+    const [backButton] = createFooterAuxiliaryButtons(this, [
       {
         label: 'BACK',
         pointer: pointButton(pointer, 'back'),
       },
     ]);
+    widgets.resetEntry.setX(
+      requireDefined(backButton, 'Missing settings header button', 'BACK').x -
+        FOOTER_AUXILIARY_ENTRY_GAP_PX,
+    );
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     const view: SettingsView = {
@@ -394,6 +416,17 @@ export class SettingsScene extends Phaser.Scene {
         // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
         playSound: (sound, settings) => new SoundEffects(this, settings).play(sound),
         setBackgroundVolume: (settings) => this.menuMusic.setVolume(settings),
+        openProfile: () => {
+          this.exit = exitScene(this, this.exit, {
+            key: 'profile',
+            data: {
+              returnTo: {
+                key: 'settings',
+                data: { returnTo: this.returnTo },
+              },
+            },
+          });
+        },
         leave: () => {
           this.exit = exitScene(this, this.exit, this.returnTo);
         },
@@ -427,14 +460,14 @@ export class SettingsScene extends Phaser.Scene {
     };
   }
 
-  /** 되돌릴 수 없는 동작이라 설정 행과 떨어뜨려 화면 우하단에 CONTROLS 진입점과 같은 높이로 둔다. */
+  /** 되돌릴 수 없는 동작이라 설정 행과 떨어뜨려 화면 우하단 BACK 옆에 CONTROLS 진입점과 같은 높이로 둔다. */
   private addResetEntry(pointer: ButtonPointer<SettingsButton>): Phaser.GameObjects.Text {
     const label = this.add
       .text(
         SCREEN_LAYOUT.rightXPx,
-        SCREEN_LAYOUT.hintYPx + MENU_KEY_HINT_STYLE.capHeightPx / 2,
+        getFooterAuxiliaryCenterYPx(this),
         'RESET',
-        textStyle('meta', COLORS.textSecondary),
+        typeStyle(AUXILIARY_LABEL_TYPE, COLORS.textSecondary),
       )
       .setOrigin(1, 0.5)
       .setInteractive({ cursor: HOVER_CURSOR });
@@ -548,10 +581,7 @@ export class SettingsScene extends Phaser.Scene {
         label,
         control: {
           kind: 'volume',
-          meter: this.add.graphics({
-            x: leftXPx + VALUE_OFFSET_X_PX,
-            y: centerYPx,
-          }),
+          meter: this.add.image(leftXPx + VALUE_OFFSET_X_PX, centerYPx, '__DEFAULT'),
           mute,
           steps,
         },
@@ -625,6 +655,9 @@ export class SettingsScene extends Phaser.Scene {
         return;
       case 'controlsClose':
         view.chrome.renderControlsClose(getSettingsControlsCloseView(state));
+        return;
+      case 'accountButton':
+        view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));
         return;
       case 'backButton':
         view.backButton.render(getBackButtonView(state));
@@ -719,24 +752,20 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   private renderRowControl({ index, control }: RowView, state: SettingsEditorState): void {
-    const isShown = isRowShownAt(state, index);
     switch (control.kind) {
-      case 'key':
+      case 'key': {
+        const isShown = isRowShownAt(state, index);
         control.keyBox.setVisible(isShown);
         if (isShown) {
           control.keyBox.setLabel(getRowValue(state, index));
         }
         return;
+      }
       case 'step':
-        control.value.setVisible(isShown);
-        control.steps.forEach(({ button }) => button.setVisible(isShown));
-        if (!isShown) {
-          return;
-        }
         control.value.setText(getRowValue(state, index));
         return;
       case 'volume':
-        drawVolumeMeter(control.meter, getVolumeMeterView(state, index));
+        control.meter.setTexture(ensureVolumeMeterTexture(this, getVolumeMeterView(state, index)));
         return;
     }
   }
@@ -758,42 +787,56 @@ export class SettingsScene extends Phaser.Scene {
   }
 }
 
-function drawVolumeMeter(
-  meter: Phaser.GameObjects.Graphics,
+function ensureVolumeMeterTexture(
+  scene: Phaser.Scene,
   { level, levelCount, isMuted }: VolumeMeterView,
-): void {
+): string {
+  const key = `volume-meter:${levelCount}:${level}:${isMuted}`;
   const widthPx = levelCount * METER_SEGMENT_WIDTH_PX + (levelCount - 1) * METER_SEGMENT_GAP_PX;
-  meter.clear();
-  for (let segment = 0; segment < levelCount; segment += 1) {
-    const xPx = -widthPx / 2 + segment * (METER_SEGMENT_WIDTH_PX + METER_SEGMENT_GAP_PX);
-    const yPx = -METER_SEGMENT_HEIGHT_PX / 2;
-    const isFilled = segment < level;
-    if (isFilled && !isMuted) {
-      meter.fillStyle(COLORS.textPrimary);
-      meter.fillRoundedRect(
-        xPx,
-        yPx,
-        METER_SEGMENT_WIDTH_PX,
-        METER_SEGMENT_HEIGHT_PX,
-        METER_SEGMENT_RADIUS_PX,
-      );
-      continue;
-    }
-    // 음소거 중에도 채운 칸은 테두리로 남겨 음소거를 풀면 돌아갈 크기를 보여 준다.
-    if (isFilled) {
-      meter.lineStyle(METER_STROKE_PX, COLORS.textDisabled);
-    } else {
-      meter.lineStyle(METER_STROKE_PX, COLORS.border, isMuted ? METER_MUTED_EMPTY_ALPHA : 1);
-    }
+  createCanvasTexture(scene, key, widthPx, METER_SEGMENT_HEIGHT_PX, (context) => {
+    const segments = Array.from({ length: levelCount }, (_, segment) => ({
+      xPx: segment * (METER_SEGMENT_WIDTH_PX + METER_SEGMENT_GAP_PX),
+      isFilled: segment < level,
+    }));
+    context.lineWidth = METER_STROKE_PX;
     const insetPx = METER_STROKE_PX / 2;
-    meter.strokeRoundedRect(
-      xPx + insetPx,
-      yPx + insetPx,
-      METER_SEGMENT_WIDTH_PX - METER_STROKE_PX,
-      METER_SEGMENT_HEIGHT_PX - METER_STROKE_PX,
-      METER_SEGMENT_RADIUS_PX,
-    );
-  }
+    segments
+      .filter(({ isFilled }) => !isFilled || isMuted)
+      .forEach(({ xPx, isFilled }) => {
+        // 음소거 중에도 채운 칸은 테두리로 남겨 음소거를 풀면 돌아갈 크기를 보여 준다.
+        context.strokeStyle = isFilled
+          ? cssColor(COLORS.textDisabled)
+          : rgba(COLORS.border, isMuted ? METER_MUTED_EMPTY_ALPHA : 1);
+        context.beginPath();
+        context.roundRect(
+          xPx + insetPx,
+          insetPx,
+          METER_SEGMENT_WIDTH_PX - METER_STROKE_PX,
+          METER_SEGMENT_HEIGHT_PX - METER_STROKE_PX,
+          METER_SEGMENT_RADIUS_PX,
+        );
+        context.stroke();
+      });
+    applyGrain(context, widthPx, METER_SEGMENT_HEIGHT_PX, ICON_GRAIN);
+    if (isMuted) {
+      return;
+    }
+    context.fillStyle = cssColor(COLORS.textPrimary);
+    segments
+      .filter(({ isFilled }) => isFilled)
+      .forEach(({ xPx }) => {
+        context.beginPath();
+        context.roundRect(
+          xPx,
+          0,
+          METER_SEGMENT_WIDTH_PX,
+          METER_SEGMENT_HEIGHT_PX,
+          METER_SEGMENT_RADIUS_PX,
+        );
+        context.fill();
+      });
+  });
+  return key;
 }
 
 /** 흰색으로 그려 상태별 색을 tint 로 입힌다. 조정 버튼과 같은 크기의 칸 가운데에 그려 칸 전체가 눌린다. */
@@ -838,6 +881,7 @@ function ensureSpeakerTexture(scene: Phaser.Scene, isMuted: boolean): string {
       }
     }
     context.stroke();
+    applyGrain(context, sizePx, sizePx, ICON_GRAIN);
   });
   return key;
 }
@@ -861,6 +905,7 @@ function ensureChevronTexture(scene: Phaser.Scene, direction: 1 | -1): string {
     context.lineTo(tipXPx, sizePx / 2);
     context.lineTo(tailXPx, sizePx - insetPx);
     context.stroke();
+    applyGrain(context, sizePx, sizePx, ICON_GRAIN);
   });
   return key;
 }

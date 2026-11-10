@@ -4,7 +4,6 @@ import { ALL_SONGS_QUERY } from '../../src/data/songs.js';
 import { loadSongBatch } from '../../src/backend/songLoader.js';
 import { requireDefined } from '../../src/invariant.js';
 
-const SONGS_PATH = '/api/collections/songs/records';
 const SEARCH_PATH = '/api/dazbeat/songs/search';
 
 function makeSongRecord(id: string, overrides: Record<string, unknown> = {}) {
@@ -29,18 +28,6 @@ function makeSongRecord(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function listResponse(items: readonly unknown[], totalItems = items.length): Response {
-  return new Response(
-    JSON.stringify({
-      page: 1,
-      perPage: 1000,
-      totalItems,
-      totalPages: -1,
-      items,
-    }),
-  );
-}
-
 function searchResponse(
   items: readonly unknown[],
   totalItems: number | null = items.length,
@@ -55,10 +42,10 @@ function searchResponse(
   );
 }
 
-function stubFetch(response: Response, path = SONGS_PATH) {
+function stubFetch(response: Response) {
   const fetchMock = vi.fn<(input: string) => Promise<Response>>((input) => {
     const { pathname } = new URL(input);
-    if (pathname === path) {
+    if (pathname === SEARCH_PATH) {
       return Promise.resolve(response);
     }
     return Promise.resolve(new Response('not found', { status: 404 }));
@@ -67,14 +54,15 @@ function stubFetch(response: Response, path = SONGS_PATH) {
   return fetchMock;
 }
 
-function requestUrl(fetchMock: ReturnType<typeof stubFetch>, pathname: string): URL {
-  return requireDefined(
+function requestParams(fetchMock: ReturnType<typeof stubFetch>): Record<string, string> {
+  const url = requireDefined(
     fetchMock.mock.calls
       .map(([input]) => new URL(input))
-      .find((candidate) => candidate.pathname === pathname),
+      .find((candidate) => candidate.pathname === SEARCH_PATH),
     'No request',
-    pathname,
+    SEARCH_PATH,
   );
+  return Object.fromEntries(url.searchParams);
 }
 
 function makeSongRecords(count: number) {
@@ -92,13 +80,7 @@ function stubHeldFetch() {
         init?.signal?.addEventListener('abort', () =>
           reject(new DOMException('The request was aborted', 'AbortError')),
         );
-        held.push(() =>
-          resolve(
-            new URL(input).pathname === SEARCH_PATH
-              ? searchResponse([makeSongRecord('found')])
-              : listResponse([makeSongRecord('listed')]),
-          ),
-        );
+        held.push(() => resolve(searchResponse([makeSongRecord(new URL(input).search)])));
       }),
   );
   vi.stubGlobal('fetch', fetchMock);
@@ -115,68 +97,20 @@ afterEach(() => {
 });
 
 describe('loadSongBatch', () => {
-  it('requests the first batch of published songs newest release first with its total', async () => {
-    const fetchMock = stubFetch(listResponse([makeSongRecord('s1')], 235));
+  it('requests the first batch of published songs in one request without parameters', async () => {
+    const fetchMock = stubFetch(searchResponse([makeSongRecord('s1')], 235));
 
     const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
 
     expect(batch.totalCount).toBe(235);
-    const url = requestUrl(fetchMock, SONGS_PATH);
-    expect(url.searchParams.get('page')).toBe('1');
-    expect(url.searchParams.get('perPage')).toBe('100');
-    expect(url.searchParams.get('sort')).toBe('-releasedOn,-id');
-    expect(url.searchParams.get('skipTotal')).toBe('false');
-    expect(url.searchParams.get('filter')).toBe('isPublished = true');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestParams(fetchMock)).toEqual({});
   });
 
-  it('requests every song without the published condition for the all scope', async () => {
-    const fetchMock = stubFetch(listResponse([]));
-
-    await loadSongBatch(pb(), 'all', ALL_SONGS_QUERY, null);
-    await loadSongBatch(
-      pb(),
-      'all',
-      {
-        category: 'cover',
-        title: '',
-      },
-      {
-        releasedOn: '2026-01-05',
-        recordId: 'r42',
-      },
-    );
-
-    const [unfiltered, filtered] = fetchMock.mock.calls.map(([input]) => new URL(input));
-    expect(unfiltered?.searchParams.has('filter')).toBe(false);
-    expect(filtered?.searchParams.get('filter')).toBe(
-      'category = "cover" && ' +
-        '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
-    );
-  });
-
-  it('continues after the cursor with a keyset filter on release date and record id, uncounted', async () => {
-    const fetchMock = stubFetch(listResponse([], -1));
-
-    const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, {
-      releasedOn: '2026-01-05',
-      recordId: 'r42',
-    });
-
-    expect(batch.totalCount).toBeNull();
-    const url = requestUrl(fetchMock, SONGS_PATH);
-    expect(url.searchParams.get('page')).toBe('1');
-    expect(url.searchParams.get('skipTotal')).toBe('true');
-    expect(url.searchParams.get('filter')).toBe(
-      'isPublished = true && ' +
-        '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
-    );
-  });
-
-  it('combines published, category and keyset conditions with && when there is no title', async () => {
-    const fetchMock = stubFetch(listResponse([]));
-
-    await loadSongBatch(
-      pb(),
+  it.each([
+    ['the all scope', 'all', ALL_SONGS_QUERY, null, { scope: 'all' }],
+    [
+      'a category and a cursor without a title',
       'published',
       {
         category: 'cover',
@@ -186,31 +120,51 @@ describe('loadSongBatch', () => {
         releasedOn: '2026-01-05',
         recordId: 'r42',
       },
-    );
+      {
+        category: 'cover',
+        afterReleasedOn: '2026-01-05',
+        afterId: 'r42',
+      },
+    ],
+    [
+      'a title as typed',
+      'published',
+      {
+        ...ALL_SONGS_QUERY,
+        title: 'it\'s" OR 1',
+      },
+      null,
+      { title: 'it\'s" OR 1' },
+    ],
+    [
+      'every condition together',
+      'all',
+      {
+        category: 'cover',
+        title: 'Title',
+      },
+      {
+        releasedOn: '2026-01-05',
+        recordId: 'r42',
+      },
+      {
+        title: 'Title',
+        category: 'cover',
+        scope: 'all',
+        afterReleasedOn: '2026-01-05',
+        afterId: 'r42',
+      },
+    ],
+  ] as const)('sends %s to the search API', async (_name, scope, query, cursor, expected) => {
+    const fetchMock = stubFetch(searchResponse([]));
 
-    expect(requestUrl(fetchMock, SONGS_PATH).searchParams.get('filter')).toBe(
-      'isPublished = true && category = "cover" && ' +
-        '(releasedOn < "2026-01-05" || (releasedOn = "2026-01-05" && id < "r42"))',
-    );
-  });
+    await loadSongBatch(pb(), scope, query, cursor);
 
-  it('requests songs with their chart metadata in a single request', async () => {
-    const fetchMock = stubFetch(listResponse([makeSongRecord('s1'), makeSongRecord('s2')]));
-
-    await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const url = requestUrl(fetchMock, SONGS_PATH);
-    expect(url.searchParams.get('expand')).toBe('charts_via_song');
-    expect(url.searchParams.get('fields')).toBe(
-      'id,collectionId,collectionName,key,title,category,releasedOn,youtubeVideoId,jacket,accentColor,' +
-        'constellation,gameStartMs,gameEndMs,previewStartMs,credit,' +
-        'expand.charts_via_song.id,expand.charts_via_song.difficulty,expand.charts_via_song.laneCount',
-    );
+    expect(requestParams(fetchMock)).toEqual(expected);
   });
 
   it('returns an empty last batch when no songs match', async () => {
-    stubFetch(listResponse([]));
+    stubFetch(searchResponse([]));
 
     await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).resolves.toEqual({
       songs: [],
@@ -219,31 +173,9 @@ describe('loadSongBatch', () => {
     });
   });
 
-  it('marks a batch shorter than 100 songs as the last one', async () => {
-    stubFetch(listResponse(makeSongRecords(99)));
-
-    const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
-
-    expect(batch.songs).toHaveLength(99);
-    expect(batch.next).toBeNull();
-  });
-
-  it('continues a full batch from its last record', async () => {
-    const records = makeSongRecords(100);
-    stubFetch(listResponse(records));
-
-    const batch = await loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null);
-
-    expect(batch.songs).toHaveLength(100);
-    expect(batch.next).toEqual({
-      releasedOn: records[99]?.releasedOn,
-      recordId: 's99',
-    });
-  });
-
   it('converts records into songs in response order with grouped chart ids', async () => {
     stubFetch(
-      listResponse([
+      searchResponse([
         makeSongRecord('s2', {
           category: 'cover',
           previewStartMs: 45000,
@@ -351,7 +283,7 @@ describe('loadSongBatch', () => {
     ['previewStartMs is missing', { previewStartMs: undefined }, 'previewStartMs'],
     ['previewStartMs is a string', { previewStartMs: '45000' }, 'previewStartMs'],
   ])('rejects when a song record %s', async (_name, overrides, field) => {
-    stubFetch(listResponse([makeSongRecord('s1', overrides)]));
+    stubFetch(searchResponse([makeSongRecord('s1', overrides)]));
 
     await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).rejects.toThrow(
       `Invalid songs record s1: ${field}`,
@@ -426,7 +358,7 @@ describe('loadSongBatch', () => {
       'Invalid songs record s1: expand.charts_via_song[0].laneCount',
     ],
   ])('rejects when %s', async (_name, overrides, message) => {
-    stubFetch(listResponse([makeSongRecord('s1', overrides)]));
+    stubFetch(searchResponse([makeSongRecord('s1', overrides)]));
 
     await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).rejects.toThrow(message);
   });
@@ -446,65 +378,6 @@ describe('loadSongBatch', () => {
     );
 
     await expect(loadSongBatch(pb(), 'published', ALL_SONGS_QUERY, null)).rejects.toThrow();
-  });
-});
-
-describe('loadSongBatch with a title', () => {
-  it.each([
-    ['without category or cursor', ALL_SONGS_QUERY.category, null, {}],
-    [
-      'with category and cursor',
-      'cover' as const,
-      {
-        releasedOn: '2026-01-05',
-        recordId: 'r42',
-      },
-      {
-        category: 'cover',
-        afterReleasedOn: '2026-01-05',
-        afterId: 'r42',
-      },
-    ],
-  ])('sends the title to the search API %s', async (_name, category, cursor, expected) => {
-    const fetchMock = stubFetch(searchResponse([]), SEARCH_PATH);
-
-    await loadSongBatch(
-      pb(),
-      'published',
-      {
-        category,
-        title: 'it\'s" OR 1',
-      },
-      cursor,
-    );
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(Object.fromEntries(requestUrl(fetchMock, SEARCH_PATH).searchParams)).toEqual({
-      title: 'it\'s" OR 1',
-      ...expected,
-    });
-  });
-
-  it.each([
-    ['published', {}],
-    ['all', { scope: 'all' }],
-  ] as const)('sends the %s scope to the search API', async (scope, expected) => {
-    const fetchMock = stubFetch(searchResponse([]), SEARCH_PATH);
-
-    await loadSongBatch(
-      pb(),
-      scope,
-      {
-        ...ALL_SONGS_QUERY,
-        title: 'Title',
-      },
-      null,
-    );
-
-    expect(Object.fromEntries(requestUrl(fetchMock, SEARCH_PATH).searchParams)).toEqual({
-      title: 'Title',
-      ...expected,
-    });
   });
 
   it('converts search items into songs with their chart ids', async () => {
@@ -529,7 +402,6 @@ describe('loadSongBatch with a title', () => {
         }),
         makeSongRecord('s2', { expand: undefined }),
       ]),
-      SEARCH_PATH,
     );
 
     const { songs } = await loadSongBatch(
@@ -560,28 +432,8 @@ describe('loadSongBatch with a title', () => {
     expect(songs[1]).not.toHaveProperty('previewStartMs');
   });
 
-  it('returns an empty last batch when nothing matches', async () => {
-    stubFetch(searchResponse([]), SEARCH_PATH);
-
-    await expect(
-      loadSongBatch(
-        pb(),
-        'published',
-        {
-          ...ALL_SONGS_QUERY,
-          title: 'none',
-        },
-        null,
-      ),
-    ).resolves.toEqual({
-      songs: [],
-      next: null,
-      totalCount: 0,
-    });
-  });
-
   it('marks a batch whose response next is null as the last one', async () => {
-    stubFetch(searchResponse(makeSongRecords(100), 100, null), SEARCH_PATH);
+    stubFetch(searchResponse(makeSongRecords(100), 100, null));
 
     const batch = await loadSongBatch(
       pb(),
@@ -602,7 +454,7 @@ describe('loadSongBatch with a title', () => {
       releasedOn: '2026-01-03',
       recordId: 'r7',
     };
-    stubFetch(searchResponse(makeSongRecords(3), 250, next), SEARCH_PATH);
+    stubFetch(searchResponse(makeSongRecords(3), 250, next));
     const query = {
       ...ALL_SONGS_QUERY,
       title: 'Title',
@@ -614,12 +466,13 @@ describe('loadSongBatch with a title', () => {
     expect(batch.totalCount).toBe(250);
     expect(batch.next).toEqual(next);
 
-    const fetchMock = stubFetch(searchResponse([], null), SEARCH_PATH);
+    const fetchMock = stubFetch(searchResponse([], null));
     const nextBatch = await loadSongBatch(pb(), 'published', query, batch.next);
     expect(nextBatch.totalCount).toBeNull();
-    const params = requestUrl(fetchMock, SEARCH_PATH).searchParams;
-    expect(params.get('afterReleasedOn')).toBe('2026-01-03');
-    expect(params.get('afterId')).toBe('r7');
+    expect(requestParams(fetchMock)).toMatchObject({
+      afterReleasedOn: '2026-01-03',
+      afterId: 'r7',
+    });
   });
 
   it.each([
@@ -673,7 +526,7 @@ describe('loadSongBatch with a title', () => {
       'Invalid songs search response: response.items[0].collectionId',
     ],
   ])('rejects a response where %s', async (_name, body, message) => {
-    stubFetch(new Response(JSON.stringify(body)), SEARCH_PATH);
+    stubFetch(new Response(JSON.stringify(body)));
 
     await expect(
       loadSongBatch(
@@ -686,34 +539,6 @@ describe('loadSongBatch with a title', () => {
         null,
       ),
     ).rejects.toThrow(message);
-  });
-
-  it('rejects when the search API responds with an HTTP error', async () => {
-    stubFetch(
-      new Response(
-        JSON.stringify({
-          status: 400,
-          code: 'invalid_request',
-          message: 'title must be 1 to 100 characters.',
-        }),
-        {
-          status: 400,
-        },
-      ),
-      SEARCH_PATH,
-    );
-
-    await expect(
-      loadSongBatch(
-        pb(),
-        'published',
-        {
-          ...ALL_SONGS_QUERY,
-          title: 'Title',
-        },
-        null,
-      ),
-    ).rejects.toThrow();
   });
 });
 

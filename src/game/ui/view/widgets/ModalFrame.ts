@@ -2,8 +2,12 @@ import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../../../app/config.js';
 import { bindPointer } from '../input/hoverTarget.js';
 import type { PointerActions } from '../input/hoverTarget.js';
+import { getBrushRectTexture } from '../textures/brushRect.js';
 import { CELESTIAL_COLORS, MODAL } from '../theme.js';
 import { MOTION } from '../../state/motion.js';
+
+// 패널 색 위에 흰빛을 옅게 얹어 질감만 더한다. 그 아래 단색 패널이 뒤 화면을 가린다.
+const PANEL_TEXTURE_ALPHA = 0.06;
 
 export class ModalFrame {
   readonly container: Phaser.GameObjects.Container;
@@ -11,6 +15,7 @@ export class ModalFrame {
   private readonly backdrop: Phaser.GameObjects.Rectangle;
   private readonly shadow: Phaser.GameObjects.Rectangle;
   private readonly panel: Phaser.GameObjects.Rectangle;
+  private readonly panelTexture: Phaser.GameObjects.Image;
   private readonly panelHitArea = new Phaser.Geom.Rectangle();
   private readonly backdropHitArea = new Phaser.Geom.Rectangle();
 
@@ -48,13 +53,26 @@ export class ModalFrame {
       .setInteractive(this.panelHitArea, (hitArea: Phaser.Geom.Rectangle, x: number, y: number) =>
         Phaser.Geom.Rectangle.Contains(hitArea, x, y),
       );
-    this.container = scene.add.container(0, 0, [this.shadow, this.panel]).setDepth(MODAL.depth);
+    this.panelTexture = scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0);
+    this.container = scene.add
+      .container(0, 0, [this.shadow, this.panel, this.panelTexture])
+      .setDepth(MODAL.depth);
     this.backdrop.setVisible(false);
     this.container.setVisible(false);
   }
 
   setPanelSize(widthPx: number, heightPx: number): void {
     this.panel.setSize(widthPx, heightPx);
+    this.panelTexture.setTexture(
+      getBrushRectTexture(this.scene, {
+        widthPx,
+        heightPx,
+        radiusPx: MODAL.panelRadiusPx,
+        fillColor: CELESTIAL_COLORS.highlight,
+        fillAlpha: PANEL_TEXTURE_ALPHA,
+        border: null,
+      }),
+    );
     this.panelHitArea.setTo(0, 0, widthPx, heightPx);
     this.shadow.setSize(widthPx, heightPx);
     this.container.setPosition((GAME_WIDTH - widthPx) / 2, (GAME_HEIGHT - heightPx) / 2);

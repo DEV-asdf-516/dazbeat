@@ -6,7 +6,6 @@ import {
   getLoadErrorText,
   hoverGameplayButton,
   pressGameplayButton,
-  withQuitConfirmOpen,
 } from '../../../../src/game/gameplay/state/gameplayStatus.js';
 
 describe('getChangedStatusRegions', () => {
@@ -94,14 +93,5 @@ describe('getChangedButtonRegions', () => {
     expect(getChangedButtonRegions(hovered, pressGameplayButton(hovered, 'back'))).toEqual([
       'backButton',
     ]);
-  });
-
-  it('paints only the confirm buttons when the quit confirm opens', () => {
-    expect(
-      getChangedButtonRegions(
-        INITIAL_GAMEPLAY_BUTTONS,
-        withQuitConfirmOpen(INITIAL_GAMEPLAY_BUTTONS, true),
-      ),
-    ).toEqual(['quitConfirmButtons']);
   });
 });

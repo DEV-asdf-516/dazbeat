@@ -1,7 +1,7 @@
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
 import { withControlsOpen } from '../app/controlsGuide.js';
-import type { ResultRanking, SceneRequest } from '../app/sceneRoutes.js';
+import type { PlayOrigin, ResultRanking, ResultReport, SceneRequest } from '../app/sceneRoutes.js';
 import {
   applyMenuInput,
   applyRankingSubmission,
@@ -24,13 +24,14 @@ import {
   unhoverResultButton,
   unhoverToastClose,
 } from './state/resultState.js';
-import type { ResultButton, ResultExit, ResultMenuItem, ResultState } from './state/resultState.js';
+import type { ResultButton, ResultMenuItem, ResultState } from './state/resultState.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
 
 export interface ResultScreen {
   render(previous: ResultState | null, next: ResultState): void;
   playSound(sound: SoundEffect): void;
   leave(request: SceneRequest): void;
+  openProfile(awaitedRanking: ResultRanking): void;
 }
 
 type Transition = (state: ResultState) => ResultState;
@@ -40,21 +41,26 @@ type ControllerState = ResultState | { readonly kind: 'closed' };
 
 export class ResultController {
   private state: ControllerState;
+  // 프로필을 다녀와도 응답을 못 받은 제출의 알림을 잃지 않도록 넘긴다. 받은 뒤에는 다시 띄우지 않는다.
+  private awaitedRanking: ResultRanking = { kind: 'none' };
 
   constructor(
     private readonly screen: ResultScreen,
-    retryChart: ChartRef,
-    private readonly exit: ResultExit,
+    private readonly played: ChartRef,
+    private readonly origin: PlayOrigin,
     ranking: ResultRanking,
+    report: ResultReport,
   ) {
-    const first = createResultState(retryChart, ranking);
+    const first = createResultState(played, ranking, report);
     this.state = first;
     this.screen.render(null, first);
     if (ranking.kind === 'submitted') {
       // 제출 예외는 GameplayController 가 unknown 으로 바꿔 두므로 이 Promise 는 거절되지 않는다.
-      void ranking.submission.then((submission) =>
-        this.apply((state) => applyRankingSubmission(state, submission)),
-      );
+      this.awaitedRanking = ranking;
+      void ranking.submission.then((submission) => {
+        this.awaitedRanking = { kind: 'none' };
+        this.apply((state) => applyRankingSubmission(state, submission));
+      });
     }
   }
 
@@ -127,6 +133,10 @@ export class ResultController {
       case 'controlsClose':
       case 'controlsBackdrop':
         this.closeControls();
+        return;
+      case 'accountProfile':
+        this.screen.playSound('click');
+        this.screen.openProfile(this.awaitedRanking);
         return;
       case 'noticeClose':
         this.screen.playSound('click');
@@ -204,7 +214,7 @@ export class ResultController {
         this.apply(() => outcome.state);
         return;
       case 'leave':
-        this.screen.leave(getResultExitRequest(this.state, outcome.item, this.exit));
+        this.screen.leave(getResultExitRequest(this.state, outcome.item, this.origin, this.played));
         return;
     }
   }

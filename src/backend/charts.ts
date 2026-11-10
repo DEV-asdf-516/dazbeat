@@ -19,7 +19,7 @@ export type SaveChartResult =
   | { readonly kind: 'saved'; readonly chartId: string; readonly loaded: LoadedChart }
   | { readonly kind: 'conflict' };
 
-function toLoadedChart(
+function parseLoadedChartRecord(
   record: RecordModel,
   song: Song,
   difficulty: Difficulty,
@@ -36,7 +36,7 @@ export async function loadChart(pb: PocketBase, ref: ChartRef): Promise<LoadedCh
   const record = await pb
     .collection('charts')
     .getOne(ref.chartId, select(CHARTS, ['data', 'revision']));
-  return toLoadedChart(record, ref.song, ref.difficulty, ref.laneCount);
+  return parseLoadedChartRecord(record, ref.song, ref.difficulty, ref.laneCount);
 }
 
 export async function saveChart(
@@ -58,7 +58,7 @@ export async function saveChart(
       return {
         kind: 'saved',
         chartId,
-        loaded: toLoadedChart(updated, song, chart.difficulty, chart.laneCount),
+        loaded: parseLoadedChartRecord(updated, song, chart.difficulty, chart.laneCount),
       };
     } catch (error) {
       // 다른 곳에서 먼저 저장해 기준 revision 이 낡았다.
@@ -81,6 +81,6 @@ export async function saveChart(
   return {
     kind: 'saved',
     chartId: readRecordField(created, 'charts', 'id', isString),
-    loaded: toLoadedChart(created, song, chart.difficulty, chart.laneCount),
+    loaded: parseLoadedChartRecord(created, song, chart.difficulty, chart.laneCount),
   };
 }

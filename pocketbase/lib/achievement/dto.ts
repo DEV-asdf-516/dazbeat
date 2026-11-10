@@ -21,8 +21,7 @@ export interface AchievementMarkRecord {
   readonly difficulty: Difficulty;
   /** 증명한 revision 이 채보의 현재 revision 이고 곡이 지금 공개인가. 채보나 곡이 지워졌으면 false. */
   readonly isCurrent: boolean;
-  /** 소급분은 당시 별자리를 몰라 null. */
-  readonly constellation: Zodiac | null;
+  readonly constellation: Zodiac;
 }
 
 /** 채보가 하나 이상 있는 공개 곡과 그 곡이 제공하는 난이도. */

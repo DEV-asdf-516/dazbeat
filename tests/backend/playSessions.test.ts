@@ -104,7 +104,13 @@ const verifiedResponse = {
     miss: 0,
   },
   cleared: true,
-  bestScore: 1000000,
+  review: {
+    kind: 'approved',
+    ranking: {
+      rank: 1,
+      isNewBest: true,
+    },
+  },
 };
 
 type FetchCall = [input: string, init?: RequestInit];
@@ -184,7 +190,13 @@ describe('submitPlay', () => {
       accuracy: 100,
       maxCombo: 1,
       cleared: true,
-      bestScore: 1000000,
+      review: {
+        kind: 'approved',
+        ranking: {
+          rank: 1,
+          isNewBest: true,
+        },
+      },
     });
     expect(newAchievements.map(({ id }) => id)).toEqual(['FIRST_FINISH', 'FIRST_CLEAR']);
   });
@@ -215,6 +227,38 @@ describe('submitPlay', () => {
     respondWith(200, {
       ...verifiedResponse,
       newAchievements: [1],
+    });
+
+    await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).rejects.toThrow();
+  });
+
+  it.each([
+    [
+      'an approved play without a visible ranking',
+      {
+        kind: 'approved',
+        ranking: null,
+      },
+    ],
+    ['a play held for review', { kind: 'pending' }],
+  ])('resolves the review of %s', async (_case, review) => {
+    respondWith(200, {
+      ...verifiedResponse,
+      review,
+    });
+
+    expect((await submitSaved()).review).toEqual(review);
+  });
+
+  it.each([
+    ['a response from before reviews', { bestScore: 1000000 }],
+    ['an unknown review kind', { review: { kind: 'rejected' } }],
+  ])('rejects %s', async (_case, fields) => {
+    // JSON 으로 보낼 때 undefined 필드는 빠진다.
+    respondWith(200, {
+      ...verifiedResponse,
+      review: undefined,
+      ...fields,
     });
 
     await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).rejects.toThrow();

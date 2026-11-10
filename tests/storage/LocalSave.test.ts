@@ -10,6 +10,7 @@ import type { FinishedGameplayResult } from '../../src/rhythm/types.js';
 
 const SETTINGS_KEY = 'dazbeat:settings:v1';
 const RECORDS_KEY = 'dazbeat:records:v2';
+const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
 const CUSTOM_KEY_BINDINGS: KeyBindings = {
   4: ['KeyQ', 'KeyW', 'KeyO', 'KeyP'],
   5: ['KeyQ', 'KeyW', 'Space', 'KeyO', 'KeyP'],
@@ -525,5 +526,39 @@ describe('LocalSave records', () => {
       throw new Error('quota');
     });
     expect(() => save.saveResult('song-a', 4, 'easy', makeResult({}))).toThrow('quota');
+  });
+});
+
+describe('LocalSave revision notices', () => {
+  it('returns none when nothing is saved', () => {
+    expect(save.loadRevisionNotices()).toEqual(new Map());
+  });
+
+  it('keeps the latest confirmed revision of each chart', () => {
+    save.saveRevisionNotice('chart-a', 'rev-1');
+    save.saveRevisionNotice('chart-b', 'rev-1');
+    save.saveRevisionNotice('chart-a', 'rev-2');
+
+    expect(save.loadRevisionNotices()).toEqual(
+      new Map([
+        ['chart-a', 'rev-2'],
+        ['chart-b', 'rev-1'],
+      ]),
+    );
+  });
+
+  it('ignores malformed entries and warns when the JSON is broken', () => {
+    storage.setItem(
+      REVISION_NOTICES_KEY,
+      JSON.stringify({
+        'chart-a': 'rev-1',
+        'chart-b': 3,
+      }),
+    );
+    expect(save.loadRevisionNotices()).toEqual(new Map([['chart-a', 'rev-1']]));
+
+    storage.setItem(REVISION_NOTICES_KEY, '{');
+    expect(save.loadRevisionNotices()).toEqual(new Map());
+    expect(warnSpy).toHaveBeenCalledOnce();
   });
 });
