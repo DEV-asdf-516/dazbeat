@@ -497,20 +497,10 @@ export class ChartEditorController {
     if (timeSource === null) {
       return;
     }
-    const { frameNow } = this.ports;
-    const clock = new RhythmClock(
-      {
-        get currentTime() {
-          return timeSource.getTimeAt(frameNow());
-        },
-      },
-      0,
-      offsetMs,
-      {
-        audioStartTimeSec: 0,
-        songStartMs: 0,
-      },
-    );
+    const clock = new RhythmClock(timeSource, 0, offsetMs, {
+      audioStartTimeSec: 0,
+      songStartMs: 0,
+    });
     this.setPlayhead(startPlayback(toggle.startMs, clock));
   }
 
@@ -534,7 +524,7 @@ export class ChartEditorController {
         advancePlayback(
           playhead,
           getSelection(this.current).song,
-          playhead.transport.clock.getTimeMs(),
+          playhead.transport.clock.getTimeMs(this.ports.frameNow()),
         ),
       );
     }

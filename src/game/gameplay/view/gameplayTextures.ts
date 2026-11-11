@@ -17,11 +17,11 @@ const STAR_BUTTON_TEXTURE_WIDTH_PX = STAR_BUTTON_BODY_WIDTH_PX + STAR_BUTTON_PAD
 const STAR_BUTTON_TEXTURE_HEIGHT_PX = STAR_BUTTON_BODY_HEIGHT_PX + STAR_BUTTON_PADDING_PX * 2;
 // 예전 판처럼 양 끝을 반원으로 둥글린다.
 const STAR_BUTTON_CORNER_RADIUS_PX = STAR_BUTTON_BODY_HEIGHT_PX / 2;
-const STAR_BUTTON_HALO_BLUR_PX = 16;
-const STAR_BUTTON_HALO_ALPHA = 0.4;
-const STAR_BUTTON_FACE_LIGHT_STOP = 0.4;
-const STAR_BUTTON_GLOSS_ALPHA = 0.95;
-const STAR_BUTTON_FRINGE_ALPHA = 0.8;
+// 밝은 MV 위에서도 노트가 떠 보이도록 면은 명암 없는 흰색으로 두고 푸른 halo 를 두 번 겹쳐 진하게 번지게 한다.
+export const NOTE_GLOW_COLOR = 0x6ebeff;
+const STAR_BUTTON_HALO_BLUR_PX = 22;
+const STAR_BUTTON_HALO_ALPHA = 0.85;
+const STAR_BUTTON_HALO_PASSES = 2;
 // 별 notch 는 예전 14px 판의 모양을 지금 판 높이에 맞춰 키운 것이다.
 const STAR_BUTTON_NOTCH_SCALE = STAR_BUTTON_BODY_HEIGHT_PX / 14;
 const STAR_BUTTON_NOTCH_INSET_PX = 6 * STAR_BUTTON_NOTCH_SCALE;
@@ -173,29 +173,15 @@ function paintStarButton(context: CanvasRenderingContext2D): void {
     context.beginPath();
     context.roundRect(xPx, yPx, STAR_BUTTON_BODY_WIDTH_PX, STAR_BUTTON_BODY_HEIGHT_PX, radiusPx);
   };
-  // halo 는 면의 그림자로만 만들고, 그 위를 gradient 면으로 다시 덮어 면 안쪽에는 남지 않게 한다.
-  context.save();
-  context.shadowColor = rgba(COLORS.holdRibbon, STAR_BUTTON_HALO_ALPHA);
-  context.shadowBlur = STAR_BUTTON_HALO_BLUR_PX;
-  context.fillStyle = cssColor(COLORS.note);
-  traceBody();
-  context.fill();
-  context.restore();
-
-  const face = context.createLinearGradient(0, yPx, 0, yPx + STAR_BUTTON_BODY_HEIGHT_PX);
-  face.addColorStop(0, white(1));
-  face.addColorStop(STAR_BUTTON_FACE_LIGHT_STOP, cssColor(COLORS.note));
-  face.addColorStop(1, cssColor(COLORS.noteShade));
-  context.fillStyle = face;
-  traceBody();
-  context.fill();
-
-  // 광택선과 fringe 는 둥근 모서리를 넘지 않도록 직선 구간에만 긋는다.
-  const lineWidthPx = STAR_BUTTON_BODY_WIDTH_PX - radiusPx * 2;
-  context.fillStyle = white(STAR_BUTTON_GLOSS_ALPHA);
-  context.fillRect(xPx + radiusPx, yPx + 1, lineWidthPx, 1);
-  context.fillStyle = rgba(COLORS.holdRibbon, STAR_BUTTON_FRINGE_ALPHA);
-  context.fillRect(xPx + radiusPx, yPx + STAR_BUTTON_BODY_HEIGHT_PX - 1, lineWidthPx, 1);
+  for (let pass = 0; pass < STAR_BUTTON_HALO_PASSES; pass += 1) {
+    context.save();
+    context.shadowColor = rgba(NOTE_GLOW_COLOR, STAR_BUTTON_HALO_ALPHA);
+    context.shadowBlur = STAR_BUTTON_HALO_BLUR_PX;
+    context.fillStyle = white(1);
+    traceBody();
+    context.fill();
+    context.restore();
+  }
 
   // 아래로 1px 밀린 밝은 별 위에 은빛 별을 얹어 살짝 눌린 emboss 로 보이게 한다.
   const notchXPx = xPx + radiusPx + STAR_BUTTON_NOTCH_INSET_PX;

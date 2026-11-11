@@ -614,7 +614,7 @@ describe('GameplayController origin', () => {
     moveClock(harness, msToSec(EDITOR_START_MS + 1500));
     resetCalls(harness);
 
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([
       [
@@ -635,7 +635,7 @@ describe('GameplayController origin', () => {
     await startCountdown(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
 
     expect(harness.screenCalls.at(-1)).toEqual(['leave', BACK_TO_EDITOR]);
   });
@@ -842,7 +842,7 @@ describe('GameplayController player errors', () => {
       getHandlers(harness).onError('videoNotFound', 100);
       resetCalls(harness);
 
-      harness.controller.keyDown(code, false);
+      harness.controller.keyDown(code, false, harness.nowMs);
 
       expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     },
@@ -895,7 +895,7 @@ describe('GameplayController late results', () => {
   it('does not create the player for a chart that resolves after leaving', async () => {
     const harness = createHarness();
     void harness.controller.start();
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     resetCalls(harness);
 
     resolveChart(harness);
@@ -911,7 +911,7 @@ describe('GameplayController late results', () => {
     void harness.controller.start();
     resolveChart(harness);
     await flush();
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     resetCalls(harness);
 
     requireDefined(harness.apiLoads[0], 'API load was not requested').resolve();
@@ -958,7 +958,7 @@ describe('GameplayController start request', () => {
     await startLoaded(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('Enter', false);
+    harness.controller.keyDown('Enter', false, harness.nowMs);
 
     expect(harness.playerCalls).toEqual([]);
     expect(harness.screenCalls).toEqual([]);
@@ -969,7 +969,7 @@ describe('GameplayController start request', () => {
     await startRequested(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('Enter', false);
+    harness.controller.keyDown('Enter', false, harness.nowMs);
 
     expect(harness.playerCalls).toEqual([]);
     expect(harness.screenCalls).toEqual([]);
@@ -1191,8 +1191,8 @@ describe('GameplayController MV mode', () => {
     void harness.controller.start();
     resetCalls(harness);
 
-    harness.controller.keyDown('Tab', false);
-    harness.controller.keyDown('Tab', false);
+    harness.controller.keyDown('Tab', false, harness.nowMs);
+    harness.controller.keyDown('Tab', false, harness.nowMs);
 
     expect(harness.savedSettings.map(({ mvMode }) => mvMode)).toEqual(['blur', 'normal']);
     expect(harness.savedSettings[0]).toEqual({
@@ -1212,7 +1212,7 @@ describe('GameplayController MV mode', () => {
     harness.isSaveSettingsThrowing = true;
     resetCalls(harness);
 
-    harness.controller.keyDown('Tab', false);
+    harness.controller.keyDown('Tab', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([['showMvMode', 'blur']]);
   });
@@ -1222,7 +1222,7 @@ describe('GameplayController MV mode', () => {
     void harness.controller.start();
     resetCalls(harness);
 
-    harness.controller.keyDown('Tab', true);
+    harness.controller.keyDown('Tab', true, harness.nowMs);
 
     expect(harness.savedSettings).toEqual([]);
     expect(harness.screenCalls).toEqual([]);
@@ -1235,9 +1235,9 @@ describe('GameplayController leaving', () => {
     void harness.controller.start();
     resetCalls(harness);
 
-    harness.controller.keyDown('Escape', false);
-    harness.controller.keyDown('Escape', false);
-    harness.controller.keyDown('Tab', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Tab', false, harness.nowMs);
     harness.controller.leave();
 
     expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
@@ -1287,8 +1287,8 @@ describe('GameplayController countdown', () => {
     await startCountdown(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('KeyD', false);
-    harness.controller.keyUp('KeyD');
+    harness.controller.keyDown('KeyD', false, harness.nowMs);
+    harness.controller.keyUp('KeyD', harness.nowMs);
 
     expect(harness.screenCalls).toEqual([]);
     expect(harness.playerCalls).toEqual([]);
@@ -1303,11 +1303,55 @@ describe('GameplayController playing', () => {
     harness.controller.tick();
     resetCalls(harness);
 
-    harness.controller.keyDown('KeyD', false);
+    harness.controller.keyDown('KeyD', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([
       ['pressLane', 0],
       ['showJudgments', [expect.objectContaining({ judgment: 'perfect' })]],
+    ]);
+  });
+
+  it('judges a lane key at the time it was pressed', async () => {
+    const harness = createHarness();
+    await startVideo(harness);
+    moveClock(harness, 3.5);
+    harness.controller.tick();
+    const pressedAtMs = harness.clockOriginMs + secToMs(4);
+    harness.nowMs = pressedAtMs + 100;
+    resetCalls(harness);
+
+    harness.controller.keyDown('KeyD', false, pressedAtMs);
+
+    expect(harness.screenCalls).toEqual([
+      ['pressLane', 0],
+      ['showJudgments', [expect.objectContaining({ judgment: 'perfect' })]],
+    ]);
+  });
+
+  it('judges a lane keyup at the time it was released', async () => {
+    const harness = createHarness(STANDARD_ORIGIN, HOLD_CHART);
+    await startVideo(harness);
+    moveClock(harness, 4);
+    harness.controller.tick();
+    harness.controller.keyDown('KeyF', false, harness.nowMs);
+    moveClock(harness, 4.5);
+    harness.controller.tick();
+    const releasedAtMs = harness.clockOriginMs + secToMs(5);
+    harness.nowMs = releasedAtMs + 100;
+    resetCalls(harness);
+
+    harness.controller.keyUp('KeyF', releasedAtMs);
+
+    expect(harness.screenCalls).toEqual([
+      [
+        'showJudgments',
+        [
+          expect.objectContaining({
+            kind: 'holdEnd',
+            judgment: 'perfect',
+          }),
+        ],
+      ],
     ]);
   });
 
@@ -1336,15 +1380,15 @@ describe('GameplayController playing', () => {
     await startVideo(harness);
     moveClock(harness, 4);
     harness.controller.tick();
-    harness.controller.keyUp('KeyF');
-    harness.controller.keyDown('KeyF', false);
+    harness.controller.keyUp('KeyF', harness.nowMs);
+    harness.controller.keyDown('KeyF', false, harness.nowMs);
     moveClock(harness, 4.5);
     resetCalls(harness);
 
-    harness.controller.keyUp('KeyJ');
+    harness.controller.keyUp('KeyJ', harness.nowMs);
     expect(harness.screenCalls).toEqual([]);
 
-    harness.controller.keyUp('KeyF');
+    harness.controller.keyUp('KeyF', harness.nowMs);
     expect(harness.screenCalls).toEqual([
       ['showJudgments', [expect.objectContaining({ judgment: 'miss' })]],
     ]);
@@ -1377,12 +1421,12 @@ describe('GameplayController lane modes', () => {
     harness.controller.tick();
     resetCalls(harness);
 
-    harness.controller.keyDown('Space', false);
-    harness.controller.keyDown('KeyK', false);
-    harness.controller.keyDown('KeyL', false);
-    harness.controller.keyUp('KeyL');
-    harness.controller.keyUp('Space');
-    harness.controller.keyUp('KeyK');
+    harness.controller.keyDown('Space', false, harness.nowMs);
+    harness.controller.keyDown('KeyK', false, harness.nowMs);
+    harness.controller.keyDown('KeyL', false, harness.nowMs);
+    harness.controller.keyUp('KeyL', harness.nowMs);
+    harness.controller.keyUp('Space', harness.nowMs);
+    harness.controller.keyUp('KeyK', harness.nowMs);
 
     expect(harness.screenCalls).toEqual([
       ['pressLane', 2],
@@ -1445,7 +1489,7 @@ describe('GameplayController lane modes', () => {
     harness.controller.tick();
     resetCalls(harness);
 
-    harness.controller.keyDown('KeyL', false);
+    harness.controller.keyDown('KeyL', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([
       ['pressLane', 5],
@@ -1468,7 +1512,7 @@ describe('GameplayController quit confirm', () => {
     await startVideo(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     const pausedCalls = [
       ['showStatus', { kind: 'paused' }],
       ['openQuitConfirm', 'userPaused'],
@@ -1476,10 +1520,10 @@ describe('GameplayController quit confirm', () => {
     expect(harness.screenCalls).toEqual(pausedCalls);
     expect(harness.playerCalls).toEqual(['pause']);
 
-    harness.controller.keyDown('Escape', true);
+    harness.controller.keyDown('Escape', true, harness.nowMs);
     expect(harness.screenCalls).toEqual(pausedCalls);
 
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     expect(harness.screenCalls).toEqual([
       ...pausedCalls,
       ['closeQuitConfirm'],
@@ -1492,10 +1536,10 @@ describe('GameplayController quit confirm', () => {
   it('goes back to song select on Enter while the quit confirm is open', async () => {
     const harness = createHarness();
     await startVideo(harness);
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     resetCalls(harness);
 
-    harness.controller.keyDown('Enter', false);
+    harness.controller.keyDown('Enter', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
   });
@@ -1504,10 +1548,10 @@ describe('GameplayController quit confirm', () => {
     const harness = createHarness();
     await startVideo(harness);
 
-    harness.controller.keyDown('Escape', false);
-    harness.controller.keyDown('Escape', false);
-    harness.controller.keyDown('Escape', false);
-    harness.controller.keyDown('Enter', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Enter', false, harness.nowMs);
 
     expect(harness.sounds).toEqual(['click', 'close', 'click', 'close']);
   });
@@ -1515,11 +1559,11 @@ describe('GameplayController quit confirm', () => {
   it('does nothing on Enter while paused, resuming or counting down to the resume', async () => {
     const harness = createHarness();
     await startVideo(harness);
-    harness.controller.keyDown('Escape', false);
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     resetCalls(harness);
 
-    harness.controller.keyDown('Enter', false);
+    harness.controller.keyDown('Enter', false, harness.nowMs);
     expect(harness.screenCalls).toEqual([]);
     expect(harness.playerCalls).toEqual([]);
 
@@ -1539,7 +1583,7 @@ describe('GameplayController quit confirm', () => {
     ]);
     resetCalls(harness);
 
-    harness.controller.keyDown('Enter', false);
+    harness.controller.keyDown('Enter', false, harness.nowMs);
     expect(harness.screenCalls).toEqual([]);
     expect(harness.playerCalls).toEqual([]);
   });
@@ -1549,8 +1593,8 @@ describe('GameplayController resync failure', () => {
   // 재개 요청 뒤 안정 진행이 10000ms 넘게 오지 않아 재동기화에 실패한 상태.
   async function startResyncFailed(harness: Harness): Promise<void> {
     await startVideo(harness);
-    harness.controller.keyDown('Escape', false);
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     resetCalls(harness);
     harness.nowMs += 10001;
     harness.controller.tick();
@@ -1573,7 +1617,7 @@ describe('GameplayController resync failure', () => {
     await startResyncFailed(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([
       ['closeQuitConfirm'],
@@ -1588,7 +1632,7 @@ describe('GameplayController resync failure', () => {
     await startResyncFailed(harness);
     resetCalls(harness);
 
-    harness.controller.keyDown('Enter', false);
+    harness.controller.keyDown('Enter', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     expect(harness.playerCalls).toEqual([]);
@@ -1620,9 +1664,9 @@ describe('GameplayController failure', () => {
     expect(harness.playerCalls).toEqual(['pause']);
 
     resetCalls(harness);
-    harness.controller.keyDown('KeyD', false);
-    harness.controller.keyUp('KeyD');
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('KeyD', false, harness.nowMs);
+    harness.controller.keyUp('KeyD', harness.nowMs);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     harness.controller.tick();
     expect(harness.screenCalls).toEqual([]);
     expect(harness.playerCalls).toEqual([]);
@@ -1675,7 +1719,7 @@ describe('GameplayController run end', () => {
     await startVideo(harness);
     moveClock(harness, 4);
     harness.controller.tick();
-    harness.controller.keyDown('KeyD', false);
+    harness.controller.keyDown('KeyD', false, harness.nowMs);
   }
 
   it('pauses the video and plays the full combo on the tick that reaches the game end', async () => {
@@ -2016,7 +2060,7 @@ describe('GameplayController button pointer', () => {
   it('resumes with the cancel button and leaves with the accept button', async () => {
     const harness = createHarness();
     await startVideo(harness);
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     resetCalls(harness);
 
     harness.controller.pointerDown('quitCancel');
@@ -2024,7 +2068,7 @@ describe('GameplayController button pointer', () => {
     expect(harness.screenCalls[0]).toEqual(['closeQuitConfirm']);
     expect(lastButtons(harness).isQuitConfirmOpen).toBe(false);
 
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     resetCalls(harness);
     harness.controller.pointerDown('quitAccept');
     harness.controller.pointerUp('quitAccept');
@@ -2034,10 +2078,10 @@ describe('GameplayController button pointer', () => {
   it('releases the hover of the confirm buttons when the quit confirm closes', async () => {
     const harness = createHarness();
     await startVideo(harness);
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
     harness.controller.pointerOver('quitAccept');
 
-    harness.controller.keyDown('Escape', false);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
 
     expect(lastButtons(harness)).toEqual({
       hover: null,

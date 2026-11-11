@@ -116,7 +116,6 @@ interface PlayRun extends PreparedRun {
   readonly playback: LeadInPlayback;
   readonly session: GameplaySession;
   readonly clock: RhythmClock;
-  readonly frameClock: RhythmClock;
   readonly activation: WorldActivation;
   readonly playScreen: PlayScreen;
   status: PlaybackStatus;
@@ -268,7 +267,7 @@ export class GameplayController {
     this.player = player;
   }
 
-  keyDown(code: string, isRepeat: boolean): void {
+  keyDown(code: string, isRepeat: boolean, atMs: number): void {
     const { phase } = this;
     if (phase.kind === 'leaving' || phase.kind === 'closed') {
       return;
@@ -294,12 +293,13 @@ export class GameplayController {
             key,
             isRepeat,
           ),
+          atMs,
         );
         return;
     }
   }
 
-  keyUp(code: string): void {
+  keyUp(code: string, atMs: number): void {
     const { phase } = this;
     if (phase.kind !== 'playing') {
       return;
@@ -314,7 +314,7 @@ export class GameplayController {
       return;
     }
     run.pressedLanes = action.pressedLanes;
-    this.applyJudgments(run, run.session.release(lane, run.clock.getTimeMs()));
+    this.applyJudgments(run, run.session.release(lane, run.clock.getTimeMs(atMs)));
   }
 
   tick(): void {
@@ -376,7 +376,8 @@ export class GameplayController {
     if (phase.kind === 'leaving' || phase.kind === 'closed') {
       return;
     }
-    const stoppedTimeMs = phase.kind === 'playing' ? phase.run.clock.getTimeMs() : 0;
+    const stoppedTimeMs =
+      phase.kind === 'playing' ? phase.run.clock.getTimeMs(this.ports.now()) : 0;
     this.phase = { kind: 'leaving' };
     this.screen.playSound('close');
     this.screen.leave(
@@ -488,27 +489,10 @@ export class GameplayController {
     const session = new GameplaySession(chart, JUDGMENT_WINDOWS, {
       canFail: run.mode.kind === 'standard',
     });
-    const clockStart = {
+    const clock = new RhythmClock(playback, this.settings.inputOffsetMs, chart.offsetMs, {
       audioStartTimeSec: 0,
       songStartMs: 0,
-    };
-    const clock = new RhythmClock(
-      playback,
-      this.settings.inputOffsetMs,
-      chart.offsetMs,
-      clockStart,
-    );
-    const { frameNow } = this.ports;
-    const frameClock = new RhythmClock(
-      {
-        get currentTime() {
-          return playback.getTimeAt(frameNow());
-        },
-      },
-      this.settings.inputOffsetMs,
-      chart.offsetMs,
-      clockStart,
-    );
+    });
     const { status } = playback;
     this.showStatus(getPlayingStatus(status));
     this.phase = {
@@ -518,8 +502,10 @@ export class GameplayController {
         playback,
         session,
         clock,
-        frameClock,
-        activation: new WorldActivation(getJudgmentEventCount(chart.notes), clock.getTimeMs()),
+        activation: new WorldActivation(
+          getJudgmentEventCount(chart.notes),
+          clock.getTimeMs(this.ports.now()),
+        ),
         playScreen,
         status,
         pressedLanes: new Set(),
@@ -540,7 +526,7 @@ export class GameplayController {
     phase.run.playback.resume();
   }
 
-  private applyPlayingKeyAction(run: PlayRun, action: PlayingKeyAction): void {
+  private applyPlayingKeyAction(run: PlayRun, action: PlayingKeyAction, atMs: number): void {
     switch (action.kind) {
       case 'openQuitConfirm':
         this.applyButtons((buttons) => withQuitConfirmOpen(buttons, true));
@@ -554,7 +540,7 @@ export class GameplayController {
       case 'pressLane':
         run.playScreen.pressLane(action.lane);
         run.pressedLanes = addPressedLane(run.pressedLanes, action.lane);
-        this.applyJudgments(run, run.session.press(action.lane, run.clock.getTimeMs()));
+        this.applyJudgments(run, run.session.press(action.lane, run.clock.getTimeMs(atMs)));
         return;
       default:
         this.applyCommonKeyAction(action);
@@ -568,7 +554,8 @@ export class GameplayController {
     if (this.phase.kind !== 'playing') {
       return;
     }
-    const songTimeMs = run.frameClock.getTimeMs();
+    const frameAtMs = this.ports.frameNow();
+    const songTimeMs = run.clock.getTimeMs(frameAtMs);
     if (this.applyJudgments(run, run.session.update(songTimeMs))) {
       return;
     }
@@ -589,12 +576,12 @@ export class GameplayController {
     };
     run.playScreen.drawFrame(run.lastFrame, frame);
     run.lastFrame = frame;
-    if (run.isIntroVisible && run.frameClock.getPlaybackMs() >= run.gameStartMs) {
+    if (run.isIntroVisible && run.clock.getPlaybackMs(frameAtMs) >= run.gameStartMs) {
       run.isIntroVisible = false;
       run.playScreen.hideIntro();
     }
     const ending = getRunEnding(
-      run.frameClock.getPlaybackMs(),
+      run.clock.getPlaybackMs(frameAtMs),
       song.gameEndMs,
       run.session.getProgress(),
     );

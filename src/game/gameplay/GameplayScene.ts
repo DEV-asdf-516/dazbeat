@@ -670,9 +670,9 @@ export class GameplayScene extends Phaser.Scene {
         // 브라우저가 Tab 으로 포커스를 옮기지 않게 한다.
         event.preventDefault();
       }
-      controller.keyDown(event.code, event.repeat);
+      controller.keyDown(event.code, event.repeat, event.timeStamp);
     };
-    const onKeyUp = (event: KeyboardEvent): void => controller.keyUp(event.code);
+    const onKeyUp = (event: KeyboardEvent): void => controller.keyUp(event.code, event.timeStamp);
     const onUpdate = (): void => controller.tick();
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);

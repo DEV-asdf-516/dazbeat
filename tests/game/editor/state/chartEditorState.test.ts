@@ -383,7 +383,7 @@ describe('getChangedRegions', () => {
         currentTimeMs: 1000,
         transport: {
           kind: 'starting',
-          clock: new RhythmClock({ currentTime: 0 }, 0, 0, {
+          clock: new RhythmClock({ getTimeAt: () => 0 }, 0, 0, {
             audioStartTimeSec: 0,
             songStartMs: 0,
           }),

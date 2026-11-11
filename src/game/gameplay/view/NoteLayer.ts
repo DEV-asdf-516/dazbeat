@@ -1,11 +1,12 @@
 import type Phaser from 'phaser';
 import { requireDefined } from '../../../invariant.js';
+import { lerp } from '../../../range.js';
 import type { GameplaySession } from '../../../rhythm/GameplaySession.js';
 import { getNoteY } from '../../../rhythm/notePosition.js';
 import type { HoldNote, Lane, Note, TapNote } from '../../../rhythm/types.js';
 import { GAME_HEIGHT } from '../../app/config.js';
 import { getHoldRibbonSpans, getNoteEmphasis } from '../state/noteAppearance.js';
-import { drainColor, ensureStarButtonTextures } from './gameplayTextures.js';
+import { NOTE_GLOW_COLOR, drainColor, ensureStarButtonTextures } from './gameplayTextures.js';
 import type { StarButtonTextures } from './gameplayTextures.js';
 import {
   getHoldRibbonTrapezoid,
@@ -20,12 +21,37 @@ import { COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
 import { MOTION } from '../../ui/state/motion.js';
 
 const HOLD_RIBBON_PENDING_ALPHA = 0.9;
-// 면은 어둡고 옅게 물려 캡과 판정선보다 뒤로 물러나 보이게 하고, 가장자리만 차가운 은빛 선으로 남긴다.
-const HOLD_RIBBON_FILL_COLOR = 0x82a4c0;
-const HOLD_RIBBON_FILL_ALPHA = 0.42;
-const HOLD_RIBBON_EDGE_COLOR = 0xcfe4f0;
-const HOLD_RIBBON_EDGE_ALPHA = 0.6;
+// 면은 유리처럼 가운데가 비치고 양 가장자리로 하늘빛이 차오르게 해 밝은 MV 위에서도 띠 폭이 읽히게 한다.
+const HOLD_RIBBON_FILL_COLOR = 0xbee4ff;
+const HOLD_RIBBON_GLASS_STOPS = [
+  {
+    at: 0,
+    alpha: 0.42,
+  },
+  {
+    at: 0.22,
+    alpha: 0.14,
+  },
+  {
+    at: 0.5,
+    alpha: 0.06,
+  },
+  {
+    at: 0.78,
+    alpha: 0.14,
+  },
+  {
+    at: 1,
+    alpha: 0.42,
+  },
+] as const;
+const HOLD_RIBBON_EDGE_COLOR = 0xebf6ff;
+const HOLD_RIBBON_EDGE_ALPHA = 0.95;
 const HOLD_RIBBON_EDGE_PX = 1;
+const HOLD_RIBBON_GLOW_EDGE_PX = 2;
+const HOLD_RIBBON_GLOW_STRENGTH = 2;
+const HOLD_RIBBON_GLOW_QUALITY = 10;
+const HOLD_RIBBON_GLOW_DISTANCE_PX = 12;
 const HOLD_CONTACT_WIDTH_RATIO = 132 / 120;
 const HOLD_CONTACT_HEIGHT_PX = 30;
 const HOLD_CONTACT_ALPHA = 0.55;
@@ -59,6 +85,7 @@ const DRAINED_RIBBON_COLORS: RibbonColors = {
 
 interface HoldView {
   ribbon: Phaser.GameObjects.Graphics;
+  ribbonGlow: Phaser.GameObjects.Graphics;
   contact: Phaser.GameObjects.Image;
   tail: Phaser.GameObjects.Mesh2D;
 }
@@ -135,8 +162,10 @@ export class NoteLayer {
   ): Trapezoid {
     const tailY = this.getY(note.endTimeMs, songTimeMs);
     // 누르기 전 배율은 면·가장자리에 똑같이 곱해지므로 Graphics alpha 로 건다.
-    hold.ribbon.setAlpha(isHolding ? 1 : HOLD_RIBBON_PENDING_ALPHA);
-    this.drawRibbon(hold.ribbon, note.lane, headY, tailY, RIBBON_COLORS);
+    const ribbonAlpha = isHolding ? 1 : HOLD_RIBBON_PENDING_ALPHA;
+    hold.ribbon.setAlpha(ribbonAlpha);
+    hold.ribbonGlow.setAlpha(ribbonAlpha);
+    this.drawRibbon(hold.ribbon, hold.ribbonGlow, note.lane, headY, tailY, RIBBON_COLORS);
     const tailPlate = this.placeCap(hold.tail, note.lane, tailY);
     hold.tail.setAlpha(getNoteEmphasis(tailY, this.options.playfield.judgeLineYPx));
     hold.contact.setVisible(isHolding);
@@ -145,6 +174,7 @@ export class NoteLayer {
 
   private drawRibbon(
     ribbon: Phaser.GameObjects.Graphics,
+    ribbonGlow: Phaser.GameObjects.Graphics | null,
     lane: Lane,
     headY: number,
     tailY: number,
@@ -152,6 +182,7 @@ export class NoteLayer {
   ): void {
     const { playfield } = this.options;
     ribbon.clear();
+    ribbonGlow?.clear();
     const { body, fade } = getHoldRibbonSpans(headY, tailY);
     [body, fade].forEach((span) => {
       if (span === null) {
@@ -159,42 +190,79 @@ export class NoteLayer {
       }
       const { topYPx, bottomYPx, topLeftXPx, topRightXPx, bottomLeftXPx, bottomRightXPx } =
         getHoldRibbonTrapezoid(playfield, lane, span.topYPx, span.bottomYPx);
-      const fillBand = (color: number, alpha: number, band: Trapezoid): void => {
-        const topAlpha = span.topAlpha * alpha;
-        const bottomAlpha = span.bottomAlpha * alpha;
-        fillTrapezoid(ribbon, band, color, {
-          topLeft: topAlpha,
-          topRight: topAlpha,
-          bottomLeft: bottomAlpha,
-          bottomRight: bottomAlpha,
+      const getBand = (fromRatio: number, toRatio: number, insetPx: number): Trapezoid => ({
+        topYPx,
+        bottomYPx,
+        topLeftXPx: lerp(topLeftXPx + insetPx, topRightXPx - insetPx, fromRatio),
+        topRightXPx: lerp(topLeftXPx + insetPx, topRightXPx - insetPx, toRatio),
+        bottomLeftXPx: lerp(bottomLeftXPx + insetPx, bottomRightXPx - insetPx, fromRatio),
+        bottomRightXPx: lerp(bottomLeftXPx + insetPx, bottomRightXPx - insetPx, toRatio),
+      });
+      const fillBand = (
+        graphics: Phaser.GameObjects.Graphics,
+        band: Trapezoid,
+        color: number,
+        leftAlpha: number,
+        rightAlpha: number,
+      ): void => {
+        fillTrapezoid(graphics, band, color, {
+          topLeft: span.topAlpha * leftAlpha,
+          topRight: span.topAlpha * rightAlpha,
+          bottomLeft: span.bottomAlpha * leftAlpha,
+          bottomRight: span.bottomAlpha * rightAlpha,
         });
       };
       // 면과 가장자리를 겹치지 않게 칠해 가장자리 alpha 가 두 번 쌓이지 않게 한다.
-      const edgePx = HOLD_RIBBON_EDGE_PX;
-      fillBand(colors.fill, HOLD_RIBBON_FILL_ALPHA, {
-        topYPx,
-        bottomYPx,
-        topLeftXPx: topLeftXPx + edgePx,
-        topRightXPx: topRightXPx - edgePx,
-        bottomLeftXPx: bottomLeftXPx + edgePx,
-        bottomRightXPx: bottomRightXPx - edgePx,
+      HOLD_RIBBON_GLASS_STOPS.slice(1).forEach((stop, index) => {
+        const from = requireDefined(HOLD_RIBBON_GLASS_STOPS[index], 'Unknown glass stop', index);
+        fillBand(
+          ribbon,
+          getBand(from.at, stop.at, HOLD_RIBBON_EDGE_PX),
+          colors.fill,
+          from.alpha,
+          stop.alpha,
+        );
       });
-      fillBand(colors.edge, HOLD_RIBBON_EDGE_ALPHA, {
-        topYPx,
-        bottomYPx,
-        topLeftXPx,
-        topRightXPx: topLeftXPx + edgePx,
-        bottomLeftXPx,
-        bottomRightXPx: bottomLeftXPx + edgePx,
-      });
-      fillBand(colors.edge, HOLD_RIBBON_EDGE_ALPHA, {
-        topYPx,
-        bottomYPx,
-        topLeftXPx: topRightXPx - edgePx,
-        topRightXPx,
-        bottomLeftXPx: bottomRightXPx - edgePx,
-        bottomRightXPx,
-      });
+      const fillEdges = (
+        graphics: Phaser.GameObjects.Graphics,
+        widthPx: number,
+        alpha: number,
+      ): void => {
+        const edge = {
+          topYPx,
+          bottomYPx,
+        };
+        fillBand(
+          graphics,
+          {
+            ...edge,
+            topLeftXPx,
+            topRightXPx: topLeftXPx + widthPx,
+            bottomLeftXPx,
+            bottomRightXPx: bottomLeftXPx + widthPx,
+          },
+          colors.edge,
+          alpha,
+          alpha,
+        );
+        fillBand(
+          graphics,
+          {
+            ...edge,
+            topLeftXPx: topRightXPx - widthPx,
+            topRightXPx,
+            bottomLeftXPx: bottomRightXPx - widthPx,
+            bottomRightXPx,
+          },
+          colors.edge,
+          alpha,
+          alpha,
+        );
+      };
+      fillEdges(ribbon, HOLD_RIBBON_EDGE_PX, HOLD_RIBBON_EDGE_ALPHA);
+      if (ribbonGlow !== null) {
+        fillEdges(ribbonGlow, HOLD_RIBBON_GLOW_EDGE_PX, 1);
+      }
     });
   }
 
@@ -241,9 +309,10 @@ export class NoteLayer {
       };
     }
     const xPx = requireDefined(playfield.laneCenterXPx[note.lane], 'Unknown note lane', note.lane);
-    // 같은 depth 에서는 만든 순서대로 그려지므로 ribbon → contact → tail 순으로 만든다.
+    // 같은 depth 에서는 만든 순서대로 그려지므로 ribbon → ribbonGlow → contact → tail 순으로 만든다.
     const hold: HoldView = {
       ribbon: this.scene.add.graphics().setDepth(GAMEPLAY_DEPTH.holdBody),
+      ribbonGlow: this.addRibbonGlow(),
       contact: addLight(this.scene, LIGHT_TEXTURES.glow, xPx, playfield.judgeLineYPx)
         .setDisplaySize(playfield.laneWidthPx * HOLD_CONTACT_WIDTH_RATIO, HOLD_CONTACT_HEIGHT_PX)
         .setTint(COLORS.note)
@@ -258,6 +327,23 @@ export class NoteLayer {
       head,
       hold,
     };
+  }
+
+  // glow 를 면에 걸면 비치는 안쪽까지 빛으로 차므로 가장자리 선만 그리는 Graphics 에 따로 건다.
+  private addRibbonGlow(): Phaser.GameObjects.Graphics {
+    const ribbonGlow = this.scene.add.graphics().setDepth(GAMEPLAY_DEPTH.holdBody);
+    ribbonGlow
+      .enableFilters()
+      .filters?.external.addGlow(
+        NOTE_GLOW_COLOR,
+        HOLD_RIBBON_GLOW_STRENGTH,
+        0,
+        1,
+        false,
+        HOLD_RIBBON_GLOW_QUALITY,
+        HOLD_RIBBON_GLOW_DISTANCE_PX,
+      );
+    return ribbonGlow;
   }
 
   private addCap(depth: number): Phaser.GameObjects.Mesh2D {
@@ -294,9 +380,10 @@ export class NoteLayer {
       view.head.setTexture(drainedKey),
     ];
     if (view.kind === 'hold') {
-      const { ribbon, contact, tail } = view.hold;
+      const { ribbon, ribbonGlow, contact, tail } = view.hold;
       contact.destroy();
-      this.drawRibbon(ribbon, view.note.lane, view.head.y, tail.y, DRAINED_RIBBON_COLORS);
+      ribbonGlow.destroy();
+      this.drawRibbon(ribbon, null, view.note.lane, view.head.y, tail.y, DRAINED_RIBBON_COLORS);
       parts.push(ribbon, tail.setTexture(drainedKey));
     }
     this.scene.tweens.add({
@@ -317,6 +404,7 @@ export class NoteLayer {
 
   private destroyHold(hold: HoldView): void {
     hold.ribbon.destroy();
+    hold.ribbonGlow.destroy();
     hold.contact.destroy();
     hold.tail.destroy();
   }
