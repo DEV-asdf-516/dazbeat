@@ -501,7 +501,6 @@ describe('accounts', () => {
         bad: 0,
         miss: 0,
       },
-      cleared: true,
       reviewStatus: 'approved',
       achievedAt: new Date().toISOString(),
     });

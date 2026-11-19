@@ -69,6 +69,10 @@ function getCapLook(style: KeyHintStyle, widthPx: number): BrushRectLook {
   };
 }
 
+export function getKeyCapWidthPx(key: Phaser.GameObjects.Text, style: KeyHintStyle): number {
+  return Math.max(style.capMinWidthPx, key.width + style.capPaddingXPx * 2);
+}
+
 export function setKeyCapWidth(keyCap: KeyCap, style: KeyHintStyle, widthPx: number): void {
   keyCap.cap.setTexture(getBrushRectTexture(keyCap.cap.scene, getCapLook(style, widthPx)));
 }
@@ -77,10 +81,10 @@ export function createKeyCap(scene: Phaser.Scene, key: string, style: KeyHintSty
   const text = scene.add
     .text(0, 0, key, typeStyle(style.keyType, style.keyColor))
     .setOrigin(0.5, 0.5);
-  const cap = addBrushRect(
-    scene,
-    getCapLook(style, Math.max(style.capMinWidthPx, text.width + style.capPaddingXPx * 2)),
-  ).setOrigin(0, 0.5);
+  const cap = addBrushRect(scene, getCapLook(style, getKeyCapWidthPx(text, style))).setOrigin(
+    0,
+    0.5,
+  );
   return {
     cap,
     key: text,

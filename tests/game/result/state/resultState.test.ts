@@ -33,11 +33,20 @@ const SONG: Song = {
   constellation: 'gemini',
   gameStartMs: 0,
   gameEndMs: 30000,
-  chartIds: {
+  charts: {
     4: {
-      easy: 'easy.json',
-      hard: 'hard.json',
-      expert: 'expert.json',
+      easy: {
+        id: 'easy.json',
+        level: 1,
+      },
+      hard: {
+        id: 'hard.json',
+        level: 1,
+      },
+      expert: {
+        id: 'expert.json',
+        level: 1,
+      },
     },
   },
 };
@@ -48,6 +57,7 @@ function chartOf(difficulty: ChartRef['difficulty'], chartId: string): ChartRef 
     laneCount: 4,
     difficulty,
     chartId,
+    level: 1,
   };
 }
 
@@ -74,18 +84,18 @@ describe('selectRetryDifficulty', () => {
 describe('stepRetryChart', () => {
   it('moves to the next and previous difficulty with a chart', () => {
     const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
-    const next = stepRetryChart(state, 1);
+    const next = stepRetryChart(state, 'next');
 
     expect(next.retryChart).toEqual(chartOf('hard', 'hard.json'));
-    expect(stepRetryChart(next, -1).retryChart).toEqual(chartOf('easy', 'easy.json'));
+    expect(stepRetryChart(next, 'previous').retryChart).toEqual(chartOf('easy', 'easy.json'));
   });
 
   it('keeps the same state at either end', () => {
     const first = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
     const last = createResultState(chartOf('expert', 'expert.json'), { kind: 'none' });
 
-    expect(stepRetryChart(first, -1)).toBe(first);
-    expect(stepRetryChart(last, 1)).toBe(last);
+    expect(stepRetryChart(first, 'previous')).toBe(first);
+    expect(stepRetryChart(last, 'next')).toBe(last);
   });
 });
 
@@ -156,7 +166,7 @@ describe('getChangedRegions', () => {
     expect(
       getChangedRegions(state, {
         ...state,
-        isControlsOpen: true,
+        controls: 'open',
       }),
     ).toEqual(['controls']);
   });
@@ -172,6 +182,8 @@ describe('getChangedRegions', () => {
       'controlsEntry',
       'accountButton',
       'controlsClose',
+      'controlsHelpCard',
+      'controlsHelpButton',
       'rankingNotice',
       'rankingNoticeButtons',
       'menuFocusMotion',
@@ -183,7 +195,7 @@ describe('getChangedRegions', () => {
   });
 
   it('redraws the focused buttons and plays the focus motion when the focus moves', () => {
-    expect(getChangedRegions(state, moveResultFocus(state, 1))).toEqual([
+    expect(getChangedRegions(state, moveResultFocus(state, 'next'))).toEqual([
       'retryButton',
       'songSelectButton',
       'menuFocusMotion',

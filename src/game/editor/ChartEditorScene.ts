@@ -19,6 +19,7 @@ import {
   getDifficultyLook,
   getHoveredLaneCount,
   getHoveredTool,
+  getLevelControl,
   getEditorStatus,
   getInitialDifficulty,
   getLaneCountMotion,
@@ -72,7 +73,10 @@ import type { ButtonPointer, PointerActions } from '../ui/view/input/hoverTarget
 import { createCenteredEditorButton, createEditorButton } from './view/editorButton.js';
 import { EDITOR_ICON_HIT_SIZE_PX, EditorIconButton } from './view/EditorIconButton.js';
 import { EditorNoteLayer } from './view/EditorNoteLayer.js';
-import { SegmentedControl } from './view/SegmentedControl.js';
+import { SeekMarks } from './view/SeekMarks.js';
+import { LevelStepper } from './view/LevelStepper.js';
+import type { LevelStepperActions } from './view/LevelStepper.js';
+import { SEGMENTED_CONTROL_HEIGHT_PX, SegmentedControl } from './view/SegmentedControl.js';
 import { getSegmentAppearance } from './state/segmentAppearance.js';
 import { LANE_COUNT_SEGMENTS, TOOL_SEGMENTS } from './view/toolSegments.js';
 import { setFittedText } from '../ui/view/widgets/fitText.js';
@@ -90,11 +94,16 @@ import {
 import { addTextUnderline } from '../ui/view/widgets/cometUnderline.js';
 import { EDITOR_KEY_HINT_STYLE, EDITOR_TYPE_SCALE } from './view/editorTheme.js';
 import { addBarHairlines } from './view/hairline.js';
-import { addHairline, HAIRLINE_PX } from '../ui/view/textures/hairline.js';
+import {
+  addBakedCircle,
+  ensureGridTileTexture,
+  ensureLaneLinesTexture,
+} from './view/editorTextures.js';
+import { addHairline } from '../ui/view/textures/hairline.js';
 import { requireDefined } from '../../invariant.js';
 import { msToSec, secToMs } from '../../time.js';
 import { addBrushRect } from '../ui/view/textures/brushRect.js';
-import { strokeGrainedLine } from '../ui/view/textures/grain.js';
+import { addBakedRoundedRect } from '../ui/view/textures/bakedTexture.js';
 
 interface DifficultyItem {
   difficulty: Difficulty;
@@ -117,19 +126,20 @@ interface EditorView {
   status: NoticeText;
   saveButton: Button;
   testPlayButton: Button;
-  unsavedDot: Phaser.GameObjects.Arc;
+  unsavedDot: Phaser.GameObjects.Image;
   timeText: Phaser.GameObjects.Text;
   seekFill: Phaser.GameObjects.Rectangle;
-  seekThumb: Phaser.GameObjects.Arc;
-  seekMarks: Phaser.GameObjects.Graphics;
+  seekThumb: Phaser.GameObjects.Image;
+  seekMarks: SeekMarks;
   restartButton: EditorIconButton;
   playButton: EditorIconButton;
   playerText: Phaser.GameObjects.Text;
   noteLayer: EditorNoteLayer;
-  grid: Phaser.GameObjects.Graphics;
+  grid: Phaser.GameObjects.TileSprite;
   gridLabels: Phaser.GameObjects.Text[];
-  laneLines: Phaser.GameObjects.Graphics;
+  laneLines: Phaser.GameObjects.Image;
   laneCountSwitch: SegmentedControl<LaneCount>;
+  levelStepper: LevelStepper;
   toolSwitch: SegmentedControl<EditTool>;
   selectionTitle: Phaser.GameObjects.Text;
   selectionValues: Phaser.GameObjects.Text[];
@@ -179,27 +189,25 @@ const MV_FRAME_PROPERTIES: Record<keyof PxRect, string> = {
   heightPx: '--mv-frame-height',
 };
 const PLAYHEAD_THICKNESS_PX = 2;
-// 스크롤 때마다 다시 그리는 선이 많아 토막을 넓게 잡는다.
-const GRID_GRAIN_STEP_PX = 12;
 const PLAYHEAD_GLOW_HEIGHT_PX = 18;
 const PLAYHEAD_GLOW_ALPHA = 0.14;
 const PX_PER_SECOND = 400;
 const OPENING_LEAD_MS = 600;
 const LANE_LINE_WIDTH_PX = 1;
-const LANE_LINE_ALPHA = 0.22;
-const LANE_EDGE_ALPHA = 0.55;
 const GRID_MINOR_STEP_MS = 250;
 const GRID_MAJOR_STEP_MS = 1000;
-const GRID_MINOR_ALPHA = 0.07;
-const GRID_MAJOR_ALPHA = 0.22;
 const GRID_LABEL_RIGHT_X_PX = LAYOUT.lanes.leftPx - 16;
 const GRID_LABEL_COUNT = Math.ceil(TIMELINE_HEIGHT_PX / PX_PER_SECOND) + 1;
+// 격자는 굵은 선 한 주기를 타일로 한 번 구워 세로 위치만 옮긴다.
+const GRID_TILE_HEIGHT_PX = msToSec(GRID_MAJOR_STEP_MS) * PX_PER_SECOND;
+const GRID_MINOR_STEP_PX = msToSec(GRID_MINOR_STEP_MS) * PX_PER_SECOND;
+// 선이 타일 이음매에 걸쳐 반씩 잘리지 않게 주기 안 가는 선 간격의 절반만큼 내려 긋는다.
+const GRID_TILE_LINE_OFFSET_PX = GRID_MINOR_STEP_PX / 2;
+const LANE_LINES_LEFT_PX = Math.floor(LAYOUT.lanes.leftPx - LANE_LINE_WIDTH_PX);
 const SEEK_TRACK_HEIGHT_PX = 2;
 const SEEK_TRACK_ALPHA = 0.5;
 const SEEK_THUMB_RADIUS_PX = 7;
 const SEEK_HIT_HEIGHT_PX = 32;
-const SEEK_MARK_HEIGHT_PX = 12;
-const SEEK_MARK_ALPHA = 0.45;
 const TOOLS_CONTENT_LEFT_PX = LAYOUT.tools.leftPx + LAYOUT.tools.paddingPx;
 const TOOLS_CONTENT_RIGHT_PX = LAYOUT.tools.leftPx + LAYOUT.tools.widthPx - LAYOUT.tools.paddingPx;
 const TOOLS_ITEM_GAP_PX = 8;
@@ -274,6 +282,7 @@ export class ChartEditorScene extends Phaser.Scene {
             focusedSongId,
           }),
         render: (previous, next) => this.renderChanges(view, previous, next),
+        syncLevelInput: (level) => view.levelStepper.syncInput(level),
         startTestPlay: (chart, startTimeMs) =>
           startScene(this, 'gameplay', {
             ...chart,
@@ -304,8 +313,10 @@ export class ChartEditorScene extends Phaser.Scene {
     const view = this.createView(editor);
     keyboard.on(
       'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(editor, event)),
+      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(editor, view, event)),
     );
+    // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, () => view.levelStepper.blur());
     const onUpdate = (): void => editor.advancePlayback();
     this.events.on(Phaser.Scenes.Events.UPDATE, onUpdate);
     // 새로고침·탭 닫기로 미저장 draft 를 잃지 않도록 그때의 draft 로 경고 여부를 정한다.
@@ -352,16 +363,14 @@ export class ChartEditorScene extends Phaser.Scene {
     // 같은 depth 의 다른 요소보다 먼저 만들어 그 아래에 그린다.
     this.addBackdrop();
     addBarHairlines(this, LAYOUT, GAME_WIDTH);
-    const toolSurface = this.add
-      .rectangle(
-        LAYOUT.tools.leftPx,
-        LAYOUT.tools.topYPx,
-        LAYOUT.tools.widthPx,
-        0,
-        CELESTIAL_COLORS.surface,
-      )
-      .setOrigin(0, 0)
-      .setRounded(RADIUS.smallPx);
+    const toolSurface = addBakedRoundedRect(this, LAYOUT.tools.leftPx, LAYOUT.tools.topYPx, {
+      widthPx: LAYOUT.tools.widthPx,
+      heightPx: 0,
+      radiusPx: RADIUS.smallPx,
+      fillColor: CELESTIAL_COLORS.surface,
+      fillAlpha: 1,
+      border: null,
+    }).setOrigin(0, 0);
     const pointer: ButtonPointer<EditorButton> = {
       pointerOver: (button) => editor.pointerOverButton(button),
       pointerOut: (button) => editor.pointerOutButton(button),
@@ -435,15 +444,14 @@ export class ChartEditorScene extends Phaser.Scene {
           .setOrigin(1, 0.5),
       ),
       saveButton,
-      unsavedDot: this.add
-        .circle(
-          saveButton.x + saveButton.width,
-          saveButton.y,
-          UNSAVED_DOT_RADIUS_PX,
-          CELESTIAL_COLORS.highlight,
-        )
-        .setStrokeStyle(UNSAVED_DOT_RING_PX, CELESTIAL_COLORS.background)
-        .setVisible(false),
+      unsavedDot: addBakedCircle(this, saveButton.x + saveButton.width, saveButton.y, {
+        radiusPx: UNSAVED_DOT_RADIUS_PX,
+        color: CELESTIAL_COLORS.highlight,
+        ring: {
+          widthPx: UNSAVED_DOT_RING_PX,
+          color: CELESTIAL_COLORS.background,
+        },
+      }).setVisible(false),
       timeText: this.add
         .text(
           LAYOUT.timeXPx,
@@ -462,10 +470,16 @@ export class ChartEditorScene extends Phaser.Scene {
         )
         .setOrigin(0, 0.5)
         .setDepth(GAMEPLAY_DEPTH.text),
-      seekMarks: this.add.graphics().setDepth(GAMEPLAY_DEPTH.lanePanel),
-      seekThumb: this.add
-        .circle(LAYOUT.seek.leftPx, transportYPx, SEEK_THUMB_RADIUS_PX, CELESTIAL_COLORS.highlight)
-        .setDepth(GAMEPLAY_DEPTH.text),
+      seekMarks: new SeekMarks(this, {
+        seekLeftPx: LAYOUT.seek.leftPx,
+        seekWidthPx: LAYOUT.seek.widthPx,
+        centerYPx: transportYPx,
+      }),
+      seekThumb: addBakedCircle(this, LAYOUT.seek.leftPx, transportYPx, {
+        radiusPx: SEEK_THUMB_RADIUS_PX,
+        color: CELESTIAL_COLORS.highlight,
+        ring: null,
+      }).setDepth(GAMEPLAY_DEPTH.text),
       testPlayButton: createEditorButton(
         this,
         LAYOUT.tools.leftPx,
@@ -505,7 +519,7 @@ export class ChartEditorScene extends Phaser.Scene {
         topYPx: LAYOUT.timeline.topYPx,
         bottomYPx: LAYOUT.timeline.bottomYPx,
       }),
-      grid: this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider),
+      grid: this.addGrid(),
       gridLabels: Array.from({ length: GRID_LABEL_COUNT }, () =>
         this.add
           .text(0, 0, '', typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary))
@@ -513,7 +527,10 @@ export class ChartEditorScene extends Phaser.Scene {
           .setDepth(GAMEPLAY_DEPTH.laneDivider)
           .setVisible(false),
       ),
-      laneLines: this.add.graphics().setDepth(GAMEPLAY_DEPTH.laneDivider),
+      laneLines: this.add
+        .image(LANE_LINES_LEFT_PX, LAYOUT.timeline.topYPx, '__DEFAULT')
+        .setOrigin(0, 0)
+        .setDepth(GAMEPLAY_DEPTH.laneDivider),
       ...this.createToolArea(toolSurface, {
         laneCount: {
           onSelect: (laneCount) => editor.selectLaneCount(laneCount),
@@ -540,6 +557,11 @@ export class ChartEditorScene extends Phaser.Scene {
               kind: 'tool',
               tool,
             }),
+        },
+        level: {
+          down: pointButton(pointer, 'levelDown'),
+          up: pointButton(pointer, 'levelUp'),
+          onCommit: (text) => editor.commitLevelInput(text),
         },
         deletePointer: pointButton(pointer, 'delete'),
         clearPointer: pointButton(pointer, 'clear'),
@@ -594,16 +616,18 @@ export class ChartEditorScene extends Phaser.Scene {
 
   /** 선택 정보는 선택 유무와 무관하게 같은 높이를 잡아 두어, 선택이 바뀌어도 아래 요소가 움직이지 않는다. */
   private createToolArea(
-    surface: Phaser.GameObjects.Rectangle,
+    surface: Phaser.GameObjects.NineSlice,
     actions: {
       laneCount: SegmentActions<LaneCount>;
       tool: SegmentActions<EditTool>;
+      level: LevelStepperActions;
       deletePointer: PointerActions;
       clearPointer: PointerActions;
     },
   ): Pick<
     EditorView,
     | 'laneCountSwitch'
+    | 'levelStepper'
     | 'toolSwitch'
     | 'selectionTitle'
     | 'selectionValues'
@@ -627,7 +651,23 @@ export class ChartEditorScene extends Phaser.Scene {
       LANE_COUNT_SEGMENTS,
       actions.laneCount,
     );
-    const toolRuleYPx = laneCountsYPx + laneCountSwitch.heightPx + TOOLS_SECTION_GAP_PX;
+    const levelRuleYPx = laneCountsYPx + laneCountSwitch.heightPx + TOOLS_SECTION_GAP_PX;
+    addHairline(this, TOOLS_CONTENT_LEFT_PX, levelRuleYPx, TOOLS_CONTENT_RIGHT_PX);
+    const levelLabel = this.addSectionLabel(
+      this.i18n.t('chartEditor.levelSection'),
+      levelRuleYPx + TOOLS_SECTION_GAP_PX,
+    );
+    const levelYPx = levelLabel.y + levelLabel.height + TOOLS_ITEM_GAP_PX;
+    const levelStepper = new LevelStepper(
+      this,
+      {
+        leftPx: TOOLS_CONTENT_LEFT_PX,
+        topYPx: levelYPx,
+        widthPx: TOOLS_CONTENT_RIGHT_PX - TOOLS_CONTENT_LEFT_PX,
+      },
+      actions.level,
+    );
+    const toolRuleYPx = levelYPx + SEGMENTED_CONTROL_HEIGHT_PX + TOOLS_SECTION_GAP_PX;
     addHairline(this, TOOLS_CONTENT_LEFT_PX, toolRuleYPx, TOOLS_CONTENT_RIGHT_PX);
     const toolLabel = this.addSectionLabel(
       this.i18n.t('chartEditor.toolSection'),
@@ -708,6 +748,7 @@ export class ChartEditorScene extends Phaser.Scene {
     );
     return {
       laneCountSwitch,
+      levelStepper,
       toolSwitch,
       selectionTitle,
       selectionValues,
@@ -924,6 +965,13 @@ export class ChartEditorScene extends Phaser.Scene {
           getEditorButtonView(state, 'confirmAccept'),
         );
         return;
+      case 'levelControl':
+        view.levelStepper.render({
+          ...getLevelControl(state),
+          down: getEditorButtonView(state, 'levelDown'),
+          up: getEditorButtonView(state, 'levelUp'),
+        });
+        return;
     }
   }
 
@@ -1130,25 +1178,16 @@ export class ChartEditorScene extends Phaser.Scene {
     });
   }
 
+  // 노트가 바뀔 때만 불리므로 그때 텍스처를 비우고 다시 굽는다.
   private renderSeekMarks(view: EditorView, state: ChartEditorState): void {
-    const { seekMarks } = view;
-    seekMarks.clear();
     const selection = getSelection(state);
-    seekMarks.lineStyle(HAIRLINE_PX, CELESTIAL_COLORS.selected, SEEK_MARK_ALPHA);
-    const { centerYPx: transportYPx } = LAYOUT.bottomBar;
-    getNotes(state).forEach((note) => {
-      const xPx = getSeekXPx(LAYOUT, note.timeMs, selection.song);
-      seekMarks.lineBetween(
-        xPx,
-        transportYPx - SEEK_MARK_HEIGHT_PX / 2,
-        xPx,
-        transportYPx + SEEK_MARK_HEIGHT_PX / 2,
-      );
-    });
+    view.seekMarks.render(
+      getNotes(state).map((note) => getSeekXPx(LAYOUT, note.timeMs, selection.song)),
+    );
   }
 
   private renderGrid(view: EditorView, currentTimeMs: number): void {
-    const { lanes, timeline } = LAYOUT;
+    const { timeline } = LAYOUT;
     const toY = (timeMs: number): number =>
       getNoteY(timeMs, currentTimeMs, timeline.playheadYPx, PX_PER_SECOND);
     const fromMs = getNoteTimeAtY(
@@ -1163,26 +1202,15 @@ export class ChartEditorScene extends Phaser.Scene {
       timeline.playheadYPx,
       PX_PER_SECOND,
     );
-    const { grid } = view;
-    grid.clear();
-    for (const timeMs of getGridTimesMs(fromMs, toMs, GRID_MINOR_STEP_MS)) {
-      const isMajor = timeMs % GRID_MAJOR_STEP_MS === 0;
-      strokeGrainedLine(
-        grid,
-        {
-          fromXPx: lanes.leftPx,
-          fromYPx: toY(timeMs),
-          toXPx: lanes.leftPx + lanes.widthPx,
-          toYPx: toY(timeMs),
-        },
-        {
-          widthPx: HAIRLINE_PX,
-          color: CELESTIAL_COLORS.selected,
-          alpha: isMajor ? GRID_MAJOR_ALPHA : GRID_MINOR_ALPHA,
-          stepPx: GRID_GRAIN_STEP_PX,
-        },
-      );
-    }
+    // 0초는 굵은 선이므로 그 선이 타일의 굵은 선 줄에 오도록 타일을 민다.
+    view.grid.setTilePosition(
+      0,
+      Phaser.Math.Wrap(
+        GRID_TILE_LINE_OFFSET_PX - (toY(0) - timeline.topYPx),
+        0,
+        GRID_TILE_HEIGHT_PX,
+      ),
+    );
     const majorTimesMs = getGridTimesMs(fromMs, toMs, GRID_MAJOR_STEP_MS);
     view.gridLabels.forEach((label, index) => {
       const timeMs = majorTimesMs[index];
@@ -1198,24 +1226,34 @@ export class ChartEditorScene extends Phaser.Scene {
   }
 
   private renderLaneLines(view: EditorView, laneCount: LaneCount): void {
-    view.laneLines.clear();
-    const { lanes, timeline } = LAYOUT;
-    const laneWidthPx = getLaneWidthPx(LAYOUT, laneCount);
-    [...getLanes(laneCount), laneCount].forEach((boundary) => {
-      const isEdge = boundary === 0 || boundary === laneCount;
-      view.laneLines
-        .fillStyle(CELESTIAL_COLORS.border, isEdge ? LANE_EDGE_ALPHA : LANE_LINE_ALPHA)
-        .fillRect(
-          lanes.leftPx + laneWidthPx * boundary - LANE_LINE_WIDTH_PX / 2,
-          timeline.topYPx,
-          LANE_LINE_WIDTH_PX,
-          TIMELINE_HEIGHT_PX,
-        );
-    });
+    const { lanes } = LAYOUT;
+    view.laneLines.setTexture(
+      ensureLaneLinesTexture(this, laneCount, {
+        widthPx: lanes.widthPx + (lanes.leftPx - LANE_LINES_LEFT_PX) * 2,
+        heightPx: TIMELINE_HEIGHT_PX,
+        firstLineXPx: lanes.leftPx - LANE_LINES_LEFT_PX,
+        laneWidthPx: getLaneWidthPx(LAYOUT, laneCount),
+        lineWidthPx: LANE_LINE_WIDTH_PX,
+      }),
+    );
   }
 
-  private handleKey(editor: ChartEditorController, event: KeyboardEvent): void {
-    switch (readEditorKey(event)) {
+  private addGrid(): Phaser.GameObjects.TileSprite {
+    const { lanes, timeline } = LAYOUT;
+    const key = ensureGridTileTexture(this, {
+      widthPx: lanes.widthPx,
+      heightPx: GRID_TILE_HEIGHT_PX,
+      stepPx: GRID_MINOR_STEP_PX,
+      lineOffsetPx: GRID_TILE_LINE_OFFSET_PX,
+    });
+    return this.add
+      .tileSprite(lanes.leftPx, timeline.topYPx, lanes.widthPx, TIMELINE_HEIGHT_PX, key)
+      .setOrigin(0, 0)
+      .setDepth(GAMEPLAY_DEPTH.laneDivider);
+  }
+
+  private handleKey(editor: ChartEditorController, view: EditorView, event: KeyboardEvent): void {
+    switch (readEditorKey(event, view.levelStepper.isInputFocused)) {
       case 'undo':
         editor.undo();
         return;
@@ -1230,6 +1268,12 @@ export class ChartEditorScene extends Phaser.Scene {
         return;
       case 'back':
         editor.back();
+        return;
+      case 'commitLevelInput':
+        editor.commitLevelInput(view.levelStepper.inputText);
+        return;
+      case 'cancelLevelInput':
+        editor.cancelLevelInput();
         return;
       case null:
         return;

@@ -26,35 +26,43 @@ function getCometUnderlineTexture(scene: Phaser.Scene, look: CometUnderlineLook)
   const { tailThicknessPx, headThicknessPx, tailAlpha, headAlpha } = look;
   const key = `comet-underline:${tailThicknessPx}:${headThicknessPx}:${tailAlpha}:${headAlpha}`;
   const heightPx = Math.ceil(Math.max(tailThicknessPx, headThicknessPx)) + TEXTURE_PADDING_Y_PX * 2;
-  createCanvasTexture(scene, key, TEXTURE_WIDTH_PX, heightPx, (context) => {
-    const centerYPx = heightPx / 2;
-    const edgeYPx = (xPx: number, side: 1 | -1): number => {
-      const thicknessPx = lerp(tailThicknessPx, headThicknessPx, xPx / TEXTURE_WIDTH_PX);
-      const tip = Math.sqrt(
-        Math.min(1, Math.min(xPx, TEXTURE_WIDTH_PX - xPx) / (headThicknessPx * TIP_LENGTH_RATIO)),
-      );
-      const wobblePx =
-        headThicknessPx *
-        EDGE_WOBBLE_RATIO *
-        (Math.sin(xPx * 0.04 + side) + Math.sin(xPx * 0.11 + side * 2));
-      return centerYPx + side * tip * (thicknessPx / 2 + wobblePx);
-    };
-    context.beginPath();
-    context.moveTo(0, centerYPx);
-    for (let xPx = 0; xPx <= TEXTURE_WIDTH_PX; xPx += EDGE_STEP_PX) {
-      context.lineTo(xPx, edgeYPx(xPx, -1));
-    }
-    for (let xPx = TEXTURE_WIDTH_PX; xPx >= 0; xPx -= EDGE_STEP_PX) {
-      context.lineTo(xPx, edgeYPx(xPx, 1));
-    }
-    context.closePath();
-    const fade = context.createLinearGradient(0, 0, TEXTURE_WIDTH_PX, 0);
-    fade.addColorStop(0, white(tailAlpha));
-    fade.addColorStop(HEAD_FADE_START, white(lerp(tailAlpha, 1, HEAD_FADE_START)));
-    fade.addColorStop(1, white(headAlpha));
-    context.fillStyle = fade;
-    context.fill();
-  });
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx: TEXTURE_WIDTH_PX,
+      heightPx,
+    },
+    (context) => {
+      const centerYPx = heightPx / 2;
+      const edgeYPx = (xPx: number, side: 1 | -1): number => {
+        const thicknessPx = lerp(tailThicknessPx, headThicknessPx, xPx / TEXTURE_WIDTH_PX);
+        const tip = Math.sqrt(
+          Math.min(1, Math.min(xPx, TEXTURE_WIDTH_PX - xPx) / (headThicknessPx * TIP_LENGTH_RATIO)),
+        );
+        const wobblePx =
+          headThicknessPx *
+          EDGE_WOBBLE_RATIO *
+          (Math.sin(xPx * 0.04 + side) + Math.sin(xPx * 0.11 + side * 2));
+        return centerYPx + side * tip * (thicknessPx / 2 + wobblePx);
+      };
+      context.beginPath();
+      context.moveTo(0, centerYPx);
+      for (let xPx = 0; xPx <= TEXTURE_WIDTH_PX; xPx += EDGE_STEP_PX) {
+        context.lineTo(xPx, edgeYPx(xPx, -1));
+      }
+      for (let xPx = TEXTURE_WIDTH_PX; xPx >= 0; xPx -= EDGE_STEP_PX) {
+        context.lineTo(xPx, edgeYPx(xPx, 1));
+      }
+      context.closePath();
+      const fade = context.createLinearGradient(0, 0, TEXTURE_WIDTH_PX, 0);
+      fade.addColorStop(0, white(tailAlpha));
+      fade.addColorStop(HEAD_FADE_START, white(lerp(tailAlpha, 1, HEAD_FADE_START)));
+      fade.addColorStop(1, white(headAlpha));
+      context.fillStyle = fade;
+      context.fill();
+    },
+  );
   return key;
 }
 

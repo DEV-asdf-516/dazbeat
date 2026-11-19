@@ -1,12 +1,21 @@
 import type Phaser from 'phaser';
 import { requireDefined } from '../../../invariant.js';
+import { lerp } from '../../../range.js';
 import type { GameplaySession } from '../../../rhythm/GameplaySession.js';
 import { getNoteY } from '../../../rhythm/notePosition.js';
 import type { HoldNote, Lane, Note, TapNote } from '../../../rhythm/types.js';
 import { GAME_HEIGHT } from '../../app/config.js';
 import { getHoldRibbonSpans, getNoteEmphasis } from '../state/noteAppearance.js';
-import { drainColor, ensureStarButtonTextures } from './gameplayTextures.js';
-import type { StarButtonTextures } from './gameplayTextures.js';
+import type { FadingSpan } from '../state/noteAppearance.js';
+import {
+  ensureHoldRibbonTextures,
+  ensureStarButtonTextures,
+} from '../../ui/view/textures/noteTextures.js';
+import type {
+  HoldRibbonPart,
+  HoldRibbonTextures,
+  StarButtonTextures,
+} from '../../ui/view/textures/noteTextures.js';
 import {
   getHoldRibbonTrapezoid,
   getNotePlate,
@@ -14,58 +23,78 @@ import {
   getPlayfieldXAtY,
 } from '../state/playfieldLayout.js';
 import type { PlayfieldLayout, Trapezoid } from '../state/playfieldLayout.js';
-import { fillTrapezoid } from './trapezoidFill.js';
 import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
+import {
+  FULL_FADE_ROWS,
+  createStripIndices,
+  createStripVertices,
+  getStripRowVertex,
+  writeMeshVertex,
+  writeStripRow,
+} from '../../ui/view/textures/meshGeometry.js';
 import { COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
 import { MOTION } from '../../ui/state/motion.js';
+import {
+  HIT_SQUASH,
+  HOLD_CONTACT,
+  HOLD_RIBBON_EDGE_PX,
+  HOLD_RIBBON_PENDING_ALPHA,
+} from '../../ui/state/noteLook.js';
 
-const HOLD_RIBBON_PENDING_ALPHA = 0.9;
-// 면은 어둡고 옅게 물려 캡과 판정선보다 뒤로 물러나 보이게 하고, 가장자리만 차가운 은빛 선으로 남긴다.
-const HOLD_RIBBON_FILL_COLOR = 0x82a4c0;
-const HOLD_RIBBON_FILL_ALPHA = 0.42;
-const HOLD_RIBBON_EDGE_COLOR = 0xcfe4f0;
-const HOLD_RIBBON_EDGE_ALPHA = 0.6;
-const HOLD_RIBBON_EDGE_PX = 1;
-const HOLD_CONTACT_WIDTH_RATIO = 132 / 120;
-const HOLD_CONTACT_HEIGHT_PX = 30;
-const HOLD_CONTACT_ALPHA = 0.55;
-const TAP_HIT_FLASH_SCALE_X = 1.4;
-const HOLD_HIT_FLASH_SCALE_X = 1.2;
-const HIT_FLASH_SCALE_Y = 0.5;
 const MISS_DRAIN_MS = 260;
-// 꼭짓점은 왼쪽 위, 오른쪽 위, 왼쪽 아래, 오른쪽 아래 순이다. 텍스처는 그림 위쪽이 v = 1 이다.
-const CAP_UVS = [
-  [0, 1],
-  [1, 1],
-  [0, 0],
-  [1, 0],
-] as const;
-const CAP_INDICES = [0, 1, 2, 0, 1, 2, 3, 0];
-const CAP_VERTEX_STRIDE = 4;
-
-interface RibbonColors {
-  fill: number;
-  edge: number;
+interface NoteTrailLayer {
+  readonly trailRatio: number;
+  readonly alpha: number;
+}
+// 순서가 만드는 순서라 같은 depth 에서 앞 겹이 아래에 그려진다.
+const NOTE_TRAIL_LAYERS: readonly NoteTrailLayer[] = [
+  {
+    trailRatio: 1 / 3,
+    alpha: 0.4,
+  },
+  {
+    trailRatio: 2 / 3,
+    alpha: 0.25,
+  },
+  {
+    trailRatio: 1,
+    alpha: 0.12,
+  },
+];
+const CAP_ROWS = 1;
+const CAP_INDICES = createStripIndices(1, CAP_ROWS);
+const RIBBON_ROWS = FULL_FADE_ROWS;
+// 띠 부분마다 body·fade 구간의 줄 묶음(strip)을 하나씩 둔다. 인덱스 순서가 그리는 순서다.
+const RIBBON_PARTS = ['glass', 'leftEdge', 'rightEdge', 'leftGlow', 'rightGlow'] as const;
+type RibbonPart = (typeof RIBBON_PARTS)[number];
+const RIBBON_SPANS = ['body', 'fade'] as const;
+type RibbonSpan = (typeof RIBBON_SPANS)[number];
+const RIBBON_INDICES = createStripIndices(RIBBON_PARTS.length * RIBBON_SPANS.length, RIBBON_ROWS);
+interface TrailCap extends NoteTrailLayer {
+  cap: Phaser.GameObjects.Mesh2D;
 }
 
-const RIBBON_COLORS: RibbonColors = {
-  fill: HOLD_RIBBON_FILL_COLOR,
-  edge: HOLD_RIBBON_EDGE_COLOR,
-};
-const DRAINED_RIBBON_COLORS: RibbonColors = {
-  fill: drainColor(HOLD_RIBBON_FILL_COLOR),
-  edge: drainColor(HOLD_RIBBON_EDGE_COLOR),
-};
-
 interface HoldView {
-  ribbon: Phaser.GameObjects.Graphics;
+  ribbon: Phaser.GameObjects.Mesh2D;
   contact: Phaser.GameObjects.Image;
+  tailTrail: readonly TrailCap[];
   tail: Phaser.GameObjects.Mesh2D;
 }
 
 type NoteView =
-  | { kind: 'tap'; note: TapNote; head: Phaser.GameObjects.Mesh2D }
-  | { kind: 'hold'; note: HoldNote; head: Phaser.GameObjects.Mesh2D; hold: HoldView };
+  | {
+      kind: 'tap';
+      note: TapNote;
+      headTrail: readonly TrailCap[];
+      head: Phaser.GameObjects.Mesh2D;
+    }
+  | {
+      kind: 'hold';
+      note: HoldNote;
+      headTrail: readonly TrailCap[];
+      head: Phaser.GameObjects.Mesh2D;
+      hold: HoldView;
+    };
 
 export interface NoteLayerOptions {
   notes: readonly Note[];
@@ -76,12 +105,27 @@ export interface NoteLayerOptions {
 export class NoteLayer {
   private readonly views = new Map<number, NoteView>();
   private readonly capTextures: StarButtonTextures;
+  private readonly ribbonTextures: HoldRibbonTextures;
+  // u 는 부분의 가로 모양 끝인 원본이다. v 는 매 프레임 alpha 로 고친다.
+  private readonly ribbonVertexTemplate: readonly number[];
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly options: NoteLayerOptions,
   ) {
     this.capTextures = ensureStarButtonTextures(scene);
+    this.ribbonTextures = ensureHoldRibbonTextures(scene);
+    const { glass, edge, glow } = this.ribbonTextures;
+    const partUvs: Readonly<Record<RibbonPart, HoldRibbonPart>> = {
+      glass,
+      leftEdge: edge,
+      rightEdge: edge,
+      leftGlow: glow,
+      rightGlow: glow,
+    };
+    this.ribbonVertexTemplate = RIBBON_PARTS.flatMap((part) =>
+      RIBBON_SPANS.flatMap(() => createStripVertices(RIBBON_ROWS, partUvs[part])),
+    );
   }
 
   hasEntered(noteTimeMs: number, songTimeMs: number): boolean {
@@ -97,17 +141,17 @@ export class NoteLayer {
     }
   }
 
-  render(session: GameplaySession, songTimeMs: number): void {
+  render(session: GameplaySession, songTimeMs: number, trailMs: number): void {
     const { judgeLineYPx } = this.options.playfield;
     this.views.forEach((view, noteIndex) => {
       const status = session.getNoteStatus(noteIndex);
       if (status === 'hit') {
-        this.views.delete(noteIndex);
+        this.release(noteIndex, view);
         this.flashHit(view);
         return;
       }
       if (status === 'missed') {
-        this.views.delete(noteIndex);
+        this.release(noteIndex, view);
         this.drain(view);
         return;
       }
@@ -116,12 +160,29 @@ export class NoteLayer {
       const headEmphasis = isHolding ? 1 : getNoteEmphasis(headY, judgeLineYPx);
       const headPlate = this.placeCap(view.head, view.note.lane, headY);
       view.head.setAlpha(headEmphasis);
+      // 누르는 동안 머리는 판정선에 멈춰 움직임이 없으므로 잔상을 끈다.
+      if (isHolding) {
+        view.headTrail.forEach(({ cap }) => cap.setVisible(false));
+      } else {
+        this.placeTrail(
+          view.headTrail,
+          view.note.lane,
+          view.note.timeMs,
+          songTimeMs,
+          trailMs,
+          headEmphasis,
+        );
+      }
       const outline =
         view.kind === 'hold'
-          ? this.renderHold(view.hold, view.note, headY, songTimeMs, isHolding)
+          ? this.renderHold(view.hold, view.note, headY, songTimeMs, isHolding, trailMs)
           : headPlate;
       if (outline.topYPx > GAME_HEIGHT) {
-        this.remove(noteIndex, view);
+        this.release(noteIndex, view);
+        view.head.destroy();
+        if (view.kind === 'hold') {
+          this.destroyHold(view.hold);
+        }
       }
     });
   }
@@ -132,70 +193,104 @@ export class NoteLayer {
     headY: number,
     songTimeMs: number,
     isHolding: boolean,
+    trailMs: number,
   ): Trapezoid {
     const tailY = this.getY(note.endTimeMs, songTimeMs);
-    // 누르기 전 배율은 면·가장자리에 똑같이 곱해지므로 Graphics alpha 로 건다.
+    // 누르기 전 배율은 면·가장자리·glow 에 똑같이 곱해지므로 메시 alpha 로 건다.
     hold.ribbon.setAlpha(isHolding ? 1 : HOLD_RIBBON_PENDING_ALPHA);
-    this.drawRibbon(hold.ribbon, note.lane, headY, tailY, RIBBON_COLORS);
+    this.placeRibbon(hold.ribbon, note.lane, headY, tailY);
     const tailPlate = this.placeCap(hold.tail, note.lane, tailY);
-    hold.tail.setAlpha(getNoteEmphasis(tailY, this.options.playfield.judgeLineYPx));
+    const tailEmphasis = getNoteEmphasis(tailY, this.options.playfield.judgeLineYPx);
+    hold.tail.setAlpha(tailEmphasis);
+    this.placeTrail(hold.tailTrail, note.lane, note.endTimeMs, songTimeMs, trailMs, tailEmphasis);
     hold.contact.setVisible(isHolding);
     return tailPlate;
   }
 
-  private drawRibbon(
-    ribbon: Phaser.GameObjects.Graphics,
+  private placeTrail(
+    trail: readonly TrailCap[],
+    lane: Lane,
+    noteTimeMs: number,
+    songTimeMs: number,
+    trailMs: number,
+    emphasis: number,
+  ): void {
+    trail.forEach(({ cap, trailRatio, alpha }) => {
+      this.placeCap(cap, lane, this.getY(noteTimeMs, songTimeMs - trailMs * trailRatio));
+      cap.setAlpha(emphasis * alpha);
+    });
+  }
+
+  private placeRibbon(
+    ribbon: Phaser.GameObjects.Mesh2D,
     lane: Lane,
     headY: number,
     tailY: number,
-    colors: RibbonColors,
   ): void {
-    const { playfield } = this.options;
-    ribbon.clear();
     const { body, fade } = getHoldRibbonSpans(headY, tailY);
-    [body, fade].forEach((span) => {
-      if (span === null) {
-        return;
-      }
-      const { topYPx, bottomYPx, topLeftXPx, topRightXPx, bottomLeftXPx, bottomRightXPx } =
-        getHoldRibbonTrapezoid(playfield, lane, span.topYPx, span.bottomYPx);
-      const fillBand = (color: number, alpha: number, band: Trapezoid): void => {
-        const topAlpha = span.topAlpha * alpha;
-        const bottomAlpha = span.bottomAlpha * alpha;
-        fillTrapezoid(ribbon, band, color, {
-          topLeft: topAlpha,
-          topRight: topAlpha,
-          bottomLeft: bottomAlpha,
-          bottomRight: bottomAlpha,
-        });
-      };
-      // 면과 가장자리를 겹치지 않게 칠해 가장자리 alpha 가 두 번 쌓이지 않게 한다.
-      const edgePx = HOLD_RIBBON_EDGE_PX;
-      fillBand(colors.fill, HOLD_RIBBON_FILL_ALPHA, {
-        topYPx,
-        bottomYPx,
-        topLeftXPx: topLeftXPx + edgePx,
-        topRightXPx: topRightXPx - edgePx,
-        bottomLeftXPx: bottomLeftXPx + edgePx,
-        bottomRightXPx: bottomRightXPx - edgePx,
-      });
-      fillBand(colors.edge, HOLD_RIBBON_EDGE_ALPHA, {
-        topYPx,
-        bottomYPx,
-        topLeftXPx,
-        topRightXPx: topLeftXPx + edgePx,
-        bottomLeftXPx,
-        bottomRightXPx: bottomLeftXPx + edgePx,
-      });
-      fillBand(colors.edge, HOLD_RIBBON_EDGE_ALPHA, {
-        topYPx,
-        bottomYPx,
-        topLeftXPx: topRightXPx - edgePx,
-        topRightXPx,
-        bottomLeftXPx: bottomRightXPx - edgePx,
-        bottomRightXPx,
-      });
-    });
+    this.placeRibbonSpan(ribbon.vertices, 'body', body, lane);
+    this.placeRibbonSpan(ribbon.vertices, 'fade', fade, lane);
+  }
+
+  // 가장자리·glow 는 원근과 무관한 화면 px 폭이라 줄마다 띠 양 끝에서 px 로 떼어 놓는다.
+  // 프레임마다 객체를 만들지 않도록 줄마다 꼭짓점 배열의 제자리 값만 고친다.
+  private placeRibbonSpan(
+    vertices: number[],
+    spanName: RibbonSpan,
+    span: FadingSpan,
+    lane: Lane,
+  ): void {
+    const { glowLineWidthPx, glowHalfWidthPx } = this.ribbonTextures;
+    const band = getHoldRibbonTrapezoid(this.options.playfield, lane, span.topYPx, span.bottomYPx);
+    for (let row = 0; row <= RIBBON_ROWS; row += 1) {
+      const t = row / RIBBON_ROWS;
+      const yPx = lerp(band.topYPx, band.bottomYPx, t);
+      const alpha = lerp(span.topAlpha, span.bottomAlpha, t);
+      const leftXPx = lerp(band.topLeftXPx, band.bottomLeftXPx, t);
+      const rightXPx = lerp(band.topRightXPx, band.bottomRightXPx, t);
+      const leftGlowXPx = leftXPx + glowLineWidthPx / 2;
+      const rightGlowXPx = rightXPx - glowLineWidthPx / 2;
+      placeRibbonRow(
+        vertices,
+        getRibbonRowVertex('glass', spanName, row),
+        leftXPx + HOLD_RIBBON_EDGE_PX,
+        rightXPx - HOLD_RIBBON_EDGE_PX,
+        yPx,
+        alpha,
+      );
+      placeRibbonRow(
+        vertices,
+        getRibbonRowVertex('leftEdge', spanName, row),
+        leftXPx,
+        leftXPx + HOLD_RIBBON_EDGE_PX,
+        yPx,
+        alpha,
+      );
+      placeRibbonRow(
+        vertices,
+        getRibbonRowVertex('rightEdge', spanName, row),
+        rightXPx - HOLD_RIBBON_EDGE_PX,
+        rightXPx,
+        yPx,
+        alpha,
+      );
+      placeRibbonRow(
+        vertices,
+        getRibbonRowVertex('leftGlow', spanName, row),
+        leftGlowXPx - glowHalfWidthPx,
+        leftGlowXPx + glowHalfWidthPx,
+        yPx,
+        alpha,
+      );
+      placeRibbonRow(
+        vertices,
+        getRibbonRowVertex('rightGlow', spanName, row),
+        rightGlowXPx - glowHalfWidthPx,
+        rightGlowXPx + glowHalfWidthPx,
+        yPx,
+        alpha,
+      );
+    }
   }
 
   // 텍스처 본체가 판 사다리꼴에 오도록 판 가운데 기준으로 halo 여백 비율만큼 넓힌 점을 꼭짓점으로 쓴다.
@@ -206,19 +301,22 @@ export class NoteLayer {
     const centerYPx = (plate.topYPx + plate.bottomYPx) / 2;
     const laneXPx = requireDefined(playfield.laneCenterXPx[lane], 'Unknown note lane', lane);
     const centerXPx = getPlayfieldXAtY(playfield, laneXPx, centerYPx);
-    const { vertices } = cap;
     const centerOffsetYPx = centerYPx - noteYPx;
-    const topYPx = centerOffsetYPx + (plate.topYPx - centerYPx) * heightScale;
-    const bottomYPx = centerOffsetYPx + (plate.bottomYPx - centerYPx) * heightScale;
     cap.setPosition(centerXPx, noteYPx);
-    vertices[0] = (plate.topLeftXPx - centerXPx) * widthScale;
-    vertices[1] = topYPx;
-    vertices[CAP_VERTEX_STRIDE] = (plate.topRightXPx - centerXPx) * widthScale;
-    vertices[CAP_VERTEX_STRIDE + 1] = topYPx;
-    vertices[CAP_VERTEX_STRIDE * 2] = (plate.bottomLeftXPx - centerXPx) * widthScale;
-    vertices[CAP_VERTEX_STRIDE * 2 + 1] = bottomYPx;
-    vertices[CAP_VERTEX_STRIDE * 3] = (plate.bottomRightXPx - centerXPx) * widthScale;
-    vertices[CAP_VERTEX_STRIDE * 3 + 1] = bottomYPx;
+    writeStripRow(
+      cap.vertices,
+      getStripRowVertex(CAP_ROWS, 0, 0),
+      (plate.topLeftXPx - centerXPx) * widthScale,
+      (plate.topRightXPx - centerXPx) * widthScale,
+      centerOffsetYPx + (plate.topYPx - centerYPx) * heightScale,
+    );
+    writeStripRow(
+      cap.vertices,
+      getStripRowVertex(CAP_ROWS, 0, CAP_ROWS),
+      (plate.bottomLeftXPx - centerXPx) * widthScale,
+      (plate.bottomRightXPx - centerXPx) * widthScale,
+      centerOffsetYPx + (plate.bottomYPx - centerYPx) * heightScale,
+    );
     return plate;
   }
 
@@ -232,41 +330,54 @@ export class NoteLayer {
 
   private createView(note: Note): NoteView {
     const { playfield } = this.options;
+    const headTrail = this.addTrail(GAMEPLAY_DEPTH.note);
     const head = this.addCap(GAMEPLAY_DEPTH.note);
     if (note.type === 'tap') {
       return {
         kind: 'tap',
         note,
+        headTrail,
         head,
       };
     }
     const xPx = requireDefined(playfield.laneCenterXPx[note.lane], 'Unknown note lane', note.lane);
-    // 같은 depth 에서는 만든 순서대로 그려지므로 ribbon → contact → tail 순으로 만든다.
+    // 같은 depth 에서는 만든 순서대로 그려지므로 ribbon → contact → tail 잔상 → tail 순으로 만든다.
     const hold: HoldView = {
-      ribbon: this.scene.add.graphics().setDepth(GAMEPLAY_DEPTH.holdBody),
+      ribbon: this.scene.add
+        .mesh2d(0, 0, this.ribbonTextures.key, [...this.ribbonVertexTemplate], [...RIBBON_INDICES])
+        .buildOrderedIndices(1, true)
+        .setDepth(GAMEPLAY_DEPTH.holdBody),
       contact: addLight(this.scene, LIGHT_TEXTURES.glow, xPx, playfield.judgeLineYPx)
-        .setDisplaySize(playfield.laneWidthPx * HOLD_CONTACT_WIDTH_RATIO, HOLD_CONTACT_HEIGHT_PX)
+        .setDisplaySize(playfield.laneWidthPx * HOLD_CONTACT.widthRatio, HOLD_CONTACT.heightPx)
         .setTint(COLORS.note)
-        .setAlpha(HOLD_CONTACT_ALPHA)
+        .setAlpha(HOLD_CONTACT.alpha)
         .setVisible(false)
         .setDepth(GAMEPLAY_DEPTH.holdBody),
+      tailTrail: this.addTrail(GAMEPLAY_DEPTH.holdBody),
       tail: this.addCap(GAMEPLAY_DEPTH.holdBody),
     };
     return {
       kind: 'hold',
       note,
+      headTrail,
       head,
       hold,
     };
   }
 
   private addCap(depth: number): Phaser.GameObjects.Mesh2D {
-    const vertices = CAP_UVS.flatMap(([u, v]) => [0, 0, u, v]);
     return this.scene.add
-      .mesh2d(0, 0, this.capTextures.key, vertices, [...CAP_INDICES])
+      .mesh2d(0, 0, this.capTextures.key, createStripVertices(CAP_ROWS), [...CAP_INDICES])
       .buildOrderedIndices(1, true)
       .setAlpha(0)
       .setDepth(depth);
+  }
+
+  private addTrail(depth: number): readonly TrailCap[] {
+    return NOTE_TRAIL_LAYERS.map((layer) => ({
+      ...layer,
+      cap: this.addCap(depth),
+    }));
   }
 
   // HOLD 완료는 tail 이 판정선에 닿은 순간이므로 리본을 바로 지우고 더 작은 flash 로 끝낸다.
@@ -279,25 +390,24 @@ export class NoteLayer {
     head.setAlpha(1);
     this.scene.tweens.add({
       targets: head,
-      scaleX: view.kind === 'tap' ? TAP_HIT_FLASH_SCALE_X : HOLD_HIT_FLASH_SCALE_X,
-      scaleY: HIT_FLASH_SCALE_Y,
+      scaleX: view.kind === 'tap' ? HIT_SQUASH.tapScaleX : HIT_SQUASH.holdScaleX,
+      scaleY: HIT_SQUASH.scaleY,
       alpha: 0,
       duration: MOTION.fastMs,
       onComplete: () => head.destroy(),
     });
   }
 
-  // 머리·꼬리 캡은 지금 놓인 자리에 남으므로 리본도 그 두 위치로 다시 그린다.
+  // 머리·꼬리 캡은 지금 놓인 자리에 남으므로 리본도 그 두 위치로 고정한다.
   private drain(view: NoteView): void {
     const { drainedKey } = this.capTextures;
-    const parts: (Phaser.GameObjects.Mesh2D | Phaser.GameObjects.Graphics)[] = [
-      view.head.setTexture(drainedKey),
-    ];
+    const parts: Phaser.GameObjects.Mesh2D[] = [view.head.setTexture(drainedKey)];
     if (view.kind === 'hold') {
-      const { ribbon, contact, tail } = view.hold;
+      const { ribbon, contact, tailTrail, tail } = view.hold;
       contact.destroy();
-      this.drawRibbon(ribbon, view.note.lane, view.head.y, tail.y, DRAINED_RIBBON_COLORS);
-      parts.push(ribbon, tail.setTexture(drainedKey));
+      tailTrail.forEach(({ cap }) => cap.destroy());
+      this.placeRibbon(ribbon, view.note.lane, view.head.y, tail.y);
+      parts.push(ribbon.setTexture(this.ribbonTextures.drainedKey), tail.setTexture(drainedKey));
     }
     this.scene.tweens.add({
       targets: parts,
@@ -307,17 +417,34 @@ export class NoteLayer {
     });
   }
 
-  private remove(noteIndex: number, view: NoteView): void {
-    view.head.destroy();
-    if (view.kind === 'hold') {
-      this.destroyHold(view.hold);
-    }
+  private release(noteIndex: number, view: NoteView): void {
     this.views.delete(noteIndex);
+    view.headTrail.forEach(({ cap }) => cap.destroy());
   }
 
   private destroyHold(hold: HoldView): void {
     hold.ribbon.destroy();
     hold.contact.destroy();
+    hold.tailTrail.forEach(({ cap }) => cap.destroy());
     hold.tail.destroy();
   }
+}
+
+function getRibbonRowVertex(part: RibbonPart, spanName: RibbonSpan, row: number): number {
+  const strip = RIBBON_PARTS.indexOf(part) * RIBBON_SPANS.length + RIBBON_SPANS.indexOf(spanName);
+  return getStripRowVertex(RIBBON_ROWS, strip, row);
+}
+
+// 꼭짓점 v 가 아틀라스의 alpha 단계라 줄의 alpha 를 그대로 v 에 놓는다.
+function placeRibbonRow(
+  vertices: number[],
+  leftVertex: number,
+  leftXPx: number,
+  rightXPx: number,
+  yPx: number,
+  alpha: number,
+): void {
+  writeStripRow(vertices, leftVertex, leftXPx, rightXPx, yPx);
+  writeMeshVertex(vertices, leftVertex, 'v', alpha);
+  writeMeshVertex(vertices, leftVertex + 1, 'v', alpha);
 }

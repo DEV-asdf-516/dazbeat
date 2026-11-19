@@ -1,4 +1,10 @@
-import { readControlsKey, readControlsWheel, withControlsOpen } from '../app/controlsGuide.js';
+import {
+  clickControlsHelp,
+  isControlsPanelOpen,
+  readControlsKey,
+  readControlsWheel,
+  withControlsOpen,
+} from '../app/controlsGuide.js';
 import type { SongFeed } from '../app/SongFeed.js';
 import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
 import {
@@ -50,7 +56,7 @@ export class CreditsController {
     if ('kind' in this.state) {
       return;
     }
-    const read = readControlsWheel(this.state.isControlsOpen, this.wheel, {
+    const read = readControlsWheel(isControlsPanelOpen(this.state), this.wheel, {
       deltaYPx,
       atMs,
       rowPx: this.wheelStepPx,
@@ -103,6 +109,10 @@ export class CreditsController {
       case 'controlsBackdrop':
         this.closeControls();
         return;
+      case 'controlsHelp':
+        this.screen.playSound('click');
+        this.apply(clickControlsHelp);
+        return;
       case 'accountProfile':
         this.screen.playSound('click');
         this.screen.openProfile();
@@ -114,7 +124,7 @@ export class CreditsController {
     if ('kind' in this.state) {
       return false;
     }
-    switch (readControlsKey(this.state.isControlsOpen, event)) {
+    switch (readControlsKey(isControlsPanelOpen(this.state), event)) {
       case 'open':
         this.openControls();
         return true;

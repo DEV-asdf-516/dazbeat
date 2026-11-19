@@ -17,7 +17,6 @@ export interface VerifiedPlay {
   score: number;
   accuracy: number;
   maxCombo: number;
-  cleared: boolean;
   newAchievements: readonly NamedAchievementDefinition[];
   review: PlayReview;
 }

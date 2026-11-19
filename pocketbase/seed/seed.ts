@@ -85,6 +85,7 @@ export async function seedPocketBase(pb: PocketBase, manifest: SeedManifest): Pr
         song: songId,
         difficulty: chart.difficulty,
         laneCount: chart.laneCount,
+        level: chart.level,
         data: chart.data,
       });
     }

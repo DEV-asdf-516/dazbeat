@@ -33,7 +33,7 @@ function makeSong(index: number, category: SongCategory = 'original'): Song {
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    chartIds: {},
+    charts: {},
   };
 }
 
@@ -268,6 +268,7 @@ describe('ChartEditorSelectController list', () => {
       {
         category: 'all',
         title: 'Title',
+        level: null,
       },
       harness.server.loadBatch,
     );
@@ -291,6 +292,7 @@ describe('ChartEditorSelectController list', () => {
     const query: SongQuery = {
       category: 'cover',
       title: 'Title',
+      level: null,
     };
     const list = new SongFeed(query, harness.server.loadBatch);
     await loadFirstBatch(list, harness.server);
@@ -343,12 +345,14 @@ describe('ChartEditorSelectController query', () => {
       {
         category: 'cover',
         title: '',
+        level: null,
       },
     ]);
     expect(harness.server.calls.map((call) => call.query)).toEqual([
       {
         category: 'cover',
         title: '',
+        level: null,
       },
     ]);
     await settle(harness.server.calls[0]);
@@ -519,6 +523,7 @@ describe('ChartEditorSelectController status', () => {
       {
         category: 'all',
         title: 'missing',
+        level: null,
       },
       searched.server.loadBatch,
     );
@@ -577,6 +582,7 @@ describe('ChartEditorSelectController search', () => {
     expect(harness.created.at(-1)?.query).toEqual({
       category: 'original',
       title: 'Title 4',
+      level: null,
     });
     await settle(harness.server.calls[1]);
     expect(rowIds(harness.view)).toEqual(['song-004']);

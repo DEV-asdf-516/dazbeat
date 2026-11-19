@@ -1,5 +1,5 @@
 import type { InvalidChartError } from '../../../data/chartSchema.js';
-import type { Song } from '../../../data/songs.js';
+import type { ChartLevel, Song } from '../../../data/songs.js';
 import type { Chart, Difficulty, Lane, LaneCount, Note } from '../../../rhythm/types.js';
 import { isShallowEqual } from '../../../shallowEqual.js';
 
@@ -15,11 +15,25 @@ export interface ChartDraft {
   readonly savedNotes: readonly Note[];
   /** 저장할 때 서버에 알리는 불러온 채보의 revision. 서버에 없는 새 채보면 null 이다. */
   readonly baseRevision: string | null;
+  readonly level: ChartLevel;
+  readonly savedLevel: ChartLevel;
 }
 
 export const MIN_HOLD_DURATION_MS = 1;
+// 새 채보는 지금 채보들의 난이도별 평균 레벨에서 시작한다.
+const NEW_CHART_LEVELS: Readonly<Record<Difficulty, ChartLevel>> = {
+  easy: 1,
+  normal: 2.5,
+  hard: 3.5,
+  expert: 4.5,
+};
 
-export function createDraft(song: Song, chart: Chart, revision: string): ChartDraft {
+export function createDraft(
+  song: Song,
+  chart: Chart,
+  revision: string,
+  level: ChartLevel,
+): ChartDraft {
   const notes = [...chart.notes].sort(compareNotes);
   return {
     song,
@@ -30,6 +44,8 @@ export function createDraft(song: Song, chart: Chart, revision: string): ChartDr
     selected: null,
     savedNotes: notes,
     baseRevision: revision,
+    level,
+    savedLevel: level,
   };
 }
 
@@ -48,12 +64,24 @@ export function createEmptyDraft(
     selected: null,
     savedNotes: notes,
     baseRevision: null,
+    level: NEW_CHART_LEVELS[difficulty],
+    savedLevel: NEW_CHART_LEVELS[difficulty],
   };
 }
 
 /** 내용이 원래대로 돌아왔는지가 아니라 저장 기준 배열 자체인지로 판정한다. */
 export function isDraftDirty(draft: ChartDraft): boolean {
-  return draft.notes !== draft.savedNotes;
+  return draft.notes !== draft.savedNotes || draft.level !== draft.savedLevel;
+}
+
+export function setDraftLevel(draft: ChartDraft, level: ChartLevel): ChartDraft {
+  if (draft.level === level) {
+    return draft;
+  }
+  return {
+    ...draft,
+    level,
+  };
 }
 
 /** notes 가 이미 validation 이 요구하는 순서이므로 정렬하지 않는다. */
@@ -167,6 +195,7 @@ function insertNote(notes: readonly Note[], note: Note): Note[] {
 export function completeSave(
   current: ChartDraft,
   savedNotes: readonly Note[],
+  savedLevel: ChartLevel,
   song: Song,
   revision: string,
 ): ChartDraft {
@@ -174,6 +203,7 @@ export function completeSave(
     ...current,
     song,
     savedNotes,
+    savedLevel,
     baseRevision: revision,
   };
   return isShallowEqual(current, next) ? current : next;

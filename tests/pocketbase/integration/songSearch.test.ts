@@ -249,6 +249,7 @@ interface ChartSummary {
   readonly id: string;
   readonly difficulty: string;
   readonly laneCount: number;
+  readonly level: number;
 }
 
 interface SearchItem extends RecordModel {
@@ -473,7 +474,7 @@ describe('song title search API', () => {
     });
   });
 
-  it('combines category with the title and lists each song once with chart summaries', async () => {
+  it('combines category with the title and lists each song once with chart summaries and levels', async () => {
     const { url, superuser } = await startSearchServer();
     const cover = await createSong(superuser, 'nova-cover', undefined, {
       title: 'Nova Cover',
@@ -503,6 +504,7 @@ describe('song title search API', () => {
       fakeChartData('nova-original', 'hard', 1_000, 6),
       6,
     );
+    await superuser.collection('charts').update(hard.id, { level: 3.5 });
     const guest = createClient(url);
 
     const { items } = await search(guest, { title: 'Nova' });
@@ -525,16 +527,19 @@ describe('song title search API', () => {
         id: easy.id,
         difficulty: 'easy',
         laneCount: 4,
+        level: 1,
       },
       {
         id: hard.id,
         difficulty: 'hard',
         laneCount: 4,
+        level: 3.5,
       },
       {
         id: sixLaneHard.id,
         difficulty: 'hard',
         laneCount: 6,
+        level: 1,
       },
     ]);
     expect(items[1]).not.toHaveProperty('expand');
@@ -649,6 +654,7 @@ describe('song title search API', () => {
           id: chart.id,
           difficulty: 'easy',
           laneCount: 4,
+          level: 1,
         },
       ],
     });
@@ -737,6 +743,9 @@ describe('song title search API', () => {
             afterReleasedOn: params['afterReleasedOn'],
             afterId: params['afterId'],
             scope,
+            laneCount: undefined,
+            minLevel: undefined,
+            maxLevel: undefined,
             canListUnpublished: true,
           }),
         );
@@ -779,6 +788,9 @@ describe('song title search API', () => {
             afterReleasedOn: 'afterReleasedOn' in params ? params.afterReleasedOn : undefined,
             afterId: 'afterId' in params ? params.afterId : undefined,
             scope,
+            laneCount: undefined,
+            minLevel: undefined,
+            maxLevel: undefined,
             canListUnpublished: true,
           }),
         );
@@ -795,6 +807,266 @@ describe('song title search API', () => {
             countPlan.some((detail) => detail.includes(expected)),
             countPlan.join('\n'),
           ).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+// Production-sized statistics, so the planner picks indexes as it would on the real database.
+const PRODUCTION_STATS = [
+  ['songs', 'idx_songs_category_released_on_id', '238 119 1 1'],
+  ['songs', 'idx_songs_released_on_id', '238 1 1'],
+  ['songs', 'idx_songs_title_nocase', '238 1'],
+  ['songs', 'idx_songs_key', '238 1'],
+  ['songs', 'sqlite_autoindex_songs_1', '238 1'],
+  ['charts', 'idx_charts_song_lane_count_level', '2856 12 4 1'],
+  ['charts', 'idx_charts_song_difficulty_lane_count', '2856 12 3 1'],
+  ['charts', 'idx_charts_song_difficulty_lane_count_id', '2856 12 3 1 1'],
+  ['charts', 'idx_charts_id_revision_song_lane_difficulty', '2856 1 1 1 1 1'],
+  ['charts', 'sqlite_autoindex_charts_1', '2856 1'],
+] as const;
+
+async function createLeveledChart(
+  superuser: PocketBase,
+  song: RecordModel,
+  difficulty: string,
+  laneCount: number,
+  level: number,
+): Promise<void> {
+  await createChart(
+    superuser,
+    song.id,
+    difficulty,
+    fakeChartData(String(song['key']), difficulty, 1_000, laneCount),
+    laneCount,
+    level,
+  );
+}
+
+describe('song level search API', () => {
+  it('lists only songs with a chart in the level range for the lane count, bounds included', async () => {
+    const { url, superuser } = await startSearchServer();
+    const atMin = await createSong(superuser, 'at-min', undefined, { releasedOn: '2026-01-03' });
+    await createLeveledChart(superuser, atMin, 'easy', 4, 2);
+    await createLeveledChart(superuser, atMin, 'hard', 4, 4.5);
+    const atMax = await createSong(superuser, 'at-max', undefined, { releasedOn: '2026-01-02' });
+    await createLeveledChart(superuser, atMax, 'normal', 4, 3);
+    const otherLanes = await createSong(superuser, 'other-lanes', undefined, {
+      releasedOn: '2026-01-04',
+    });
+    await createLeveledChart(superuser, otherLanes, 'easy', 4, 4);
+    await createLeveledChart(superuser, otherLanes, 'easy', 6, 2.5);
+    const below = await createSong(superuser, 'below', undefined, { releasedOn: '2026-01-06' });
+    await createLeveledChart(superuser, below, 'easy', 4, 1.5);
+    await createSong(superuser, 'chartless', undefined, { releasedOn: '2026-01-07' });
+    const guest = createClient(url);
+    const searchLevels = async (laneCount: string, minLevel: string, maxLevel: string) => {
+      const { items, totalItems } = await search(guest, {
+        laneCount,
+        minLevel,
+        maxLevel,
+      });
+      return {
+        ids: items.map((item) => item.id),
+        totalItems,
+      };
+    };
+
+    await expect(searchLevels('4', '2', '3')).resolves.toEqual({
+      ids: [atMin.id, atMax.id],
+      totalItems: 2,
+    });
+    await expect(searchLevels('4', '3', '3')).resolves.toEqual({
+      ids: [atMax.id],
+      totalItems: 1,
+    });
+    await expect(searchLevels('6', '2', '3')).resolves.toEqual({
+      ids: [otherLanes.id],
+      totalItems: 1,
+    });
+    await expect(searchLevels('4', '1', '5')).resolves.toEqual({
+      ids: [below.id, otherLanes.id, atMin.id, atMax.id],
+      totalItems: 4,
+    });
+  });
+
+  it('combines the level range with the category and pages every match by cursor', async () => {
+    const { url, superuser } = await startSearchServer();
+    const releaseDates = ['2026-01-01', '2026-01-02', '2026-01-03'];
+    const createGroup = (prefix: string, count: number, category: string, level: number) =>
+      Promise.all(
+        Array.from({ length: count }, async (_, index) => {
+          const song = await createSong(superuser, `${prefix}-${index}`, undefined, {
+            category,
+            releasedOn: releaseDates[index % releaseDates.length] ?? '2026-01-01',
+          });
+          await createLeveledChart(superuser, song, 'easy', 4, level);
+          return song;
+        }),
+      );
+    const matchingCovers = await createGroup('matching-cover', 101, 'cover', 3);
+    await createGroup('easy-cover', 2, 'cover', 1);
+    const matchingOriginals = await createGroup('matching-original', 2, 'original', 3);
+    const guest = createClient(url);
+    const level = {
+      laneCount: '4',
+      minLevel: '2.5',
+      maxLevel: '3.5',
+    };
+
+    await expect(
+      searchAll(guest, {
+        ...level,
+        category: 'cover',
+      }),
+    ).resolves.toEqual({
+      ids: newestFirst(matchingCovers),
+      batchSizes: [100, 1],
+      totals: [101, null],
+    });
+    await expect(
+      searchAll(guest, {
+        ...level,
+        category: 'original',
+      }),
+    ).resolves.toEqual({
+      ids: newestFirst(matchingOriginals),
+      batchSizes: [2],
+      totals: [2],
+    });
+  });
+
+  it('rejects a partial, malformed or reversed level range with 400', async () => {
+    const { url } = await startSearchServer();
+    const guest = createClient(url);
+    const invalidRanges: SearchParams[] = [
+      { laneCount: '4' },
+      {
+        laneCount: '4',
+        minLevel: '2',
+      },
+      {
+        minLevel: '2',
+        maxLevel: '3',
+      },
+      {
+        laneCount: 'four',
+        minLevel: '2',
+        maxLevel: '3',
+      },
+      {
+        laneCount: '4',
+        minLevel: 'two',
+        maxLevel: '3',
+      },
+      {
+        laneCount: '4',
+        minLevel: '2.25',
+        maxLevel: '3',
+      },
+      {
+        laneCount: '4',
+        minLevel: '0',
+        maxLevel: '3',
+      },
+      {
+        laneCount: '4',
+        minLevel: '2',
+        maxLevel: '5.5',
+      },
+      {
+        laneCount: '4',
+        minLevel: '3.5',
+        maxLevel: '3',
+      },
+      {
+        laneCount: '7',
+        minLevel: '2',
+        maxLevel: '3',
+      },
+    ];
+
+    for (const params of invalidRanges) {
+      await expectInvalidRequest(search(guest, params));
+    }
+  });
+
+  it('plans the level range on the list order indexes and the level index with production statistics', async () => {
+    const dataDir = await tempDir('song-level-search-plan');
+    const migrationsDir = await tempDir('migrations-level-search-plan');
+    await cp(REPO_MIGRATIONS_DIR, migrationsDir, { recursive: true });
+    const hooksDir = await createHooksDirWithSqlRoute();
+    const startPlanServer = () =>
+      start({
+        dataDir,
+        migrationsDir,
+        hooksDir,
+      });
+    const seeded = await startPlanServer();
+    // The route needs a column to scan into even when the statement returns no rows.
+    const execute = (sql: string, params: Record<string, FilterValue> = {}) =>
+      querySql(seeded.superuser, sql, params, ['unused']);
+    await execute('ANALYZE');
+    await execute('DELETE FROM sqlite_stat1');
+    await execute(
+      `INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ${PRODUCTION_STATS.map(
+        (_, index) => `({:tbl${index}}, {:idx${index}}, {:stat${index}})`,
+      ).join(', ')}`,
+      Object.fromEntries(
+        PRODUCTION_STATS.flatMap(([tbl, idx, stat], index) => [
+          [`tbl${index}`, tbl],
+          [`idx${index}`, idx],
+          [`stat${index}`, stat],
+        ]),
+      ),
+    );
+    await seeded.stop();
+    // SQLite reads the statistics when a connection opens, so a restarted server plans with them.
+    const { superuser } = await startPlanServer();
+    expect(
+      await querySql(superuser, 'SELECT COUNT(*) AS count FROM sqlite_stat1', {}, ['count']),
+    ).toEqual([{ count: String(PRODUCTION_STATS.length) }]);
+    const cursor = {
+      afterReleasedOn: '2026-01-01',
+      afterId: 'abc',
+    };
+
+    for (const [params, expected] of [
+      [{}, 'idx_songs_released_on_id'],
+      [cursor, 'idx_songs_released_on_id'],
+      [{ category: 'cover' }, 'idx_songs_category_released_on_id'],
+      [
+        {
+          category: 'cover',
+          ...cursor,
+        },
+        'idx_songs_category_released_on_id',
+      ],
+    ] as const) {
+      for (const scope of [undefined, 'all']) {
+        const search = buildSongSearchQuery(
+          parseSongSearchInput({
+            title: undefined,
+            category: 'category' in params ? params.category : undefined,
+            afterReleasedOn: 'afterReleasedOn' in params ? params.afterReleasedOn : undefined,
+            afterId: 'afterId' in params ? params.afterId : undefined,
+            scope,
+            laneCount: '4',
+            minLevel: '2',
+            maxLevel: '3.5',
+            canListUnpublished: true,
+          }),
+        );
+        const { list, count } = searchStatements(search);
+        const listPlan = (await explain(superuser, list, search.params)).join('\n');
+        expect(listPlan).toContain(expected);
+        expect(listPlan).toContain('COVERING INDEX idx_charts_song_lane_count_level');
+        expect(listPlan).not.toContain('TEMP B-TREE');
+        if (count !== null) {
+          expect((await explain(superuser, count, search.params)).join('\n')).toContain(
+            'idx_charts_song_lane_count_level',
+          );
         }
       }
     }

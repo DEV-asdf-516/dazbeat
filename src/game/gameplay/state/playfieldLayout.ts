@@ -2,24 +2,17 @@ import { getLanes } from '../../../rhythm/lanes.js';
 import type { Lane, LaneCount } from '../../../rhythm/types.js';
 import { requireDefined } from '../../../invariant.js';
 import { getFraction, lerp } from '../../../range.js';
+import {
+  HOLD_RIBBON_WIDTH_RATIO,
+  NOTE_PLATE_WIDTH_RATIO,
+  PLAYFIELD_JUDGE_LINE_WIDTH_PX,
+} from '../../ui/state/noteLook.js';
 
 const JUDGE_LINE_Y_PX = 920;
 // 레인은 화면 위끝에서 판정선 폭의 이 비율까지 좁아지는 사다리꼴이다.
 const TOP_WIDTH_RATIO = 0.3;
-const JUDGE_LINE_WIDTH_PX: Readonly<Record<LaneCount, number>> = {
-  4: 920,
-  5: 980,
-  6: 1040,
-};
-const NOTE_PLATE_WIDTH_RATIO = 0.8;
 const NOTE_PLATE_JUDGE_THICKNESS_PX = 34;
 const NOTE_PLATE_MIN_THICKNESS_PX = 7;
-const HOLD_RIBBON_WIDTH_RATIO = 0.72;
-// 판 텍스처를 그리는 기준 크기로, 4레인 판정선 위 판 하나다.
-export const REFERENCE_NOTE_PLATE = {
-  widthPx: (JUDGE_LINE_WIDTH_PX[4] / 4) * NOTE_PLATE_WIDTH_RATIO,
-  heightPx: NOTE_PLATE_JUDGE_THICKNESS_PX,
-} as const;
 // 폭이 0 이 되는 소실점 y. 판정선에서 위끝까지 폭이 TOP_WIDTH_RATIO 로 줄어들도록 정한다.
 const VANISHING_Y_PX = (-TOP_WIDTH_RATIO * JUDGE_LINE_Y_PX) / (1 - TOP_WIDTH_RATIO);
 
@@ -42,7 +35,7 @@ export interface Trapezoid {
 }
 
 export function getPlayfieldLayout(screenWidthPx: number, laneCount: LaneCount): PlayfieldLayout {
-  const widthPx = JUDGE_LINE_WIDTH_PX[laneCount];
+  const widthPx = PLAYFIELD_JUDGE_LINE_WIDTH_PX[laneCount];
   const laneWidthPx = widthPx / laneCount;
   const centerXPx = screenWidthPx / 2;
   const leftPx = centerXPx - widthPx / 2;

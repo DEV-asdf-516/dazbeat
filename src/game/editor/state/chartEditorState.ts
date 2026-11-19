@@ -1,8 +1,10 @@
 import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import type { YouTubeErrorKind } from '../../../audio/YouTubePlayer.js';
-import { findChart, getAvailableDifficulties } from '../../../data/songs.js';
-import type { ChartRef, Song } from '../../../data/songs.js';
+import { CHART_LEVELS, findChart, getAvailableDifficulties } from '../../../data/songs.js';
+import type { ChartLevel, ChartRef, Song } from '../../../data/songs.js';
+import { stepItem } from '../../../range.js';
+import type { ListDirection } from '../../../range.js';
 import type { Difficulty, LaneCount, Note } from '../../../rhythm/types.js';
 import {
   getButtonView,
@@ -109,7 +111,9 @@ export type EditorButton =
   | 'delete'
   | 'clear'
   | 'confirmCancel'
-  | 'confirmAccept';
+  | 'confirmAccept'
+  | 'levelDown'
+  | 'levelUp';
 
 export type ChartEditorHover = SegmentHover | ButtonHover<EditorButton>;
 
@@ -163,7 +167,8 @@ export type EditorRegion =
   | 'testPlayButton'
   | 'deleteButton'
   | 'clearButton'
-  | 'confirmButtons';
+  | 'confirmButtons'
+  | 'levelControl';
 
 type EditorReader = StateReader<ChartEditorState>;
 
@@ -174,6 +179,8 @@ const readDifficulty: EditorReader = (state) => getSelection(state).difficulty;
 const readNotes: EditorReader = (state) => getNotes(state);
 const readSelected: EditorReader = (state) => getSession(state)?.draft.selected;
 const readSavedNotes: EditorReader = (state) => getSession(state)?.draft.savedNotes;
+const readLevel: EditorReader = (state) => getSession(state)?.draft.level;
+const readSavedLevel: EditorReader = (state) => getSession(state)?.draft.savedLevel;
 const readPending: EditorReader = (state) => getPending(state);
 const readTool: EditorReader = (state) => state.tool;
 const readTransport: EditorReader = (state) => state.playhead.transport;
@@ -197,7 +204,7 @@ const REGION_SOURCES: Readonly<Record<EditorRegion, readonly EditorReader[]>> = 
   // 저장하면 곡의 채보 목록이 바뀌어 난이도 표시가 달라진다.
   selection: [readSong, readLaneCount, readDifficulty],
   laneLines: [readLaneCount],
-  status: [readPhaseKind, readNotes, readPending, readSavedNotes],
+  status: [readPhaseKind, readNotes, readPending, readSavedNotes, readLevel, readSavedLevel],
   confirm: [readPending, readNotes],
   panel: [readNotes, readSelected, readTool],
   restartButton: readButton('restart'),
@@ -220,9 +227,17 @@ const REGION_SOURCES: Readonly<Record<EditorRegion, readonly EditorReader[]>> = 
   deleteButton: [readCanDelete, ...readButton('delete')],
   clearButton: [readCanClear, ...readButton('clear')],
   confirmButtons: [...readButton('confirmCancel'), ...readButton('confirmAccept')],
+  levelControl: [readLevel, readPhaseKind, ...readButton('levelDown'), ...readButton('levelUp')],
 };
 
-const DISABLEABLE_BUTTONS: readonly EditorButton[] = ['save', 'testPlay', 'delete', 'clear'];
+const DISABLEABLE_BUTTONS: readonly EditorButton[] = [
+  'save',
+  'testPlay',
+  'delete',
+  'clear',
+  'levelDown',
+  'levelUp',
+];
 const NO_NOTES: readonly Note[] = [];
 
 export function withDraft(session: EditorSession, draft: ChartDraft): EditorSession {
@@ -314,6 +329,11 @@ function isSelected(selection: Selection, navigation: Navigation): boolean {
 export function getSession(state: ChartEditorState): EditorSession | null {
   const { phase } = state;
   return phase.kind === 'editing' || phase.kind === 'confirming' ? phase.session : null;
+}
+
+export function getEditableSession(state: ChartEditorState): EditorSession | null {
+  const { phase } = state;
+  return phase.kind === 'editing' ? phase.session : null;
 }
 
 export function getSelection(state: ChartEditorState): Selection {
@@ -449,6 +469,28 @@ export function getDifficultyLook(state: ChartEditorState, difficulty: Difficult
   return hasChart ? 'withChart' : 'withoutChart';
 }
 
+export function stepLevel(level: ChartLevel, direction: ListDirection): ChartLevel {
+  return stepItem(CHART_LEVELS, level, direction);
+}
+
+export function parseLevelInput(text: string): ChartLevel | undefined {
+  const trimmed = text.trim();
+  // Number('') 는 0 이라 값 집합 밖으로 떨어진다.
+  const value = Number(trimmed);
+  return CHART_LEVELS.find((level) => level === value);
+}
+
+export function getLevelControl(state: ChartEditorState): {
+  readonly level: ChartLevel | null;
+  readonly isEnabled: boolean;
+} {
+  const session = getSession(state);
+  return {
+    level: session?.draft.level ?? null,
+    isEnabled: state.phase.kind === 'editing',
+  };
+}
+
 export function getSelectionPanel(state: ChartEditorState): {
   readonly titleKey: 'chartEditor.noSelection' | 'chartEditor.selectionSection';
   readonly noteCount: number | null;
@@ -462,12 +504,29 @@ export function getSelectionPanel(state: ChartEditorState): {
 }
 
 export type EditorKeyCommand =
-  'undo' | 'confirmPending' | 'togglePlayback' | 'deleteSelected' | 'back';
+  | 'undo'
+  | 'confirmPending'
+  | 'togglePlayback'
+  | 'deleteSelected'
+  | 'back'
+  | 'commitLevelInput'
+  | 'cancelLevelInput';
 
 export function readEditorKey(
   event: Pick<KeyboardEvent, 'code' | 'repeat' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
+  isLevelInputFocused: boolean,
 ): EditorKeyCommand | null {
   const action = readMenuAction(event);
+  if (isLevelInputFocused) {
+    switch (action) {
+      case 'confirm':
+        return 'commitLevelInput';
+      case 'back':
+        return 'cancelLevelInput';
+      default:
+        return null;
+    }
+  }
   if (event.code === 'KeyZ' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
     return 'undo';
   }
@@ -551,6 +610,15 @@ function isEditorButtonEnabled(state: ChartEditorState, button: EditorButton): b
       return canDeleteSelected(state);
     case 'clear':
       return canClearNotes(state);
+    case 'levelDown':
+    case 'levelUp': {
+      const { level, isEnabled } = getLevelControl(state);
+      return (
+        isEnabled &&
+        level !== null &&
+        stepLevel(level, button === 'levelUp' ? 'next' : 'previous') !== level
+      );
+    }
     case 'confirmCancel':
     case 'confirmAccept':
     case 'back':

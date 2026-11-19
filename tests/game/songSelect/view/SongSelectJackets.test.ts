@@ -16,7 +16,7 @@ function makeSong(index: number): Song {
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    chartIds: {},
+    charts: {},
   };
 }
 

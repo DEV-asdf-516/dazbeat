@@ -8,7 +8,12 @@ import {
   startSignIn,
 } from '../app/accountState.js';
 import type { AccountAuth, AccountState } from '../app/accountState.js';
-import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
+import {
+  clickControlsHelp,
+  isControlsPanelOpen,
+  readControlsKey,
+  withControlsOpen,
+} from '../app/controlsGuide.js';
 import {
   createMainState,
   hoverMainButton,
@@ -21,6 +26,7 @@ import {
 } from './state/mainMenu.js';
 import type { MainButton, MainFocus, MainState } from './state/mainMenu.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
+import type { ListDirection } from '../../range.js';
 
 export interface MainScreen {
   render(previous: MainState | null, next: MainState): void;
@@ -80,11 +86,11 @@ export class MainController {
     }
   }
 
-  moveFocus(delta: 1 | -1): void {
+  moveFocus(direction: ListDirection): void {
     if ('kind' in this.state) {
       return;
     }
-    const next = moveMainFocus(this.state, delta);
+    const next = moveMainFocus(this.state, direction);
     if (next === this.state) {
       return;
     }
@@ -129,6 +135,10 @@ export class MainController {
       case 'controlsBackdrop':
         this.closeControls();
         return;
+      case 'controlsHelp':
+        this.screen.playSound('click');
+        this.apply(clickControlsHelp);
+        return;
       default:
         this.screen.playSound('click');
         this.screen.activate(button);
@@ -140,7 +150,7 @@ export class MainController {
     if ('kind' in this.state) {
       return false;
     }
-    switch (readControlsKey(this.state.isControlsOpen, event)) {
+    switch (readControlsKey(isControlsPanelOpen(this.state), event)) {
       case 'open':
         this.openControls();
         return true;

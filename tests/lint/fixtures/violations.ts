@@ -1,12 +1,16 @@
 import type Phaser from 'phaser';
 import { filterChangedRegions } from '../../../src/changedRegions.js';
-import { isShallowEqual } from '../../../src/shallowEqual.js';
+import { isShallowEqual as isSame } from '../../../src/shallowEqual.js';
 import * as shallow from '../../../src/shallowEqual.js';
 import type { ScreenState } from './state/screenState.js';
 
-export const comparisons = [filterChangedRegions, isShallowEqual];
-
-export const namespaceComparison = shallow.isShallowEqual;
+export function compareStates(previous: ScreenState | null, next: ScreenState): readonly unknown[] {
+  return [
+    filterChangedRegions({ count: [(state: ScreenState) => state.count] }, previous, next),
+    isSame(next, next),
+    shallow.isShallowEqual(next, next),
+  ];
+}
 
 export function writeState(state: ScreenState): void {
   state.count = 1;

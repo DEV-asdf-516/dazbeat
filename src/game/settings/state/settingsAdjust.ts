@@ -4,7 +4,8 @@ import { LANE_COUNTS } from '../../../rhythm/lanes.js';
 import type { Lane } from '../../../rhythm/types.js';
 import { MV_MODES, SETTINGS_LIMITS } from '../../../storage/settings.js';
 import type { Settings, VolumeField } from '../../../storage/settings.js';
-import { clamp, stepItem } from '../../../range.js';
+import { clamp, DIRECTION_STEPS, stepItem } from '../../../range.js';
+import type { ListDirection } from '../../../range.js';
 import { requireDefined } from '../../../invariant.js';
 import { isShallowEqual } from '../../../shallowEqual.js';
 
@@ -23,9 +24,12 @@ const STEP_PRECISION = 1e6;
 function stepInRange(
   value: number,
   { min, max, step }: { min: number; max: number; step: number },
-  direction: 1 | -1,
+  direction: ListDirection,
 ): number {
-  return Math.round(clamp(value + direction * step, min, max) * STEP_PRECISION) / STEP_PRECISION;
+  return (
+    Math.round(clamp(value + DIRECTION_STEPS[direction] * step, min, max) * STEP_PRECISION) /
+    STEP_PRECISION
+  );
 }
 
 function withChange(settings: Settings, change: Partial<Settings>): Settings {
@@ -39,7 +43,7 @@ function withChange(settings: Settings, change: Partial<Settings>): Settings {
 export function adjustSetting(
   settings: Settings,
   row: SettingsRow,
-  direction: 1 | -1,
+  direction: ListDirection,
   language: Language,
 ): Settings {
   switch (row.kind) {
@@ -105,7 +109,7 @@ export function toggleMute(settings: Settings, field: VolumeField): Settings {
 export function canAdjust(
   settings: Settings,
   row: SettingsRow,
-  direction: 1 | -1,
+  direction: ListDirection,
   language: Language,
 ): boolean {
   return adjustSetting(settings, row, direction, language) !== settings;

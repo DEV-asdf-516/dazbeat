@@ -70,6 +70,13 @@ function fakeManifestSong(key: string, overrides: Record<string, unknown> = {}) 
       },
       6: { easy: `${key}/charts/6k-easy.json` },
     },
+    levels: {
+      4: {
+        easy: 1,
+        expert: 4.5,
+      },
+      6: { easy: 1.5 },
+    },
     ...overrides,
   };
 }
@@ -288,6 +295,7 @@ describe('seedPocketBase', () => {
           song: 'songs_1',
           difficulty: 'easy',
           laneCount: 4,
+          level: 1,
           data: fakeChart('fake-a', 'easy'),
         },
       },
@@ -298,6 +306,7 @@ describe('seedPocketBase', () => {
           song: 'songs_1',
           difficulty: 'expert',
           laneCount: 4,
+          level: 4.5,
           data: fakeChart('fake-a', 'expert'),
         },
       },
@@ -308,6 +317,7 @@ describe('seedPocketBase', () => {
           song: 'songs_1',
           difficulty: 'easy',
           laneCount: 6,
+          level: 1.5,
           data: fakeChart('fake-a', 'easy', 6),
         },
       },
@@ -527,6 +537,7 @@ describe('seedPocketBase', () => {
           song: 'existing_song',
           difficulty: 'expert',
           laneCount: 4,
+          level: 4.5,
           data: fakeChart('fake-a', 'expert'),
         },
       },
@@ -537,6 +548,7 @@ describe('seedPocketBase', () => {
           song: 'existing_song',
           difficulty: 'easy',
           laneCount: 6,
+          level: 1.5,
           data: fakeChart('fake-a', 'easy', 6),
         },
       },
@@ -579,6 +591,7 @@ describe('seedPocketBase', () => {
           song: 'existing_song',
           difficulty: 'easy',
           laneCount: 6,
+          level: 1.5,
           data: fakeChart('fake-a', 'easy', 6),
         },
       },
@@ -830,6 +843,28 @@ describe('runSeed', () => {
       },
       failedPath: 'manifest.json',
       location: 'manifest.songs[0].album (song "fake-a")',
+    },
+    {
+      name: 'a chart has no level',
+      prepare: async () => {
+        await writeFakeSongFiles('fake-a');
+        await writeManifest({
+          version: 2,
+          albums: [],
+          songs: [
+            fakeManifestSong('fake-a', {
+              levels: {
+                4: {
+                  easy: 1,
+                  expert: 4.5,
+                },
+              },
+            }),
+          ],
+        });
+      },
+      failedPath: 'manifest.json',
+      location: 'song "fake-a" levels.6.easy',
     },
     {
       name: 'the manifest has no songs',

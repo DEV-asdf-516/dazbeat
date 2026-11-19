@@ -3,7 +3,12 @@ import Phaser from 'phaser';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { SongFeed } from '../app/SongFeed.js';
-import { getControlsGuide } from '../app/controlsGuide.js';
+import {
+  getControlsGuide,
+  getControlsHelpButtonView,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+} from '../app/controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type { SceneRequest } from '../app/sceneRoutes.js';
 import { STAYING } from '../app/sceneExit.js';
@@ -204,7 +209,7 @@ export class CreditsScene extends Phaser.Scene {
         return;
       case 'controls':
         view.chrome.renderControls(
-          state.isControlsOpen
+          isControlsPanelOpen(state)
             ? getControlsGuide(
                 this.i18n.t('controls', { returnObjects: true }),
                 this.save.loadSettings(),
@@ -220,6 +225,12 @@ export class CreditsScene extends Phaser.Scene {
         return;
       case 'controlsClose':
         view.chrome.renderControlsClose(getCreditsControlsCloseView(state));
+        return;
+      case 'controlsHelpCard':
+        view.chrome.renderControlsHelpCard(isControlsHelpShown(state));
+        return;
+      case 'controlsHelpButton':
+        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(state));
         return;
       case 'accountButton':
         view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));

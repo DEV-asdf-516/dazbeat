@@ -93,15 +93,24 @@ export class TextTabs<T extends string> {
   }
 
   getBounds(key: T): Phaser.Geom.Rectangle {
-    return requireDefined(
-      this.tabs.find((tab) => tab.key === key),
-      'Unknown tab',
-      key,
-    ).text.getBounds();
+    return this.getText(key).getBounds();
+  }
+
+  getBaselineYPx(key: T): number {
+    const text = this.getText(key);
+    return text.y + text.getTextMetrics().ascent;
   }
 
   getVisuals(): (Phaser.GameObjects.Text | Phaser.GameObjects.Image)[] {
     return this.tabs.flatMap(({ text, underline }) => [text, underline]);
+  }
+
+  private getText(key: T): Phaser.GameObjects.Text {
+    return requireDefined(
+      this.tabs.find((tab) => tab.key === key),
+      'Unknown tab',
+      key,
+    ).text;
   }
 
   private renderTab(tab: Tab<T>, appearance: TabAppearance, underlineColor: number): void {

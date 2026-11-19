@@ -3,7 +3,13 @@ import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import type { Nickname } from '../../data/nickname.js';
 import type { Profile } from '../../data/profile.js';
 import type { RankedChartPage, RankedChartQuery } from '../../data/ranking.js';
-import { readControlsKey, readControlsWheel, withControlsOpen } from '../app/controlsGuide.js';
+import {
+  clickControlsHelp,
+  isControlsPanelOpen,
+  readControlsKey,
+  readControlsWheel,
+  withControlsOpen,
+} from '../app/controlsGuide.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
 import {
@@ -36,6 +42,7 @@ import {
   readProfileConfirm,
   releaseProfileButton,
   retryRankings,
+  markRankingsSlow,
   saveFeatured,
   saveNickname,
   scrollRankings,
@@ -64,6 +71,7 @@ import type {
   SummaryTab,
 } from './state/profileState.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
+import type { ListDirection } from '../../range.js';
 
 export interface ProfilePorts {
   signOut(): void;
@@ -86,6 +94,8 @@ export interface ProfileScreen {
 
 // 타이핑이 멈춘 뒤에만 물어 글자마다 요청하지 않는다.
 const NICKNAME_CHECK_DELAY_MS = 300;
+// 이보다 빨리 오는 응답은 로딩을 드러내지 않고 목록만 바꿔 깜박임을 없앤다.
+const RANKINGS_SLOW_DELAY_MS = 300;
 
 const GUEST_PAGE: ProfileState = { kind: 'guest' };
 const LOADING_PAGE: ProfileState = { kind: 'loading' };
@@ -173,7 +183,7 @@ export class ProfileController {
     if ('kind' in this.state) {
       return;
     }
-    const read = readControlsWheel(this.state.isControlsOpen, this.wheel, {
+    const read = readControlsWheel(isControlsPanelOpen(this.state), this.wheel, {
       deltaYPx,
       atMs,
       rowPx: this.wheelStepPx,
@@ -182,14 +192,14 @@ export class ProfileController {
     this.moveFocusFromUser((state) => scrollRankings(state, read.rows));
   }
 
-  switchSet(delta: -1 | 1): void {
-    this.changeLoadedFromUser((state) => switchSet(state, delta), 'click');
+  switchSet(direction: ListDirection): void {
+    this.changeLoadedFromUser((state) => switchSet(state, direction), 'click');
   }
 
   /** Q, E 는 컬렉션에서는 세트를, RANKING 탭에서는 난이도를 넘긴다. */
-  switchTab(delta: -1 | 1): void {
-    this.moveFocusFromUser((state) => cycleRankingDifficulty(state, delta));
-    this.switchSet(delta);
+  switchTab(direction: ListDirection): void {
+    this.moveFocusFromUser((state) => cycleRankingDifficulty(state, direction));
+    this.switchSet(direction);
   }
 
   toggleRankingSort(): void {
@@ -261,6 +271,10 @@ export class ProfileController {
       case 'controlsClose':
       case 'controlsBackdrop':
         this.closeControls();
+        return;
+      case 'controlsHelp':
+        this.screen.playSound('click');
+        this.apply(clickControlsHelp);
         return;
       case 'accountSignOut':
         this.screen.playSound('click');
@@ -435,7 +449,7 @@ export class ProfileController {
     if ('kind' in this.state) {
       return false;
     }
-    switch (readControlsKey(this.state.isControlsOpen, event)) {
+    switch (readControlsKey(isControlsPanelOpen(this.state), event)) {
       case 'open':
         this.openControls();
         return true;
@@ -506,6 +520,11 @@ export class ProfileController {
           this.updateLoaded(transition);
         }
       });
+    void this.ports.wait(RANKINGS_SLOW_DELAY_MS).then(() => {
+      if (this.rankingsToken === token) {
+        this.updateLoaded(markRankingsSlow);
+      }
+    });
   }
 
   private async checkNickname(nickname: Nickname, token: object): Promise<void> {

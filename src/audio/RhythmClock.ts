@@ -1,14 +1,14 @@
 import { secToMs } from '../time.js';
 
 export class RhythmClock {
-  private readonly timeSource: { readonly currentTime: number };
+  private readonly timeSource: { getTimeAt(atMs: number): number };
   private readonly userOffsetMs: number;
   private readonly chartOffsetMs: number;
   private readonly audioStartTimeSec: number;
   private readonly songStartMs: number;
 
   constructor(
-    timeSource: { readonly currentTime: number },
+    timeSource: { getTimeAt(atMs: number): number },
     userOffsetMs: number,
     chartOffsetMs: number,
     start: { audioStartTimeSec: number; songStartMs: number },
@@ -20,11 +20,11 @@ export class RhythmClock {
     this.songStartMs = start.songStartMs;
   }
 
-  getTimeMs(): number {
-    return this.getPlaybackMs() + this.userOffsetMs + this.chartOffsetMs;
+  getTimeMs(atMs: number): number {
+    return this.getPlaybackMs(atMs) + this.userOffsetMs + this.chartOffsetMs;
   }
 
-  getPlaybackMs(): number {
-    return secToMs(this.timeSource.currentTime - this.audioStartTimeSec) + this.songStartMs;
+  getPlaybackMs(atMs: number): number {
+    return secToMs(this.timeSource.getTimeAt(atMs) - this.audioStartTimeSec) + this.songStartMs;
   }
 }

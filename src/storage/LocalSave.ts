@@ -15,7 +15,7 @@ export class LocalSave {
 
   loadSettings(): Settings {
     const saved = this.readObject(SETTINGS_KEY, 'settings', 'using defaults');
-    if (saved === null) {
+    if (saved === undefined) {
       return { ...DEFAULT_SETTINGS };
     }
     let recovered = false;
@@ -89,7 +89,7 @@ export class LocalSave {
   private readRecords(): Record<string, ChartRecord> {
     const records: Record<string, ChartRecord> = {};
     const saved = this.readObject(RECORDS_KEY, 'records', 'ignoring them');
-    if (saved === null) {
+    if (saved === undefined) {
       return records;
     }
     for (const [key, value] of Object.entries(saved)) {
@@ -101,19 +101,23 @@ export class LocalSave {
     return records;
   }
 
-  private readObject(key: string, label: string, fallback: string): Record<string, unknown> | null {
+  private readObject(
+    key: string,
+    label: string,
+    fallback: string,
+  ): Record<string, unknown> | undefined {
     const raw = this.storage.getItem(key);
     if (raw === null) {
-      return null;
+      return undefined;
     }
     const parsed = parseJson(raw);
     if (parsed === undefined) {
       console.warn(`Saved ${label} are not valid JSON; ${fallback}`);
-      return null;
+      return undefined;
     }
     if (!isRecord(parsed)) {
       console.warn(`Saved ${label} are not an object; ${fallback}`);
-      return null;
+      return undefined;
     }
     return parsed;
   }

@@ -4,6 +4,7 @@ import type { AuthUser } from '../../../src/data/account.js';
 import { parseNickname } from '../../../src/data/nickname.js';
 import type { Nickname } from '../../../src/data/nickname.js';
 import type { AccountState } from '../../../src/game/app/accountState.js';
+import { isControlsHelpShown } from '../../../src/game/app/controlsGuide.js';
 import { MainController } from '../../../src/game/main/MainController.js';
 import type { MainFocus, MainState } from '../../../src/game/main/state/mainMenu.js';
 import { requireDefined } from '../../../src/invariant.js';
@@ -54,6 +55,7 @@ interface Harness {
   readonly controlsOpen: boolean[];
   readonly activated: (MainFocus | 'account')[];
   readonly hovers: MainState['hover'][];
+  readonly states: MainState[];
   focusSoundCount(): number;
   clickSoundCount(): number;
   cancelSignInCount(): number;
@@ -68,6 +70,7 @@ function createHarness(restore: () => AuthUser | null): Harness {
   const controlsOpen: boolean[] = [];
   const activated: (MainFocus | 'account')[] = [];
   const hovers: MainState['hover'][] = [];
+  const states: MainState[] = [];
   const sounds: SoundEffect[] = [];
   let cancelSignInCount = 0;
   let signOutCount = 0;
@@ -95,8 +98,9 @@ function createHarness(restore: () => AuthUser | null): Harness {
       render: (_previous, next) => {
         shown.push(next.account);
         focuses.push(next.focus);
-        controlsOpen.push(next.isControlsOpen);
+        controlsOpen.push(next.controls !== 'closed');
         hovers.push(next.hover);
+        states.push(next);
       },
       playSound: (sound) => sounds.push(sound),
       activate: (button) => activated.push(button),
@@ -111,6 +115,7 @@ function createHarness(restore: () => AuthUser | null): Harness {
     controlsOpen,
     activated,
     hovers,
+    states,
     focusSoundCount: () => sounds.filter((sound) => sound === 'menuFocus').length,
     clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
     cancelSignInCount: () => cancelSignInCount,
@@ -305,7 +310,7 @@ describe('MainController', () => {
   describe('menu focus', () => {
     function cycle(harness: Harness, count: number): MainFocus[] {
       return Array.from({ length: count }, () => {
-        harness.controller.moveFocus(1);
+        harness.controller.moveFocus('next');
         return requireDefined(harness.focuses.at(-1), 'Missing focus', harness.focuses.length);
       });
     }
@@ -341,7 +346,7 @@ describe('MainController', () => {
 
     it('moves backwards with wrapping', () => {
       const harness = createHarness(() => null);
-      harness.controller.moveFocus(-1);
+      harness.controller.moveFocus('previous');
 
       expect(harness.focuses.at(-1)).toBe('youtube');
     });
@@ -373,7 +378,7 @@ describe('MainController', () => {
 
     it('activates the focused item on confirm', () => {
       const harness = createHarness(() => null);
-      harness.controller.moveFocus(1);
+      harness.controller.moveFocus('next');
 
       harness.controller.confirm();
 
@@ -398,7 +403,7 @@ const DOWN_KEY = {
 describe('MainController confirm', () => {
   it('plays the click sound and activates the focused button with Enter', () => {
     const harness = createHarness(() => null);
-    harness.controller.moveFocus(1);
+    harness.controller.moveFocus('next');
 
     harness.controller.confirm();
 
@@ -427,6 +432,54 @@ describe('MainController controls', () => {
     harness.controller.openControls();
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
     expect(harness.controlsOpen.at(-1)).toBe(false);
+  });
+});
+
+describe('MainController controls help', () => {
+  function clickHelp(harness: Harness): void {
+    harness.controller.pointerDown('controlsHelp');
+    harness.controller.pointerUp('controlsHelp');
+  }
+
+  function isHelpShown(harness: Harness): boolean {
+    return isControlsHelpShown(requireDefined(harness.states.at(-1), 'expected a render'));
+  }
+
+  it('shows the card on (?) hover, pins it on click and hides it on the next click until the pointer comes back', async () => {
+    const harness = createHarness(() => null);
+    await flush();
+    harness.controller.openControls();
+
+    harness.controller.pointerOver('controlsHelp');
+    expect(isHelpShown(harness)).toBe(true);
+    clickHelp(harness);
+    expect(harness.clickSoundCount()).toBe(2);
+    harness.controller.pointerOut('controlsHelp');
+    expect(isHelpShown(harness)).toBe(true);
+
+    harness.controller.pointerOver('controlsHelp');
+    clickHelp(harness);
+    expect(isHelpShown(harness)).toBe(false);
+    harness.controller.pointerOut('controlsHelp');
+    expect(isHelpShown(harness)).toBe(false);
+    harness.controller.pointerOver('controlsHelp');
+    expect(isHelpShown(harness)).toBe(true);
+  });
+
+  it('drops the pin and the card on close and opens unpinned next time', async () => {
+    const harness = createHarness(() => null);
+    await flush();
+    harness.controller.openControls();
+    harness.controller.pointerOver('controlsHelp');
+    clickHelp(harness);
+
+    harness.controller.closeControls();
+
+    expect(harness.states.at(-1)?.controls).toBe('closed');
+    expect(isHelpShown(harness)).toBe(false);
+    harness.controller.openControls();
+    expect(harness.states.at(-1)?.controls).toBe('open');
+    expect(isHelpShown(harness)).toBe(false);
   });
 });
 

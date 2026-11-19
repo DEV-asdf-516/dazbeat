@@ -6,9 +6,9 @@ import { ZODIAC_FIGURES, fitZodiacFigure } from '../state/zodiacFigures.js';
 import type { SpectralClass } from '../state/zodiacFigures.js';
 import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
 import { fillFourPointStar } from '../../ui/view/textures/starShapes.js';
-import { rgba } from '../../ui/view/textures/lightTextures.js';
+import { fillLight, rgba } from '../../ui/view/textures/lightTextures.js';
 import { CELESTIAL_COLORS } from '../../ui/view/theme.js';
-import { strokeGrainedLine } from '../../ui/view/textures/grain.js';
+import { strokeCanvasLine, strokeGrainedCanvasLine } from '../../ui/view/textures/grain.js';
 
 // 알데바란(0.85등급)이 가장 밝고 물고기자리 κ(4.9등급)가 가장 어둡다.
 // 실제 등급만 따르면 어두운 별자리가 배경에 묻혀서 가장 어두운 별도 보이게 크기와 불투명도의 아래를 올려 둔다.
@@ -54,6 +54,8 @@ const LINE = {
   glowWidthPx: 12,
   glowAlpha: 0.07,
 } as const;
+// 선을 텍스처에 구울 때 가장 넓은 번짐이 잘리지 않게 그림 둘레에 둔다.
+export const ZODIAC_LINE_MARGIN_PX = LINE.glowWidthPx;
 
 export interface ZodiacSign {
   textureKey: string;
@@ -72,41 +74,53 @@ export function getZodiacSign(scene: Phaser.Scene, zodiac: Zodiac, spanPx: numbe
   const points = fitZodiacFigure(figure, widthPx / 2, heightPx / 2, spanPx);
   const accentIndex = requireDefined(figure.accentNodeIndices[0], 'Zodiac without accent', zodiac);
   const textureKey = `zodiac-sign:${zodiac}:${spanPx}`;
-  createCanvasTexture(scene, textureKey, widthPx, heightPx, (context) => {
-    points.forEach(([x, y], index) => {
-      const magnitude = requireDefined(
-        figure.magnitudes[index],
-        'Zodiac star without magnitude',
-        index,
-      );
-      const color =
-        SPECTRAL_COLORS[
-          requireDefined(figure.spectralClasses[index], 'Zodiac star without spectral class', index)
-        ];
-      const brightness = getProgress(magnitude, FAINTEST_MAGNITUDE, BRIGHTEST_MAGNITUDE);
-      // 겉보기 밝기 차이가 크기에서 더 벌어져 보이도록 크기는 제곱으로 키운다.
-      const spread = brightness ** 2;
-      if (brightness > GLOW_MIN_BRIGHTNESS) {
-        fillLight(context, x, y, lerp(GLOW_RADIUS_PX.faint, GLOW_RADIUS_PX.bright, spread), [
-          [0, rgba(color, GLOW_MAX_ALPHA * spread)],
-          [0.4, rgba(color, GLOW_MAX_ALPHA * spread * 0.45)],
+  createCanvasTexture(
+    scene,
+    {
+      key: textureKey,
+      widthPx,
+      heightPx,
+    },
+    (context) => {
+      points.forEach(([x, y], index) => {
+        const magnitude = requireDefined(
+          figure.magnitudes[index],
+          'Zodiac star without magnitude',
+          index,
+        );
+        const color =
+          SPECTRAL_COLORS[
+            requireDefined(
+              figure.spectralClasses[index],
+              'Zodiac star without spectral class',
+              index,
+            )
+          ];
+        const brightness = getProgress(magnitude, FAINTEST_MAGNITUDE, BRIGHTEST_MAGNITUDE);
+        // 겉보기 밝기 차이가 크기에서 더 벌어져 보이도록 크기는 제곱으로 키운다.
+        const spread = brightness ** 2;
+        if (brightness > GLOW_MIN_BRIGHTNESS) {
+          fillLight(context, x, y, lerp(GLOW_RADIUS_PX.faint, GLOW_RADIUS_PX.bright, spread), [
+            [0, rgba(color, GLOW_MAX_ALPHA * spread)],
+            [0.4, rgba(color, GLOW_MAX_ALPHA * spread * 0.45)],
+            [1, rgba(color, 0)],
+          ]);
+        }
+        const alpha = lerp(STAR_ALPHA.faint, STAR_ALPHA.bright, brightness);
+        const sizePx = lerp(STAR_SIZE_PX.faint, STAR_SIZE_PX.bright, spread);
+        fillLight(context, x, y, sizePx / 2, [
+          [0, rgba(STAR_CORE_COLOR, alpha)],
+          [0.12, rgba(color, alpha)],
+          [0.3, rgba(color, alpha * 0.35)],
           [1, rgba(color, 0)],
         ]);
-      }
-      const alpha = lerp(STAR_ALPHA.faint, STAR_ALPHA.bright, brightness);
-      const sizePx = lerp(STAR_SIZE_PX.faint, STAR_SIZE_PX.bright, spread);
-      fillLight(context, x, y, sizePx / 2, [
-        [0, rgba(STAR_CORE_COLOR, alpha)],
-        [0.12, rgba(color, alpha)],
-        [0.3, rgba(color, alpha * 0.35)],
-        [1, rgba(color, 0)],
-      ]);
-      if (index === accentIndex) {
-        context.fillStyle = rgba(color, alpha * SPARKLE_ALPHA_SCALE);
-        fillFourPointStar(context, x, y, sizePx * SPARKLE_RADIUS_SCALE, SPARKLE_WAIST);
-      }
-    });
-  });
+        if (index === accentIndex) {
+          context.fillStyle = rgba(color, alpha * SPARKLE_ALPHA_SCALE);
+          fillFourPointStar(context, x, y, sizePx * SPARKLE_RADIUS_SCALE, SPARKLE_WAIST);
+        }
+      });
+    },
+  );
   return {
     textureKey,
     figureWidthPx,
@@ -114,53 +128,40 @@ export function getZodiacSign(scene: Phaser.Scene, zodiac: Zodiac, spanPx: numbe
   };
 }
 
-// 선은 텍스처에 넣으면 줄일 때 번지므로 화면 좌표에 바로 그린다.
+// 선은 텍스처를 줄이면 번지므로 표시 크기 그대로 그린다.
 export function strokeZodiacLine(
-  graphics: Phaser.GameObjects.Graphics,
+  context: CanvasRenderingContext2D,
   fromXPx: number,
   fromYPx: number,
   toXPx: number,
   toYPx: number,
 ): void {
-  graphics
-    .lineStyle(LINE.glowWidthPx, CELESTIAL_COLORS.selected, LINE.glowAlpha)
-    .lineBetween(fromXPx, fromYPx, toXPx, toYPx)
-    .lineStyle(LINE.haloWidthPx, CELESTIAL_COLORS.selected, LINE.haloAlpha)
-    .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
-  strokeGrainedLine(
-    graphics,
-    {
-      fromXPx,
-      fromYPx,
-      toXPx,
-      toYPx,
-    },
-    {
-      widthPx: LINE.coreWidthPx,
-      color: CELESTIAL_COLORS.highlight,
-      alpha: LINE.coreAlpha,
-    },
-  );
-}
-
-function fillLight(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  radius: number,
-  stops: readonly (readonly [offset: number, color: string])[],
-): void {
-  const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
-  stops.forEach(([offset, color]) => gradient.addColorStop(offset, color));
-  context.fillStyle = gradient;
-  context.beginPath();
-  context.arc(x, y, radius, 0, 2 * Math.PI);
-  context.fill();
+  const line = {
+    fromXPx,
+    fromYPx,
+    toXPx,
+    toYPx,
+  };
+  strokeCanvasLine(context, line, {
+    widthPx: LINE.glowWidthPx,
+    color: CELESTIAL_COLORS.selected,
+    alpha: LINE.glowAlpha,
+  });
+  strokeCanvasLine(context, line, {
+    widthPx: LINE.haloWidthPx,
+    color: CELESTIAL_COLORS.selected,
+    alpha: LINE.haloAlpha,
+  });
+  strokeGrainedCanvasLine(context, line, {
+    widthPx: LINE.coreWidthPx,
+    color: CELESTIAL_COLORS.highlight,
+    alpha: LINE.coreAlpha,
+  });
 }
 
 export function renderZodiacFigure(
   stars: Phaser.GameObjects.Image,
-  lines: Phaser.GameObjects.Graphics,
+  lines: Phaser.GameObjects.Image,
   zodiac: Zodiac,
   area: {
     readonly leftXPx: number;
@@ -184,11 +185,33 @@ export function renderZodiacFigure(
     .setPosition(centerXPx, centerYPx)
     .setVisible(true);
   const figure = ZODIAC_FIGURES[zodiac];
-  const points = fitZodiacFigure(figure, centerXPx, centerYPx, maxSpanPx * scale);
-  lines.clear().setVisible(true);
-  for (const [from, to] of figure.edges) {
-    const [fromXPx, fromYPx] = requireDefined(points[from], 'Zodiac edge outside the figure', from);
-    const [toXPx, toYPx] = requireDefined(points[to], 'Zodiac edge outside the figure', to);
-    strokeZodiacLine(lines, fromXPx, fromYPx, toXPx, toYPx);
-  }
+  const spanPx = maxSpanPx * scale;
+  const points = fitZodiacFigure(figure, 0, 0, spanPx);
+  // 그림 중심에 origin 0.5 로 두므로 중심이 픽셀 경계에 오도록 짝수 크기로 굽는다.
+  const widthPx =
+    Math.ceil(Math.max(...points.map(([x]) => Math.abs(x))) + ZODIAC_LINE_MARGIN_PX) * 2;
+  const heightPx =
+    Math.ceil(Math.max(...points.map(([, y]) => Math.abs(y))) + ZODIAC_LINE_MARGIN_PX) * 2;
+  const linesTextureKey = `zodiacLines:${zodiac}:${spanPx}`;
+  createCanvasTexture(
+    lines.scene,
+    {
+      key: linesTextureKey,
+      widthPx,
+      heightPx,
+    },
+    (context) => {
+      context.translate(widthPx / 2, heightPx / 2);
+      for (const [from, to] of figure.edges) {
+        const [fromXPx, fromYPx] = requireDefined(
+          points[from],
+          'Zodiac edge outside the figure',
+          from,
+        );
+        const [toXPx, toYPx] = requireDefined(points[to], 'Zodiac edge outside the figure', to);
+        strokeZodiacLine(context, fromXPx, fromYPx, toXPx, toYPx);
+      }
+    },
+  );
+  lines.setTexture(linesTextureKey).setPosition(centerXPx, centerYPx).setVisible(true);
 }

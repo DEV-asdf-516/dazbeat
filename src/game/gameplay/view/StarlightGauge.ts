@@ -1,4 +1,4 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
 import { MAX_HP } from '../../../rhythm/starlight.js';
 import { getStarlightBand } from '../state/starlightBand.js';
 import type { StarlightBand } from '../state/starlightBand.js';
@@ -9,6 +9,7 @@ import { COLORS, GAMEPLAY_DEPTH, STATUS_COLORS, typeStyle } from '../../ui/view/
 import { MOTION } from '../../ui/state/motion.js';
 import { addBrushRect } from '../../ui/view/textures/brushRect.js';
 import { strokeGrainedLine } from '../../ui/view/textures/grain.js';
+import { bakeTexture } from '../../ui/view/textures/bakedTexture.js';
 
 const WIDTH_PX = 256;
 const FILL_HEIGHT_PX = 6;
@@ -26,6 +27,8 @@ const TICK_LENGTH_PX = 4;
 const TICK_ALPHA = 0.5;
 const GLINT_OUTER_RADIUS_PX = 5;
 const GLINT_INNER_RADIUS_PX = 1.3;
+const GLINT_POINTS = 4;
+const GLINT_TEXTURE_KEY = `gameplay:starlightGlint:${GLINT_OUTER_RADIUS_PX}:${GLINT_INNER_RADIUS_PX}`;
 const GLINT_GLOW_SIZE_PX = 18;
 const GLINT_GLOW_ALPHA = 0.8;
 // 단계가 나빠질 때 끝 별빛이 한 번 부풀어 주변시에 걸리게 한다.
@@ -46,7 +49,7 @@ const RAIL_SHADOW_ALPHA = 0.4;
 export class StarlightGauge {
   private readonly parts: readonly Phaser.GameObjects.Components.AlphaSingle[];
   private readonly fill: Phaser.GameObjects.Image;
-  private readonly glint: Phaser.GameObjects.Star;
+  private readonly glint: Phaser.GameObjects.Image;
   private readonly glintGlow: Phaser.GameObjects.Image;
   private readonly leftXPx: number;
   private resize: Phaser.Tweens.Tween | null = null;
@@ -73,16 +76,59 @@ export class StarlightGauge {
     ).setOrigin(1, 0.5);
     addEmblem(scene, label.x - label.width - EMBLEM_GAP_PX, yPx);
     const depth = GAMEPLAY_DEPTH.text;
-    const rail = scene.add.graphics().setDepth(depth);
-    rail
-      .fillStyle(HUD_SHADOW_COLOR, RAIL_SHADOW_ALPHA)
-      .fillRoundedRect(
-        leftXPx - inset,
-        yPx - RAIL_HEIGHT_PX / 2 + RAIL_SHADOW_OFFSET_Y_PX,
-        widthPx + inset * 2,
-        RAIL_HEIGHT_PX,
-        RAIL_HEIGHT_PX / 2,
-      );
+    const railLeftPx = leftXPx - inset;
+    const railRightPx = leftXPx + widthPx + inset;
+    const shadowTopYPx = yPx - RAIL_HEIGHT_PX / 2 + RAIL_SHADOW_OFFSET_Y_PX;
+    const tickTopYPx = yPx + RAIL_HEIGHT_PX / 2 + TICK_GAP_PX;
+    // 눈금의 질감 결은 화면 좌표로 정해지므로 화면 좌표로 그린 붓을 정수 px 만큼 옮겨 굽는다.
+    const railTextureLeftPx = Math.floor(railLeftPx);
+    const railTextureTopPx = Math.floor(shadowTopYPx);
+    const railTextureKey = `gameplay:starlightRail:${rightXPx}:${yPx}`;
+    bakeTexture(
+      scene,
+      {
+        key: railTextureKey,
+        widthPx: Math.ceil(railRightPx) - railTextureLeftPx,
+        heightPx:
+          Math.ceil(Math.max(shadowTopYPx + RAIL_HEIGHT_PX, tickTopYPx + TICK_LENGTH_PX)) -
+          railTextureTopPx,
+      },
+      (texture) => {
+        const brush = scene.make
+          .graphics(undefined, false)
+          .fillStyle(HUD_SHADOW_COLOR, RAIL_SHADOW_ALPHA)
+          .fillRoundedRect(
+            railLeftPx,
+            shadowTopYPx,
+            railRightPx - railLeftPx,
+            RAIL_HEIGHT_PX,
+            RAIL_HEIGHT_PX / 2,
+          );
+        for (const ratio of TICK_RATIOS) {
+          const xPx = Math.round(leftXPx + widthPx * ratio) + RAIL_STROKE_PX / 2;
+          strokeGrainedLine(
+            brush,
+            {
+              fromXPx: xPx,
+              fromYPx: tickTopYPx,
+              toXPx: xPx,
+              toYPx: tickTopYPx + TICK_LENGTH_PX,
+            },
+            {
+              widthPx: RAIL_STROKE_PX,
+              color: COLORS.noteShade,
+              alpha: TICK_ALPHA,
+            },
+          );
+        }
+        texture.draw(brush, -railTextureLeftPx, -railTextureTopPx);
+        return [brush];
+      },
+    );
+    const rail = scene.add
+      .image(railTextureLeftPx, railTextureTopPx, railTextureKey)
+      .setOrigin(0, 0)
+      .setDepth(depth);
     addBrushRect(scene, {
       widthPx: widthPx + inset * 2,
       heightPx: RAIL_HEIGHT_PX,
@@ -98,24 +144,6 @@ export class StarlightGauge {
       .setOrigin(0, 0)
       .setPosition(leftXPx - inset, yPx - RAIL_HEIGHT_PX / 2)
       .setDepth(depth);
-    const tickTopYPx = yPx + RAIL_HEIGHT_PX / 2 + TICK_GAP_PX;
-    for (const ratio of TICK_RATIOS) {
-      const xPx = Math.round(leftXPx + widthPx * ratio) + RAIL_STROKE_PX / 2;
-      strokeGrainedLine(
-        rail,
-        {
-          fromXPx: xPx,
-          fromYPx: tickTopYPx,
-          toXPx: xPx,
-          toYPx: tickTopYPx + TICK_LENGTH_PX,
-        },
-        {
-          widthPx: RAIL_STROKE_PX,
-          color: COLORS.noteShade,
-          alpha: TICK_ALPHA,
-        },
-      );
-    }
     this.fill = scene.add
       .image(leftXPx, yPx, ensureStarlightFillTexture(scene, widthPx, FILL_HEIGHT_PX))
       .setOrigin(0, 0.5)
@@ -127,9 +155,29 @@ export class StarlightGauge {
       .setTint(STATUS_COLORS[getStarlightBand(MAX_HP)])
       .setAlpha(GLINT_GLOW_ALPHA)
       .setDepth(depth);
-    this.glint = scene.add
-      .star(tipXPx, yPx, 4, GLINT_INNER_RADIUS_PX, GLINT_OUTER_RADIUS_PX, COLORS.note)
-      .setDepth(depth);
+    const glintSizePx = GLINT_OUTER_RADIUS_PX * 2;
+    bakeTexture(
+      scene,
+      {
+        key: GLINT_TEXTURE_KEY,
+        widthPx: glintSizePx,
+        heightPx: glintSizePx,
+      },
+      (texture) => {
+        const star = new Phaser.GameObjects.Star(
+          scene,
+          GLINT_OUTER_RADIUS_PX,
+          GLINT_OUTER_RADIUS_PX,
+          GLINT_POINTS,
+          GLINT_INNER_RADIUS_PX,
+          GLINT_OUTER_RADIUS_PX,
+          COLORS.note,
+        );
+        texture.draw(star);
+        return [star];
+      },
+    );
+    this.glint = scene.add.image(tipXPx, yPx, GLINT_TEXTURE_KEY).setDepth(depth);
     this.parts = [rail, this.fill, this.glintGlow, this.glint];
   }
 

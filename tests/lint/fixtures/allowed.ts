@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { isShallowEqual } from '../../../src/shallowEqual.js';
 import type { ScreenState } from './state/screenState.js';
 
 interface Look {
@@ -146,4 +147,13 @@ export function writeStripPoints(strip: Strip): void {
   strip.points[0] = 0;
   const { points } = strip;
   points[1] = 0;
+}
+
+interface Point {
+  readonly xPx: number;
+  readonly yPx: number;
+}
+
+export function isSamePoint(a: Point, b: Point): boolean {
+  return isShallowEqual(a, b);
 }

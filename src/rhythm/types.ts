@@ -54,12 +54,10 @@ interface GameplayResultBase {
 
 export interface FinishedGameplayResult extends GameplayResultBase {
   outcome: 'finished';
-  cleared: boolean;
 }
 
 export interface FailedGameplayResult extends GameplayResultBase {
   outcome: 'failed';
-  cleared: false;
 }
 
 export type GameplayResult = FinishedGameplayResult | FailedGameplayResult;

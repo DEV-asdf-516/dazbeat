@@ -10,6 +10,7 @@ import {
   TYPE_SCALE,
   cssColor,
   isReducedMotionPreferred,
+  GRADE_FONT_FAMILY,
   textStyle,
 } from '../theme.js';
 import type { TypeRole } from '../theme.js';
@@ -22,6 +23,7 @@ const GLOW_ALPHA = 0.7;
 const GLOW_BLUR_RATIO = 0.3;
 // 빛이 글자 캔버스 끝에서 잘리면 네모 상자가 드러나므로 번지는 거리보다 넉넉히 비운다.
 const GLOW_PADDING_RATIO = GLOW_BLUR_RATIO * 2;
+const GRADE_WEIGHT = 900;
 const SWEEP_MS = 1400;
 const REST_MS = 700;
 const BAND_HALF_WIDTH_RATIO = 1 / 3;
@@ -87,6 +89,9 @@ export class GradeLetter {
   readonly revealTargets: readonly Phaser.GameObjects.Text[];
   private readonly letter: Phaser.GameObjects.Text;
   private readonly sheen: Phaser.GameObjects.Text;
+  // 매 프레임 sheen 을 다시 굽지 않고 띠만 합성하도록 sheen 을 구웠을 때의 불투명 글자 모양을 담아 둔다.
+  private readonly sheenShape: HTMLCanvasElement;
+  private readonly sheenShapeContext: CanvasRenderingContext2D;
   private readonly paddingPx: number;
   private readonly glowBlurPx: number;
   private readonly bandHalfWidthPx: number;
@@ -104,7 +109,12 @@ export class GradeLetter {
   ) {
     const { role, glyphHeightPx } = options;
     const addText = (): Phaser.GameObjects.Text =>
-      scene.add.text(0, 0, GLINT_RANK, textStyle(role, COLORS.textPrimary)).setOrigin(0.5);
+      scene.add
+        .text(0, 0, GLINT_RANK, {
+          ...textStyle(role, COLORS.textPrimary, GRADE_WEIGHT),
+          fontFamily: GRADE_FONT_FAMILY,
+        })
+        .setOrigin(0.5);
     this.letter = addText();
     this.sheen = addText();
     this.revealTargets = [this.letter, this.sheen];
@@ -116,6 +126,13 @@ export class GradeLetter {
     this.bandHalfWidthPx = heightPx * BAND_HALF_WIDTH_RATIO;
     this.revealTargets.forEach((text) => text.setFontSize(sizePx).setPadding(this.paddingPx));
     this.sheen.setBlendMode(Phaser.BlendModes.ADD);
+    this.sheenShape = document.createElement('canvas');
+    const sheenShapeContext = this.sheenShape.getContext('2d');
+    if (sheenShapeContext === null) {
+      throw new Error('Failed to create grade sheen shape context');
+    }
+    this.sheenShapeContext = sheenShapeContext;
+    this.copySheenShape();
     this.glints = GLINTS.map(({ offsetX, offsetY, sizeRatio, delayMs }) => ({
       sprite: addCelestialSprite(scene, celestial.atlasPresentations[TOP_RANK_GLINT_ID], 0, 0)
         .setDisplaySize(heightPx * sizeRatio, heightPx * sizeRatio)
@@ -178,7 +195,11 @@ export class GradeLetter {
     }
     // 그라데이션은 글자 캔버스 크기로 만들므로 글자를 먼저 바꾼다.
     this.letter.setText(grade);
-    this.sheen.setText(grade);
+    // 같은 등급이면 sheen 캔버스에 직전 띠 합성 결과가 남아 있으므로 모양을 다시 복사하지 않는다.
+    if (this.sheen.text !== grade) {
+      this.sheen.setText(grade);
+      this.copySheenShape();
+    }
     this.fillBand(0);
     const { stops, angleDeg, glow } = GRADE_FILLS[grade];
     const { centerXPx, centerYPx, directionX, directionY, halfLengthPx } = getGlyphAxis(
@@ -255,6 +276,36 @@ export class GradeLetter {
     gradient.addColorStop(0, rgba(BAND_COLOR, 0));
     gradient.addColorStop(0.5, rgba(BAND_COLOR, BAND_ALPHA));
     gradient.addColorStop(1, rgba(BAND_COLOR, 0));
-    this.sheen.setFill(gradient);
+    // 글자 모양 안쪽만 띠 색이 되게 합성한다. 띠 좌표는 Text 가 글자를 그릴 때처럼 해상도와 여백 안쪽 기준이다.
+    const { canvas, context } = this.sheen;
+    const { resolution } = this.sheen.style;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(this.sheenShape, 0, 0);
+    context.globalCompositeOperation = 'source-in';
+    context.setTransform(
+      resolution,
+      0,
+      0,
+      resolution,
+      resolution * this.paddingPx,
+      resolution * this.paddingPx,
+    );
+    context.fillStyle = gradient;
+    context.fillRect(
+      -this.paddingPx,
+      -this.paddingPx,
+      canvas.width / resolution,
+      canvas.height / resolution,
+    );
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.globalCompositeOperation = 'source-over';
+    this.sheen.frame.source.update();
+  }
+
+  private copySheenShape(): void {
+    const { canvas } = this.sheen;
+    this.sheenShape.width = canvas.width;
+    this.sheenShape.height = canvas.height;
+    this.sheenShapeContext.drawImage(canvas, 0, 0);
   }
 }

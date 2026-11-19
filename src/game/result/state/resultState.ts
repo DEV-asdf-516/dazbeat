@@ -7,6 +7,7 @@ import type { Difficulty } from '../../../rhythm/types.js';
 import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import { cycleItem } from '../../../range.js';
+import type { ListDirection } from '../../../range.js';
 import {
   getButtonView,
   hoverButton,
@@ -19,13 +20,17 @@ import {
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
   getControlsCloseView,
+  getControlsHelpButtonView,
   isControlsEntryHovered,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+  leaveControlsButton,
   readControlsKey,
   withControlsOpen,
 } from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
 import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
-import type { ControlsButton, ControlsKeyAction } from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsKeyAction, ControlsPanel } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
 import { getTopRankTier } from '../../ui/state/topRank.js';
 import { getPlayOriginRequest } from '../../app/sceneRoutes.js';
@@ -71,7 +76,7 @@ export interface ResultState {
   readonly hover: ResultHover | null;
   readonly focus: ResultMenuItem;
   readonly toasts: ToastQueue;
-  readonly isControlsOpen: boolean;
+  readonly controls: ControlsPanel;
   readonly rankingNotice: RankingNotice | null;
   readonly isRetryChartFixed: boolean;
 }
@@ -88,7 +93,7 @@ export function createResultState(
     retryChart,
     hover: null,
     focus: 'retry',
-    isControlsOpen: false,
+    controls: 'closed',
     rankingNotice: ranking.kind === 'issueFailed' ? 'issueFailed' : null,
     isRetryChartFixed: report.kind === 'section',
     toasts: {
@@ -114,11 +119,11 @@ export function selectRetryDifficulty(state: ResultState, difficulty: Difficulty
       };
 }
 
-export function stepRetryChart(state: ResultState, delta: 1 | -1): ResultState {
+export function stepRetryChart(state: ResultState, direction: ListDirection): ResultState {
   if (state.isRetryChartFixed) {
     return state;
   }
-  const retryChart = stepChart(state.retryChart, delta);
+  const retryChart = stepChart(state.retryChart, direction);
   return retryChart === state.retryChart
     ? state
     : {
@@ -182,10 +187,10 @@ export function getRetryTabAppearance(state: ResultState, difficulty: Difficulty
   });
 }
 
-export function moveResultFocus(state: ResultState, delta: 1 | -1): ResultState {
+export function moveResultFocus(state: ResultState, direction: ListDirection): ResultState {
   return {
     ...state,
-    focus: cycleItem(MENU_ITEMS, state.focus, delta),
+    focus: cycleItem(MENU_ITEMS, state.focus, direction),
   };
 }
 
@@ -206,7 +211,7 @@ export function readResultControlsKey(
   state: ResultState,
   event: Pick<KeyboardEvent, 'code' | 'repeat'>,
 ): ControlsKeyAction {
-  return state.rankingNotice === null ? readControlsKey(state.isControlsOpen, event) : 'pass';
+  return state.rankingNotice === null ? readControlsKey(isControlsPanelOpen(state), event) : 'pass';
 }
 
 export type ResultMenuOutcome =
@@ -240,7 +245,7 @@ export function hoverResultButton(state: ResultState, button: ResultButton): Res
 }
 
 export function unhoverResultButton(state: ResultState, button: ResultButton): ResultState {
-  return withHover(state, unhoverButton(state.hover, button));
+  return leaveControlsButton(withHover(state, unhoverButton(state.hover, button)), button);
 }
 
 export function pressResultButton(state: ResultState, button: ResultButton): ResultState {
@@ -447,6 +452,8 @@ export type ResultRegion =
   | 'controlsEntry'
   | 'accountButton'
   | 'controlsClose'
+  | 'controlsHelpCard'
+  | 'controlsHelpButton'
   | 'rankingNotice'
   | 'rankingNoticeButtons'
   | 'menuFocusMotion';
@@ -458,7 +465,7 @@ const readHoveredDifficulty: ResultReader = (state) => getHoveredDifficulty(stat
 const readHoveredToastId: ResultReader = (state) => getHoveredToastId(state);
 const readFocus: ResultReader = (state) => state.focus;
 const readShownToasts: ResultReader = (state) => state.toasts.shown;
-const readControlsOpen: ResultReader = (state) => state.isControlsOpen;
+const readControlsOpen: ResultReader = (state) => isControlsPanelOpen(state);
 const readRetryHovered: ResultReader = (state) => isButtonHovered(state.hover, 'retry');
 const readRetryPressed: ResultReader = (state) => isButtonPressed(state.hover, 'retry');
 const readSongSelectHovered: ResultReader = (state) => isButtonHovered(state.hover, 'songSelect');
@@ -482,6 +489,8 @@ const REGION_SOURCES: Readonly<
   controlsEntry: [readEntryHovered],
   accountButton: [(state) => getAccountPanelPointerKey(state.hover)],
   controlsClose: [readCloseHovered, readClosePressed],
+  controlsHelpCard: [isControlsHelpShown],
+  controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
   // 열림이 바뀔 때만 골라져야 알림 창 페이드가 열고 닫을 때만 돈다.
   rankingNotice: [readRankingNotice],
   rankingNoticeButtons: [readNoticeCloseHovered, readNoticeClosePressed],

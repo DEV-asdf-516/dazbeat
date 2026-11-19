@@ -6,9 +6,11 @@ import { parseChart } from '../../src/data/chartSchema.js';
 import { parseJson } from '../../src/json.js';
 import { formatPath } from '../../src/data/parseIssue.js';
 import {
+  CHART_LEVELS,
   DIFFICULTIES,
   SONG_CATEGORIES,
   ZODIACS,
+  type ChartLevel,
   type SongCategory,
   type Zodiac,
 } from '../../src/data/songs.js';
@@ -49,7 +51,12 @@ export interface SeedSong {
   previewStartMs?: number;
   credit?: readonly string[];
   jacket: { fileName: string; type: string; bytes: Uint8Array<ArrayBuffer> };
-  charts: readonly { laneCount: LaneCount; difficulty: Difficulty; data: Chart }[];
+  charts: readonly {
+    laneCount: LaneCount;
+    difficulty: Difficulty;
+    level: ChartLevel;
+    data: Chart;
+  }[];
 }
 
 export interface SeedManifest {
@@ -108,6 +115,11 @@ const manifestSchema = z
           charts: z.partialRecord(
             z.templateLiteral([z.literal(LANE_COUNTS)]),
             z.partialRecord(z.enum(DIFFICULTIES), z.string()),
+          ),
+          // 채보 생성 스크립트들이 charts 의 경로를 읽으므로 레벨은 같은 모양의 표로 따로 둔다.
+          levels: z.partialRecord(
+            z.templateLiteral([z.literal(LANE_COUNTS)]),
+            z.partialRecord(z.enum(DIFFICULTIES), z.literal(CHART_LEVELS)),
           ),
         }),
       )
@@ -221,7 +233,8 @@ async function loadJacket(dataDir: URL, song: ManifestSong): Promise<SeedSong['j
 }
 
 async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['charts']> {
-  const charts: { laneCount: LaneCount; difficulty: Difficulty; data: Chart }[] = [];
+  const charts: { laneCount: LaneCount; difficulty: Difficulty; level: ChartLevel; data: Chart }[] =
+    [];
   for (const laneCount of LANE_COUNTS) {
     const paths = song.charts[`${laneCount}`] ?? {};
     for (const difficulty of DIFFICULTIES) {
@@ -231,6 +244,13 @@ async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['c
       }
       const location = `song "${song.key}" charts.${laneCount}.${difficulty}`;
       const url = resolveDataPath(dataDir, relativePath, location);
+      const level = song.levels[`${laneCount}`]?.[difficulty];
+      if (level === undefined) {
+        throw new InvalidSeedDataError(
+          fileURLToPath(new URL(MANIFEST_FILE_NAME, dataDir)),
+          `song "${song.key}" levels.${laneCount}.${difficulty} is required for the chart`,
+        );
+      }
       const json = readJson((await readDataFile(url, location)).toString('utf8'), url, location);
       try {
         const data = parseChart(
@@ -246,6 +266,7 @@ async function loadCharts(dataDir: URL, song: ManifestSong): Promise<SeedSong['c
         charts.push({
           laneCount,
           difficulty,
+          level,
           data,
         });
       } catch (error) {

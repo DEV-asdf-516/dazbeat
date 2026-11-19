@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { HOVER_CURSOR } from '../../ui/view/input/cursor.js';
 import { CELESTIAL_COLORS, RADIUS, setTextColor, typeStyle } from '../../ui/view/theme.js';
 import { MOTION } from '../../ui/state/motion.js';
+import { addBakedRoundedRect, bakeTexture } from '../../ui/view/textures/bakedTexture.js';
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 import { requireDefined } from '../../../invariant.js';
 import type { SegmentAppearance } from '../state/segmentAppearance.js';
@@ -21,7 +22,7 @@ export interface SegmentOption<T> {
 interface Segment<T> {
   option: SegmentOption<T>;
   label: Phaser.GameObjects.Text;
-  glyph: { graphics: Phaser.GameObjects.Graphics; spec: SegmentGlyph } | null;
+  glyph: Phaser.GameObjects.Image | null;
   centerXPx: number;
 }
 
@@ -32,6 +33,8 @@ const LABEL_TYPE = {
   weight: 600,
 } as const;
 const GLYPH_LABEL_GAP_PX = 8;
+// 상태 색은 틴트로 입히도록 글리프를 흰색으로 한 번 굽는다.
+const GLYPH_BAKE_COLOR = 0xffffff;
 const SEGMENT_COLORS: Readonly<Record<SegmentAppearance, number>> = {
   selected: CELESTIAL_COLORS.textPrimary,
   hovered: CELESTIAL_COLORS.textPrimary,
@@ -41,7 +44,7 @@ const SEGMENT_COLORS: Readonly<Record<SegmentAppearance, number>> = {
 export class SegmentedControl<T extends string | number> {
   readonly heightPx = SEGMENTED_CONTROL_HEIGHT_PX;
   private readonly scene: Phaser.Scene;
-  private readonly indicator: Phaser.GameObjects.Rectangle;
+  private readonly indicator: Phaser.GameObjects.NineSlice;
   private readonly segments: Segment<T>[];
 
   constructor(
@@ -58,19 +61,22 @@ export class SegmentedControl<T extends string | number> {
     const { leftPx, topYPx, widthPx } = frame;
     const centerYPx = topYPx + SEGMENTED_CONTROL_HEIGHT_PX / 2;
     const segmentWidthPx = (widthPx - TRACK_INSET_PX * 2) / options.length;
-    scene.add
-      .rectangle(leftPx, topYPx, widthPx, SEGMENTED_CONTROL_HEIGHT_PX, CELESTIAL_COLORS.background)
-      .setOrigin(0, 0)
-      .setRounded(RADIUS.mediumPx);
-    this.indicator = scene.add
-      .rectangle(
-        0,
-        centerYPx,
-        segmentWidthPx,
-        SEGMENTED_CONTROL_HEIGHT_PX - TRACK_INSET_PX * 2,
-        CELESTIAL_COLORS.surfaceHover,
-      )
-      .setRounded(RADIUS.smallPx);
+    addBakedRoundedRect(scene, leftPx, topYPx, {
+      widthPx,
+      heightPx: SEGMENTED_CONTROL_HEIGHT_PX,
+      radiusPx: RADIUS.mediumPx,
+      fillColor: CELESTIAL_COLORS.background,
+      fillAlpha: 1,
+      border: null,
+    }).setOrigin(0, 0);
+    this.indicator = addBakedRoundedRect(scene, 0, centerYPx, {
+      widthPx: segmentWidthPx,
+      heightPx: SEGMENTED_CONTROL_HEIGHT_PX - TRACK_INSET_PX * 2,
+      radiusPx: RADIUS.smallPx,
+      fillColor: CELESTIAL_COLORS.surfaceHover,
+      fillAlpha: 1,
+      border: null,
+    });
     this.segments = options.map((option, index) => {
       const segmentLeftPx = leftPx + TRACK_INSET_PX + segmentWidthPx * index;
       const centerXPx = segmentLeftPx + segmentWidthPx / 2;
@@ -84,13 +90,10 @@ export class SegmentedControl<T extends string | number> {
       const glyph =
         option.glyph === undefined
           ? null
-          : {
-              graphics: scene.add.graphics({
-                x: groupLeftPx,
-                y: centerYPx,
-              }),
-              spec: option.glyph,
-            };
+          : addGlyph(scene, `segmentGlyph:${option.value}`, option.glyph).setPosition(
+              groupLeftPx,
+              centerYPx,
+            );
       scene.add
         .zone(segmentLeftPx, topYPx, segmentWidthPx, SEGMENTED_CONTROL_HEIGHT_PX)
         .setOrigin(0, 0)
@@ -129,9 +132,7 @@ export class SegmentedControl<T extends string | number> {
     this.segments.forEach(({ option, label, glyph }) => {
       const color = SEGMENT_COLORS[appearanceOf(option.value)];
       setTextColor(label, color);
-      if (glyph !== null) {
-        glyph.spec.draw(glyph.graphics.clear(), color);
-      }
+      glyph?.setTint(color);
     });
   }
 
@@ -142,4 +143,23 @@ export class SegmentedControl<T extends string | number> {
       value,
     );
   }
+}
+
+// 글리프 높이는 정해져 있지 않지만 컨트롤 높이를 넘지 않으므로 그 높이로 굽고 세로 가운데에 원점을 둔다.
+function addGlyph(scene: Phaser.Scene, key: string, spec: SegmentGlyph): Phaser.GameObjects.Image {
+  bakeTexture(
+    scene,
+    {
+      key,
+      widthPx: spec.widthPx,
+      heightPx: SEGMENTED_CONTROL_HEIGHT_PX,
+    },
+    (texture) => {
+      const brush = scene.make.graphics(undefined, false);
+      spec.draw(brush, GLYPH_BAKE_COLOR);
+      texture.draw(brush, 0, SEGMENTED_CONTROL_HEIGHT_PX / 2);
+      return [brush];
+    },
+  );
+  return scene.add.image(0, 0, key).setOrigin(0, 0.5);
 }

@@ -227,32 +227,17 @@ const paintOnly = {
         message: 'Widgets must not keep screen state values; draw from the values passed in.',
       });
     };
-    const reportComparison = (node, name) => {
-      if (COMPARISON_NAMES.has(name)) {
-        context.report({
-          node,
-          message: `Compare state in the screen state module instead of importing ${name}.`,
-        });
-      }
-    };
     return {
-      ImportSpecifier: (node) =>
-        reportComparison(
-          node,
-          node.imported.type === 'Identifier' ? node.imported.name : node.imported.value,
-        ),
-      ImportNamespaceSpecifier: (node) => {
-        for (const variable of sourceCode.getDeclaredVariables(node)) {
-          for (const { identifier } of variable.references) {
-            const { parent } = identifier;
-            if (
-              parent.type === 'MemberExpression' &&
-              parent.object === identifier &&
-              parent.property.type === 'Identifier'
-            ) {
-              reportComparison(parent, parent.property.name);
-            }
-          }
+      CallExpression: (node) => {
+        const name = getType(node.callee).getSymbol()?.getName();
+        if (
+          COMPARISON_NAMES.has(name) &&
+          node.arguments.some((argument) => isStateType(getType(argument)))
+        ) {
+          context.report({
+            node,
+            message: `Compare state in the screen state module instead of calling ${name}.`,
+          });
         }
       },
       PropertyDefinition: (node) => checkField(node, node.readonly === true, node.key),
@@ -317,6 +302,12 @@ const SYNTAX_RULES = [
     selector:
       "NewExpression[callee.name=/Error$/] > Literal[value=/[가-힣]/], NewExpression[callee.name=/Error$/] > TemplateLiteral > TemplateElement[value.raw=/[가-힣]/], CallExpression[callee.object.name='console'] > Literal[value=/[가-힣]/]",
     message: 'Write throw and log messages in English.',
+  },
+  {
+    selector:
+      "CallExpression[callee.object.property.name='add'][callee.property.name=/^(graphics|circle|arc|ellipse|star|polygon|triangle|line|curve|isobox|isotriangle|grid)$/], CallExpression[callee.property.name=/^(setRounded|setStrokeStyle)$/] CallExpression[callee.object.property.name='add'][callee.property.name='rectangle']",
+    message:
+      'Bake Graphics and path Shapes into a texture instead of adding them to the display list.',
   },
 ];
 

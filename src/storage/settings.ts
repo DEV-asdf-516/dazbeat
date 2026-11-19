@@ -4,6 +4,7 @@ import { LANE_COUNTS } from '../rhythm/lanes.js';
 import { INPUT_OFFSET_RANGE_MS } from '../rhythm/playTiming.js';
 import type { LaneCount } from '../rhythm/types.js';
 import { isFiniteNumber, isOneOf, isRecord, isString } from '../typeGuards.js';
+import { isInRange } from '../range.js';
 
 export type MvMode = 'normal' | 'dim' | 'blur';
 
@@ -76,7 +77,7 @@ interface Range {
 }
 
 function parseInRange(value: unknown, { min, max }: Range): number | undefined {
-  return isFiniteNumber(value) && value >= min && value <= max ? value : undefined;
+  return isFiniteNumber(value) && isInRange(value, min, max) ? value : undefined;
 }
 
 const isLaneCount = isOneOf(LANE_COUNTS);

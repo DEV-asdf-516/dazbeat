@@ -9,6 +9,8 @@ import {
   ensureLightTextures,
 } from '../../ui/view/textures/lightTextures.js';
 import { CELESTIAL_COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
+import { addBakedRoundedRect } from '../../ui/view/textures/bakedTexture.js';
+import { isInRange } from '../../../range.js';
 
 const NOTE_WIDTH_PX = 108;
 const NOTE_HEIGHT_PX = 24;
@@ -39,7 +41,7 @@ export interface EditorNotesView {
 /** 편집·되감기가 자유로우므로 판정 상태를 모른다. */
 export class EditorNoteLayer {
   private readonly views = new Map<Note, NoteView>();
-  private readonly selectionOutline: Phaser.GameObjects.Rectangle;
+  private readonly selectionOutline: Phaser.GameObjects.NineSlice;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -51,10 +53,18 @@ export class EditorNoteLayer {
     },
   ) {
     ensureLightTextures(scene);
-    this.selectionOutline = scene.add
-      .rectangle(0, 0, 0, 0, CELESTIAL_COLORS.selected, SELECTION_FILL_ALPHA)
+    this.selectionOutline = addBakedRoundedRect(scene, 0, 0, {
+      widthPx: 0,
+      heightPx: 0,
+      radiusPx: 0,
+      fillColor: CELESTIAL_COLORS.selected,
+      fillAlpha: SELECTION_FILL_ALPHA,
+      border: {
+        color: CELESTIAL_COLORS.selected,
+        widthPx: SELECTION_STROKE_PX,
+      },
+    })
       .setOrigin(0.5, 1)
-      .setStrokeStyle(SELECTION_STROKE_PX, CELESTIAL_COLORS.selected)
       .setDepth(GAMEPLAY_DEPTH.hitFx)
       .setVisible(false);
   }
@@ -86,7 +96,7 @@ export class EditorNoteLayer {
   }
 
   private isInArea(yPx: number): boolean {
-    return yPx >= this.options.topYPx && yPx <= this.options.bottomYPx;
+    return isInRange(yPx, this.options.topYPx, this.options.bottomYPx);
   }
 
   private createView(note: Note, { laneCenterXPx, accentColor }: EditorNotesView): NoteView {

@@ -1,5 +1,12 @@
 import { requireDefined } from './invariant.js';
 
+export type ListDirection = 'previous' | 'next';
+
+export const DIRECTION_STEPS: Readonly<Record<ListDirection, 1 | -1>> = {
+  previous: -1,
+  next: 1,
+};
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -16,21 +23,29 @@ export function getDistance(a: number, b: number): number {
   return Math.abs(a - b);
 }
 
+export function isInRange(value: number, min: number, max: number): boolean {
+  return value >= min && value <= max;
+}
+
 export function lerp(from: number, to: number, t: number): number {
   return from + (to - from) * t;
 }
 
-export function cycleItem<T>(items: readonly T[], current: T, delta: number): T {
+export function cycleItem<T>(items: readonly T[], current: T, direction: ListDirection): T {
+  return cycleItemBy(items, current, DIRECTION_STEPS[direction]);
+}
+
+export function cycleItemBy<T>(items: readonly T[], current: T, offset: number): T {
   const count = items.length;
   return requireDefined(
-    items[(((indexOfItem(items, current) + delta) % count) + count) % count],
+    items[(((indexOfItem(items, current) + offset) % count) + count) % count],
     'Cannot cycle an empty list',
   );
 }
 
-export function stepItem<T>(items: readonly T[], current: T, delta: number): T {
+export function stepItem<T>(items: readonly T[], current: T, direction: ListDirection): T {
   return requireDefined(
-    items[clamp(indexOfItem(items, current) + delta, 0, items.length - 1)],
+    items[clamp(indexOfItem(items, current) + DIRECTION_STEPS[direction], 0, items.length - 1)],
     'Cannot step an empty list',
   );
 }

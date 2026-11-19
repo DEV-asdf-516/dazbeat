@@ -48,6 +48,7 @@ import { SettingsScene } from './game/settings/SettingsScene.js';
 import { SharedSongFeeds } from './game/app/SongFeed.js';
 import type { SongBatchLoader } from './game/app/SongFeed.js';
 import { SongSelectScene } from './game/songSelect/SongSelectScene.js';
+import { installCanvasRendering } from './game/ui/view/canvas/installCanvasRendering.js';
 import { DEFAULT_CURSOR } from './game/ui/view/input/cursor.js';
 import { MenuMusic } from './game/ui/view/MenuMusic.js';
 import { NebulaTrail } from './game/ui/view/input/NebulaTrail.js';
@@ -102,6 +103,9 @@ async function fetchJson(url: string): Promise<unknown> {
 function startGame(scenes: Phaser.Scene[], onFirstRender?: () => void): Phaser.Game {
   const game = new Phaser.Game(createGameConfig(scenes));
   game.events.once(Phaser.Core.Events.READY, () => {
+    if (game.renderer.type === Phaser.CANVAS) {
+      installCanvasRendering();
+    }
     bindPressedCursor(game.canvas);
     const firstScene = requireDefined(scenes[0], 'Missing first scene');
     firstScene.load.on(Phaser.Loader.Events.PROGRESS, (loaderFraction: number) =>
@@ -203,19 +207,24 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
     };
     const editorCharts: ChartCatalog = {
       loadChart: (ref) => loadChart(pb, ref),
-      saveChart: async (song, chart, baseRevision) => {
-        const result = await saveChart(pb, song, chart, baseRevision);
+      saveChart: async (song, chart, level, baseRevision) => {
+        const result = await saveChart(pb, song, chart, level, baseRevision);
         if (result.kind === 'conflict') {
           return result;
         }
         const { chartId, loaded } = result;
         charts.put(chartId, loaded);
-        feeds.applySavedChart(song.id, chart.laneCount, chart.difficulty, chartId);
-        editorFeeds.applySavedChart(song.id, chart.laneCount, chart.difficulty, chartId);
+        const saved = {
+          id: chartId,
+          level: loaded.level,
+        };
+        feeds.applySavedChart(song.id, chart.laneCount, chart.difficulty, saved);
+        editorFeeds.applySavedChart(song.id, chart.laneCount, chart.difficulty, saved);
         return {
           kind: 'saved',
           chartId,
           revision: loaded.revision,
+          level: loaded.level,
         };
       },
     };

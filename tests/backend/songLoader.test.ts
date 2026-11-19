@@ -115,6 +115,7 @@ describe('loadSongBatch', () => {
       {
         category: 'cover',
         title: '',
+        level: null,
       },
       {
         releasedOn: '2026-01-05',
@@ -142,6 +143,7 @@ describe('loadSongBatch', () => {
       {
         category: 'cover',
         title: 'Title',
+        level: null,
       },
       {
         releasedOn: '2026-01-05',
@@ -153,6 +155,24 @@ describe('loadSongBatch', () => {
         scope: 'all',
         afterReleasedOn: '2026-01-05',
         afterId: 'r42',
+      },
+    ],
+    [
+      'a level range with the lane count',
+      'published',
+      {
+        ...ALL_SONGS_QUERY,
+        level: {
+          laneCount: 6,
+          min: 2.5,
+          max: 4,
+        },
+      },
+      null,
+      {
+        laneCount: '6',
+        minLevel: '2.5',
+        maxLevel: '4',
       },
     ],
   ] as const)('sends %s to the search API', async (_name, scope, query, cursor, expected) => {
@@ -173,7 +193,7 @@ describe('loadSongBatch', () => {
     });
   });
 
-  it('converts records into songs in response order with grouped chart ids', async () => {
+  it('converts records into songs in response order with grouped chart ids and levels', async () => {
     stubFetch(
       searchResponse([
         makeSongRecord('s2', {
@@ -186,6 +206,7 @@ describe('loadSongBatch', () => {
                 id: 'c2',
                 difficulty: 'easy',
                 laneCount: 4,
+                level: 3.5,
               },
             ],
           },
@@ -197,21 +218,25 @@ describe('loadSongBatch', () => {
                 id: 'c1',
                 difficulty: 'hard',
                 laneCount: 4,
+                level: 1,
               },
               {
                 id: 'c3',
                 difficulty: 'easy',
                 laneCount: 4,
+                level: 1,
               },
               {
                 id: 'c4',
                 difficulty: 'hard',
                 laneCount: 5,
+                level: 5,
               },
               {
                 id: 'c5',
                 difficulty: 'easy',
                 laneCount: 6,
+                level: 1,
               },
             ],
           },
@@ -233,7 +258,14 @@ describe('loadSongBatch', () => {
         constellation: 'gemini',
         gameStartMs: 0,
         gameEndMs: 30000,
-        chartIds: { 4: { easy: 'c2' } },
+        charts: {
+          4: {
+            easy: {
+              id: 'c2',
+              level: 3.5,
+            },
+          },
+        },
         previewStartMs: 45000,
         credit: ['Song by someone', 'YouTube: channel'],
       },
@@ -247,13 +279,29 @@ describe('loadSongBatch', () => {
         constellation: 'gemini',
         gameStartMs: 0,
         gameEndMs: 30000,
-        chartIds: {
+        charts: {
           4: {
-            hard: 'c1',
-            easy: 'c3',
+            hard: {
+              id: 'c1',
+              level: 1,
+            },
+            easy: {
+              id: 'c3',
+              level: 1,
+            },
           },
-          5: { hard: 'c4' },
-          6: { easy: 'c5' },
+          5: {
+            hard: {
+              id: 'c4',
+              level: 5,
+            },
+          },
+          6: {
+            easy: {
+              id: 'c5',
+              level: 1,
+            },
+          },
         },
       },
       {
@@ -266,7 +314,7 @@ describe('loadSongBatch', () => {
         constellation: 'gemini',
         gameStartMs: 0,
         gameEndMs: 30000,
-        chartIds: {},
+        charts: {},
       },
     ]);
     expect(songs[1]).not.toHaveProperty('previewStartMs');
@@ -357,6 +405,37 @@ describe('loadSongBatch', () => {
       },
       'Invalid songs record s1: expand.charts_via_song[0].laneCount',
     ],
+    [
+      'a chart level is not a half step from 1 to 5',
+      {
+        expand: {
+          charts_via_song: [
+            {
+              id: 'c1',
+              difficulty: 'easy',
+              laneCount: 4,
+              level: 2.3,
+            },
+          ],
+        },
+      },
+      'Invalid songs record s1: expand.charts_via_song[0].level',
+    ],
+    [
+      'a chart level is missing',
+      {
+        expand: {
+          charts_via_song: [
+            {
+              id: 'c1',
+              difficulty: 'easy',
+              laneCount: 4,
+            },
+          ],
+        },
+      },
+      'Invalid songs record s1: expand.charts_via_song[0].level',
+    ],
   ])('rejects when %s', async (_name, overrides, message) => {
     stubFetch(searchResponse([makeSongRecord('s1', overrides)]));
 
@@ -391,11 +470,13 @@ describe('loadSongBatch', () => {
                 id: 'c1',
                 difficulty: 'hard',
                 laneCount: 4,
+                level: 1,
               },
               {
                 id: 'c2',
                 difficulty: 'hard',
                 laneCount: 6,
+                level: 1,
               },
             ],
           },
@@ -418,15 +499,25 @@ describe('loadSongBatch', () => {
       expect.objectContaining({
         id: 'key-s1',
         jacketUrl: 'http://pb.test/api/files/songs_collection/s1/jacket_s1.jpg',
-        chartIds: {
-          4: { hard: 'c1' },
-          6: { hard: 'c2' },
+        charts: {
+          4: {
+            hard: {
+              id: 'c1',
+              level: 1,
+            },
+          },
+          6: {
+            hard: {
+              id: 'c2',
+              level: 1,
+            },
+          },
         },
         previewStartMs: 45000,
       }),
       expect.objectContaining({
         id: 'key-s2',
-        chartIds: {},
+        charts: {},
       }),
     ]);
     expect(songs[1]).not.toHaveProperty('previewStartMs');

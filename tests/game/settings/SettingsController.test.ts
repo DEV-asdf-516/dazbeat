@@ -196,7 +196,7 @@ describe('SettingsController', () => {
     harness.controller.handleMenuKey('down');
     harness.events.length = 0;
 
-    click(harness, getStepButton(VOLUME_INDEX, -1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
     expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'sound', 'sound', 'render']);
     const sound = requireDefined(harness.events[3], 'Missing focus sound', 3);
@@ -207,7 +207,7 @@ describe('SettingsController', () => {
   it('saves and renders with only the click sound when the focused row is adjusted', () => {
     const harness = createHarness();
 
-    click(harness, getStepButton(VOLUME_INDEX, -1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
     expect(kinds(harness.events)).toEqual([
       'render',
@@ -223,7 +223,7 @@ describe('SettingsController', () => {
   it('applies the background volume right away when it changes', () => {
     const harness = createHarness();
 
-    click(harness, getStepButton(VOLUME_INDEX, -1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
     expect(harness.backgroundVolumes.map(({ backgroundVolume }) => backgroundVolume)).toEqual([
       0.9,
@@ -233,8 +233,8 @@ describe('SettingsController', () => {
   it('leaves the background volume alone when another setting changes', () => {
     const harness = createHarness();
 
-    click(harness, getStepButton(EFFECT_VOLUME_INDEX, -1));
-    click(harness, getStepButton(LANGUAGE_INDEX, 1));
+    click(harness, getStepButton(EFFECT_VOLUME_INDEX, 'previous'));
+    click(harness, getStepButton(LANGUAGE_INDEX, 'next'));
 
     expect(harness.events.filter(({ kind }) => kind === 'save')).toHaveLength(2);
     expect(harness.backgroundVolumes).toEqual([]);
@@ -276,7 +276,7 @@ describe('SettingsController', () => {
     const harness = createHarness();
     click(harness, getMuteButton(VOLUME_INDEX));
 
-    click(harness, getStepButton(VOLUME_INDEX, -1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
     const { settings } = harness.lastRender().next;
     expect(settings.mutedVolumes).toEqual([]);
@@ -286,7 +286,7 @@ describe('SettingsController', () => {
   it('does nothing when the setting cannot change further', () => {
     const harness = createHarness();
 
-    click(harness, getStepButton(VOLUME_INDEX, 1));
+    click(harness, getStepButton(VOLUME_INDEX, 'next'));
 
     expect(kinds(harness.events)).toEqual(['render']);
   });
@@ -294,7 +294,7 @@ describe('SettingsController', () => {
   it('changes the language and renders the displayed language when the change finishes', async () => {
     const harness = createHarness();
 
-    click(harness, getStepButton(LANGUAGE_INDEX, 1));
+    click(harness, getStepButton(LANGUAGE_INDEX, 'next'));
 
     expect(harness.languageChanges.map(({ language }) => language)).toEqual(['ja']);
     expect(harness.lastRender().next.displayedLanguage).toBe('ko');
@@ -309,7 +309,7 @@ describe('SettingsController', () => {
 
   it('does not render when the language change fails', async () => {
     const harness = createHarness();
-    click(harness, getStepButton(LANGUAGE_INDEX, 1));
+    click(harness, getStepButton(LANGUAGE_INDEX, 'next'));
     const rendersBefore = harness.renders().length;
 
     requireDefined(harness.languageChanges[0], 'Missing language change', 0).response.reject(
@@ -322,7 +322,7 @@ describe('SettingsController', () => {
 
   it('does not render a language change that finishes after close', async () => {
     const harness = createHarness();
-    click(harness, getStepButton(LANGUAGE_INDEX, 1));
+    click(harness, getStepButton(LANGUAGE_INDEX, 'next'));
     const rendersBefore = harness.renders().length;
 
     harness.controller.close();
@@ -336,7 +336,7 @@ describe('SettingsController', () => {
     const harness = createHarness();
     harness.failSave();
 
-    click(harness, getStepButton(VOLUME_INDEX, -1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
     expect(harness.renders()).toHaveLength(4);
     expect(harness.lastRender().next.settings.backgroundVolume).toBe(0.9);
@@ -362,7 +362,7 @@ describe('SettingsController', () => {
     click(harness, getKeyBoxButton(KEY_INDEX));
     harness.events.length = 0;
 
-    click(harness, getStepButton(VOLUME_INDEX, -1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
     expect(kinds(harness.events)).toEqual(['render', 'render', 'sound', 'render']);
     expect(harness.closeSoundCount()).toBe(1);
@@ -372,7 +372,7 @@ describe('SettingsController', () => {
 
   it('saves when the reset is accepted', () => {
     const harness = createHarness();
-    click(harness, getStepButton(VOLUME_INDEX, -1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
     click(harness, 'resetEntry');
     harness.events.length = 0;
 
@@ -487,7 +487,7 @@ describe('SettingsController key click sound', () => {
 describe('SettingsController controls', () => {
   it('opens with H, closes with H and Esc, and blocks other keys while open', () => {
     const harness = createHarness();
-    const isOpen = (): boolean => harness.lastRender().next.isControlsOpen;
+    const isOpen = (): boolean => harness.lastRender().next.controls !== 'closed';
 
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
@@ -516,8 +516,8 @@ describe('SettingsController button pointer', () => {
   it('does not run the button for an up that was pressed elsewhere', () => {
     const harness = createHarness();
 
-    harness.controller.pointerOver(getStepButton(VOLUME_INDEX, -1));
-    harness.controller.pointerUp(getStepButton(VOLUME_INDEX, -1));
+    harness.controller.pointerOver(getStepButton(VOLUME_INDEX, 'previous'));
+    harness.controller.pointerUp(getStepButton(VOLUME_INDEX, 'previous'));
 
     expect(harness.lastRender().next.settings).toBe(DEFAULT_SETTINGS);
   });
@@ -526,7 +526,7 @@ describe('SettingsController button pointer', () => {
     const harness = createHarness();
     const renderCount = harness.renders().length;
 
-    harness.controller.pointerDown(getStepButton(VOLUME_INDEX, 1));
+    harness.controller.pointerDown(getStepButton(VOLUME_INDEX, 'next'));
 
     expect(harness.renders()).toHaveLength(renderCount);
   });
@@ -544,12 +544,12 @@ describe('SettingsController button pointer', () => {
 
   it('releases the press of an adjust button that the keys make unusable', () => {
     const harness = createHarness();
-    click(harness, getStepButton(VOLUME_INDEX, -1));
-    harness.controller.pointerDown(getStepButton(VOLUME_INDEX, 1));
+    click(harness, getStepButton(VOLUME_INDEX, 'previous'));
+    harness.controller.pointerDown(getStepButton(VOLUME_INDEX, 'next'));
 
     harness.controller.handleMenuKey('right');
     harness.controller.handleMenuKey('left');
-    harness.controller.pointerUp(getStepButton(VOLUME_INDEX, 1));
+    harness.controller.pointerUp(getStepButton(VOLUME_INDEX, 'next'));
 
     expect(harness.lastRender().next.settings.backgroundVolume).toBe(0.9);
   });

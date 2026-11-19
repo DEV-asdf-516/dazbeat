@@ -14,6 +14,7 @@ import {
 import { EDITOR_TYPE_SCALE } from './editorTheme.js';
 import { requireDefined } from '../../../invariant.js';
 import { getBrushRectTexture } from '../../ui/view/textures/brushRect.js';
+import { addBakedRoundedRect } from '../../ui/view/textures/bakedTexture.js';
 
 export interface SongListFrame {
   leftPx: number;
@@ -25,7 +26,8 @@ export interface SongListFrame {
 }
 
 interface RowView {
-  readonly background: Phaser.GameObjects.Rectangle;
+  readonly background: Phaser.GameObjects.NineSlice;
+  readonly hitZone: Phaser.GameObjects.Zone;
   readonly tag: Phaser.GameObjects.Image;
   readonly tagText: Phaser.GameObjects.Text;
   readonly title: Phaser.GameObjects.Text;
@@ -50,7 +52,7 @@ const SCROLLBAR_INSET_PX = 6;
 export class SongListPanel {
   private readonly scene: Phaser.Scene;
   private readonly frame: SongListFrame;
-  private readonly panel: Phaser.GameObjects.Rectangle;
+  private readonly panel: Phaser.GameObjects.NineSlice;
   private readonly panelBorder: Phaser.GameObjects.Image;
   private readonly rows: RowView[];
   private readonly scrollBar: ScrollBar;
@@ -69,10 +71,15 @@ export class SongListPanel {
     const onWheel = (_pointer: Phaser.Input.Pointer, _deltaX: number, deltaY: number): void =>
       actions.onWheel(deltaY);
     // 줄 사이 여백에서도 휠이 먹도록 패널 면도 입력을 받는다.
-    this.panel = scene.add
-      .rectangle(0, 0, frame.widthPx, 0, CELESTIAL_COLORS.surface)
+    this.panel = addBakedRoundedRect(scene, 0, 0, {
+      widthPx: frame.widthPx,
+      heightPx: 0,
+      radiusPx: RADIUS.smallPx,
+      fillColor: CELESTIAL_COLORS.surface,
+      fillAlpha: 1,
+      border: null,
+    })
       .setOrigin(0, 0)
-      .setRounded(RADIUS.smallPx)
       .setInteractive()
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_WHEEL, onWheel);
     this.panelBorder = scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0).setVisible(false);
@@ -88,8 +95,9 @@ export class SongListPanel {
     scene.add.container(frame.leftPx, frame.topYPx, [
       this.panel,
       this.panelBorder,
-      ...this.rows.flatMap(({ background, tag, tagText, title }) => [
+      ...this.rows.flatMap(({ background, hitZone, tag, tagText, title }) => [
         background,
+        hitZone,
         tag,
         tagText,
         title,
@@ -104,7 +112,7 @@ export class SongListPanel {
   ): void {
     const row = this.getRow(rowIndex);
     const isShown = content !== null;
-    row.background.setVisible(isShown);
+    row.hitZone.setVisible(isShown);
     row.tag.setVisible(isShown);
     row.tagText.setVisible(isShown);
     row.title.setVisible(isShown);
@@ -138,7 +146,7 @@ export class SongListPanel {
   renderFocus(focusedRowIndex: number | null): void {
     this.rows.forEach(({ background, title }, rowIndex) => {
       const isFocused = rowIndex === focusedRowIndex;
-      background.setFillStyle(CELESTIAL_COLORS.surfaceHover, isFocused ? 1 : 0);
+      background.setVisible(isFocused);
       setTextColor(
         title,
         isFocused ? CELESTIAL_COLORS.textPrimary : CELESTIAL_COLORS.textSecondary,
@@ -187,16 +195,18 @@ export class SongListPanel {
     const { paddingPx, rowHeightPx, widthPx } = this.frame;
     const topYPx = paddingPx / 2 + rowIndex * rowHeightPx;
     const centerYPx = topYPx + rowHeightPx / 2;
-    const background = this.scene.add
-      .rectangle(
-        ROW_INSET_PX,
-        topYPx,
-        widthPx - ROW_INSET_PX * 2,
-        rowHeightPx,
-        CELESTIAL_COLORS.surfaceHover,
-      )
+    const background = addBakedRoundedRect(this.scene, ROW_INSET_PX, topYPx, {
+      widthPx: widthPx - ROW_INSET_PX * 2,
+      heightPx: rowHeightPx,
+      radiusPx: RADIUS.smallPx,
+      fillColor: CELESTIAL_COLORS.surfaceHover,
+      fillAlpha: 1,
+      border: null,
+    }).setOrigin(0, 0);
+    // 배경은 포커스 행만 보이고 숨긴 객체는 입력을 받지 않으므로 행 입력은 같은 사각형의 zone 이 받는다.
+    const hitZone = this.scene.add
+      .zone(ROW_INSET_PX, topYPx, widthPx - ROW_INSET_PX * 2, rowHeightPx)
       .setOrigin(0, 0)
-      .setRounded(RADIUS.smallPx)
       .setInteractive({ cursor: HOVER_CURSOR })
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, actions.onHover)
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, actions.onPick)
@@ -217,9 +227,10 @@ export class SongListPanel {
       )
       .setOrigin(0, 0.5);
     // 곡을 받기 전 빈 행이 보이지 않게 숨겨 두고, 곡이 오면 그 행만 보인다.
-    [background, tag, tagText, title].forEach((object) => object.setVisible(false));
+    [background, hitZone, tag, tagText, title].forEach((object) => object.setVisible(false));
     return {
       background,
+      hitZone,
       tag,
       tagText,
       title,

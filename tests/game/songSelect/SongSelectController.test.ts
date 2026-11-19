@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { YouTubePlayerHandlers } from '../../../src/audio/YouTubePlayer.js';
 import type { ChartTopRank, MyChartRecord } from '../../../src/data/ranking.js';
-import { ALL_SONGS_QUERY } from '../../../src/data/songs.js';
+import { ALL_SONGS_QUERY, getAvailableCharts } from '../../../src/data/songs.js';
 import type {
   ChartRef,
   Song,
@@ -15,6 +15,7 @@ import { isShallowEqual } from '../../../src/shallowEqual.js';
 import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
 import type { SongSelectRestore } from '../../../src/game/app/sceneRoutes.js';
 import { SongFeed } from '../../../src/game/app/SongFeed.js';
+import { isControlsHelpShown } from '../../../src/game/app/controlsGuide.js';
 import { SongSelectController } from '../../../src/game/songSelect/SongSelectController.js';
 import {
   getChangedRegions,
@@ -40,7 +41,6 @@ const RECORDS: ChartRecords = new Map([
       score: 900000,
       accuracy: 0.95,
       maxCombo: 120,
-      cleared: true,
     },
   ],
 ]);
@@ -48,10 +48,16 @@ const RECORDS: ChartRecords = new Map([
 function makeSong(
   index: number,
   category: SongCategory = 'original',
-  chartIds: Song['chartIds'] = {
+  charts: Song['charts'] = {
     4: {
-      easy: `easy-${index}`,
-      hard: `hard-${index}`,
+      easy: {
+        id: `easy-${index}`,
+        level: 1,
+      },
+      hard: {
+        id: `hard-${index}`,
+        level: 1,
+      },
     },
   },
 ): Song {
@@ -65,7 +71,7 @@ function makeSong(
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    chartIds,
+    charts,
   };
 }
 
@@ -77,7 +83,7 @@ interface PendingCall {
   readonly reject: () => void;
 }
 
-/** 서버처럼 카테고리로 거른 곡을 커서 다음부터 잘라 주되, 응답 시점은 테스트가 정한다. 같은 게시일이라 커서는 record id 로만 갈린다. */
+/** 서버처럼 카테고리와 레벨 범위로 거른 곡을 커서 다음부터 잘라 주되, 응답 시점은 테스트가 정한다. 같은 게시일이라 커서는 record id 로만 갈린다. */
 function createServer(songs: readonly Song[]) {
   const calls: PendingCall[] = [];
   const recordIdOf = (song: Song): string =>
@@ -87,8 +93,14 @@ function createServer(songs: readonly Song[]) {
     recordId: recordIdOf(song),
   });
   const loadBatch = (query: SongQuery, after: SongBatchCursor | null): Promise<SongBatch> => {
+    const { level } = query;
     const inQuery = songs.filter(
-      (song) => query.category === 'all' || song.category === query.category,
+      (song) =>
+        (query.category === 'all' || song.category === query.category) &&
+        (level === null ||
+          getAvailableCharts(song, level.laneCount).some(
+            (chart) => chart.level !== null && chart.level >= level.min && chart.level <= level.max,
+          )),
     );
     const matched = inQuery
       .filter((song) => after === null || recordIdOf(song) < after.recordId)
@@ -451,6 +463,7 @@ describe('SongSelectController categories', () => {
       {
         category: 'cover',
         title: '',
+        level: null,
       },
     ]);
     expect(
@@ -463,6 +476,7 @@ describe('SongSelectController categories', () => {
         query: {
           category: 'cover',
           title: '',
+          level: null,
         },
         after: null,
       },
@@ -482,31 +496,34 @@ describe('SongSelectController categories', () => {
     expect(selectedId(harness.view)).toBe('song-100');
     expect(harness.view.notice).toBeNull();
 
-    harness.controller.cycleFilter(-1);
+    harness.controller.cycleFilter('previous');
 
     expect(harness.created.map((feed) => feed.query)).toEqual([
       {
         category: 'cover',
         title: '',
+        level: null,
       },
       {
         category: 'original',
         title: '',
+        level: null,
       },
     ]);
     expect(harness.server.calls.at(-1)?.query).toEqual({
       category: 'original',
       title: '',
+      level: null,
     });
     expect(harness.view.state.filter).toBe('original');
   });
 
   it('returns to the shared catalog for ALL without a new request', async () => {
     const harness = await openHarness(songs);
-    harness.controller.cycleFilter(-1);
+    harness.controller.cycleFilter('previous');
     const callCount = harness.server.calls.length;
 
-    harness.controller.cycleFilter(1);
+    harness.controller.cycleFilter('next');
 
     expect(harness.view.state.filter).toBe('all');
     expect(harness.view.state.songs).toBe(harness.catalog.songs);
@@ -679,7 +696,7 @@ describe('SongSelectController selection', () => {
     const noChart = makeSong(200, 'cover', {});
     const harness = await openHarness([makeSong(0), noChart]);
 
-    harness.controller.moveDifficulty(1);
+    harness.controller.moveDifficulty('next');
     harness.controller.play();
 
     expect(harness.plays.map(({ chart }) => chart)).toEqual([
@@ -688,6 +705,7 @@ describe('SongSelectController selection', () => {
         laneCount: 4,
         difficulty: 'hard',
         chartId: 'hard-0',
+        level: 1,
       },
     ]);
 
@@ -707,8 +725,18 @@ describe('SongSelectController selection', () => {
 
   it('plays the chart of the lane count it was opened with', async () => {
     const mixed = makeSong(300, 'original', {
-      4: { easy: 'easy-4k' },
-      6: { hard: 'hard-6k' },
+      4: {
+        easy: {
+          id: 'easy-4k',
+          level: 1,
+        },
+      },
+      6: {
+        hard: {
+          id: 'hard-6k',
+          level: 1,
+        },
+      },
     });
     const harness = await openHarness([mixed, makeSong(1)], 6);
 
@@ -720,6 +748,7 @@ describe('SongSelectController selection', () => {
         laneCount: 6,
         difficulty: 'hard',
         chartId: 'hard-6k',
+        level: 1,
       },
     ]);
   });
@@ -768,7 +797,7 @@ describe('SongSelectController focus sound', () => {
     const harness = await openHarness(songs, 4, () => 0.5);
     const rendered = (): number => harness.renders.length;
     const changes = [
-      () => harness.controller.moveDifficulty(1),
+      () => harness.controller.moveDifficulty('next'),
       () => harness.controller.selectDifficulty('easy'),
       () => harness.controller.selectRandomSong(),
       () => harness.controller.selectFilter('cover'),
@@ -787,9 +816,9 @@ describe('SongSelectController click sound', () => {
   it('plays the click sound once for each filter, difficulty, random, play and settings action', async () => {
     const harness = await openHarness(songs, 4, () => 0.5);
     const actions = [
-      () => harness.controller.cycleFilter(1),
+      () => harness.controller.cycleFilter('next'),
       () => harness.controller.selectFilter('all'),
-      () => harness.controller.moveDifficulty(1),
+      () => harness.controller.moveDifficulty('next'),
       () => harness.controller.selectDifficulty('easy'),
       () => harness.controller.selectRandomSong(),
       () => harness.controller.openSettings(),
@@ -976,7 +1005,7 @@ describe('SongSelectController hover', () => {
       harness.controller.hover(hover);
       harness.controller.moveSong(1);
       expect(harness.view.state.hover).toEqual(hover);
-      harness.controller.cycleFilter(1);
+      harness.controller.cycleFilter('next');
       expect(harness.view.state.hover).toEqual(hover);
     }
   });
@@ -1089,6 +1118,7 @@ describe('SongSelectController ranking', () => {
         laneCount: 4,
         difficulty: 'easy',
         chartId: 'easy-0',
+        level: 1,
       },
       restore: {
         feed: harness.catalog,
@@ -1102,7 +1132,16 @@ describe('SongSelectController ranking', () => {
   });
 
   it('ignores the button and L without a chart', async () => {
-    const harness = await openHarness([makeSong(0, 'original', { 5: { easy: 'easy-5k' } })]);
+    const harness = await openHarness([
+      makeSong(0, 'original', {
+        5: {
+          easy: {
+            id: 'easy-5k',
+            level: 1,
+          },
+        },
+      }),
+    ]);
 
     harness.controller.pointerDown('ranking');
     harness.controller.pointerUp('ranking');
@@ -1150,7 +1189,7 @@ describe('SongSelectController TOP ranks', () => {
     await flush();
     expect(topRanksOf(harness.view)).toEqual([null, 3, null]);
 
-    harness.controller.moveDifficulty(1);
+    harness.controller.moveDifficulty('next');
     expect(topRanksOf(harness.view)).toEqual([1, null, null]);
     expect(harness.myRankingRequests).toHaveLength(1);
   });
@@ -1205,7 +1244,6 @@ describe('SongSelectController records', () => {
     score: 800000,
     accuracy: 0.9,
     maxCombo: 100,
-    cleared: true,
   };
 
   async function signedInHarness() {
@@ -1380,7 +1418,7 @@ describe('SongSelectController restore', () => {
     harness.controller.moveSong(4);
     await settle(harness.server.calls[0]);
     harness.controller.moveSong(3);
-    harness.controller.moveDifficulty(1);
+    harness.controller.moveDifficulty('next');
 
     harness.controller.play();
 
@@ -1451,7 +1489,7 @@ describe('SongSelectController restore', () => {
 
   it('opens settings with no song from an empty list and shows its notice on restore', async () => {
     const harness = await openHarness(songs);
-    harness.controller.moveDifficulty(1);
+    harness.controller.moveDifficulty('next');
     harness.controller.selectFilter('original');
     await settle(harness.server.calls[0], 'resolve', {
       songs: [],
@@ -1836,7 +1874,7 @@ describe('SongSelectController preview focus', () => {
     const player = await readyPreview(harness, 400);
     const renderCount = harness.renders.length;
 
-    harness.controller.moveDifficulty(1);
+    harness.controller.moveDifficulty('next');
     await settle(harness.server.calls[0]);
     tickAt(harness, 5000);
 
@@ -2047,13 +2085,52 @@ describe('SongSelectController controls', () => {
 
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(harness.view.state.isControlsOpen).toBe(true);
+    expect(harness.view.state.controls).toBe('open');
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(harness.view.state.isControlsOpen).toBe(false);
+    expect(harness.view.state.controls).toBe('closed');
     harness.controller.openControls();
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
-    expect(harness.view.state.isControlsOpen).toBe(false);
+    expect(harness.view.state.controls).toBe('closed');
+  });
+
+  it('shows the help card on (?) hover, pins it on click and hides it on the next click until the pointer comes back', async () => {
+    const harness = await openHarness(songs);
+    harness.controller.openControls();
+    const isShown = (): boolean => isControlsHelpShown(harness.view.state);
+    const click = (): void => {
+      harness.controller.pointerDown('controlsHelp');
+      harness.controller.pointerUp('controlsHelp');
+    };
+
+    harness.controller.pointerOver('controlsHelp');
+    expect(isShown()).toBe(true);
+    click();
+    expect(harness.clickSounds).toBe(2);
+    harness.controller.pointerOut('controlsHelp');
+    expect(isShown()).toBe(true);
+    harness.controller.pointerOver('controlsHelp');
+    click();
+    expect(isShown()).toBe(false);
+    harness.controller.pointerOut('controlsHelp');
+    harness.controller.pointerOver('controlsHelp');
+    expect(isShown()).toBe(true);
+  });
+
+  it('drops the help pin and card on close and opens unpinned next time', async () => {
+    const harness = await openHarness(songs);
+    harness.controller.openControls();
+    harness.controller.pointerOver('controlsHelp');
+    harness.controller.pointerDown('controlsHelp');
+    harness.controller.pointerUp('controlsHelp');
+
+    harness.controller.closeControls();
+
+    expect(harness.view.state.controls).toBe('closed');
+    expect(isControlsHelpShown(harness.view.state)).toBe(false);
+    harness.controller.openControls();
+    expect(harness.view.state.controls).toBe('open');
+    expect(isControlsHelpShown(harness.view.state)).toBe(false);
   });
 
   it('ignores wheels while the controls are open', async () => {
@@ -2106,16 +2183,16 @@ describe('SongSelectController button pointer', () => {
 
     harness.controller.pointerDown('controlsEntry');
     harness.controller.pointerUp('controlsEntry');
-    expect(harness.view.state.isControlsOpen).toBe(true);
+    expect(harness.view.state.controls).toBe('open');
 
     harness.controller.pointerDown('controlsClose');
     harness.controller.pointerUp('controlsClose');
-    expect(harness.view.state.isControlsOpen).toBe(false);
+    expect(harness.view.state.controls).toBe('closed');
 
     harness.controller.openControls();
     harness.controller.pointerDown('controlsBackdrop');
     harness.controller.pointerUp('controlsBackdrop');
-    expect(harness.view.state.isControlsOpen).toBe(false);
+    expect(harness.view.state.controls).toBe('closed');
   });
 
   it('releases the hover of the close button when the controls close', async () => {
@@ -2136,5 +2213,377 @@ describe('SongSelectController button pointer', () => {
     expect(harness.profileOpens).toBe(1);
 
     expect(harness.mainExits).toBe(0);
+  });
+});
+
+const leveledSongs = [
+  makeSong(0, 'original', {
+    4: {
+      easy: {
+        id: 'easy-0',
+        level: 1,
+      },
+      hard: {
+        id: 'hard-0',
+        level: 3,
+      },
+    },
+  }),
+  makeSong(1, 'cover', {
+    4: {
+      easy: {
+        id: 'easy-1',
+        level: 2,
+      },
+      hard: {
+        id: 'hard-1',
+        level: 4,
+      },
+    },
+  }),
+  makeSong(2, 'original', {
+    4: {
+      easy: {
+        id: 'easy-2',
+        level: 1.5,
+      },
+    },
+    6: {
+      easy: {
+        id: 'easy-6k-2',
+        level: 4,
+      },
+    },
+  }),
+  makeSong(3, 'cover', {
+    4: {
+      easy: {
+        id: 'easy-3',
+        level: 1,
+      },
+      hard: {
+        id: 'hard-3',
+        level: 5,
+      },
+    },
+  }),
+  makeSong(4, 'original', {
+    4: {
+      easy: {
+        id: 'easy-4',
+        level: 3,
+      },
+    },
+  }),
+  makeSong(5, 'cover'),
+];
+
+function sliderOf(view: SongSelectView) {
+  return view.state.levelSlider;
+}
+
+function rangeOf(view: SongSelectView) {
+  const { min, max } = view.state.levelSlider.range;
+  return [min, max];
+}
+
+describe('SongSelectController level slider', () => {
+  it('focuses the low handle with up only from the first song', async () => {
+    const harness = await openHarness(leveledSongs);
+
+    expect(harness.controller.handleLevelSliderKey('up')).toBe(true);
+    expect(sliderOf(harness.view).input).toEqual({
+      kind: 'focused',
+      handle: 'min',
+    });
+    expect(harness.focusSounds).toBe(1);
+
+    harness.controller.handleLevelSliderKey('down');
+    harness.controller.moveSong(1);
+
+    expect(harness.controller.handleLevelSliderKey('up')).toBe(false);
+    expect(harness.controller.handleLevelSliderKey('down')).toBe(false);
+    expect(sliderOf(harness.view).input).toEqual({ kind: 'idle' });
+    expect(selectedId(harness.view)).toBe('song-001');
+  });
+
+  it('moves the focused handle by half levels past the other end and swaps handles with Enter', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.handleLevelSliderKey('up');
+
+    for (let step = 0; step < 4; step += 1) {
+      harness.controller.handleLevelSliderKey('right');
+    }
+    expect(rangeOf(harness.view)).toEqual([3, 5]);
+    expect(harness.controller.handleLevelSliderKey('confirm')).toBe(true);
+    expect(harness.plays).toHaveLength(0);
+    expect(sliderOf(harness.view).input).toEqual({
+      kind: 'focused',
+      handle: 'max',
+    });
+    for (let step = 0; step < 4; step += 1) {
+      expect(harness.controller.handleLevelSliderKey('left')).toBe(true);
+    }
+    expect(rangeOf(harness.view)).toEqual([3, 3]);
+    expect(sliderOf(harness.view).input).toEqual({
+      kind: 'focused',
+      handle: 'max',
+    });
+
+    // 반대쪽 끝을 넘으면 끌기처럼 두 끝이 바뀌고 레일 끝에서만 멈춘다.
+    for (let step = 0; step < 5; step += 1) {
+      harness.controller.handleLevelSliderKey('left');
+    }
+    expect(rangeOf(harness.view)).toEqual([1, 3]);
+    expect(sliderOf(harness.view).input).toEqual({
+      kind: 'focused',
+      handle: 'min',
+    });
+    expect(harness.clickSounds).toBe(12);
+    expect(harness.focusSounds).toBe(2);
+
+    expect(harness.controller.handleLevelSliderKey('up')).toBe(true);
+    expect(harness.controller.handleLevelSliderKey('previousTab')).toBe(false);
+    expect(harness.controller.handleLevelSliderKey(null)).toBe(false);
+    expect(harness.controller.handleLevelSliderKey('back')).toBe(true);
+    expect(sliderOf(harness.view).input).toEqual({ kind: 'idle' });
+    expect(harness.mainExits).toBe(0);
+    expect(selectedId(harness.view)).toBe('song-000');
+  });
+
+  it('requests one list 300ms after the last key move', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.handleLevelSliderKey('up');
+
+    tickAt(harness, 0);
+    harness.controller.handleLevelSliderKey('right');
+    tickAt(harness, 100);
+    harness.controller.handleLevelSliderKey('right');
+    tickAt(harness, 399);
+
+    expect(harness.created).toHaveLength(0);
+    expect(harness.server.calls).toHaveLength(0);
+
+    tickAt(harness, 400);
+    tickAt(harness, 800);
+
+    expect(harness.created.map((feed) => feed.query)).toEqual([
+      {
+        category: 'all',
+        title: '',
+        level: {
+          laneCount: 4,
+          min: 2,
+          max: 5,
+        },
+      },
+    ]);
+    expect(harness.server.calls).toHaveLength(1);
+  });
+
+  it('requests a list on release only, swaps the ends past the anchor and skips an unchanged range', async () => {
+    const harness = await openHarness(leveledSongs);
+
+    harness.controller.pressLevelSlider(4);
+    expect(rangeOf(harness.view)).toEqual([1, 4]);
+    expect(harness.created).toHaveLength(0);
+    harness.controller.releaseLevelSlider();
+
+    expect(harness.created.map((feed) => feed.query.level)).toEqual([
+      {
+        laneCount: 4,
+        min: 1,
+        max: 4,
+      },
+    ]);
+    expect(sliderOf(harness.view).input).toEqual({
+      kind: 'focused',
+      handle: 'max',
+    });
+    expect(harness.clickSounds).toBe(1);
+
+    harness.controller.pressLevelSlider(2);
+    expect(rangeOf(harness.view)).toEqual([2, 4]);
+    harness.controller.dragLevelSlider(4.5);
+    expect(rangeOf(harness.view)).toEqual([4, 4.5]);
+    expect(sliderOf(harness.view).input).toEqual({
+      kind: 'dragging',
+      handle: 'max',
+      anchor: 4,
+    });
+    expect(harness.created).toHaveLength(1);
+    harness.controller.releaseLevelSlider();
+
+    expect(harness.created.at(-1)?.query.level).toEqual({
+      laneCount: 4,
+      min: 4,
+      max: 4.5,
+    });
+
+    harness.controller.pressLevelSlider(4.5);
+    harness.controller.releaseLevelSlider();
+
+    expect(harness.created).toHaveLength(2);
+    expect(harness.clickSounds).toBe(2);
+  });
+
+  it('goes back to the catalog without a level when the full range is released', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.pressLevelSlider(4);
+    harness.controller.releaseLevelSlider();
+    await settle(harness.server.calls[0]);
+
+    harness.controller.pressLevelSlider(5);
+    harness.controller.releaseLevelSlider();
+
+    expect(harness.created).toHaveLength(1);
+    expect(harness.view.state.levelRange).toBeNull();
+    expect(songIds(harness.view)).toEqual(harness.catalog.songs.map((song) => song.id));
+  });
+
+  it('resets the range from the reset button or Backspace and releases the hidden button hover', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.pointerDown('levelReset');
+    harness.controller.pointerUp('levelReset');
+    expect(harness.clickSounds).toBe(0);
+
+    harness.controller.pressLevelSlider(4);
+    harness.controller.releaseLevelSlider();
+    await settle(harness.server.calls[0]);
+    expect(harness.view.state.levelRange).toEqual({
+      min: 1,
+      max: 4,
+    });
+
+    harness.controller.pointerOver('levelReset');
+    harness.controller.pointerDown('levelReset');
+    harness.controller.pointerUp('levelReset');
+
+    expect(rangeOf(harness.view)).toEqual([1, 5]);
+    expect(harness.view.state.levelRange).toBeNull();
+    expect(harness.view.state.hover).toBeNull();
+    expect(songIds(harness.view)).toEqual(harness.catalog.songs.map((song) => song.id));
+    expect(harness.created).toHaveLength(1);
+
+    harness.controller.handleLevelSliderKey('down');
+    harness.controller.handleLevelSliderKey('up');
+    harness.controller.handleLevelSliderKey('right');
+    expect(rangeOf(harness.view)).toEqual([1.5, 5]);
+    harness.controller.resetLevelFilter();
+    tickAt(harness, 1000);
+
+    expect(rangeOf(harness.view)).toEqual([1, 5]);
+    expect(sliderOf(harness.view).input).toEqual({
+      kind: 'focused',
+      handle: 'min',
+    });
+    expect(harness.created).toHaveLength(1);
+  });
+
+  it('keeps the range when the category changes', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.pressLevelSlider(4);
+    harness.controller.releaseLevelSlider();
+
+    harness.controller.selectFilter('cover');
+
+    expect(harness.created.at(-1)?.query).toEqual({
+      category: 'cover',
+      title: '',
+      level: {
+        laneCount: 4,
+        min: 1,
+        max: 4,
+      },
+    });
+    expect(harness.view.state.levelRange).toEqual({
+      min: 1,
+      max: 4,
+    });
+  });
+
+  it('selects a chart in the range and shows its level on the rows', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.pressLevelSlider(3);
+    harness.controller.releaseLevelSlider();
+    await settle(harness.server.calls[0]);
+
+    expect(songIds(harness.view)).toEqual(['song-000', 'song-001']);
+    expect(difficultyOf(harness.view)).toBe('hard');
+    expect(
+      getSongRows(harness.view.state, ROWS_PER_PAGE).map((row) =>
+        row.kind === 'song' ? row.level : null,
+      ),
+    ).toEqual([3, 4, null]);
+
+    harness.controller.moveSong(1);
+
+    expect(difficultyOf(harness.view)).toBe('hard');
+  });
+
+  it('picks the lowest difficulty in the range when the previous one is out of it', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.selectDifficulty('hard');
+    harness.controller.pressLevelSlider(4);
+    harness.controller.dragLevelSlider(2);
+    harness.controller.releaseLevelSlider();
+    await settle(harness.server.calls[0]);
+
+    expect(rangeOf(harness.view)).toEqual([1, 2]);
+    expect(songIds(harness.view)).toEqual(['song-000', 'song-001']);
+    expect(difficultyOf(harness.view)).toBe('easy');
+    expect(
+      getSongRows(harness.view.state, ROWS_PER_PAGE).map((row) =>
+        row.kind === 'song' ? row.level : null,
+      ),
+    ).toEqual([1, 2, null]);
+  });
+
+  it('drops the focus on a row click, a wheel and RANDOM', async () => {
+    const harness = await openHarness(leveledSongs);
+
+    harness.controller.handleLevelSliderKey('up');
+    harness.controller.selectRow(0);
+    expect(sliderOf(harness.view).input).toEqual({ kind: 'idle' });
+
+    harness.controller.handleLevelSliderKey('up');
+    harness.controller.scrollByWheel(WHEEL_STEP_PX, 0);
+    expect(sliderOf(harness.view).input).toEqual({ kind: 'idle' });
+
+    harness.controller.moveSong(-1);
+    harness.controller.handleLevelSliderKey('up');
+    harness.controller.selectRandomSong();
+    expect(sliderOf(harness.view).input).toEqual({ kind: 'idle' });
+  });
+
+  it('asks again with the same range for the new lane count after the lane mode changed', async () => {
+    const harness = await openHarness(leveledSongs);
+    harness.controller.pressLevelSlider(4);
+    harness.controller.releaseLevelSlider();
+    await settle(harness.server.calls[0]);
+    harness.controller.openSettings();
+    harness.controller.close();
+
+    const sixLanes = await createHarness(leveledSongs, 6);
+    sixLanes.open(requireRestore(harness.settings[0]));
+
+    expect(sixLanes.created.map((feed) => feed.query)).toEqual([
+      {
+        category: 'all',
+        title: '',
+        level: {
+          laneCount: 6,
+          min: 1,
+          max: 4,
+        },
+      },
+    ]);
+    expect(sixLanes.server.calls).toHaveLength(1);
+    expect(sixLanes.view.state.levelRange).toEqual({
+      min: 1,
+      max: 4,
+    });
+    await settle(sixLanes.server.calls[0]);
+    expect(songIds(sixLanes.view)).toEqual(['song-002']);
   });
 });

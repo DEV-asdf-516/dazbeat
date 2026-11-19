@@ -9,7 +9,7 @@ import type { CelestialCatalog } from '../../../celestial/state/celestialCatalog
 import type { CelestialScreen } from '../../../celestial/state/celestialPlacements.js';
 import type { CelestialTextureUse } from '../../../celestial/view/celestialSprites.js';
 import type { ButtonView } from '../../state/buttonPointer.js';
-import type { ControlsButton, ControlsGroup } from '../../../app/controlsGuide.js';
+import type { ControlsButton, ControlsGuide } from '../../../app/controlsGuide.js';
 import type { AccountIdentity } from '../../state/accountIdentity.js';
 import { addAccountPanel } from './accountCard.js';
 import type { AccountPanelOptions } from './accountCard.js';
@@ -73,12 +73,20 @@ export class MenuSceneChrome {
     this.accountPanel?.renderButton(view);
   }
 
-  renderControls(guide: readonly ControlsGroup[] | null): void {
+  renderControls(guide: ControlsGuide | null): void {
     this.overlay.render(guide);
   }
 
   renderControlsClose(view: ButtonView): void {
     this.overlay.renderCloseButton(view);
+  }
+
+  renderControlsHelpCard(isShown: boolean): void {
+    this.overlay.renderHelpCard(isShown);
+  }
+
+  renderControlsHelpButton(button: ButtonView): void {
+    this.overlay.renderHelpButton(button);
   }
 
   renderControlsEntry(isHovered: boolean): void {

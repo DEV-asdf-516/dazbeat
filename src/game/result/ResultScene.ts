@@ -1,13 +1,19 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
-import { getControlsGuide } from '../app/controlsGuide.js';
+import {
+  getControlsGuide,
+  getControlsHelpButtonView,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+} from '../app/controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type { ResultReport, ResultSceneData, SceneRequest } from '../app/sceneRoutes.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
+import { requireDefined } from '../../invariant.js';
+import { getProgress, lerp } from '../../range.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import {
   CONSTELLATION_LOOKS,
-  getConstellationLines,
   getResultPresentation,
   planSongConstellation,
 } from './state/resultConstellation.js';
@@ -73,10 +79,11 @@ import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { GradeLetter } from '../ui/view/widgets/GradeLetter.js';
+import { GlyphText } from '../ui/view/widgets/GlyphText.js';
 import { TOP_RANK_GLINT_ID } from '../ui/view/widgets/TopRankBadge.js';
 import { COLORS, JUDGMENT_COLORS, SCREEN_LAYOUT, TYPE_SCALE, textStyle } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
-import { strokeGrainedLine } from '../ui/view/textures/grain.js';
+import { strokeCanvasLine, strokeGrainedCanvasLine } from '../ui/view/textures/grain.js';
 
 interface ResultView {
   readonly chrome: MenuSceneChrome;
@@ -95,6 +102,7 @@ const DIFFICULTY_Y_PX = 208;
 const PRACTICE_BADGE_GAP_PX = 24;
 const RANK_Y_PX = 262;
 const SCORE_Y_PX = 452;
+const SCORE_GLYPH_FONT_KEY = 'glyph:resultScore';
 const STATS_Y_PX = 572;
 const SECTION_RANGE_Y_PX = 292;
 const SECTION_ACCURACY_LABEL_Y_PX = 366;
@@ -157,6 +165,8 @@ const CONSTELLATION_LIT_SIZE = {
 };
 const CONSTELLATION_LINE_CORE_WIDTH_PX = 1.5;
 const CONSTELLATION_LINE_HALO_WIDTH_PX = 5;
+const CONSTELLATION_LINES_TEXTURE_KEY = 'result:constellationLines';
+const CONSTELLATION_TIP_TEXTURE_KEY = 'result:constellationTip';
 const CONSTELLATION_SHIMMER_ALPHA = 0.15;
 const CONSTELLATION_PULSE_SCALE = 1.6;
 const FULL_COMBO_LABEL_GAP_PX = 32;
@@ -234,13 +244,13 @@ export class ResultScene extends Phaser.Scene {
           switch (action) {
             case 'left':
             case 'right':
-              controller.stepDifficulty(action === 'left' ? -1 : 1);
+              controller.stepDifficulty(action === 'left' ? 'previous' : 'next');
               return;
             case 'up':
-              controller.moveFocus(-1);
+              controller.moveFocus('previous');
               return;
             case 'down':
-              controller.moveFocus(1);
+              controller.moveFocus('next');
               return;
             case 'confirm':
               controller.confirm();
@@ -257,7 +267,7 @@ export class ResultScene extends Phaser.Scene {
     );
     chrome.renderAccount(this.account.getIdentity());
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
-    const { song, laneCount, difficulty, chartId, origin, report, result, ranking } = data;
+    const { song, laneCount, difficulty, chartId, level, origin, report, result, ranking } = data;
     const presentation = getResultPresentation(origin.mode, result);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
@@ -430,6 +440,7 @@ export class ResultScene extends Phaser.Scene {
         laneCount,
         difficulty,
         chartId,
+        level,
       },
       origin,
       ranking,
@@ -446,12 +457,19 @@ export class ResultScene extends Phaser.Scene {
   ): ResultSummary {
     const rank = this.createRank(presentation.rank);
     const rankBounds = rank.bounds;
-    const scoreText = this.add.text(
-      LEFT_X_PX,
-      SCORE_Y_PX,
-      formatScore(0),
-      textStyle('number', COLORS.textPrimary),
-    );
+    const scoreText = new GlyphText(this, {
+      fontKey: SCORE_GLYPH_FONT_KEY,
+      style: textStyle('number', COLORS.textPrimary),
+      chars: '0123456789,',
+      xPx: LEFT_X_PX,
+      yPx: SCORE_Y_PX,
+      originX: 0,
+      originY: 0,
+      text: formatScore(0),
+      depth: 0,
+    });
+    // 결과 점수 스타일은 외곽선이 없어 레이어가 하나다.
+    const scoreLayer = requireDefined(scoreText.layers[0], 'Missing result score glyph layer');
     const accuracyText = this.add.text(
       LEFT_X_PX,
       STATS_Y_PX,
@@ -474,7 +492,7 @@ export class ResultScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
     maxComboValue.setX(maxComboLabel.x + maxComboLabel.width + MAX_COMBO_VALUE_GAP_PX);
     rank.targets.forEach((text) => text.setAlpha(0).setScale(RANK_REVEAL_SCALE));
-    scoreText.setAlpha(0);
+    scoreLayer.setAlpha(0);
     return {
       metaLabels: [
         difficulty.toUpperCase(),
@@ -491,7 +509,7 @@ export class ResultScene extends Phaser.Scene {
             SCORE_COUNT_DELAY_MS + SCORE_COUNT_DURATION_MS,
           ),
           rankBounds,
-          scoreText.getBounds(),
+          scoreLayer.getBounds(),
         );
         this.tweens.add({
           targets: rank.targets,
@@ -508,10 +526,10 @@ export class ResultScene extends Phaser.Scene {
           duration: SCORE_COUNT_DURATION_MS,
           delay: SCORE_COUNT_DELAY_MS,
           ease: 'Cubic.Out',
-          onStart: () => scoreText.setAlpha(1),
+          onStart: () => scoreLayer.setAlpha(1),
           onUpdate: (_tween, _target, _key, current: number) =>
-            scoreText.setText(formatScore(Math.round(current))),
-          onComplete: () => scoreText.setText(formatScore(result.score)),
+            scoreText.render(formatScore(Math.round(current))),
+          onComplete: () => scoreText.render(formatScore(result.score)),
         });
         if (presentation.hasFullComboLabel) {
           this.revealFullCombo(rankBounds, accentColor);
@@ -643,6 +661,12 @@ export class ResultScene extends Phaser.Scene {
       case 'controlsClose':
         view.chrome.renderControlsClose(getResultControlsCloseView(state));
         return;
+      case 'controlsHelpCard':
+        view.chrome.renderControlsHelpCard(isControlsHelpShown(state));
+        return;
+      case 'controlsHelpButton':
+        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(state));
+        return;
       case 'accountButton':
         view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));
         return;
@@ -672,7 +696,7 @@ export class ResultScene extends Phaser.Scene {
       }
       case 'controls':
         view.chrome.renderControls(
-          state.isControlsOpen
+          isControlsPanelOpen(state)
             ? getControlsGuide(
                 this.i18n.t('controls', { returnObjects: true }),
                 this.save.loadSettings(),
@@ -790,38 +814,95 @@ export class ResultScene extends Phaser.Scene {
       }
     }
 
-    const lines = this.add.graphics();
-    const drawLines = (elapsedMs: number): void => {
-      lines.clear();
-      getConstellationLines(plan, elapsedMs).forEach(({ fromXPx, fromYPx, toXPx, toYPx }) => {
-        if (glow !== null) {
-          lines
-            .lineStyle(CONSTELLATION_LINE_HALO_WIDTH_PX, accent, glow.lineHalo)
-            .lineBetween(fromXPx, fromYPx, toXPx, toYPx);
+    // 매 프레임 전체를 다시 긋지 않도록 다 이은 edge 는 lines 에 한 번만 남기고, 잇는 중인 edge 는 tip 에 새 조각만 덧붙인다.
+    // 선의 질감 결은 그리는 좌표로 정해지므로 두 텍스처를 같은 정수 px 자리에 겹쳐 결이 이어지게 한다.
+    let minXPx = Infinity;
+    let minYPx = Infinity;
+    let maxXPx = -Infinity;
+    let maxYPx = -Infinity;
+    for (const { xPx, yPx } of [plan.accent, ...plan.others]) {
+      minXPx = Math.min(minXPx, xPx);
+      minYPx = Math.min(minYPx, yPx);
+      maxXPx = Math.max(maxXPx, xPx);
+      maxYPx = Math.max(maxYPx, yPx);
+    }
+    const leftPx = Math.floor(minXPx - CONSTELLATION_LINE_HALO_WIDTH_PX);
+    const topPx = Math.floor(minYPx - CONSTELLATION_LINE_HALO_WIDTH_PX);
+    const widthPx = Math.ceil(maxXPx + CONSTELLATION_LINE_HALO_WIDTH_PX) - leftPx;
+    const heightPx = Math.ceil(maxYPx + CONSTELLATION_LINE_HALO_WIDTH_PX) - topPx;
+    const addLineTexture = (key: string): Phaser.Textures.CanvasTexture => {
+      const texture = requireDefined(
+        this.textures.createCanvas(key, widthPx, heightPx) ?? undefined,
+        'Constellation line texture key in use',
+        key,
+      );
+      this.add.image(leftPx, topPx, texture).setOrigin(0, 0);
+      return texture;
+    };
+    const lines = addLineTexture(CONSTELLATION_LINES_TEXTURE_KEY);
+    const tip = addLineTexture(CONSTELLATION_TIP_TEXTURE_KEY);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.textures.remove(CONSTELLATION_LINES_TEXTURE_KEY);
+      this.textures.remove(CONSTELLATION_TIP_TEXTURE_KEY);
+    });
+    const strokeLine = (
+      texture: Phaser.Textures.CanvasTexture,
+      fromXPx: number,
+      fromYPx: number,
+      toXPx: number,
+      toYPx: number,
+    ): void => {
+      const context = texture.getContext();
+      const line = {
+        fromXPx: fromXPx - leftPx,
+        fromYPx: fromYPx - topPx,
+        toXPx: toXPx - leftPx,
+        toYPx: toYPx - topPx,
+      };
+      if (glow !== null) {
+        strokeCanvasLine(context, line, {
+          widthPx: CONSTELLATION_LINE_HALO_WIDTH_PX,
+          color: accent,
+          alpha: glow.lineHalo,
+        });
+      }
+      strokeGrainedCanvasLine(context, line, {
+        widthPx: CONSTELLATION_LINE_CORE_WIDTH_PX,
+        color: COLORS.note,
+        alpha: lineCore,
+      });
+      texture.refresh();
+    };
+    const extendLines = (fromElapsedMs: number, toElapsedMs: number): void => {
+      plan.edges.forEach(({ from, to, startMs, endMs }) => {
+        const startReach = getProgress(fromElapsedMs, startMs, endMs);
+        const endReach = getProgress(toElapsedMs, startMs, endMs);
+        const isFinishedNow = startReach < 1 && endReach === 1;
+        if (isFinishedNow) {
+          tip.clear();
+          strokeLine(lines, from.xPx, from.yPx, to.xPx, to.yPx);
+        } else if (endReach > startReach) {
+          strokeLine(
+            tip,
+            lerp(from.xPx, to.xPx, startReach),
+            lerp(from.yPx, to.yPx, startReach),
+            lerp(from.xPx, to.xPx, endReach),
+            lerp(from.yPx, to.yPx, endReach),
+          );
         }
-        strokeGrainedLine(
-          lines,
-          {
-            fromXPx,
-            fromYPx,
-            toXPx,
-            toYPx,
-          },
-          {
-            widthPx: CONSTELLATION_LINE_CORE_WIDTH_PX,
-            color: COLORS.note,
-            alpha: lineCore,
-          },
-        );
       });
     };
+    let drawnElapsedMs = 0;
     this.tweens.addCounter({
       from: 0,
       to: plan.drawEndMs,
       duration: plan.drawEndMs,
       delay: CONSTELLATION_DELAY_MS,
-      onUpdate: (_tween, _target, _key, current: number) => drawLines(current),
-      onComplete: () => drawLines(plan.drawEndMs),
+      onUpdate: (_tween, _target, _key, current: number) => {
+        extendLines(drawnElapsedMs, current);
+        drawnElapsedMs = current;
+      },
+      onComplete: () => extendLines(drawnElapsedMs, plan.drawEndMs),
     });
   }
 

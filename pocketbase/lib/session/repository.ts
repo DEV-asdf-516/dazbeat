@@ -261,7 +261,7 @@ export function saveBestScore(
   runtime: Pick<JsvmRuntime, 'Record'>,
   tx: JsvmApp,
   target: { readonly key: ScoreKey; readonly record: JsvmRecord | undefined },
-  result: Pick<FinishedGameplayResult, 'score' | 'accuracy' | 'maxCombo' | 'counts' | 'cleared'>,
+  result: Pick<FinishedGameplayResult, 'score' | 'accuracy' | 'maxCombo' | 'counts'>,
   achievedAtMs: number,
 ): void {
   const { key } = target;
@@ -275,7 +275,6 @@ export function saveBestScore(
   record.set('score', result.score);
   record.set('accuracy', result.accuracy);
   record.set('maxCombo', result.maxCombo);
-  record.set('cleared', result.cleared);
   record.set('counts', result.counts);
   record.set('achievedAt', new Date(achievedAtMs).toISOString());
   tx.save(record);

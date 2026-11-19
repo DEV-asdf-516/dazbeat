@@ -48,6 +48,7 @@ describe('charts.revision', () => {
   it('is the SHA-256 of the stored data and ignores a forged revision on create', async () => {
     const data = fakeChartData('revision', 'easy');
     const created = await editor.client.collection('charts').create({
+      level: 1,
       song: song.id,
       difficulty: 'easy',
       laneCount: 4,
@@ -64,6 +65,7 @@ describe('charts.revision', () => {
     const changed = fakeChartData('revision', 'normal', 1_500);
     const charts = editor.client.collection('charts');
     const created = await charts.create({
+      level: 1,
       song: song.id,
       difficulty: 'normal',
       laneCount: 4,
@@ -94,6 +96,7 @@ describe('charts.revision', () => {
   it('is recomputed on superuser updates too', async () => {
     const data = fakeChartData('revision', 'hard');
     const created = await server.superuser.collection('charts').create({
+      level: 1,
       song: song.id,
       difficulty: 'hard',
       laneCount: 4,
@@ -111,6 +114,7 @@ describe('charts laneCount', () => {
     const charts = editor.client.collection('charts');
     await expect(
       charts.create({
+        level: 1,
         song: song.id,
         difficulty: 'expert',
         laneCount: 5,
@@ -119,6 +123,7 @@ describe('charts laneCount', () => {
     ).rejects.toMatchObject({ status: 400 });
     await expect(
       charts.create({
+        level: 1,
         song: song.id,
         difficulty: 'expert',
         laneCount: 4,
@@ -145,6 +150,7 @@ describe('charts laneCount', () => {
     const data = fakeChartData('revision', 'expert', 1_000, 6);
     const charts = editor.client.collection('charts');
     const created = await charts.create({
+      level: 1,
       song: song.id,
       difficulty: 'expert',
       laneCount: 6,
@@ -172,6 +178,112 @@ describe('charts laneCount', () => {
     });
     expect(stored['revision']).toBe(created['revision']);
   });
+});
+
+describe('charts level', () => {
+  const invalidLevel = {
+    status: 400,
+    response: { data: { level: { code: 'invalid_level' } } },
+  };
+  let levelSong: RecordModel;
+
+  beforeAll(async () => {
+    levelSong = await createSong(server.superuser, 'level');
+  });
+
+  it('stores a half step level on create and update', async () => {
+    const charts = editor.client.collection('charts');
+    const created = await charts.create({
+      song: levelSong.id,
+      difficulty: 'easy',
+      laneCount: 4,
+      data: fakeChartData('level', 'easy'),
+      level: 3.5,
+    });
+    expect(created['level']).toBe(3.5);
+
+    const updated = await charts.update(created.id, {
+      level: 5,
+      baseRevision: String(created['revision']),
+    });
+    expect(updated['level']).toBe(5);
+  });
+
+  it.each([undefined, 0])('rejects creating a chart with level %s', async (level) => {
+    await expect(
+      editor.client.collection('charts').create({
+        song: levelSong.id,
+        difficulty: 'normal',
+        laneCount: 4,
+        data: fakeChartData('level', 'normal'),
+        level,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('keeps the revision when only the level changes', async () => {
+    const charts = editor.client.collection('charts');
+    const created = await charts.create({
+      song: levelSong.id,
+      difficulty: 'hard',
+      laneCount: 4,
+      data: fakeChartData('level', 'hard'),
+      level: 1,
+    });
+
+    const updated = await charts.update(created.id, {
+      level: 2.5,
+      baseRevision: String(created['revision']),
+    });
+
+    expect(updated['level']).toBe(2.5);
+    expect(updated['revision']).toBe(created['revision']);
+  });
+
+  it.each([2.3, 6, 0.7, 0])(
+    'rejects creating and updating a chart with level %s',
+    async (level) => {
+      const charts = editor.client.collection('charts');
+      await expect(
+        charts.create({
+          song: levelSong.id,
+          difficulty: 'expert',
+          laneCount: 4,
+          data: fakeChartData('level', 'expert'),
+          level,
+        }),
+      ).rejects.toMatchObject(invalidLevel);
+      await expect(
+        server.superuser.collection('charts').create({
+          song: levelSong.id,
+          difficulty: 'expert',
+          laneCount: 4,
+          data: fakeChartData('level', 'expert'),
+          level,
+        }),
+      ).rejects.toMatchObject(invalidLevel);
+
+      const created = await charts.create({
+        song: levelSong.id,
+        difficulty: 'expert',
+        laneCount: 4,
+        data: fakeChartData('level', 'expert'),
+        level: 1,
+      });
+      await expect(
+        charts.update(created.id, {
+          level,
+          baseRevision: String(created['revision']),
+        }),
+      ).rejects.toMatchObject(invalidLevel);
+      await expect(
+        server.superuser.collection('charts').update(created.id, { level }),
+      ).rejects.toMatchObject(invalidLevel);
+      const stored = await server.superuser.collection('charts').getOne(created.id);
+      expect(stored['level']).toBe(1);
+      await server.superuser.collection('charts').delete(created.id);
+    },
+  );
 });
 
 describe('charts full validation', () => {
@@ -272,6 +384,7 @@ describe('charts full validation', () => {
   it('accepts a valid chart on create and update', async () => {
     const charts = editor.client.collection('charts');
     const created = await charts.create({
+      level: 1,
       song: otherSong.id,
       difficulty: 'easy',
       laneCount: 4,
@@ -290,6 +403,7 @@ describe('charts full validation', () => {
     for (const data of invalidData()) {
       await expect(
         charts.create({
+          level: 1,
           song: validationSong.id,
           difficulty: 'normal',
           laneCount: 4,
@@ -307,6 +421,7 @@ describe('charts full validation', () => {
   it('rejects a superuser creating an invalid chart', async () => {
     await expect(
       server.superuser.collection('charts').create({
+        level: 1,
         song: validationSong.id,
         difficulty: 'normal',
         laneCount: 4,
@@ -322,6 +437,7 @@ describe('charts full validation', () => {
     const data = fakeChartData('validation', 'normal');
     const charts = editor.client.collection('charts');
     const created = await charts.create({
+      level: 1,
       song: validationSong.id,
       difficulty: 'normal',
       laneCount: 4,
@@ -380,6 +496,7 @@ describe('charts save conflicts', () => {
 
   async function createConflictChart(difficulty: string): Promise<RecordModel> {
     return editor.client.collection('charts').create({
+      level: 1,
       song: conflictSong.id,
       difficulty,
       laneCount: 4,

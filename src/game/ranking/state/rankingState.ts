@@ -6,6 +6,7 @@ import type { Difficulty } from '../../../rhythm/types.js';
 import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import { clamp } from '../../../range.js';
+import type { ListDirection } from '../../../range.js';
 import {
   getButtonView,
   hoverButton,
@@ -18,12 +19,16 @@ import {
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
   getControlsCloseView,
+  getControlsHelpButtonView,
   isControlsEntryHovered,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+  leaveControlsButton,
   withControlsOpen,
 } from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
 import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
-import type { ControlsButton } from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
 import type { MenuAction } from '../../ui/state/menuAction.js';
 import type { TabAppearance } from '../../ui/state/tabAppearance.js';
@@ -31,7 +36,7 @@ import { getPlainRankValue, getRankValue, getTopRankTier } from '../../ui/state/
 import type { TopRankTier } from '../../ui/state/topRank.js';
 
 /** 곡 선택 목록과 같은 줄 수로, 씬은 곡 선택과 같은 줄 배치로 그린다. */
-export const RANKING_VISIBLE_ROWS = 9;
+export const RANKING_VISIBLE_ROWS = 8;
 
 export type BoardLoad =
   | { readonly kind: 'loading' }
@@ -60,13 +65,13 @@ interface RankingFields {
 
 export type RankingState = RankingFields &
   (
-    | { readonly dialog: RankingDialog | 'none'; readonly isControlsOpen: false }
-    | { readonly dialog: 'none'; readonly isControlsOpen: true }
+    | { readonly dialog: RankingDialog | 'none'; readonly controls: 'closed' }
+    | { readonly dialog: 'none'; readonly controls: Exclude<ControlsPanel, 'closed'> }
   );
 
 export type RankingAction =
   | { readonly kind: 'scroll'; readonly rows: number }
-  | { readonly kind: 'difficulty'; readonly step: 1 | -1 }
+  | { readonly kind: 'difficulty'; readonly direction: ListDirection }
   | { readonly kind: 'back' }
   | { readonly kind: 'retry' }
   | { readonly kind: 'closeDialog' };
@@ -113,7 +118,7 @@ export function createRankingState(
     dialog: 'none',
     noticedRevisions,
     hover: null,
-    isControlsOpen: false,
+    controls: 'closed',
   };
 }
 
@@ -134,8 +139,8 @@ export function selectRankingDifficulty(state: RankingState, difficulty: Difficu
   return chart === undefined ? state : withChart(state, chart);
 }
 
-export function stepRankingDifficulty(state: RankingState, step: 1 | -1): RankingState {
-  return withChart(state, stepChart(state.chart, step));
+export function stepRankingDifficulty(state: RankingState, direction: ListDirection): RankingState {
+  return withChart(state, stepChart(state.chart, direction));
 }
 
 function getBoardEntries({ top, me }: Leaderboard): Leaderboard['top'] {
@@ -168,7 +173,7 @@ function openDialog(state: RankingState, dialog: RankingDialog): RankingState {
   return {
     ...state,
     dialog,
-    isControlsOpen: false,
+    controls: 'closed',
     hover: withControlsOpen(state, false).hover,
   };
 }
@@ -296,13 +301,13 @@ export function readRankingKey(
     case 'previousTab':
       return {
         kind: 'difficulty',
-        step: -1,
+        direction: 'previous',
       };
     case 'right':
     case 'nextTab':
       return {
         kind: 'difficulty',
-        step: 1,
+        direction: 'next',
       };
     case 'back':
       return { kind: 'back' };
@@ -335,7 +340,7 @@ export function hoverRankingButton(state: RankingState, button: RankingButton): 
 }
 
 export function unhoverRankingButton(state: RankingState, button: RankingButton): RankingState {
-  return withHover(state, unhoverButton(state.hover, button));
+  return leaveControlsButton(withHover(state, unhoverButton(state.hover, button)), button);
 }
 
 export function pressRankingButton(state: RankingState, button: RankingButton): RankingState {
@@ -481,7 +486,9 @@ export type RankingRegion =
   | 'controls'
   | 'controlsEntry'
   | 'accountButton'
-  | 'controlsClose';
+  | 'controlsClose'
+  | 'controlsHelpCard'
+  | 'controlsHelpButton';
 
 type RankingReader = StateReader<RankingState>;
 
@@ -491,7 +498,7 @@ const readTopRow: RankingReader = (state) => state.topRow;
 const readChart: RankingReader = (state) => state.chart;
 const readHoveredDifficulty: RankingReader = getHoveredDifficulty;
 const readDialog: RankingReader = (state) => state.dialog;
-const readControlsOpen: RankingReader = (state) => state.isControlsOpen;
+const readControlsOpen: RankingReader = (state) => isControlsPanelOpen(state);
 const readHovered =
   (button: RankingButton): RankingReader =>
   (state) =>
@@ -520,6 +527,8 @@ const REGION_SOURCES: Readonly<Record<RankingRegion, readonly RankingReader[]>> 
   controlsEntry: [readHovered('controlsEntry')],
   accountButton: [(state) => getAccountPanelPointerKey(state.hover)],
   controlsClose: [readHovered('controlsClose'), readPressed('controlsClose')],
+  controlsHelpCard: [isControlsHelpShown],
+  controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
 };
 
 export function getChangedRegions(

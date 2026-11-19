@@ -2,13 +2,17 @@ import Phaser from 'phaser';
 import { ZODIACS } from '../../../data/songs.js';
 import type { Zodiac } from '../../../data/songs.js';
 import { requireDefined } from '../../../invariant.js';
-import { cycleItem, getDistance, getProgress, lerp } from '../../../range.js';
+import { cycleItemBy, getDistance, getProgress, lerp } from '../../../range.js';
 import type { CelestialCatalog } from '../../celestial/state/celestialCatalog.js';
 import { requireCelestialTexture } from '../../celestial/view/celestialSprites.js';
 import type { CelestialTextureUse } from '../../celestial/view/celestialSprites.js';
 import { ZODIAC_FIGURES, fitZodiacFigure } from '../../celestial/state/zodiacFigures.js';
 import type { FigurePoint } from '../../celestial/state/zodiacFigures.js';
-import { getZodiacSign, strokeZodiacLine } from '../../celestial/view/zodiacSign.js';
+import {
+  ZODIAC_LINE_MARGIN_PX,
+  getZodiacSign,
+  strokeZodiacLine,
+} from '../../celestial/view/zodiacSign.js';
 import { GAMEPLAY_DEPTH, isReducedMotionPreferred } from '../../ui/view/theme.js';
 
 // 곡 선택 화면과 같은 밤하늘·질감을 깔아 곡 선택에서 보던 하늘이 이어지게 한다.
@@ -32,13 +36,17 @@ const LINK_EDGE_MS = 220;
 const DIM_STAR_ALPHA = 0.3;
 const DIM_LINE_ALPHA = 0.15;
 const FADE_MS = 600;
+const LINE_TEXTURE_SIZE_PX = (SPAN_PX / 2 + ZODIAC_LINE_MARGIN_PX) * 2;
 
 interface ChartSign {
   order: number;
   angleRad: number;
   holder: Phaser.GameObjects.Container;
   stars: Phaser.GameObjects.Image;
-  lines: Phaser.GameObjects.Graphics;
+  lines: Phaser.GameObjects.Image;
+  tip: Phaser.GameObjects.Image;
+  linesTexture: Phaser.Textures.CanvasTexture;
+  tipTexture: Phaser.Textures.CanvasTexture;
   points: readonly FigurePoint[];
   edges: readonly (readonly [from: number, to: number])[];
 }
@@ -58,6 +66,9 @@ export class IntroStarChart {
   private readonly turn = { rad: 0 };
   private readonly visibility = { value: 0 };
   private fade: Phaser.Tweens.Tween | null = null;
+  // 배경이 가려진 동안 멈췄다 이어 가도록 진행 중인 별자리 흐름만 든다.
+  private readonly runningTweens = new Set<Phaser.Tweens.Tween>();
+  private readonly runningTimers = new Set<Phaser.Time.TimerEvent>();
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -91,20 +102,27 @@ export class IntroStarChart {
     const fitToView = (): void => this.fitToView();
     fitToView();
     scene.scale.on(Phaser.Scale.Events.RESIZE, fitToView);
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
-      scene.scale.off(Phaser.Scale.Events.RESIZE, fitToView),
-    );
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      scene.scale.off(Phaser.Scale.Events.RESIZE, fitToView);
+      this.signs.forEach((sign) => this.removeLineTextures(sign));
+    });
     this.applyVisibility();
 
     if (isReducedMotionPreferred()) {
-      drawLines(first, first.edges.length);
+      extendLines(first, 0, first.edges.length);
       return;
     }
-    scene.time.delayedCall(LINK_DELAY_MS, () => this.link(first));
+    this.schedule(LINK_DELAY_MS, () => this.link(first));
     this.driftPast(first);
   }
 
   render(isShown: boolean): void {
+    if (isShown) {
+      this.runningTweens.forEach((tween) => tween.resume());
+      this.runningTimers.forEach((timer) => {
+        timer.paused = false;
+      });
+    }
     this.fade?.stop();
     this.fade = this.scene.tweens.add({
       targets: this.visibility,
@@ -112,13 +130,31 @@ export class IntroStarChart {
       duration: FADE_MS,
       ease: 'Sine.InOut',
       onUpdate: () => this.applyVisibility(),
+      onComplete: () => {
+        if (isShown) {
+          return;
+        }
+        this.runningTweens.forEach((tween) => tween.pause());
+        this.runningTimers.forEach((timer) => {
+          timer.paused = true;
+        });
+      },
     });
   }
 
   private addSign(order: number): ChartSign {
-    const zodiac = cycleItem(ZODIACS, this.zodiac, order);
+    const zodiac = cycleItemBy(ZODIACS, this.zodiac, order);
     const figure = ZODIAC_FIGURES[zodiac];
     const angleRad = order * SIGN_STEP_RAD;
+    const addLineTexture = (key: string): Phaser.Textures.CanvasTexture =>
+      requireDefined(
+        this.scene.textures.createCanvas(key, LINE_TEXTURE_SIZE_PX, LINE_TEXTURE_SIZE_PX) ??
+          undefined,
+        'Zodiac line texture key in use',
+        key,
+      );
+    const linesTexture = addLineTexture(`introChart:lines:${order}`);
+    const tipTexture = addLineTexture(`introChart:tip:${order}`);
     const sign: ChartSign = {
       order,
       angleRad,
@@ -131,11 +167,14 @@ export class IntroStarChart {
       stars: this.scene.add
         .image(0, 0, getZodiacSign(this.scene, zodiac, SPAN_PX).textureKey)
         .setBlendMode(Phaser.BlendModes.SCREEN),
-      lines: this.scene.add.graphics(),
+      lines: this.scene.add.image(0, 0, linesTexture),
+      tip: this.scene.add.image(0, 0, tipTexture),
+      linesTexture,
+      tipTexture,
       points: fitZodiacFigure(figure, 0, 0, SPAN_PX),
       edges: figure.edges,
     };
-    sign.holder.add([sign.stars, sign.lines]);
+    sign.holder.add([sign.stars, sign.lines, sign.tip]);
     this.chart.add(sign.holder);
     this.signs.push(sign);
     this.applyPan();
@@ -143,13 +182,29 @@ export class IntroStarChart {
   }
 
   private link(sign: ChartSign): void {
-    this.scene.tweens.addCounter({
+    let drawnLinked = 0;
+    const tween = this.scene.tweens.addCounter({
       from: 0,
       to: sign.edges.length,
       duration: sign.edges.length * LINK_EDGE_MS,
-      onUpdate: (_tween, _target, _key, linked: number) => drawLines(sign, linked),
-      onComplete: () => drawLines(sign, sign.edges.length),
+      onUpdate: (_tween, _target, _key, linked: number) => {
+        extendLines(sign, drawnLinked, linked);
+        drawnLinked = linked;
+      },
+      onComplete: () => {
+        this.runningTweens.delete(tween);
+        extendLines(sign, drawnLinked, sign.edges.length);
+      },
     });
+    this.runningTweens.add(tween);
+  }
+
+  private schedule(delayMs: number, callback: () => void): void {
+    const timer = this.scene.time.delayedCall(delayMs, () => {
+      this.runningTimers.delete(timer);
+      callback();
+    });
+    this.runningTimers.add(timer);
   }
 
   private driftPast(sign: ChartSign): void {
@@ -165,16 +220,28 @@ export class IntroStarChart {
         0,
         this.signs.findIndex(({ order }) => order >= sign.order - 1),
       )
-      .forEach(({ holder }) => holder.destroy());
-    this.scene.time.delayedCall(STEP_MS * LINK_LEAD_FRACTION, () => this.link(next));
-    this.scene.tweens.add({
+      .forEach((removed) => {
+        removed.holder.destroy();
+        this.removeLineTextures(removed);
+      });
+    this.schedule(STEP_MS * LINK_LEAD_FRACTION, () => this.link(next));
+    const tween = this.scene.tweens.add({
       targets: this.turn,
       rad: next.angleRad,
       duration: STEP_MS,
       ease: 'Linear',
       onUpdate: () => this.applyPan(),
-      onComplete: () => this.driftPast(next),
+      onComplete: () => {
+        this.runningTweens.delete(tween);
+        this.driftPast(next);
+      },
     });
+    this.runningTweens.add(tween);
+  }
+
+  private removeLineTextures({ linesTexture, tipTexture }: ChartSign): void {
+    this.scene.textures.remove(linesTexture);
+    this.scene.textures.remove(tipTexture);
   }
 
   private fitToView(): void {
@@ -188,10 +255,12 @@ export class IntroStarChart {
 
   private applyPan(): void {
     this.chart.setRotation(-this.turn.rad);
-    this.signs.forEach(({ angleRad, stars, lines }) => {
+    this.signs.forEach(({ angleRad, stars, lines, tip }) => {
       const focus = 1 - getProgress(getDistance(angleRad, this.turn.rad), 0, SIGN_STEP_RAD);
       stars.setAlpha(lerp(DIM_STAR_ALPHA, 1, focus));
-      lines.setAlpha(lerp(DIM_LINE_ALPHA, 1, focus));
+      const lineAlpha = lerp(DIM_LINE_ALPHA, 1, focus);
+      lines.setAlpha(lineAlpha);
+      tip.setAlpha(lineAlpha);
     });
   }
 
@@ -204,25 +273,42 @@ export class IntroStarChart {
 }
 
 // edge 는 앞에서 나온 별에서 이어지는 순서라 앞에서부터 차례로 그으면 한 붓으로 이어지듯 보인다.
-function drawLines(sign: ChartSign, linked: number): void {
-  sign.lines.clear();
-  sign.edges.forEach(([from, to], index) => {
-    const reach = getProgress(linked, index, index + 1);
-    if (reach === 0) {
-      return;
-    }
+// 매 프레임 전체를 다시 긋지 않도록 다 이은 edge 는 lines 에 한 번만 남기고, 잇는 중인 edge 는 tip 에 새 조각만 덧붙인다.
+function extendLines(sign: ChartSign, fromLinked: number, toLinked: number): void {
+  const centerPx = LINE_TEXTURE_SIZE_PX / 2;
+  for (
+    let index = Math.floor(fromLinked);
+    index < toLinked && index < sign.edges.length;
+    index += 1
+  ) {
+    const [from, to] = requireDefined(sign.edges[index], 'Missing zodiac edge', index);
     const [fromXPx, fromYPx] = requireDefined(
       sign.points[from],
       'Zodiac edge outside the figure',
       from,
     );
     const [toXPx, toYPx] = requireDefined(sign.points[to], 'Zodiac edge outside the figure', to);
-    strokeZodiacLine(
-      sign.lines,
-      fromXPx,
-      fromYPx,
-      lerp(fromXPx, toXPx, reach),
-      lerp(fromYPx, toYPx, reach),
-    );
-  });
+    const startReach = getProgress(fromLinked, index, index + 1);
+    const endReach = getProgress(toLinked, index, index + 1);
+    if (endReach === 1) {
+      sign.tipTexture.clear();
+      strokeZodiacLine(
+        sign.linesTexture.getContext(),
+        centerPx + fromXPx,
+        centerPx + fromYPx,
+        centerPx + toXPx,
+        centerPx + toYPx,
+      );
+      sign.linesTexture.refresh();
+    } else if (endReach > startReach) {
+      strokeZodiacLine(
+        sign.tipTexture.getContext(),
+        centerPx + lerp(fromXPx, toXPx, startReach),
+        centerPx + lerp(fromYPx, toYPx, startReach),
+        centerPx + lerp(fromXPx, toXPx, endReach),
+        centerPx + lerp(fromYPx, toYPx, endReach),
+      );
+      sign.tipTexture.refresh();
+    }
+  }
 }

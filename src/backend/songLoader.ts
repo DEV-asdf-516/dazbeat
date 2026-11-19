@@ -2,12 +2,12 @@ import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { z } from 'zod';
 import { toParseIssue } from '../data/parseIssue.js';
-import { DIFFICULTIES, SONG_CATEGORIES, ZODIACS } from '../data/songs.js';
+import { CHART_LEVELS, DIFFICULTIES, SONG_CATEGORIES, ZODIACS } from '../data/songs.js';
 import type {
-  ChartIds,
   Song,
   SongBatch,
   SongBatchCursor,
+  SongCharts,
   SongQuery,
   SongScope,
 } from '../data/songs.js';
@@ -17,7 +17,7 @@ import { LANE_COUNTS } from '../rhythm/lanes.js';
 import { isFiniteNumber, isOneOf, isString } from '../typeGuards.js';
 import { readRecordField } from './recordField.js';
 
-const SONG_CHARTS = backRelation(CHARTS, 'song', ['id', 'difficulty', 'laneCount']);
+const SONG_CHARTS = backRelation(CHARTS, 'song', ['id', 'difficulty', 'laneCount', 'level']);
 const SONG_SEARCH_PATH = '/api/dazbeat/songs/search';
 
 const isCategory = isOneOf(SONG_CATEGORIES);
@@ -27,6 +27,7 @@ const chartRecord = z.object({
   id: z.string(),
   difficulty: z.enum(DIFFICULTIES),
   laneCount: z.literal(LANE_COUNTS),
+  level: z.literal(CHART_LEVELS),
 });
 
 // 차트가 없는 곡은 PocketBase 가 expand 나 charts_via_song 을 빼고 보낸다.
@@ -53,20 +54,23 @@ function isCredit(value: unknown): value is string[] | null {
   return value === null || (Array.isArray(value) && value.every(isString));
 }
 
-function readChartIds(record: RecordModel): ChartIds {
+function readCharts(record: RecordModel): SongCharts {
   const result = chartsExpand.safeParse(record.expand);
   if (!result.success) {
     const { path, reason } = toParseIssue(result.error, 'expand');
     throw new Error(`Invalid songs record ${record.id}: ${path} ${reason}`);
   }
-  const chartIds: ChartIds = {};
-  (result.data?.charts_via_song ?? []).forEach(({ id, difficulty, laneCount }) => {
-    chartIds[laneCount] = {
-      ...chartIds[laneCount],
-      [difficulty]: id,
+  const charts: SongCharts = {};
+  (result.data?.charts_via_song ?? []).forEach(({ id, difficulty, laneCount, level }) => {
+    charts[laneCount] = {
+      ...charts[laneCount],
+      [difficulty]: {
+        id,
+        level,
+      },
     };
   });
-  return chartIds;
+  return charts;
 }
 
 function parseSongRecord(pb: PocketBase, record: RecordModel): Song {
@@ -82,7 +86,7 @@ function parseSongRecord(pb: PocketBase, record: RecordModel): Song {
     constellation: readRecordField(record, 'songs', 'constellation', isZodiac),
     gameStartMs: readRecordField(record, 'songs', 'gameStartMs', isFiniteNumber),
     gameEndMs: readRecordField(record, 'songs', 'gameEndMs', isFiniteNumber),
-    chartIds: readChartIds(record),
+    charts: readCharts(record),
     ...(previewStartMs === 0 ? {} : { previewStartMs }),
     ...(credit === null ? {} : { credit }),
   };
@@ -102,6 +106,9 @@ export async function loadSongBatch(
       ...(query.title === '' ? {} : { title: query.title }),
       ...(query.category === 'all' ? {} : { category: query.category }),
       ...(scope === 'all' ? { scope: 'all' } : {}),
+      laneCount: query.level?.laneCount,
+      minLevel: query.level?.min,
+      maxLevel: query.level?.max,
       afterReleasedOn: cursor?.releasedOn,
       afterId: cursor?.recordId,
     },

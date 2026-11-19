@@ -25,7 +25,12 @@ import {
 } from '../celestial/view/celestialSprites.js';
 import { renderZodiacFigure } from '../celestial/view/zodiacSign.js';
 import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
-import { getControlsGuide } from '../app/controlsGuide.js';
+import {
+  getControlsGuide,
+  getControlsHelpButtonView,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+} from '../app/controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type { ProfileSceneData, SceneRequest } from '../app/sceneRoutes.js';
 import { STAYING } from '../app/sceneExit.js';
@@ -56,8 +61,7 @@ import { bindHoverTarget, bindPointer, pointButton } from '../ui/view/input/hove
 import { getBrushRectTexture } from '../ui/view/textures/brushRect.js';
 import { addTextUnderline, placeTextUnderline } from '../ui/view/widgets/cometUnderline.js';
 import { getSortIconTexture } from '../ui/view/widgets/listControlIcons.js';
-import { createCanvasTexture } from '../ui/view/textures/canvasTexture.js';
-import { ICON_GRAIN, applyGrain, getGrainedImageTexture } from '../ui/view/textures/grain.js';
+import { getGrainedImageTexture } from '../ui/view/textures/grain.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { MENU_KEY_HINT_STYLE, addKeyHintRow } from '../ui/view/widgets/keyHintView.js';
@@ -80,7 +84,6 @@ import {
   setTextColor,
   setTextWeight,
   textStyle,
-  cssColor,
   typeStyle,
 } from '../ui/view/theme.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
@@ -91,6 +94,7 @@ import {
 } from '../ui/view/widgets/listRowFocus.js';
 import type { TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import { ProfileController } from './ProfileController.js';
+import { ensureRowChevronTexture } from './view/profileTextures.js';
 import type { ProfilePorts } from './ProfileController.js';
 import {
   getAccountDeletion,
@@ -273,6 +277,8 @@ const ROW_HEIGHT_PX = 90;
 const SET_ROW_WIDTH_PX = 900;
 const VALUE_RIGHT_X_PX = LEFT_X_PX + 800;
 const RANKING_ROW_HEIGHT_PX = 60;
+// 늦은 응답을 기다리는 동안 직전 목록이 지금 결과가 아님을 보인다.
+const RANKING_DIMMED_ALPHA = 0.5;
 const RANKING_ROWS_TOP_Y_PX = ROWS_TOP_Y_PX + 52;
 const RANKING_CONTROL_CENTER_Y_PX = ROWS_TOP_Y_PX + 16;
 const RANKING_CONTROL_HEIGHT_PX = 44;
@@ -321,9 +327,6 @@ const SET_NODE_IDLE_ID = 'R15';
 const SET_NODE_HOVER_ID = 'R16';
 const SET_NODE_SELECTED_ID = 'R17';
 const CHEVRON_CENTER_X_PX = LEFT_X_PX + 884;
-const CHEVRON_HALF_HEIGHT_PX = 9;
-const CHEVRON_STROKE_PX = 2;
-const ROW_CHEVRON_TEXTURE_KEY = 'ui:profile-row-chevron';
 const FOCUS_STAR_ID = 'R49';
 const FOCUS_STAR_GAP_PX = 24;
 const SELECTED_HALO_ID = 'R29';
@@ -404,7 +407,7 @@ interface RankingFilterView {
 interface RankingRowView {
   badge: TopRankBadge;
   zodiacStars: Phaser.GameObjects.Image;
-  zodiacLines: Phaser.GameObjects.Graphics;
+  zodiacLines: Phaser.GameObjects.Image;
   title: Phaser.GameObjects.Text;
   chart: Phaser.GameObjects.Text;
   score: Phaser.GameObjects.Text;
@@ -460,6 +463,7 @@ interface ProfileView {
   focusStar: Phaser.GameObjects.Sprite;
   rankings: Phaser.GameObjects.Container;
   rankingRows: readonly RankingRowView[];
+  rankingRowsLayer: Phaser.GameObjects.Container;
   rankingSortControl: RankingControlView;
   rankingFilters: readonly RankingFilterView[];
   rankingsScrollBar: ScrollBar;
@@ -497,22 +501,6 @@ interface ProfileViewActions {
   readonly hover: (hover: ProfileTarget) => void;
   readonly unhover: (hover: ProfileTarget) => void;
   readonly pointer: ButtonPointer<ProfileButton>;
-}
-
-function ensureRowChevronTexture(scene: Phaser.Scene): string {
-  const widthPx = CHEVRON_HALF_HEIGHT_PX + CHEVRON_STROKE_PX * 2;
-  const heightPx = CHEVRON_HALF_HEIGHT_PX * 2 + CHEVRON_STROKE_PX * 2;
-  createCanvasTexture(scene, ROW_CHEVRON_TEXTURE_KEY, widthPx, heightPx, (context) => {
-    context.strokeStyle = cssColor(COLORS.textSecondary);
-    context.lineWidth = CHEVRON_STROKE_PX;
-    context.beginPath();
-    context.moveTo(CHEVRON_STROKE_PX, CHEVRON_STROKE_PX);
-    context.lineTo(CHEVRON_STROKE_PX + CHEVRON_HALF_HEIGHT_PX, heightPx / 2);
-    context.lineTo(CHEVRON_STROKE_PX, heightPx - CHEVRON_STROKE_PX);
-    context.stroke();
-    applyGrain(context, widthPx, heightPx, ICON_GRAIN);
-  });
-  return ROW_CHEVRON_TEXTURE_KEY;
 }
 
 function formatNicknameCount(nickname: string): string {
@@ -716,10 +704,10 @@ export class ProfileScene extends Phaser.Scene {
         controller.back();
         return;
       case 'previousTab':
-        controller.switchTab(-1);
+        controller.switchTab('previous');
         return;
       case 'nextTab':
-        controller.switchTab(1);
+        controller.switchTab('next');
         return;
       case null:
         return;
@@ -946,7 +934,7 @@ export class ProfileScene extends Phaser.Scene {
           numberSizePx: RANKING_BADGE_NUMBER_SIZE_PX,
         }),
         zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
-        zodiacLines: this.add.graphics(),
+        zodiacLines: this.add.image(0, 0, '__DEFAULT'),
         title: text(RANKING_TITLE_X_PX, centerYPx, 'primary', COLORS.textPrimary).setOrigin(0, 0.5),
         chart: this.add
           .text(RANKING_CHART_X_PX, centerYPx, '', typeStyle(RANKING_DETAIL_TYPE, COLORS.textMuted))
@@ -1144,18 +1132,21 @@ export class ProfileScene extends Phaser.Scene {
       },
       retryPointer,
     );
+    const rankingRowsLayer = this.add.container(
+      0,
+      0,
+      rankingRows.flatMap(({ badge, zodiacStars, zodiacLines, title, chart, score, divider }) => [
+        ...badge.objects,
+        zodiacLines,
+        zodiacStars,
+        title,
+        chart,
+        score,
+        ...divider,
+      ]),
+    );
     const rankings = this.add.container(0, 0, [
-      ...rankingRows.flatMap(
-        ({ badge, zodiacStars, zodiacLines, title, chart, score, divider }) => [
-          ...badge.objects,
-          zodiacLines,
-          zodiacStars,
-          title,
-          chart,
-          score,
-          ...divider,
-        ],
-      ),
+      rankingRowsLayer,
       ...rankingsScrollBar.objects,
       rankingsNoticeText,
       ...rankingsFailure.objects,
@@ -1365,6 +1356,7 @@ export class ProfileScene extends Phaser.Scene {
       focusStar,
       rankings,
       rankingRows,
+      rankingRowsLayer,
       rankingSortControl,
       rankingFilters,
       rankingsScrollBar,
@@ -1411,7 +1403,7 @@ export class ProfileScene extends Phaser.Scene {
       switch (region) {
         case 'controls':
           chrome.renderControls(
-            screen.isControlsOpen
+            isControlsPanelOpen(screen)
               ? getControlsGuide(
                   this.i18n.t('controls', { returnObjects: true }),
                   this.save.loadSettings(),
@@ -1431,6 +1423,12 @@ export class ProfileScene extends Phaser.Scene {
           break;
         case 'controlsClose':
           chrome.renderControlsClose(getProfileControlsCloseView(screen));
+          break;
+        case 'controlsHelpCard':
+          chrome.renderControlsHelpCard(isControlsHelpShown(screen));
+          break;
+        case 'controlsHelpButton':
+          chrome.renderControlsHelpButton(getControlsHelpButtonView(screen));
           break;
         case 'accountButton':
           chrome.renderAccountButton(getProfileButtonView(screen, 'accountSignOut'));
@@ -1479,6 +1477,8 @@ export class ProfileScene extends Phaser.Scene {
       | 'retryButton'
       | 'controlsEntry'
       | 'controlsClose'
+      | 'controlsHelpCard'
+      | 'controlsHelpButton'
       | 'accountButton'
       | 'deleteEntry'
       | 'deleteDialog'
@@ -1664,8 +1664,9 @@ export class ProfileScene extends Phaser.Scene {
         });
         return;
       case 'rankings': {
-        const rows = getRankingRows(state);
+        const { rows, isDimmed } = getRankingRows(state);
         view.rankingRows.forEach((row, index) => this.renderRankingRow(row, rows[index] ?? null));
+        view.rankingRowsLayer.setAlpha(isDimmed ? RANKING_DIMMED_ALPHA : 1);
         return;
       }
       case 'rankingControls':
@@ -1942,7 +1943,7 @@ export class ProfileScene extends Phaser.Scene {
     view.detailEarnedLabel.setVisible(isEarned);
     view.detailEarnedDate.setVisible(isEarned);
     view.detailRule.forEach((object) => object.setVisible(isEarned));
-    if (earning.kind === 'earned') {
+    if (isEarned) {
       view.detailEarnedDate.setText(formatDate(earning.earnedAtMs));
     }
   }

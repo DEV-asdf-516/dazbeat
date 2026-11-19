@@ -286,7 +286,6 @@ function progressOf(snapshot: AchievementSnapshot, id: AchievementId) {
 function resultOf(overrides: Partial<FinishedGameplayResult> = {}): FinishedGameplayResult {
   return {
     outcome: 'finished',
-    cleared: true,
     score: 900_000,
     accuracy: 0.9,
     maxCombo: 100,
@@ -310,17 +309,6 @@ const PERFECT_COUNTS = {
 };
 
 describe('getPlayMarks', () => {
-  it('gives no mark to a finished play below clear', () => {
-    expect(
-      getPlayMarks(
-        resultOf({
-          cleared: false,
-          accuracy: 0.5,
-        }),
-      ),
-    ).toEqual([]);
-  });
-
   it('gives only clear to a cleared play without S, FULL COMBO or ALL PERFECT', () => {
     expect(getPlayMarks(resultOf())).toEqual(['clear']);
   });

@@ -36,7 +36,7 @@ export const ko = {
     loading: '곡 목록을 불러오는 중',
     loadingMore: '곡을 더 불러오는 중',
     loadFailed: '곡 목록을 불러오지 못했습니다.',
-    noRecord: '기록 없음',
+    noRecord: 'NO RECORD',
     recordsFailed: '기록을 불러오지 못했습니다.',
   },
   settings: {
@@ -76,9 +76,9 @@ export const ko = {
     backToEditor: '에디터로',
     quitTitle: '플레이를 그만둘까요?',
     quitConfirm: '이번 플레이 기록은 저장되지 않습니다.',
-    resyncFailedTitle: '음악과 다시 맞추지 못했습니다.',
+    resyncFailedTitle: '영상 동기화 실패',
     resyncFailedBody:
-      'CONTINUE 로 다시 시도할 수 있습니다. QUIT 하면 이번 플레이 기록은 저장되지 않습니다.',
+      'YouTube 영상 동기화에 실패했습니다. 그만두면 이번 플레이 기록은 저장되지 않습니다.',
   },
   chartEditorSelect: {
     title: 'CHART EDITOR',
@@ -111,6 +111,7 @@ export const ko = {
     invalidChartBody: '채보 검증 실패: {{reason}}',
     noteCount: '노트 {{count}}개',
     laneSection: '레인 수',
+    levelSection: '레벨',
     toolSection: '입력 도구',
     selectionSection: '선택한 노트',
   },

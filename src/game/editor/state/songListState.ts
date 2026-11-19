@@ -15,6 +15,7 @@ import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 import type { SongFeedStatus } from '../../app/SongFeed.js';
 import { readMenuAction } from '../../ui/state/menuAction.js';
+import type { ListDirection } from '../../../range.js';
 
 const IME_PROCESS_KEY_CODE = 229;
 
@@ -61,7 +62,7 @@ export interface ChartEditorSelectView {
 
 export type SongListCommand =
   | { readonly kind: 'move'; readonly delta: 1 | -1 }
-  | { readonly kind: 'cycleCategory'; readonly delta: 1 | -1 }
+  | { readonly kind: 'cycleCategory'; readonly direction: ListDirection }
   | { readonly kind: 'edit' }
   | { readonly kind: 'leave' }
   | { readonly kind: 'retry' }
@@ -275,12 +276,12 @@ export function readSongListCommand(
     case 'previousTab':
       return {
         kind: 'cycleCategory',
-        delta: -1,
+        direction: 'previous',
       };
     case 'nextTab':
       return {
         kind: 'cycleCategory',
-        delta: 1,
+        direction: 'next',
       };
     case 'left':
     case 'right':

@@ -160,6 +160,9 @@ export const TOP_RANK_COLORS: Record<
 
 /** Pretendard 에 일본어 한자·가나가 대부분 없어 일본어는 Noto Sans JP 로 넘긴다. */
 export const FONT_FAMILY = '"Pretendard Variable", "Noto Sans JP", sans-serif';
+// 순위와 등급은 획 끝이 둥근 글꼴로 기록 숫자와 구분한다. 굵기는 style.css 가 가져온 것만 쓴다.
+export const TOP_RANK_FONT_FAMILY = '"Fredoka", sans-serif';
+export const GRADE_FONT_FAMILY = '"Nunito", sans-serif';
 /**
  * Phaser 는 이 문자열을 그려 글자 높이를 잰다. 기본값은 라틴 글자뿐이라
  * 그보다 높은 한글·가나·한자 획(ㅓ·ㅝ 윗머리 등)이 캔버스 위로 잘린다.

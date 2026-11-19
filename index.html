@@ -10,6 +10,8 @@
   <body>
     <div id="mv-layer" inert></div>
     <div id="game"></div>
+    <!-- 지우면 60Hz 화면에서 노트가 끊겨 보인다. 이유는 style.css 의 #frame-pacing-pin -->
+    <div id="frame-pacing-pin" aria-hidden="true"></div>
     <div id="loading-shell">
       <img
         id="loading-backdrop"

@@ -1,4 +1,9 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
+import { requireDefined } from '../../../invariant.js';
+import { getLanes } from '../../../rhythm/lanes.js';
+import type { LaneCount } from '../../../rhythm/types.js';
+import { GAME_HEIGHT, GAME_WIDTH } from '../../app/config.js';
+import { bakeTexture } from '../../ui/view/textures/bakedTexture.js';
 import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
 import {
   fillGradient,
@@ -6,29 +11,48 @@ import {
   rgba,
   white,
 } from '../../ui/view/textures/lightTextures.js';
-import { COLORS, cssColor } from '../../ui/view/theme.js';
-import { REFERENCE_NOTE_PLATE } from '../state/playfieldLayout.js';
+import { CELESTIAL_COLORS, COLORS, cssColor } from '../../ui/view/theme.js';
+import { getPlayfieldTrapezoid, getPlayfieldXAtY } from '../state/playfieldLayout.js';
+import type { PlayfieldLayout, Trapezoid } from '../state/playfieldLayout.js';
+import { fillTrapezoid } from './trapezoidFill.js';
 
-// 사방 여백은 halo blur 가 잘리지 않을 만큼 둔다.
-const STAR_BUTTON_BODY_WIDTH_PX = REFERENCE_NOTE_PLATE.widthPx;
-const STAR_BUTTON_BODY_HEIGHT_PX = REFERENCE_NOTE_PLATE.heightPx;
-const STAR_BUTTON_PADDING_PX = 24;
-const STAR_BUTTON_TEXTURE_WIDTH_PX = STAR_BUTTON_BODY_WIDTH_PX + STAR_BUTTON_PADDING_PX * 2;
-const STAR_BUTTON_TEXTURE_HEIGHT_PX = STAR_BUTTON_BODY_HEIGHT_PX + STAR_BUTTON_PADDING_PX * 2;
-// 예전 판처럼 양 끝을 반원으로 둥글린다.
-const STAR_BUTTON_CORNER_RADIUS_PX = STAR_BUTTON_BODY_HEIGHT_PX / 2;
-const STAR_BUTTON_HALO_BLUR_PX = 16;
-const STAR_BUTTON_HALO_ALPHA = 0.4;
-const STAR_BUTTON_FACE_LIGHT_STOP = 0.4;
-const STAR_BUTTON_GLOSS_ALPHA = 0.95;
-const STAR_BUTTON_FRINGE_ALPHA = 0.8;
-// 별 notch 는 예전 14px 판의 모양을 지금 판 높이에 맞춰 키운 것이다.
-const STAR_BUTTON_NOTCH_SCALE = STAR_BUTTON_BODY_HEIGHT_PX / 14;
-const STAR_BUTTON_NOTCH_INSET_PX = 6 * STAR_BUTTON_NOTCH_SCALE;
-const STAR_BUTTON_NOTCH_OUTER_RADIUS_PX = 3 * STAR_BUTTON_NOTCH_SCALE;
-const STAR_BUTTON_NOTCH_INNER_RADIUS_PX = STAR_BUTTON_NOTCH_SCALE;
-const STAR_BUTTON_NOTCH_POINTS = 4;
-const STAR_BUTTON_NOTCH_HIGHLIGHT_ALPHA = 0.85;
+// 밝은 영상 위에서도 상단 HUD 가 읽히도록 화면 전체에 위가 짙고 아래로 사라지는 밤빛을 덮는다.
+const SKY_SCRIM_PROFILE: VerticalProfile = [
+  [0, 0.6],
+  [0.25, 0.25],
+  [1, 0],
+];
+const LANE_PANEL_ALPHA = 0.95;
+// 세로 프로필은 [화면 높이 비율, alpha] 정지점이고 정지점 사이는 선형이다.
+const LANE_PANEL_PROFILE: VerticalProfile = [
+  [0, 0.5],
+  [0.3, 0.85],
+  [0.7, 1],
+  [1, 1],
+];
+const LANE_LINE_PROFILE: VerticalProfile = [
+  [0, 0.45],
+  [0.2, 0.8],
+  [0.85, 1],
+  [1, 0.6],
+];
+const LANE_EDGE_SHADE_COLOR = 0x05080f;
+const LANE_EDGE_SHADE_WIDTH_PX = 10;
+const LANE_EDGE_SHADE_ALPHA = 0.85;
+const LANE_EDGE_SHADOW_COLOR = 0x04060c;
+const LANE_EDGE_SHADOW_WIDTH_PX = 10;
+const LANE_EDGE_SHADOW_ALPHA = 0.9;
+const LANE_BORDER_COLOR = 0xa9bedc;
+const LANE_BORDER_WIDTH_PX = 2;
+const LANE_BORDER_ALPHA = 0.75;
+const LANE_DIVIDER_WIDTH_PX = 2;
+const LANE_DIVIDER_ALPHA = 0.62;
+const LANE_DIVIDER_SHADE_WIDTH_PX = 8;
+const LANE_DIVIDER_SHADE_ALPHA = 0.8;
+const LANE_STRIPE_ALPHA = 0.28;
+const SKY_SCRIM_TEXTURE_KEY = 'gameplay:skyScrim';
+const LANE_CHROME_TEXTURE_KEY = 'gameplay:laneChrome';
+const LANE_DIVIDERS_TEXTURE_KEY = 'gameplay:laneDividers';
 // 채움 꼬리가 너무 꺼지면 짧은 채움(위험 단계)이 읽히지 않으므로 절반 남짓만 물린다.
 const STARLIGHT_FILL_TAIL_ALPHA = 0.55;
 // 가는 초승달이 16px 에서도 뭉개지지 않는 두께다.
@@ -37,86 +61,41 @@ const CRESCENT_CUT_OFFSET = {
   y: -0.2,
 } as const;
 const CRESCENT_CUT_RADIUS = 0.85;
-const JUDGE_LINE_TEXTURE_WIDTH_PX = 480;
-const JUDGE_LINE_TEXTURE_HEIGHT_PX = 2;
-const JUDGE_LINE_SHOULDER = 0.3;
-const JUDGE_LINE_SHOULDER_ALPHA = 0.7;
+const LANE_COLUMN_TEXTURE_WIDTH_PX = 64;
+const LANE_COLUMN_TEXTURE_HEIGHT_PX = 256;
 
-export interface StarButtonTextures {
-  readonly key: string;
-  readonly drainedKey: string;
-  readonly widthScale: number;
-  readonly heightScale: number;
-}
+type VerticalProfile = readonly (readonly [heightRatio: number, alpha: number])[];
 
-export function ensureStarButtonTextures(scene: Phaser.Scene): StarButtonTextures {
-  const key = 'light:starButton';
-  const drainedKey = 'light:starButton:drained';
+// 위로 갈수록 옅어지고 양 끝 띠가 감쇠하는 기둥을 한 번 구워 메시로 늘려 쓴다.
+// Mesh2D 는 타입 선언에 setTint 가 없어 색까지 텍스처에 굽는다.
+export function ensureLaneColumnTexture(
+  scene: Phaser.Scene,
+  edgeFadeRatio: number,
+  color: number,
+): string {
+  const key = `light:laneColumn:${edgeFadeRatio}:${color}`;
   createCanvasTexture(
     scene,
-    key,
-    STAR_BUTTON_TEXTURE_WIDTH_PX,
-    STAR_BUTTON_TEXTURE_HEIGHT_PX,
-    paintStarButton,
-  );
-  // Mesh2D 는 타입 선언에 setTint 가 없어 miss drain 색을 nightTrace 를 곱한 텍스처로 바꿔 낸다.
-  createCanvasTexture(
-    scene,
-    drainedKey,
-    STAR_BUTTON_TEXTURE_WIDTH_PX,
-    STAR_BUTTON_TEXTURE_HEIGHT_PX,
-    (context) => {
-      paintStarButton(context);
-      const image = context.getImageData(
-        0,
-        0,
-        STAR_BUTTON_TEXTURE_WIDTH_PX,
-        STAR_BUTTON_TEXTURE_HEIGHT_PX,
-      );
-      const { data } = image;
-      for (let i = 0; i < data.length; i += 4) {
-        const drained = drainColor(
-          ((data[i] ?? 0) << 16) | ((data[i + 1] ?? 0) << 8) | (data[i + 2] ?? 0),
-        );
-        data[i] = (drained >> 16) & 0xff;
-        data[i + 1] = (drained >> 8) & 0xff;
-        data[i + 2] = drained & 0xff;
-      }
-      context.putImageData(image, 0, 0);
+    {
+      key,
+      widthPx: LANE_COLUMN_TEXTURE_WIDTH_PX,
+      heightPx: LANE_COLUMN_TEXTURE_HEIGHT_PX,
     },
-  );
-  return {
-    key,
-    drainedKey,
-    widthScale: STAR_BUTTON_TEXTURE_WIDTH_PX / STAR_BUTTON_BODY_WIDTH_PX,
-    heightScale: STAR_BUTTON_TEXTURE_HEIGHT_PX / STAR_BUTTON_BODY_HEIGHT_PX,
-  };
-}
-
-export function ensureJudgeLineTexture(scene: Phaser.Scene): string {
-  const key = 'light:judgeLine';
-  createCanvasTexture(
-    scene,
-    key,
-    JUDGE_LINE_TEXTURE_WIDTH_PX,
-    JUDGE_LINE_TEXTURE_HEIGHT_PX,
     (context) => {
       fillGradient(
         context,
-        context.createLinearGradient(0, 0, JUDGE_LINE_TEXTURE_WIDTH_PX, 0),
+        context.createLinearGradient(0, 0, 0, LANE_COLUMN_TEXTURE_HEIGHT_PX),
         [
-          [0, cssColor(COLORS.noteShade)],
-          [0.5, white(1)],
-          [1, cssColor(COLORS.noteShade)],
+          [0, rgba(color, 0)],
+          [1, rgba(color, 1)],
         ],
-        JUDGE_LINE_TEXTURE_WIDTH_PX,
-        JUDGE_LINE_TEXTURE_HEIGHT_PX,
+        LANE_COLUMN_TEXTURE_WIDTH_PX,
+        LANE_COLUMN_TEXTURE_HEIGHT_PX,
       );
-      maskHorizontally(context, JUDGE_LINE_TEXTURE_WIDTH_PX, JUDGE_LINE_TEXTURE_HEIGHT_PX, [
+      maskHorizontally(context, LANE_COLUMN_TEXTURE_WIDTH_PX, LANE_COLUMN_TEXTURE_HEIGHT_PX, [
         [0, 0],
-        [JUDGE_LINE_SHOULDER, JUDGE_LINE_SHOULDER_ALPHA],
-        [0.5, 1],
-        [1 - JUDGE_LINE_SHOULDER, JUDGE_LINE_SHOULDER_ALPHA],
+        [edgeFadeRatio, 1],
+        [1 - edgeFadeRatio, 1],
         [1, 0],
       ]);
     },
@@ -131,99 +110,282 @@ export function ensureStarlightFillTexture(
   heightPx: number,
 ): string {
   const key = `light:starlightFill:${widthPx}x${heightPx}`;
-  createCanvasTexture(scene, key, widthPx, heightPx, (context) => {
-    const gradient = context.createLinearGradient(0, 0, widthPx, 0);
-    gradient.addColorStop(0, white(STARLIGHT_FILL_TAIL_ALPHA));
-    gradient.addColorStop(1, white(1));
-    context.fillStyle = gradient;
-    context.beginPath();
-    context.roundRect(0, 0, widthPx, heightPx, heightPx / 2);
-    context.fill();
-  });
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx,
+      heightPx,
+    },
+    (context) => {
+      const gradient = context.createLinearGradient(0, 0, widthPx, 0);
+      gradient.addColorStop(0, white(STARLIGHT_FILL_TAIL_ALPHA));
+      gradient.addColorStop(1, white(1));
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.roundRect(0, 0, widthPx, heightPx, heightPx / 2);
+      context.fill();
+    },
+  );
   return key;
 }
 
 export function ensureCrescentTexture(scene: Phaser.Scene, sizePx: number): string {
   const key = `light:crescent:${sizePx}`;
-  createCanvasTexture(scene, key, sizePx, sizePx, (context) => {
-    const radiusPx = sizePx / 2;
-    context.fillStyle = cssColor(COLORS.note);
-    context.beginPath();
-    context.arc(radiusPx, radiusPx, radiusPx, 0, Math.PI * 2);
-    context.fill();
-    context.globalCompositeOperation = 'destination-out';
-    context.beginPath();
-    context.arc(
-      radiusPx + radiusPx * CRESCENT_CUT_OFFSET.x,
-      radiusPx + radiusPx * CRESCENT_CUT_OFFSET.y,
-      radiusPx * CRESCENT_CUT_RADIUS,
-      0,
-      Math.PI * 2,
-    );
-    context.fill();
-  });
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx: sizePx,
+      heightPx: sizePx,
+    },
+    (context) => {
+      const radiusPx = sizePx / 2;
+      context.fillStyle = cssColor(COLORS.note);
+      context.beginPath();
+      context.arc(radiusPx, radiusPx, radiusPx, 0, Math.PI * 2);
+      context.fill();
+      context.globalCompositeOperation = 'destination-out';
+      context.beginPath();
+      context.arc(
+        radiusPx + radiusPx * CRESCENT_CUT_OFFSET.x,
+        radiusPx + radiusPx * CRESCENT_CUT_OFFSET.y,
+        radiusPx * CRESCENT_CUT_RADIUS,
+        0,
+        Math.PI * 2,
+      );
+      context.fill();
+    },
+  );
   return key;
 }
 
-function paintStarButton(context: CanvasRenderingContext2D): void {
-  const xPx = STAR_BUTTON_PADDING_PX;
-  const yPx = STAR_BUTTON_PADDING_PX;
-  const radiusPx = STAR_BUTTON_CORNER_RADIUS_PX;
-  const traceBody = (): void => {
-    context.beginPath();
-    context.roundRect(xPx, yPx, STAR_BUTTON_BODY_WIDTH_PX, STAR_BUTTON_BODY_HEIGHT_PX, radiusPx);
-  };
-  // halo 는 면의 그림자로만 만들고, 그 위를 gradient 면으로 다시 덮어 면 안쪽에는 남지 않게 한다.
-  context.save();
-  context.shadowColor = rgba(COLORS.holdRibbon, STAR_BUTTON_HALO_ALPHA);
-  context.shadowBlur = STAR_BUTTON_HALO_BLUR_PX;
-  context.fillStyle = cssColor(COLORS.note);
-  traceBody();
-  context.fill();
-  context.restore();
-
-  const face = context.createLinearGradient(0, yPx, 0, yPx + STAR_BUTTON_BODY_HEIGHT_PX);
-  face.addColorStop(0, white(1));
-  face.addColorStop(STAR_BUTTON_FACE_LIGHT_STOP, cssColor(COLORS.note));
-  face.addColorStop(1, cssColor(COLORS.noteShade));
-  context.fillStyle = face;
-  traceBody();
-  context.fill();
-
-  // 광택선과 fringe 는 둥근 모서리를 넘지 않도록 직선 구간에만 긋는다.
-  const lineWidthPx = STAR_BUTTON_BODY_WIDTH_PX - radiusPx * 2;
-  context.fillStyle = white(STAR_BUTTON_GLOSS_ALPHA);
-  context.fillRect(xPx + radiusPx, yPx + 1, lineWidthPx, 1);
-  context.fillStyle = rgba(COLORS.holdRibbon, STAR_BUTTON_FRINGE_ALPHA);
-  context.fillRect(xPx + radiusPx, yPx + STAR_BUTTON_BODY_HEIGHT_PX - 1, lineWidthPx, 1);
-
-  // 아래로 1px 밀린 밝은 별 위에 은빛 별을 얹어 살짝 눌린 emboss 로 보이게 한다.
-  const notchXPx = xPx + radiusPx + STAR_BUTTON_NOTCH_INSET_PX;
-  const notchYPx = yPx + STAR_BUTTON_BODY_HEIGHT_PX / 2;
-  context.fillStyle = white(STAR_BUTTON_NOTCH_HIGHLIGHT_ALPHA);
-  traceStar(context, notchXPx, notchYPx + 1);
-  context.fill();
-  context.fillStyle = cssColor(COLORS.noteShade);
-  traceStar(context, notchXPx, notchYPx);
-  context.fill();
+export function addSkyScrim(scene: Phaser.Scene): Phaser.GameObjects.Image {
+  const skyScrimGraphics = scene.make.graphics(undefined, false);
+  fillVerticalProfile(
+    skyScrimGraphics,
+    SKY_SCRIM_PROFILE,
+    (topYPx, bottomYPx) => ({
+      topYPx,
+      bottomYPx,
+      topLeftXPx: 0,
+      topRightXPx: GAME_WIDTH,
+      bottomLeftXPx: 0,
+      bottomRightXPx: GAME_WIDTH,
+    }),
+    CELESTIAL_COLORS.background,
+    {
+      left: 1,
+      right: 1,
+    },
+  );
+  return addBakedImage(scene, skyScrimGraphics, SKY_SCRIM_TEXTURE_KEY);
 }
 
-function traceStar(context: CanvasRenderingContext2D, centerXPx: number, centerYPx: number): void {
-  const vertexCount = STAR_BUTTON_NOTCH_POINTS * 2;
-  context.beginPath();
-  for (let i = 0; i < vertexCount; i++) {
-    const radiusPx =
-      i % 2 === 0 ? STAR_BUTTON_NOTCH_OUTER_RADIUS_PX : STAR_BUTTON_NOTCH_INNER_RADIUS_PX;
-    const angle = (Math.PI * i) / STAR_BUTTON_NOTCH_POINTS - Math.PI / 2;
-    context.lineTo(centerXPx + radiusPx * Math.cos(angle), centerYPx + radiusPx * Math.sin(angle));
+export function addLaneChrome(
+  scene: Phaser.Scene,
+  playfield: PlayfieldLayout,
+  laneCount: LaneCount,
+): Phaser.GameObjects.Image {
+  const laneChromeGraphics = scene.make.graphics(undefined, false);
+  fillVerticalProfile(
+    laneChromeGraphics,
+    LANE_PANEL_PROFILE,
+    (topYPx, bottomYPx) =>
+      getPlayfieldTrapezoid(
+        playfield,
+        playfield.leftPx,
+        playfield.leftPx + playfield.widthPx,
+        topYPx,
+        bottomYPx,
+      ),
+    CELESTIAL_COLORS.background,
+    {
+      left: LANE_PANEL_ALPHA,
+      right: LANE_PANEL_ALPHA,
+    },
+  );
+  // 어두운 테두리와 그 바깥 그림자를 경계선 아래에 깔아 레인 가장자리를 배경에서 떼어 낸다.
+  const leftEdgeXPx = playfield.leftPx;
+  const rightEdgeXPx = playfield.leftPx + playfield.widthPx;
+  const shadeHalfPx = LANE_EDGE_SHADE_WIDTH_PX / 2;
+  const shadowOuterPx = shadeHalfPx + LANE_EDGE_SHADOW_WIDTH_PX;
+  [leftEdgeXPx, rightEdgeXPx].forEach((xPx) =>
+    fillVerticalProfile(
+      laneChromeGraphics,
+      LANE_LINE_PROFILE,
+      getLineBand(playfield, xPx, -shadeHalfPx, shadeHalfPx),
+      LANE_EDGE_SHADE_COLOR,
+      {
+        left: LANE_EDGE_SHADE_ALPHA,
+        right: LANE_EDGE_SHADE_ALPHA,
+      },
+    ),
+  );
+  fillVerticalProfile(
+    laneChromeGraphics,
+    LANE_LINE_PROFILE,
+    getLineBand(playfield, leftEdgeXPx, -shadowOuterPx, -shadeHalfPx),
+    LANE_EDGE_SHADOW_COLOR,
+    {
+      left: 0,
+      right: LANE_EDGE_SHADOW_ALPHA,
+    },
+  );
+  fillVerticalProfile(
+    laneChromeGraphics,
+    LANE_LINE_PROFILE,
+    getLineBand(playfield, rightEdgeXPx, shadeHalfPx, shadowOuterPx),
+    LANE_EDGE_SHADOW_COLOR,
+    {
+      left: LANE_EDGE_SHADOW_ALPHA,
+      right: 0,
+    },
+  );
+  [leftEdgeXPx, rightEdgeXPx].forEach((xPx) =>
+    fillVerticalProfile(
+      laneChromeGraphics,
+      LANE_LINE_PROFILE,
+      getLineBand(playfield, xPx, -LANE_BORDER_WIDTH_PX / 2, LANE_BORDER_WIDTH_PX / 2),
+      LANE_BORDER_COLOR,
+      {
+        left: LANE_BORDER_ALPHA,
+        right: LANE_BORDER_ALPHA,
+      },
+    ),
+  );
+  getLanes(laneCount)
+    .filter((lane) => lane % 2 === 1)
+    .forEach((lane) =>
+      fillVerticalProfile(
+        laneChromeGraphics,
+        LANE_PANEL_PROFILE,
+        (topYPx, bottomYPx) =>
+          getPlayfieldTrapezoid(
+            playfield,
+            getLaneBoundaryXPx(playfield, lane),
+            getLaneBoundaryXPx(playfield, lane + 1),
+            topYPx,
+            bottomYPx,
+          ),
+        CELESTIAL_COLORS.surfaceHover,
+        {
+          left: LANE_STRIPE_ALPHA,
+          right: LANE_STRIPE_ALPHA,
+        },
+      ),
+    );
+  getLaneDividerXsPx(playfield, laneCount).forEach((xPx) =>
+    fillVerticalProfile(
+      laneChromeGraphics,
+      LANE_LINE_PROFILE,
+      getLineBand(
+        playfield,
+        xPx,
+        -LANE_DIVIDER_SHADE_WIDTH_PX / 2,
+        LANE_DIVIDER_SHADE_WIDTH_PX / 2,
+      ),
+      LANE_EDGE_SHADE_COLOR,
+      {
+        left: LANE_DIVIDER_SHADE_ALPHA,
+        right: LANE_DIVIDER_SHADE_ALPHA,
+      },
+    ),
+  );
+  return addBakedImage(scene, laneChromeGraphics, LANE_CHROME_TEXTURE_KEY);
+}
+
+export function addLaneDividers(
+  scene: Phaser.Scene,
+  playfield: PlayfieldLayout,
+  laneCount: LaneCount,
+): Phaser.GameObjects.Image {
+  const laneDividersGraphics = scene.make.graphics(undefined, false);
+  getLaneDividerXsPx(playfield, laneCount).forEach((xPx) =>
+    fillVerticalProfile(
+      laneDividersGraphics,
+      LANE_LINE_PROFILE,
+      getLineBand(playfield, xPx, -LANE_DIVIDER_WIDTH_PX / 2, LANE_DIVIDER_WIDTH_PX / 2),
+      LANE_BORDER_COLOR,
+      {
+        left: LANE_DIVIDER_ALPHA,
+        right: LANE_DIVIDER_ALPHA,
+      },
+    ),
+  );
+  return addBakedImage(scene, laneDividersGraphics, LANE_DIVIDERS_TEXTURE_KEY);
+}
+
+// 정적인 배경 Graphics 는 보이는 동안 매 프레임 명령 전체를 다시 처리하므로 한 번 구운 이미지로 바꿔 둔다.
+function addBakedImage(
+  scene: Phaser.Scene,
+  graphics: Phaser.GameObjects.Graphics,
+  key: string,
+): Phaser.GameObjects.Image {
+  if (scene.textures.exists(key)) {
+    scene.textures.remove(key);
   }
-  context.closePath();
+  bakeTexture(
+    scene,
+    {
+      key,
+      widthPx: GAME_WIDTH,
+      heightPx: GAME_HEIGHT,
+    },
+    (texture) => {
+      texture.draw(graphics, 0, 0);
+      return [graphics];
+    },
+  );
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => scene.textures.remove(key));
+  return scene.add.image(0, 0, key).setOrigin(0, 0);
 }
 
-// miss drain 은 색을 채널마다 nightTrace 와 곱해 밤하늘 쪽으로 가라앉힌다.
-export function drainColor(color: number): number {
-  return [16, 8, 0].reduce((product, shift) => {
-    const channel = (((color >> shift) & 0xff) * ((COLORS.nightTrace >> shift) & 0xff)) / 0xff;
-    return product | (Math.round(channel) << shift);
-  }, 0);
+function fillVerticalProfile(
+  graphics: Phaser.GameObjects.Graphics,
+  profile: VerticalProfile,
+  getBand: (topYPx: number, bottomYPx: number) => Trapezoid,
+  color: number,
+  sideAlphas: { readonly left: number; readonly right: number },
+): void {
+  profile.slice(1).forEach(([bottomRatio, bottomAlpha], index) => {
+    const [topRatio, topAlpha] = requireDefined(profile[index], 'Missing profile stop', index);
+    fillTrapezoid(graphics, getBand(topRatio * GAME_HEIGHT, bottomRatio * GAME_HEIGHT), color, {
+      topLeft: topAlpha * sideAlphas.left,
+      topRight: topAlpha * sideAlphas.right,
+      bottomLeft: bottomAlpha * sideAlphas.left,
+      bottomRight: bottomAlpha * sideAlphas.right,
+    });
+  });
+}
+
+// 선은 레인 폭에 비례해 가늘어지지 않고 높이와 무관하게 같은 화면 폭으로 그린다.
+function getLineBand(
+  playfield: PlayfieldLayout,
+  boundaryXPx: number,
+  leftOffsetPx: number,
+  rightOffsetPx: number,
+): (topYPx: number, bottomYPx: number) => Trapezoid {
+  return (topYPx, bottomYPx) => {
+    const topXPx = getPlayfieldXAtY(playfield, boundaryXPx, topYPx);
+    const bottomXPx = getPlayfieldXAtY(playfield, boundaryXPx, bottomYPx);
+    return {
+      topYPx,
+      bottomYPx,
+      topLeftXPx: topXPx + leftOffsetPx,
+      topRightXPx: topXPx + rightOffsetPx,
+      bottomLeftXPx: bottomXPx + leftOffsetPx,
+      bottomRightXPx: bottomXPx + rightOffsetPx,
+    };
+  };
+}
+
+function getLaneBoundaryXPx(playfield: PlayfieldLayout, boundary: number): number {
+  return playfield.leftPx + playfield.laneWidthPx * boundary;
+}
+
+function getLaneDividerXsPx(playfield: PlayfieldLayout, laneCount: LaneCount): readonly number[] {
+  return getLanes(laneCount)
+    .slice(1)
+    .map((boundary) => getLaneBoundaryXPx(playfield, boundary));
 }

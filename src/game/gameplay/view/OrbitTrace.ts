@@ -1,4 +1,5 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
+import { bakeTexture } from '../../ui/view/textures/bakedTexture.js';
 import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
 import { COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
 
@@ -14,6 +15,7 @@ const PASSED_GLOW_HEIGHT_PX = 6;
 const PASSED_GLOW_ALPHA = 0.05;
 const ANCHOR_RADIUS_PX = 3;
 const ANCHOR_ALPHA = 0.8;
+const ANCHOR_TEXTURE_KEY = `gameplay:orbitAnchor:${ANCHOR_RADIUS_PX}`;
 const STAR_SIZE_PX = 24;
 
 // 시간 정보라 노트보다 낮은 에너지로 그리고 스스로 반짝이지 않는다.
@@ -39,11 +41,31 @@ export class OrbitTrace {
       .setOrigin(0, 0.5)
       .setAlpha(TRACK_ALPHA)
       .setDepth(depth);
+    const anchorSizePx = ANCHOR_RADIUS_PX * 2;
+    bakeTexture(
+      scene,
+      {
+        key: ANCHOR_TEXTURE_KEY,
+        widthPx: anchorSizePx,
+        heightPx: anchorSizePx,
+      },
+      (texture) => {
+        const anchor = new Phaser.GameObjects.Arc(
+          scene,
+          ANCHOR_RADIUS_PX,
+          ANCHOR_RADIUS_PX,
+          ANCHOR_RADIUS_PX,
+          0,
+          360,
+          false,
+          COLORS.noteShade,
+        );
+        texture.draw(anchor);
+        return [anchor];
+      },
+    );
     [leftXPx, leftXPx + widthPx].forEach((xPx) => {
-      scene.add
-        .circle(xPx, yPx, ANCHOR_RADIUS_PX, COLORS.noteShade)
-        .setAlpha(ANCHOR_ALPHA)
-        .setDepth(depth);
+      scene.add.image(xPx, yPx, ANCHOR_TEXTURE_KEY).setAlpha(ANCHOR_ALPHA).setDepth(depth);
     });
     this.passedGlow = scene.add
       .rectangle(leftXPx, yPx, 0, PASSED_GLOW_HEIGHT_PX, COLORS.note)

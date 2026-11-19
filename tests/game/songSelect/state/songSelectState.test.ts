@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { ALL_SONGS_QUERY } from '../../../../src/data/songs.js';
 import type { Song } from '../../../../src/data/songs.js';
+import { SongFeed } from '../../../../src/game/app/SongFeed.js';
 import type { Difficulty } from '../../../../src/rhythm/types.js';
 import { recordKey } from '../../../../src/storage/chartRecords.js';
 import type { ChartRecord, ChartRecords } from '../../../../src/storage/chartRecords.js';
-import { withControlsOpen } from '../../../../src/game/app/controlsGuide.js';
+import {
+  clickControlsHelp,
+  isControlsHelpShown,
+  withControlsOpen,
+} from '../../../../src/game/app/controlsGuide.js';
 import {
   canSelectRandomSong,
   createSongSelectState,
@@ -13,6 +19,7 @@ import {
   getJacketRange,
   getLoadingMoreAnchor,
   getPageIndicator,
+  getSelectedLevel,
   getSelectedRecord,
   getShiftedRowSlots,
   getPlayableSelection,
@@ -21,9 +28,10 @@ import {
   getSongDifficultyAppearance,
   getSongRowNodeId,
   getSongSelectNotice,
-  getSongSelectTarget,
+  getSongSelectRestore,
   hoverSongSelectButton,
   pressSongSelectButton,
+  unhoverSongSelectButton,
   isOnLastLoadedPage,
   moveDifficulty,
   moveSong,
@@ -42,7 +50,7 @@ import type {
   SongSelectView,
 } from '../../../../src/game/songSelect/state/songSelectState.js';
 
-function makeSong(id: string, category: Song['category'], chartIds: Song['chartIds']): Song {
+function makeSong(id: string, category: Song['category'], charts: Song['charts']): Song {
   return {
     id,
     title: id,
@@ -53,7 +61,7 @@ function makeSong(id: string, category: Song['category'], chartIds: Song['chartI
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    chartIds,
+    charts,
   };
 }
 
@@ -71,22 +79,46 @@ function difficultyOf(state: SongSelectState): Difficulty | null {
 
 const FULL_SONG = makeSong('full', 'original', {
   4: {
-    easy: 'easy.json',
-    normal: 'normal.json',
-    hard: 'hard.json',
-    expert: 'expert.json',
+    easy: {
+      id: 'easy.json',
+      level: 1,
+    },
+    normal: {
+      id: 'normal.json',
+      level: 1,
+    },
+    hard: {
+      id: 'hard.json',
+      level: 1,
+    },
+    expert: {
+      id: 'expert.json',
+      level: 1,
+    },
   },
 });
 const EASY_HARD_SONG = makeSong('easy-hard', 'original', {
   4: {
-    easy: 'easy.json',
-    hard: 'hard.json',
+    easy: {
+      id: 'easy.json',
+      level: 1,
+    },
+    hard: {
+      id: 'hard.json',
+      level: 1,
+    },
   },
 });
 const COVER_SONG = makeSong('cover', 'cover', {
   4: {
-    normal: 'normal.json',
-    hard: 'hard.json',
+    normal: {
+      id: 'normal.json',
+      level: 1,
+    },
+    hard: {
+      id: 'hard.json',
+      level: 1,
+    },
   },
 });
 const NO_CHART_SONG = makeSong('no-chart', 'original', {});
@@ -96,13 +128,11 @@ const PLAYED: ChartRecord = {
   score: 500000,
   accuracy: 0.8,
   maxCombo: 40,
-  cleared: false,
 };
 const CLEARED: ChartRecord = {
   score: 900000,
   accuracy: 0.95,
   maxCombo: 120,
-  cleared: true,
 };
 
 function nodeIds(rows: readonly SongRowView[]): (string | null)[] {
@@ -236,7 +266,14 @@ describe('selectRandomSong', () => {
   });
 
   it('picks only songs with charts of the state lane count', () => {
-    const FIVE_LANE_SONG = makeSong('five-lane', 'original', { 5: { easy: 'easy-5k.json' } });
+    const FIVE_LANE_SONG = makeSong('five-lane', 'original', {
+      5: {
+        easy: {
+          id: 'easy-5k.json',
+          level: 1,
+        },
+      },
+    });
     const state = createSongSelectState([FULL_SONG, FIVE_LANE_SONG, COVER_SONG], 'all', 4);
 
     expect(songOf(selectRandomSong(state, () => 0))).toBe(COVER_SONG);
@@ -259,10 +296,10 @@ describe('moveDifficulty', () => {
     const state = selectSong(createSongSelectState(SONGS, 'all', 4), 1);
 
     expect(difficultyOf(state)).toBe('easy');
-    expect(difficultyOf(moveDifficulty(state, -1))).toBe('easy');
-    const hard = moveDifficulty(state, 1);
+    expect(difficultyOf(moveDifficulty(state, 'previous'))).toBe('easy');
+    const hard = moveDifficulty(state, 'next');
     expect(difficultyOf(hard)).toBe('hard');
-    expect(difficultyOf(moveDifficulty(hard, 1))).toBe('hard');
+    expect(difficultyOf(moveDifficulty(hard, 'next'))).toBe('hard');
   });
 });
 
@@ -277,7 +314,7 @@ describe('song without charts', () => {
       chart: null,
     });
     expect(getPlayableSelection(state)).toBeNull();
-    expect(moveDifficulty(state, 1)).toBe(state);
+    expect(moveDifficulty(state, 'next')).toBe(state);
     expect(selectDifficulty(state, 'easy')).toBe(state);
     expect(
       getSongDifficultyAppearance(
@@ -350,7 +387,7 @@ describe('withFilter', () => {
 
 describe('createSongSelectState with a restore target', () => {
   const pageSongs: readonly Song[] = Array.from({ length: 12 }, (_, index) =>
-    makeSong(`song-${index}`, 'cover', index === 7 ? COVER_SONG.chartIds : FULL_SONG.chartIds),
+    makeSong(`song-${index}`, 'cover', index === 7 ? COVER_SONG.charts : FULL_SONG.charts),
   );
 
   it('finds the song by id even when its position changed', () => {
@@ -436,11 +473,14 @@ describe('createSongSelectState with a restore target', () => {
   });
 });
 
-describe('getSongSelectTarget', () => {
-  it('returns the position, song id and difficulty of the selected chart', () => {
+describe('getSongSelectRestore', () => {
+  const feed = new SongFeed(ALL_SONGS_QUERY, () => Promise.reject(new Error('Not used')));
+
+  it('returns the feed with the position, song id and difficulty of the selected chart', () => {
     const state = selectDifficulty(moveSong(createSongSelectState(SONGS, 'all', 4), 1), 'hard');
 
-    expect(getSongSelectTarget(state)).toEqual({
+    expect(getSongSelectRestore(state, feed)).toEqual({
+      feed,
       index: 1,
       songId: EASY_HARD_SONG.id,
       difficulty: 'hard',
@@ -450,7 +490,8 @@ describe('getSongSelectTarget', () => {
   it('has no difficulty for a song without charts', () => {
     const state = moveSong(createSongSelectState([FULL_SONG, NO_CHART_SONG], 'all', 4), 1);
 
-    expect(getSongSelectTarget(state)).toEqual({
+    expect(getSongSelectRestore(state, feed)).toEqual({
+      feed,
       index: 1,
       songId: NO_CHART_SONG.id,
       difficulty: null,
@@ -460,7 +501,8 @@ describe('getSongSelectTarget', () => {
   it('returns the remembered difficulty without a song', () => {
     const onHard = selectDifficulty(createSongSelectState(ORIGINAL_SONGS, 'all', 4), 'hard');
 
-    expect(getSongSelectTarget(withFilter(onHard, 'cover', []))).toEqual({
+    expect(getSongSelectRestore(withFilter(onHard, 'cover', []), feed)).toEqual({
+      feed,
       index: 0,
       songId: null,
       difficulty: 'hard',
@@ -475,7 +517,7 @@ describe('immutability', () => {
 
     moveSong(initial, 1);
     selectSong(initial, 2);
-    moveDifficulty(initial, 1);
+    moveDifficulty(initial, 'next');
     selectDifficulty(initial, 'hard');
     withFilter(initial, 'cover', [COVER_SONG]);
     withSongs(initial, [...SONGS, NO_CHART_SONG]);
@@ -491,6 +533,7 @@ describe('getPlayableSelection', () => {
       laneCount: 4,
       difficulty: 'easy',
       chartId: 'easy.json',
+      level: 1,
     });
   });
 
@@ -505,48 +548,29 @@ describe('getPlayableSelection', () => {
 });
 
 describe('getSongRowNodeId', () => {
-  const played: ChartRecord = {
-    score: 500000,
-    accuracy: 0.8,
-    maxCombo: 40,
-    cleared: false,
-  };
-  const cleared: ChartRecord = {
-    score: 900000,
-    accuracy: 0.95,
-    maxCombo: 120,
-    cleared: true,
-  };
-
   it('shows selected regardless of record', () => {
     expect(getSongRowNodeId('selected', null)).toBe('R17');
-    expect(getSongRowNodeId('selected', played)).toBe('R17');
-    expect(getSongRowNodeId('selected', cleared)).toBe('R17');
+    expect(getSongRowNodeId('selected', CLEARED)).toBe('R17');
   });
 
   it('shows hover over the persistent state', () => {
     expect(getSongRowNodeId('hovered', null)).toBe('R16');
-    expect(getSongRowNodeId('hovered', played)).toBe('R16');
-    expect(getSongRowNodeId('hovered', cleared)).toBe('R16');
+    expect(getSongRowNodeId('hovered', CLEARED)).toBe('R16');
   });
 
   it('shows idle without a record', () => {
     expect(getSongRowNodeId('idle', null)).toBe('R15');
   });
 
-  it('shows played for a record that is not cleared', () => {
-    expect(getSongRowNodeId('idle', played)).toBe('C:node-played');
-  });
-
-  it('shows cleared for a cleared record', () => {
-    expect(getSongRowNodeId('idle', cleared)).toBe('R18');
+  it('shows cleared for a record', () => {
+    expect(getSongRowNodeId('idle', CLEARED)).toBe('R18');
   });
 });
 
 describe('getSongRows', () => {
   const songs = (count: number): readonly Song[] =>
     Array.from({ length: count }, (_, index) =>
-      makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+      makeSong(`song-${index}`, 'original', FULL_SONG.charts),
     );
   const songAndSelection = (rows: readonly SongRowView[]) =>
     rows.map((row) => (row.kind === 'song' ? [row.song, row.appearance] : null));
@@ -567,6 +591,7 @@ describe('getSongRows', () => {
         appearance: 'selected',
         nodeId: 'R17',
         topRank: null,
+        level: 1,
       },
       {
         kind: 'song',
@@ -574,6 +599,7 @@ describe('getSongRows', () => {
         appearance: 'idle',
         nodeId: 'R15',
         topRank: null,
+        level: 1,
       },
       { kind: 'empty' },
     ]);
@@ -636,7 +662,7 @@ describe('getSongRows', () => {
     expect(nodeIds(getSongRows(withLocalRecords(onNormal, records), 3))).toEqual([
       'R17',
       'R15',
-      'C:node-played',
+      'R18',
     ]);
   });
 
@@ -648,6 +674,7 @@ describe('getSongRows', () => {
         appearance: 'selected',
         nodeId: 'R17',
         topRank: null,
+        level: null,
       },
       {
         kind: 'song',
@@ -655,8 +682,80 @@ describe('getSongRows', () => {
         appearance: 'idle',
         nodeId: 'R15',
         topRank: null,
+        level: null,
       },
     ]);
+  });
+});
+
+describe('chart levels', () => {
+  const LEVELED_SONG = makeSong('leveled', 'original', {
+    4: {
+      easy: {
+        id: 'leveled-easy',
+        level: 2,
+      },
+      hard: {
+        id: 'leveled-hard',
+        level: 4.5,
+      },
+      expert: {
+        id: 'leveled-expert',
+        level: 1,
+      },
+    },
+    5: {
+      easy: {
+        id: 'leveled-easy-5k',
+        level: 1.5,
+      },
+    },
+  });
+  const OTHER_LEVELED_SONG = makeSong('other-leveled', 'cover', {
+    4: {
+      hard: {
+        id: 'other-hard',
+        level: 3,
+      },
+    },
+  });
+  const levels = (state: SongSelectState) =>
+    getSongRows(state, 3).map((row) => (row.kind === 'song' ? row.level : undefined));
+
+  it('is the level of the lane count and selected difficulty chart in each row and the detail', () => {
+    const state = createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 4);
+
+    expect(levels(state)).toEqual([2, null, undefined]);
+    expect(getSelectedLevel(state)).toBe(2);
+    expect(levels(createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 5))).toEqual([
+      1.5,
+      null,
+      undefined,
+    ]);
+    expect(getSelectedLevel(createSongSelectState([LEVELED_SONG], 'all', 5))).toBe(1.5);
+  });
+
+  it('follows the difficulty and the song the selection moves to', () => {
+    const state = createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 4);
+    const onHard = selectDifficulty(state, 'hard');
+
+    expect(levels(onHard)).toEqual([4.5, 3, undefined]);
+    expect(getSelectedLevel(onHard)).toBe(4.5);
+    expect(getSelectedLevel(moveSong(onHard, 1))).toBe(3);
+    expect(getSelectedLevel(moveDifficulty(onHard, 'next'))).toBe(1);
+  });
+
+  it('is null without a chart or a song', () => {
+    expect(getSelectedLevel(createSongSelectState([NO_CHART_SONG], 'all', 4))).toBeNull();
+    expect(getSelectedLevel(createSongSelectState([], 'all', 4))).toBeNull();
+  });
+
+  it('redraws the song info when only the selected level changes', () => {
+    const state = createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 4);
+
+    expect(getChangedRegions(viewOf(state), viewOf(selectDifficulty(state, 'hard')), 3)).toContain(
+      'songInfo',
+    );
   });
 });
 
@@ -690,7 +789,7 @@ describe('getActionAppearance', () => {
 describe('getSongPage', () => {
   const songs = (count: number): readonly Song[] =>
     Array.from({ length: count }, (_, index) =>
-      makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+      makeSong(`song-${index}`, 'original', FULL_SONG.charts),
     );
 
   it('is the first page with no selected slot when there are no songs', () => {
@@ -817,7 +916,7 @@ describe('withSongs', () => {
 describe('isOnLastLoadedPage', () => {
   const songs = (count: number): readonly Song[] =>
     Array.from({ length: count }, (_, index) =>
-      makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+      makeSong(`song-${index}`, 'original', FULL_SONG.charts),
     );
 
   it('is true when the selected song is on the last page', () => {
@@ -839,7 +938,7 @@ describe('isOnLastLoadedPage', () => {
 
 describe('getJacketRange', () => {
   const songs: readonly Song[] = Array.from({ length: 20 }, (_, index) =>
-    makeSong(`song-${index}`, index % 2 === 0 ? 'original' : 'cover', FULL_SONG.chartIds),
+    makeSong(`song-${index}`, index % 2 === 0 ? 'original' : 'cover', FULL_SONG.charts),
   );
 
   it('loads the next page as adjacent on the first page', () => {
@@ -911,12 +1010,24 @@ describe('getSongSelectNotice', () => {
 describe('lane count', () => {
   const MIXED_SONG = makeSong('mixed', 'original', {
     4: {
-      easy: 'easy-4k.json',
-      hard: 'hard-4k.json',
+      easy: {
+        id: 'easy-4k.json',
+        level: 1,
+      },
+      hard: {
+        id: 'hard-4k.json',
+        level: 1,
+      },
     },
     5: {
-      normal: 'normal-5k.json',
-      expert: 'expert-5k.json',
+      normal: {
+        id: 'normal-5k.json',
+        level: 1,
+      },
+      expert: {
+        id: 'expert-5k.json',
+        level: 1,
+      },
     },
   });
 
@@ -928,12 +1039,14 @@ describe('lane count', () => {
       laneCount: 5,
       difficulty: 'normal',
       chartId: 'normal-5k.json',
+      level: 1,
     });
-    expect(getPlayableSelection(moveDifficulty(state, 1))).toEqual({
+    expect(getPlayableSelection(moveDifficulty(state, 'next'))).toEqual({
       song: MIXED_SONG,
       laneCount: 5,
       difficulty: 'expert',
       chartId: 'expert-5k.json',
+      level: 1,
     });
     expect(selectDifficulty(state, 'easy')).toBe(state);
     expect(getSongDifficultyAppearance(state, 'easy')).toBe('disabled');
@@ -1006,7 +1119,7 @@ describe('getSelectedRecord', () => {
 
 describe('getPageIndicator', () => {
   const songs = Array.from({ length: 5 }, (_, index) =>
-    makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+    makeSong(`song-${index}`, 'original', FULL_SONG.charts),
   );
 
   it('is null when every song fits on one page', () => {
@@ -1022,7 +1135,7 @@ describe('getPageIndicator', () => {
 
 describe('getLoadingMoreAnchor', () => {
   const songs = Array.from({ length: 4 }, (_, index) =>
-    makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+    makeSong(`song-${index}`, 'original', FULL_SONG.charts),
   );
 
   it('anchors to the first empty row of the page', () => {
@@ -1045,6 +1158,7 @@ describe('getChangedRegions', () => {
   it('draws every region and shifts the selected row on the first render', () => {
     expect(getChangedRegions(null, viewOf(state), 3)).toEqual([
       'filterTabs',
+      'levelSlider',
       'rows',
       'selectedHalo',
       'notice',
@@ -1059,11 +1173,14 @@ describe('getChangedRegions', () => {
       'settingsButton',
       'backButton',
       'rankingButton',
+      'levelResetButton',
       'retryButton',
       'recordsRetryButton',
       'controlsEntry',
       'accountButton',
       'controlsClose',
+      'controlsHelpCard',
+      'controlsHelpButton',
       'rowShift',
     ]);
   });
@@ -1170,9 +1287,45 @@ describe('getChangedRegions', () => {
   });
 });
 
+describe('controls help', () => {
+  const open = withControlsOpen(createSongSelectState(SONGS, 'all', 4), true);
+  const hover = (state: SongSelectState) => hoverSongSelectButton(state, 'controlsHelp');
+  const leave = (state: SongSelectState) => unhoverSongSelectButton(state, 'controlsHelp');
+
+  it('shows the card on (?) hover and keeps it pinned after the pointer leaves', () => {
+    const hovered = hover(open);
+    const pinned = clickControlsHelp(hovered);
+
+    expect(isControlsHelpShown(hovered)).toBe(true);
+    expect(getChangedRegions(viewOf(open), viewOf(hovered), 3)).toEqual([
+      'controlsHelpCard',
+      'controlsHelpButton',
+    ]);
+    expect(getChangedRegions(viewOf(hovered), viewOf(pinned), 3)).not.toContain('controls');
+    expect(isControlsHelpShown(leave(pinned))).toBe(true);
+  });
+
+  it('hides a pinned card on the next click under the pointer until the pointer comes back', () => {
+    const dismissed = clickControlsHelp(hover(leave(clickControlsHelp(hover(open)))));
+
+    expect(isControlsHelpShown(dismissed)).toBe(false);
+    expect(leave(dismissed).controls).toBe('open');
+    expect(isControlsHelpShown(hover(leave(dismissed)))).toBe(true);
+  });
+
+  it('closes with the pin and the (?) hover dropped and reopens unpinned', () => {
+    const closed = withControlsOpen(clickControlsHelp(hover(open)), false);
+
+    expect(closed.controls).toBe('closed');
+    expect(closed.hover).toBeNull();
+    expect(isControlsHelpShown(closed)).toBe(false);
+    expect(withControlsOpen(closed, true).controls).toBe('open');
+  });
+});
+
 describe('getChangedRowSlots', () => {
   const songs = Array.from({ length: 6 }, (_, index) =>
-    makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+    makeSong(`song-${index}`, 'original', FULL_SONG.charts),
   );
   const state = setHover(createSongSelectState(songs, 'all', 4), {
     kind: 'row',
@@ -1199,7 +1352,7 @@ describe('getChangedRowSlots', () => {
 
 describe('getShiftedRowSlots', () => {
   const songs = Array.from({ length: 3 }, (_, index) =>
-    makeSong(`song-${index}`, 'original', FULL_SONG.chartIds),
+    makeSong(`song-${index}`, 'original', FULL_SONG.charts),
   );
   const state = createSongSelectState(songs, 'all', 4);
 

@@ -5,6 +5,10 @@
 @import '@fontsource/noto-sans-jp/600.css';
 @import '@fontsource/noto-sans-jp/700.css';
 @import '@fontsource/noto-sans-jp/800.css';
+/* TOP 순위 배지와 등급 글자. 영문과 숫자만 쓰므로 latin 조각만 가져온다. */
+@import '@fontsource/fredoka/latin-600.css';
+@import '@fontsource/fredoka/latin-700.css';
+@import '@fontsource/nunito/latin-900.css';
 
 html,
 body {
@@ -66,6 +70,19 @@ body {
   z-index: 1;
   width: 100vw;
   height: 100vh;
+}
+
+/* 캔버스 위에 일반 요소가 없으면 Chrome 이 60Hz 화면에 프레임을 고르지 않게 내보내 노트가 끊겨 보인다. */
+#frame-pacing-pin {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9999;
+  width: 2px;
+  height: 2px;
+  background: #000;
+  opacity: 0.01;
+  pointer-events: none;
 }
 
 /* 커서 잔상. 게임 캔버스 위에 겹치되 입력은 그대로 아래로 보낸다. */

@@ -5,6 +5,7 @@ import {
 } from '../../../../src/data/playSubmission.js';
 import { getDistance, getProgress } from '../../../../src/range.js';
 import { getPlayDurationMs } from '../../../../src/rhythm/playTiming.js';
+import { hasElapsed } from '../../../../src/time.js';
 import { replayGameplay } from '../../../../src/rhythm/replay.js';
 import type { ReplayHit } from '../../../../src/rhythm/replay.js';
 import type {
@@ -58,10 +59,9 @@ export function verifyPlay(input: PlayVerificationInput): PlayVerification {
       difficulty,
       laneCount,
     );
-    const elapsedMs = nowMs - session.issuedAtMs;
     const minElapsedMs =
       MIN_PLAY_ELAPSED_RATIO * getPlayDurationMs(song.gameStartMs, song.gameEndMs);
-    if (elapsedMs < minElapsedMs) {
+    if (!hasElapsed(session.issuedAtMs, nowMs, minElapsedMs)) {
       return rejected('too_short');
     }
     const { events } = parsePlaySubmission(submission, song, parsedChart);

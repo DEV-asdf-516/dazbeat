@@ -93,8 +93,8 @@ const perfectInputs: InputEvent[] = leoChart.notes.flatMap((note) => [
     songTimeMs: note.timeMs + 50,
   },
 ]);
-// One perfect and three misses: the play finishes but stays below the clear accuracy.
-const unclearedInputs = perfectInputs.slice(0, 2);
+// One perfect and three misses: the play finishes with a lower score than perfectInputs.
+const partialInputs = perfectInputs.slice(0, 2);
 
 let dataDir: string;
 let server: PocketBaseServer;
@@ -264,9 +264,9 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result achievements', () =
   it('records a play that does not beat the best score', async () => {
     const player = await newPlayer();
     const best = await playRanked(player, leoChartRecord, perfectInputs);
-    await playRanked(player, leoChartRecord, unclearedInputs);
+    await playRanked(player, leoChartRecord, partialInputs);
 
-    const third = await playRanked(player, leoChartRecord, unclearedInputs);
+    const third = await playRanked(player, leoChartRecord, partialInputs);
 
     expect(third.review).toMatchObject({
       kind: 'approved',
@@ -276,16 +276,6 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result achievements', () =
     expect(third.newAchievements).toEqual(['PLAY_3']);
     expect(await findPlayResults(player.id)).toHaveLength(3);
     expect(await findEarned(player.id)).toContain('PLAY_3');
-  });
-
-  it('counts a play below the clear accuracy only as a play', async () => {
-    const player = await newPlayer();
-    const response = await playRanked(player, leoChartRecord, unclearedInputs);
-
-    expect(response.newAchievements).toEqual(['FIRST_FINISH']);
-    expect(await findPlayResults(player.id)).toEqual([expect.objectContaining({ cleared: false })]);
-    expect(await findMarks(player.id)).toEqual([]);
-    expect(await findEarned(player.id)).toEqual(['FIRST_FINISH']);
   });
 
   it('proves marks on the issued revision only when the chart changed during the play', async () => {
@@ -492,12 +482,13 @@ describe('GET /api/dazbeat/profile achievements', () => {
     await server.superuser.collection('achievements').delete(definition.id);
 
     const profile = await getProfile(player.client);
-    const played = await playRanked(player, leoChartRecord, unclearedInputs);
+    const played = await playRanked(player, leoChartRecord, partialInputs);
 
     expect(profile.achievements.map(({ definition }) => definition.key)).not.toContain(
       'DELETED_LATER',
     );
-    expect(played.newAchievements).toEqual(['FIRST_FINISH']);
+    expect(played.newAchievements).toContain('FIRST_FINISH');
+    expect(played.newAchievements).not.toContain('DELETED_LATER');
     expect(await findEarned(player.id)).toContain('DELETED_LATER');
     expect(
       (await server.superuser.collection('users').getOne(player.id))['featuredAchievement'],
@@ -720,7 +711,7 @@ describe('saving achievements from the dashboard', () => {
     const player = await newPlayer();
 
     const first = await playRanked(player, albumChart, perfectInputs);
-    const second = await playRanked(player, albumChart, unclearedInputs);
+    const second = await playRanked(player, albumChart, partialInputs);
     const profile = await getProfile(player.client);
 
     expect(first.newAchievements).toContain('ALBUM_DASHBOARD_CLEAR');

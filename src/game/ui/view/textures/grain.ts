@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
+import { lerp } from '../../../../range.js';
 import { createCanvasTexture } from './canvasTexture.js';
+import { rgba } from './lightTextures.js';
+import { PIXEL_BYTES } from './imagePixels.js';
 
 const GRAIN_TILE_PX = 128;
 const RANDOM_SEED = 'dazbee-constellation';
@@ -25,10 +28,10 @@ export function applyGrain(
     throw new Error('Failed to create grain tile context');
   }
   const noise = tileContext.createImageData(GRAIN_TILE_PX, GRAIN_TILE_PX);
-  for (let index = 0; index < GRAIN_TILE_PX * GRAIN_TILE_PX; index++) {
+  for (let pixel = 0; pixel < GRAIN_TILE_PX * GRAIN_TILE_PX; pixel++) {
     noise.data.set(
       [255, 255, 255, Math.round(random.realInRange(look.minAlpha, 1) * 255)],
-      index * 4,
+      pixel * PIXEL_BYTES,
     );
   }
   tileContext.putImageData(noise, 0, 0);
@@ -61,55 +64,101 @@ export function getGrainedImageTexture(
     throw new Error(`Grained icon is not an image: ${imageKey}`);
   }
   const key = `${imageKey}:grained`;
-  createCanvasTexture(scene, key, source.width, source.height, (context) => {
-    context.drawImage(source, 0, 0);
-    applyGrain(context, source.width, source.height, {
-      cellPx: source.width / displaySizePx,
-      minAlpha: ICON_GRAIN_MIN_ALPHA,
-    });
-  });
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx: source.width,
+      heightPx: source.height,
+    },
+    (context) => {
+      context.drawImage(source, 0, 0);
+      applyGrain(context, source.width, source.height, {
+        cellPx: source.width / displaySizePx,
+        minAlpha: ICON_GRAIN_MIN_ALPHA,
+      });
+    },
+  );
   return key;
 }
 
 const LINE_STEP_PX = 4;
 const LINE_MIN_ALPHA_RATIO = 0.45;
 
-// 그때그때 다시 그리는 선은 텍스처로 구울 수 없어 짧은 토막마다 밝기를 달리해 같은 결을 낸다.
-export function strokeGrainedLine(
-  graphics: Phaser.GameObjects.Graphics,
-  line: {
-    readonly fromXPx: number;
-    readonly fromYPx: number;
-    readonly toXPx: number;
-    readonly toYPx: number;
-  },
-  look: {
-    readonly widthPx: number;
-    readonly color: number;
-    readonly alpha: number;
-    readonly stepPx?: number;
-  },
-): void {
+interface GrainedLine {
+  readonly fromXPx: number;
+  readonly fromYPx: number;
+  readonly toXPx: number;
+  readonly toYPx: number;
+}
+
+interface GrainedLineLook {
+  readonly widthPx: number;
+  readonly color: number;
+  readonly alpha: number;
+  readonly stepPx?: number;
+}
+
+// 짧은 토막마다 밝기를 달리해 입자 결을 낸다. 결은 화면 좌표로 정해지므로 같은 좌표면 어디에 그려도 같은 결이 나온다.
+function getGrainedSegments(
+  line: GrainedLine,
+  look: GrainedLineLook,
+): (GrainedLine & { alpha: number })[] {
   const { fromXPx, fromYPx, toXPx, toYPx } = line;
   const steps = Math.max(
     1,
     Math.round(Math.hypot(toXPx - fromXPx, toYPx - fromYPx) / (look.stepPx ?? LINE_STEP_PX)),
   );
-  for (let step = 0; step < steps; step += 1) {
-    const startXPx = fromXPx + ((toXPx - fromXPx) * step) / steps;
-    const startYPx = fromYPx + ((toYPx - fromYPx) * step) / steps;
+  return Array.from({ length: steps }, (_, step) => {
+    const startXPx = lerp(fromXPx, toXPx, step / steps);
+    const startYPx = lerp(fromYPx, toYPx, step / steps);
     const noise = Math.abs(Math.sin(startXPx * 12.9898 + startYPx * 78.233) * 43758.5453) % 1;
+    return {
+      fromXPx: startXPx,
+      fromYPx: startYPx,
+      toXPx: lerp(fromXPx, toXPx, (step + 1) / steps),
+      toYPx: lerp(fromYPx, toYPx, (step + 1) / steps),
+      alpha: look.alpha * lerp(LINE_MIN_ALPHA_RATIO, 1, noise),
+    };
+  });
+}
+
+export function strokeGrainedLine(
+  graphics: Phaser.GameObjects.Graphics,
+  line: GrainedLine,
+  look: GrainedLineLook,
+): void {
+  getGrainedSegments(line, look).forEach((segment) => {
     graphics
-      .lineStyle(
-        look.widthPx,
-        look.color,
-        look.alpha * (LINE_MIN_ALPHA_RATIO + (1 - LINE_MIN_ALPHA_RATIO) * noise),
-      )
-      .lineBetween(
-        startXPx,
-        startYPx,
-        fromXPx + ((toXPx - fromXPx) * (step + 1)) / steps,
-        fromYPx + ((toYPx - fromYPx) * (step + 1)) / steps,
-      );
-  }
+      .lineStyle(look.widthPx, look.color, segment.alpha)
+      .lineBetween(segment.fromXPx, segment.fromYPx, segment.toXPx, segment.toYPx);
+  });
+}
+
+// WebGL 텍스처에는 안티앨리어싱이 없어 구운 선이 계단지므로, 텍스처로 굽는 선은 Canvas 2D 로 긋는다.
+export function strokeCanvasLine(
+  context: CanvasRenderingContext2D,
+  line: GrainedLine,
+  look: { readonly widthPx: number; readonly color: number; readonly alpha: number },
+): void {
+  context.lineWidth = look.widthPx;
+  context.strokeStyle = rgba(look.color, look.alpha);
+  context.beginPath();
+  context.moveTo(line.fromXPx, line.fromYPx);
+  context.lineTo(line.toXPx, line.toYPx);
+  context.stroke();
+}
+
+export function strokeGrainedCanvasLine(
+  context: CanvasRenderingContext2D,
+  line: GrainedLine,
+  look: GrainedLineLook,
+): void {
+  getGrainedSegments(line, look).forEach((segment) => {
+    strokeCanvasLine(context, segment, {
+      widthPx: look.widthPx,
+      color: look.color,
+      alpha: segment.alpha,
+    });
+  });
 }

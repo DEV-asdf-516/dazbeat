@@ -16,10 +16,16 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 0,
   gameEndMs: 10000,
-  chartIds: {
+  charts: {
     4: {
-      normal: 'chart_normal',
-      hard: 'chart_hard',
+      normal: {
+        id: 'chart_normal',
+        level: 1,
+      },
+      hard: {
+        id: 'chart_hard',
+        level: 1,
+      },
     },
   },
 };
@@ -29,12 +35,14 @@ const normalChart: ChartRef = {
   laneCount: 4,
   difficulty: 'normal',
   chartId: 'chart_normal',
+  level: 1,
 };
 const hardChart: ChartRef = {
   song,
   laneCount: 4,
   difficulty: 'hard',
   chartId: 'chart_hard',
+  level: 1,
 };
 
 function chartData(difficulty: 'normal' | 'hard', timeMs: number): Chart {
@@ -99,12 +107,14 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
 
     await expect(createCache().load(normalChart)).resolves.toEqual({
       chart: chartData('normal', 1000),
       revision: REVISION_A,
+      level: 1,
     });
     expect(requestedPaths(fetchMock)).toEqual(['/api/collections/charts/records/chart_normal']);
   });
@@ -114,6 +124,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -130,10 +141,12 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
       jsonResponse({
         data: chartData('normal', 2000),
         revision: REVISION_B,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -144,6 +157,7 @@ describe('ChartCache', () => {
     expect(reloaded).toEqual({
       chart: chartData('normal', 2000),
       revision: REVISION_B,
+      level: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     await expect(cache.load(normalChart)).resolves.toBe(reloaded);
@@ -169,6 +183,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -177,6 +192,7 @@ describe('ChartCache', () => {
     await expect(cache.load(normalChart)).resolves.toEqual({
       chart: chartData('normal', 1000),
       revision: REVISION_A,
+      level: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -186,6 +202,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
       jsonResponse(
         {
@@ -198,6 +215,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 2000),
         revision: REVISION_B,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -207,6 +225,7 @@ describe('ChartCache', () => {
     await expect(cache.load(normalChart)).resolves.toEqual({
       chart: chartData('normal', 2000),
       revision: REVISION_B,
+      level: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -216,14 +235,17 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
       jsonResponse({
         data: chartData('hard', 1500),
         revision: REVISION_B,
+        level: 1,
       }),
       jsonResponse({
         data: chartData('hard', 2500),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -236,6 +258,7 @@ describe('ChartCache', () => {
     await expect(cache.load(hardChart)).resolves.toEqual({
       chart: chartData('hard', 2500),
       revision: REVISION_A,
+      level: 1,
     });
     expect(requestedPaths(fetchMock)).toEqual([
       '/api/collections/charts/records/chart_normal',
@@ -249,6 +272,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
 
@@ -266,6 +290,7 @@ describe('ChartCache', () => {
     cache.put('chart_normal', {
       chart: chartData('normal', 1000),
       revision: REVISION_A,
+      level: 3.5,
     });
 
     const loaded = await cache.load(normalChart);
@@ -273,6 +298,7 @@ describe('ChartCache', () => {
     expect(loaded).toEqual({
       chart: chartData('normal', 1000),
       revision: REVISION_A,
+      level: 3.5,
     });
     expect(Object.isFrozen(loaded)).toBe(true);
     expect(Object.isFrozen(loaded.chart)).toBe(true);
@@ -286,6 +312,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -294,11 +321,13 @@ describe('ChartCache', () => {
     cache.put('chart_normal', {
       chart: chartData('normal', 2000),
       revision: REVISION_B,
+      level: 1,
     });
 
     await expect(cache.load(normalChart)).resolves.toEqual({
       chart: chartData('normal', 2000),
       revision: REVISION_B,
+      level: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -308,6 +337,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -331,6 +361,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -341,6 +372,7 @@ describe('ChartCache', () => {
     await expect(cache.load(normalChart)).resolves.toEqual({
       chart: chartData('normal', 1000),
       revision: REVISION_A,
+      level: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -354,11 +386,13 @@ describe('ChartCache', () => {
     cache.put('chart_normal', {
       chart: chartData('normal', 2000),
       revision: REVISION_B,
+      level: 1,
     });
     stale.respond(
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     await staleLoad;
@@ -366,6 +400,7 @@ describe('ChartCache', () => {
     await expect(cache.load(normalChart)).resolves.toEqual({
       chart: chartData('normal', 2000),
       revision: REVISION_B,
+      level: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -377,6 +412,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 2000),
         revision: REVISION_B,
+        level: 1,
       }),
     );
     const cache = createCache();
@@ -387,6 +423,7 @@ describe('ChartCache', () => {
       jsonResponse({
         data: chartData('normal', 1000),
         revision: REVISION_A,
+        level: 1,
       }),
     );
     await staleLoad;
@@ -400,6 +437,7 @@ describe('ChartCache', () => {
     const loaded: LoadedChart = {
       chart: chartData('normal', 1000),
       revision: REVISION_A,
+      level: 1,
     };
 
     createCache().put('chart_normal', loaded);

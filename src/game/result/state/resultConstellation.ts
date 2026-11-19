@@ -5,7 +5,7 @@ import type { GameplayResult, Rank } from '../../../rhythm/types.js';
 import type { PlayMode } from '../../app/sceneRoutes.js';
 import { ZODIAC_FIGURES } from '../../celestial/state/zodiacFigures.js';
 import type { ZodiacFigure } from '../../celestial/state/zodiacFigures.js';
-import { getProgress, lerp } from '../../../range.js';
+import { lerp } from '../../../range.js';
 import { requireDefined } from '../../../invariant.js';
 
 export type ConstellationTier = 'faint' | 'clear' | 'bright' | 'complete';
@@ -99,13 +99,6 @@ export const CONSTELLATION_LOOKS: Readonly<Record<ConstellationTier, Constellati
   },
 };
 
-export interface ConstellationLine {
-  fromXPx: number;
-  fromYPx: number;
-  toXPx: number;
-  toYPx: number;
-}
-
 interface UnitPoint {
   x: number;
   y: number;
@@ -127,7 +120,7 @@ const FNV_OFFSET_BASIS = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
 
 export function getConstellationTier(
-  result: Pick<GameplayResult, 'outcome' | 'accuracy' | 'counts' | 'cleared'>,
+  result: Pick<GameplayResult, 'outcome' | 'accuracy' | 'counts'>,
 ): ConstellationTier {
   // 실패는 정확도가 S 여도 완료 연출 없이 흐린 별자리로 끝난다.
   if (result.outcome === 'failed') {
@@ -139,7 +132,7 @@ export function getConstellationTier(
   if (getRank(result.accuracy) === 'S') {
     return 'bright';
   }
-  return result.cleared ? 'clear' : 'faint';
+  return 'clear';
 }
 
 export function getResultPresentation(mode: PlayMode, result: GameplayResult): ResultPresentation {
@@ -162,7 +155,7 @@ export function getResultPresentation(mode: PlayMode, result: GameplayResult): R
   const tier = getConstellationTier(result);
   return {
     tier,
-    hasFinish: result.cleared,
+    hasFinish: result.outcome === 'finished',
     // 실패는 HP 가 BAD·MISS 로만 깎여 0 이 될 때뿐이라 FULL COMBO 와 겹치지 않는다. complete 가 곧 FULL COMBO 다.
     hasFullComboLabel: tier === 'complete',
     rank,
@@ -236,26 +229,6 @@ export function planSongConstellation(
     edges,
     drawEndMs: connectedCount * edgeMs,
   };
-}
-
-export function getConstellationLines(
-  plan: ConstellationPlan,
-  elapsedMs: number,
-): readonly ConstellationLine[] {
-  return plan.edges.flatMap(({ from, to, startMs, endMs }) => {
-    const segment = getProgress(elapsedMs, startMs, endMs);
-    if (segment === 0) {
-      return [];
-    }
-    return [
-      {
-        fromXPx: from.xPx,
-        fromYPx: from.yPx,
-        toXPx: lerp(from.xPx, to.xPx, segment),
-        toYPx: lerp(from.yPx, to.yPx, segment),
-      },
-    ];
-  });
 }
 
 function getConnectedEdgeCount(tier: ConstellationTier, edgeCount: number): number {

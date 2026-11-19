@@ -95,7 +95,9 @@ export class ChartEditorSelectController {
         this.setListFromUser(moveSongListFocus(current.list, command.delta));
         return true;
       case 'cycleCategory':
-        this.selectCategory(cycleItem(SONG_FILTERS, current.feed.query.category, command.delta));
+        this.selectCategory(
+          cycleItem(SONG_FILTERS, current.feed.query.category, command.direction),
+        );
         return true;
       case 'edit':
         this.editFocused();
@@ -115,6 +117,7 @@ export class ChartEditorSelectController {
         this.switchQuery({
           category: current.feed.query.category,
           title: this.screen.readSearchText().trim(),
+          level: null,
         });
         return true;
       case 'blurSearch':
@@ -129,6 +132,7 @@ export class ChartEditorSelectController {
       this.switchQuery({
         category,
         title: current.feed.query.title,
+        level: null,
       });
     }
   }

@@ -12,6 +12,7 @@ import { ZODIAC_FIGURES, fitZodiacFigure } from '../../../celestial/state/zodiac
 import { getSeriesOrdinal, getStageDotCount } from '../../state/achievementSeries.js';
 import { createCanvasTexture } from '../textures/canvasTexture.js';
 import { ICON_GRAIN, applyGrain } from '../textures/grain.js';
+import { fillLight, rgba } from '../textures/lightTextures.js';
 import { queueImageLoads } from '../textures/imageLoad.js';
 import { fillFourPointStar, fillStar } from '../textures/starShapes.js';
 import { CELESTIAL_COLORS, cssColor } from '../theme.js';
@@ -207,30 +208,38 @@ export function getAchievementEmblemTexture(
           requireDefined(catalog.albums.get(rule.album), 'Unknown album', rule.album).key
         ]
       : undefined;
-  createCanvasTexture(scene, key, sizePx, sizePx, (context) => {
-    const scale = sizePx / (GRID_UNITS + 2 * EDGE_PADDING_UNITS);
-    context.scale(scale, scale);
-    context.translate(EDGE_PADDING_UNITS, EDGE_PADDING_UNITS);
-    context.strokeStyle = EMBLEM_COLOR;
-    context.fillStyle = EMBLEM_COLOR;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    if (rule.kind !== 'album' || albumFrame === undefined) {
-      paintEmblem(context, achievement, catalog.definitions);
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx: sizePx,
+      heightPx: sizePx,
+    },
+    (context) => {
+      const scale = sizePx / (GRID_UNITS + 2 * EDGE_PADDING_UNITS);
+      context.scale(scale, scale);
+      context.translate(EDGE_PADDING_UNITS, EDGE_PADDING_UNITS);
+      context.strokeStyle = EMBLEM_COLOR;
+      context.fillStyle = EMBLEM_COLOR;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      if (rule.kind !== 'album' || albumFrame === undefined) {
+        paintEmblem(context, achievement, catalog.definitions);
+        applyGrain(context, sizePx, sizePx, ICON_GRAIN);
+        return;
+      }
+      const frameKey = albumFrameTextureKey(albumFrame);
+      if (!scene.textures.exists(frameKey)) {
+        throw new Error(`Album frame is not loaded: ${frameKey}`);
+      }
+      const frameImage = scene.textures.get(frameKey).getSourceImage();
+      if (!(frameImage instanceof HTMLImageElement)) {
+        throw new Error(`Album frame is not an image: ${frameKey}`);
+      }
+      paintAlbumEmblem(context, frameImage, albumFrame, rule.mark);
       applyGrain(context, sizePx, sizePx, ICON_GRAIN);
-      return;
-    }
-    const frameKey = albumFrameTextureKey(albumFrame);
-    if (!scene.textures.exists(frameKey)) {
-      throw new Error(`Album frame is not loaded: ${frameKey}`);
-    }
-    const frameImage = scene.textures.get(frameKey).getSourceImage();
-    if (!(frameImage instanceof HTMLImageElement)) {
-      throw new Error(`Album frame is not an image: ${frameKey}`);
-    }
-    paintAlbumEmblem(context, frameImage, albumFrame, rule.mark);
-    applyGrain(context, sizePx, sizePx, ICON_GRAIN);
-  });
+    },
+  );
   return key;
 }
 
@@ -762,15 +771,12 @@ function fillGlow(
   radius: number,
   alpha: number,
 ): void {
-  const glow = context.createRadialGradient(x, y, 0, x, y, radius);
-  glow.addColorStop(0, EMBLEM_COLOR);
-  glow.addColorStop(1, `${EMBLEM_COLOR}00`);
   context.save();
   context.globalAlpha = alpha;
-  context.fillStyle = glow;
-  context.beginPath();
-  context.arc(x, y, radius, 0, 2 * Math.PI);
-  context.fill();
+  fillLight(context, x, y, radius, [
+    [0, rgba(CELESTIAL_COLORS.highlight, 1)],
+    [1, rgba(CELESTIAL_COLORS.highlight, 0)],
+  ]);
   context.restore();
 }
 

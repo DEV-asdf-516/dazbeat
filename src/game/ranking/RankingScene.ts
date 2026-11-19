@@ -7,7 +7,12 @@ import type { Song } from '../../data/songs.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
 import { requireDefined } from '../../invariant.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import { getControlsGuide } from '../app/controlsGuide.js';
+import {
+  getControlsGuide,
+  getControlsHelpButtonView,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+} from '../app/controlsGuide.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
@@ -178,7 +183,7 @@ interface RankingView {
   readonly myRankSignIn: Phaser.GameObjects.Text;
   readonly difficultyTabs: TextTabs<Difficulty>;
   readonly zodiacStars: Phaser.GameObjects.Image;
-  readonly zodiacLines: Phaser.GameObjects.Graphics;
+  readonly zodiacLines: Phaser.GameObjects.Image;
   readonly dialog: ConfirmDialog;
 }
 
@@ -344,7 +349,7 @@ export class RankingScene extends Phaser.Scene {
         },
       ),
       zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
-      zodiacLines: this.add.graphics(),
+      zodiacLines: this.add.image(0, 0, '__DEFAULT'),
       // 버튼마다 눌렀을 때의 뜻은 상태가 대화상자 종류로 정한다.
       dialog: new ConfirmDialog(this, {
         cancel: pointButton(pointer, 'dialogCancel'),
@@ -468,7 +473,7 @@ export class RankingScene extends Phaser.Scene {
         return;
       case 'controls':
         view.chrome.renderControls(
-          state.isControlsOpen
+          isControlsPanelOpen(state)
             ? getControlsGuide(
                 this.i18n.t('controls', { returnObjects: true }),
                 this.save.loadSettings(),
@@ -481,6 +486,12 @@ export class RankingScene extends Phaser.Scene {
         return;
       case 'controlsClose':
         view.chrome.renderControlsClose(getRankingControlsCloseView(state));
+        return;
+      case 'controlsHelpCard':
+        view.chrome.renderControlsHelpCard(isControlsHelpShown(state));
+        return;
+      case 'controlsHelpButton':
+        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(state));
         return;
       case 'accountButton':
         view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));

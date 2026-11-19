@@ -117,12 +117,14 @@ export function createChart(
   difficulty: string,
   data: unknown,
   laneCount = 4,
+  level = 1,
 ): Promise<RecordModel> {
   return client.collection('charts').create({
     song: songId,
     difficulty,
     laneCount,
     data,
+    level,
   });
 }
 

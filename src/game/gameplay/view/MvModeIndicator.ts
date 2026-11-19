@@ -1,4 +1,4 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
 import { MV_MODES } from '../../../storage/settings.js';
 import type { MvMode } from '../../../storage/settings.js';
 import { requireDefined } from '../../../invariant.js';
@@ -9,6 +9,7 @@ import {
 } from '../../ui/view/widgets/keyHintView.js';
 import { CELESTIAL_COLORS, COLORS, GAMEPLAY_DEPTH, textStyle } from '../../ui/view/theme.js';
 import { MOTION } from '../../ui/state/motion.js';
+import { bakeTexture } from '../../ui/view/textures/bakedTexture.js';
 
 // 조작 안내(ControlsOverlay)가 MV 전환 키를 부르는 이름과 같다.
 const KEY_LABEL = 'Tab';
@@ -16,6 +17,8 @@ const LABEL_GAP_PX = 10;
 const PIP_RADIUS_PX = 3.5;
 const PIP_GAP_PX = 10;
 const PIP_VALUE_GAP_PX = 14;
+const PIP_TEXTURE_KEY = `gameplay:mvPip:${PIP_RADIUS_PX}`;
+const PIP_BASE_COLOR = 0xffffff;
 const PIP_LOOKS = {
   selected: {
     color: CELESTIAL_COLORS.selected,
@@ -36,7 +39,7 @@ export class MvModeIndicator {
   private readonly value: Phaser.GameObjects.Text;
   private readonly pips: readonly {
     readonly mode: MvMode;
-    readonly dot: Phaser.GameObjects.Arc;
+    readonly dot: Phaser.GameObjects.Image;
   }[];
 
   constructor(
@@ -51,14 +54,35 @@ export class MvModeIndicator {
       .text(xPx, 0, 'MV', textStyle('meta', COLORS.textMuted))
       .setOrigin(0, 0.5);
     xPx += label.width + LABEL_GAP_PX + PIP_RADIUS_PX;
+    // 모드별 색은 틴트로 입히도록 흰 원 하나만 굽는다.
+    const pipSizePx = Math.ceil(PIP_RADIUS_PX) * 2;
+    bakeTexture(
+      scene,
+      {
+        key: PIP_TEXTURE_KEY,
+        widthPx: pipSizePx,
+        heightPx: pipSizePx,
+      },
+      (texture) => {
+        const pip = new Phaser.GameObjects.Arc(
+          scene,
+          pipSizePx / 2,
+          pipSizePx / 2,
+          PIP_RADIUS_PX,
+          0,
+          360,
+          false,
+          PIP_BASE_COLOR,
+        );
+        texture.draw(pip);
+        return [pip];
+      },
+    );
     this.pips = MV_MODES.map((mode, index) => ({
       mode,
-      dot: scene.add.circle(
-        xPx + index * (PIP_RADIUS_PX * 2 + PIP_GAP_PX),
-        0,
-        PIP_RADIUS_PX,
-        COLORS.textMuted,
-      ),
+      dot: scene.add
+        .image(xPx + index * (PIP_RADIUS_PX * 2 + PIP_GAP_PX), 0, PIP_TEXTURE_KEY)
+        .setTint(COLORS.textMuted),
     }));
     xPx +=
       (MV_MODES.length - 1) * (PIP_RADIUS_PX * 2 + PIP_GAP_PX) + PIP_RADIUS_PX + PIP_VALUE_GAP_PX;
@@ -93,7 +117,7 @@ export class MvModeIndicator {
         'Missing MV mode pip',
         mode,
       )
-        .dot.setFillStyle(color)
+        .dot.setTint(color)
         .setAlpha(alpha);
     });
     this.scene.tweens.killTweensOf(this.container);

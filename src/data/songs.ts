@@ -1,6 +1,8 @@
 import type { Difficulty, LaneCount } from '../rhythm/types.js';
 import { requireDefined } from '../invariant.js';
-import { clamp } from '../range.js';
+import { clamp, DIRECTION_STEPS } from '../range.js';
+import type { ListDirection } from '../range.js';
+import { isShallowEqual } from '../shallowEqual.js';
 
 export type SongCategory = 'original' | 'cover';
 export type SongFilter = 'all' | SongCategory;
@@ -19,7 +21,23 @@ export type Zodiac =
   | 'aquarius'
   | 'pisces';
 
-export type ChartIds = Partial<Record<LaneCount, Partial<Record<Difficulty, string>>>>;
+export type ChartLevel = 1 | 1.5 | 2 | 2.5 | 3 | 3.5 | 4 | 4.5 | 5;
+
+export interface ChartLevelRange {
+  readonly min: ChartLevel;
+  readonly max: ChartLevel;
+}
+
+export interface SongLevelQuery extends ChartLevelRange {
+  readonly laneCount: LaneCount;
+}
+
+export interface SongChart {
+  readonly id: string;
+  readonly level: ChartLevel;
+}
+
+export type SongCharts = Partial<Record<LaneCount, Partial<Record<Difficulty, SongChart>>>>;
 
 export interface Song {
   id: string;
@@ -31,7 +49,7 @@ export interface Song {
   constellation: Zodiac;
   gameStartMs: number;
   gameEndMs: number;
-  chartIds: ChartIds;
+  charts: SongCharts;
   previewStartMs?: number;
   credit?: readonly string[];
 }
@@ -53,16 +71,23 @@ export const ZODIACS: readonly Zodiac[] = [
   'pisces',
 ];
 export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard', 'expert'];
+export const CHART_LEVELS: readonly ChartLevel[] = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
+export const FULL_CHART_LEVEL_RANGE: ChartLevelRange = {
+  min: 1,
+  max: 5,
+};
 
 export interface SongQuery {
   readonly category: SongFilter;
   /** 확정 검색어(앞뒤 공백 제거). */
   readonly title: string;
+  readonly level: SongLevelQuery | null;
 }
 
 export const ALL_SONGS_QUERY: SongQuery = {
   category: 'all',
   title: '',
+  level: null,
 };
 
 export interface SongBatchCursor {
@@ -87,21 +112,23 @@ export interface ChartRef {
   readonly laneCount: LaneCount;
   readonly difficulty: Difficulty;
   readonly chartId: string;
+  readonly level: ChartLevel;
 }
 
 /** 호출마다 새 값을 만드므로 비교는 difficulty 로 한다. */
 export function getAvailableCharts(song: Song, laneCount: LaneCount): ChartRef[] {
-  const chartIds = song.chartIds[laneCount] ?? {};
+  const charts = song.charts[laneCount] ?? {};
   return DIFFICULTIES.flatMap((difficulty) => {
-    const chartId = chartIds[difficulty];
-    return chartId === undefined
+    const chart = charts[difficulty];
+    return chart === undefined
       ? []
       : [
           {
             song,
             laneCount,
             difficulty,
-            chartId,
+            chartId: chart.id,
+            level: chart.level,
           },
         ];
   });
@@ -119,10 +146,10 @@ export function findChart(
   return getAvailableCharts(song, laneCount).find((chart) => chart.difficulty === difficulty);
 }
 
-export function stepChart(current: ChartRef, delta: number): ChartRef {
+export function stepChart(current: ChartRef, direction: ListDirection): ChartRef {
   const charts = getAvailableCharts(current.song, current.laneCount);
   const index = charts.findIndex((chart) => chart.difficulty === current.difficulty);
-  const next = charts[clamp(index + delta, 0, charts.length - 1)];
+  const next = charts[clamp(index + DIRECTION_STEPS[direction], 0, charts.length - 1)];
   return next === undefined || next.difficulty === current.difficulty ? current : next;
 }
 
@@ -131,14 +158,15 @@ export function withSavedChart(
   songId: string,
   laneCount: LaneCount,
   difficulty: Difficulty,
-  chartId: string,
+  chart: SongChart,
 ): { songs: readonly Song[]; saved: Song } {
   const current = requireDefined(
     songs.find((listed) => listed.id === songId),
     'Saved chart song is not in the current song list',
     songId,
   );
-  if (current.chartIds[laneCount]?.[difficulty] === chartId) {
+  const listed = current.charts[laneCount]?.[difficulty];
+  if (listed !== undefined && isShallowEqual(listed, chart)) {
     return {
       songs,
       saved: current,
@@ -146,11 +174,11 @@ export function withSavedChart(
   }
   const saved: Song = {
     ...current,
-    chartIds: {
-      ...current.chartIds,
+    charts: {
+      ...current.charts,
       [laneCount]: {
-        ...current.chartIds[laneCount],
-        [difficulty]: chartId,
+        ...current.charts[laneCount],
+        [difficulty]: chart,
       },
     },
   };

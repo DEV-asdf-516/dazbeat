@@ -12,19 +12,36 @@ export function createLineIconTexture(
   sizePx: number,
   trace: (context: CanvasRenderingContext2D) => void,
 ): string {
-  createCanvasTexture(scene, key, sizePx, sizePx, (context) => {
-    const scale = sizePx / GRID_UNITS;
-    context.scale(scale, scale);
-    context.strokeStyle = cssColor(COLORS.textPrimary);
-    context.lineWidth = LINE_WIDTH;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    context.beginPath();
-    trace(context);
-    context.stroke();
-    applyGrain(context, sizePx, sizePx, ICON_GRAIN);
-  });
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx: sizePx,
+      heightPx: sizePx,
+    },
+    (context) => {
+      const scale = sizePx / GRID_UNITS;
+      context.scale(scale, scale);
+      context.strokeStyle = cssColor(COLORS.textPrimary);
+      context.lineWidth = LINE_WIDTH;
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      context.beginPath();
+      trace(context);
+      context.stroke();
+      applyGrain(context, sizePx, sizePx, ICON_GRAIN);
+    },
+  );
   return key;
+}
+
+export function getResetIconTexture(scene: Phaser.Scene, sizePx: number): string {
+  return createLineIconTexture(scene, `reset-icon:${sizePx}`, sizePx, (context) => {
+    context.arc(12, 12.5, 7.5, -0.62 * Math.PI, -0.24 * Math.PI, true);
+    context.moveTo(17.4, 10.6);
+    context.lineTo(17.5, 7.4);
+    context.lineTo(20.7, 7.5);
+  });
 }
 
 export function getSortIconTexture(scene: Phaser.Scene, sizePx: number): string {

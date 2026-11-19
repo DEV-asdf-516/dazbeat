@@ -1,4 +1,3 @@
-import { CLEAR_ACCURACY } from './accuracy.js';
 import type { Rank } from './types.js';
 
 export const RANK_THRESHOLDS: readonly { rank: Rank; minAccuracy: number }[] = [
@@ -12,11 +11,11 @@ export const RANK_THRESHOLDS: readonly { rank: Rank; minAccuracy: number }[] = [
   },
   {
     rank: 'B',
-    minAccuracy: 0.8,
+    minAccuracy: 0.85,
   },
   {
     rank: 'C',
-    minAccuracy: CLEAR_ACCURACY,
+    minAccuracy: 0.8,
   },
 ];
 

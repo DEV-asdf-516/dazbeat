@@ -44,6 +44,7 @@ export const CHARTS = collectionSpec('charts', [
   'laneCount',
   'data',
   'revision',
+  'level',
 ]);
 export const SCORES = collectionSpec('scores', [
   'id',
@@ -53,7 +54,6 @@ export const SCORES = collectionSpec('scores', [
   'score',
   'accuracy',
   'maxCombo',
-  'cleared',
   'achievedAt',
   'laneCount',
   'difficulty',

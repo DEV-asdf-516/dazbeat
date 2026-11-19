@@ -3,7 +3,12 @@ import Phaser from 'phaser';
 import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.js';
 import type { CelestialAtlasId } from '../celestial/state/celestialCatalog.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
-import { getControlsGuide } from '../app/controlsGuide.js';
+import {
+  getControlsGuide,
+  getControlsHelpButtonView,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+} from '../app/controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type {
   PlayMode,
@@ -12,11 +17,12 @@ import type {
   SongSelectSceneData,
 } from '../app/sceneRoutes.js';
 import { SONG_FILTERS } from '../../data/songs.js';
-import type { ChartRef, Song, SongFilter } from '../../data/songs.js';
+import type { ChartLevel, ChartRef, Song, SongFilter } from '../../data/songs.js';
 import type { SongFeeds } from '../app/SongFeed.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { DEFAULT_SETTINGS, getAudibleVolume } from '../../storage/settings.js';
 import {
+  LEVEL_SLIDER_LAYOUT,
   SONG_ROW_NODE_IDS,
   SONG_SELECT_ACTIONS,
   getActionAppearance,
@@ -25,12 +31,16 @@ import {
   getDifficultyAccent,
   getFilterAppearance,
   getJacketRange,
+  getLevelSliderFocus,
+  getLevelSliderLevel,
   getLoadingMoreAnchor,
   getNoticeKind,
   getPageIndicator,
   getRecordsRetryButtonView,
+  getSelectedLevel,
   getSelectedRecordView,
   getRankingButtonView,
+  getLevelResetButtonView,
   getRetryButtonView,
   getBackButtonView,
   getSettingsButtonView,
@@ -47,6 +57,9 @@ import { SongSelectController } from './SongSelectController.js';
 import type { SongSelectPorts, SongSelectScreen } from './SongSelectController.js';
 import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
+import { LevelConstellation } from './view/LevelConstellation.js';
+import { LevelRangeSlider } from './view/LevelRangeSlider.js';
+import { DRAG_CURSOR } from '../ui/view/input/cursor.js';
 import { SongSelectJackets } from './view/SongSelectJackets.js';
 import { renderZodiacFigure } from '../celestial/view/zodiacSign.js';
 import {
@@ -54,6 +67,9 @@ import {
   DETAIL_X_PX,
   DIFFICULTY_TABS_LAYOUT,
   DIFFICULTY_TABS_STYLE,
+  INFO_DIVIDER_GAP_PX,
+  INFO_DIVIDER_HEIGHT_PX,
+  INFO_VALUE_TYPE,
   INFO_X_PX,
   JACKET_SIZE_PX,
   JACKET_Y_PX,
@@ -73,11 +89,13 @@ import {
   ZODIAC_AREA_LEFT_X_PX,
   ZODIAC_MAX_SPAN_PX,
   LANE_STAR_ID,
+  LEVEL_LABEL,
   addLaneMarks,
   fitSongTitle,
   renderLaneMarks,
 } from '../ui/view/widgets/songDetailLayout.js';
 import type { LaneMarks } from '../ui/view/widgets/songDetailLayout.js';
+import { addVerticalDivider } from '../ui/view/widgets/verticalDivider.js';
 import type { JacketTextures } from './view/SongSelectJackets.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
@@ -95,6 +113,7 @@ import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { createFooterAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
+import { getResetIconTexture } from '../ui/view/widgets/listControlIcons.js';
 import { Button } from '../ui/view/widgets/Button.js';
 import { TOP_RANK_GLINT_ID, TopRankBadge } from '../ui/view/widgets/TopRankBadge.js';
 import {
@@ -128,12 +147,12 @@ import {
   CATEGORY_COLORS,
   CELESTIAL_COLORS,
   COLORS,
+  INDICATOR,
   LIST_ROW,
   RADIUS,
   SCREEN_LAYOUT,
   TYPE_SCALE,
   setTextColor,
-  setTextWeight,
   textStyle,
   typeStyle,
 } from '../ui/view/theme.js';
@@ -160,6 +179,10 @@ const THUMBNAIL_INSET_PX = 8;
 const THUMBNAIL_SIZE_PX = 56;
 const THUMBNAIL_TITLE_GAP_PX = 16;
 const ROW_TITLE_CATEGORY_GAP_PX = 24;
+const ROW_TITLE_OFFSET_Y_PX = -13;
+const ROW_LEVEL_OFFSET_Y_PX = 20;
+const ROW_LEVEL_OFFSET_X_PX = -3;
+const LEVEL_LABEL_GAP_PX = 8;
 const UNSELECTED_THUMBNAIL_ALPHA = 0.5;
 const PAGE_LINE_CENTER_Y_PX = PAGE_Y_PX + TYPE_SCALE.meta.sizePx / 2;
 const CATEGORY_GAP_PX = 8;
@@ -174,6 +197,7 @@ const FILTER_TABS_STYLE: TextTabsStyle = {
 };
 // 기록은 곡 정보와 한 묶음으로 읽히도록 카테고리 바로 아래에 둔다.
 const RECORD_GROUP_GAP_PX = 40;
+const MY_RANK_VALUE_WEIGHT = 700;
 const RECORD_LABEL_GAP_PX = 8;
 const RECORD_GRADE_GAP_PX = 24;
 // 목록 패널과 아랫선을 맞춰 두 덩어리가 같은 바닥에 서 있게 한다.
@@ -258,6 +282,12 @@ const CELESTIAL_IDS: readonly CelestialAtlasId[] = [
   TOP_RANK_GLINT_ID,
 ];
 const NAVIGATION_STAR_GAP_PX = 24;
+const LEVEL_SLIDER_HANDLE_ID = 'R17';
+// 손잡이 별과 위 숫자까지 누를 수 있게 레일보다 넉넉히 덮는다.
+const LEVEL_SLIDER_HIT = {
+  paddingXPx: 16,
+  heightPx: 56,
+} as const;
 // 줄의 TOP 표시는 분류 글자 왼쪽 고정 열에 오른쪽 끝을 맞춘다.
 const ROW_TOP_RANK_RIGHT_X_PX = 690;
 const ROW_TOP_RANK_NUMBER_SIZE_PX = 34;
@@ -267,6 +297,12 @@ const RANKING_BUTTON_CENTER_Y_PX = 191;
 const RANKING_ICON_TEXTURE_KEY = 'ui:song-select-ranking';
 const RANKING_ICON_PATH = '/assets/ui/songSelect/ranking.png';
 const RANKING_ICON_SIZE_PX = 48;
+const LEVEL_RESET_ICON_SIZE_PX = 24;
+// 레일 오른쪽 끝 손잡이를 누르는 자리와 겹치지 않게 여백을 줄인다.
+const LEVEL_RESET_PADDING_X_PX = 6;
+const LEVEL_RESET_OFFSET_X_PX = 16;
+// 리셋 아이콘 원호의 밑면은 24px 아이콘 가운데보다 8px 아래에 있다.
+const LEVEL_RESET_ARC_BOTTOM_PX = 8;
 /** 아이콘 PNG 의 투명 여백만큼 더 밀어 획 끝을 재킷 오른쪽 선에 맞춘다. */
 const RANKING_ICON_MARGIN_X_PX = 4;
 /** quiet 버튼의 안쪽 가로 여백만큼 밀어 내용을 재킷 오른쪽 선에 맞춘다. */
@@ -277,9 +313,16 @@ interface SongRow {
   background: Phaser.GameObjects.Rectangle;
   content: Phaser.GameObjects.Container;
   thumbnail: JacketView;
-  title: Phaser.GameObjects.Text;
-  category: Phaser.GameObjects.Text;
+  // 선택이 바뀔 때 굵기를 다시 굽지 않도록 굵기별 글자를 미리 두고 보이는 쪽만 바꾼다.
+  titles: RowTextPair;
+  categories: RowTextPair;
   topRank: TopRankBadge;
+  level: LevelConstellation;
+}
+
+interface RowTextPair {
+  selected: Phaser.GameObjects.Text;
+  unselected: Phaser.GameObjects.Text;
 }
 
 interface ActionButton {
@@ -291,6 +334,7 @@ interface ActionButton {
 interface SongSelectWidgets {
   chrome: MenuSceneChrome;
   tabs: TextTabs<SongFilter>;
+  levelSlider: LevelRangeSlider;
   rows: SongRow[];
   notice: NoticeText;
   loadFailure: LoadFailurePanel;
@@ -306,17 +350,21 @@ interface SongSelectWidgets {
   titleText: Phaser.GameObjects.Text;
   categoryText: Phaser.GameObjects.Text;
   laneMarks: LaneMarks;
+  levelDivider: Phaser.GameObjects.Image;
+  levelLabel: Phaser.GameObjects.Text;
+  levelValue: Phaser.GameObjects.Text;
   difficultyTabs: TextTabs<Difficulty>;
   recordLabel: Phaser.GameObjects.Text;
   recordValue: Phaser.GameObjects.Text;
   recordGrade: GradeLetter;
   noRecordText: Phaser.GameObjects.Text;
   zodiacStars: Phaser.GameObjects.Image;
-  zodiacLines: Phaser.GameObjects.Graphics;
+  zodiacLines: Phaser.GameObjects.Image;
   actions: Record<SongSelectAction, ActionButton>;
   settingsButton: Button;
   backButton: Button;
   rankingButton: Button;
+  levelResetButton: Button;
 }
 
 type HoverInput = Pick<SongSelectController, 'hover' | 'unhover'>;
@@ -468,6 +516,33 @@ export class SongSelectScene extends Phaser.Scene {
           }),
       },
     );
+    // 레일을 고른 탭 밑줄과 같은 높이에 둔다.
+    const levelSliderCenterYPx =
+      tabs.getBounds('all').bottom +
+      INDICATOR.underlineOffsetPx +
+      INDICATOR.underlineThicknessPx / 2;
+    const { railLeftXPx, railRightXPx } = LEVEL_SLIDER_LAYOUT;
+    const levelSliderZone = this.add
+      .zone(
+        railLeftXPx - LEVEL_SLIDER_HIT.paddingXPx,
+        levelSliderCenterYPx,
+        railRightXPx - railLeftXPx + LEVEL_SLIDER_HIT.paddingXPx * 2,
+        LEVEL_SLIDER_HIT.heightPx,
+      )
+      .setOrigin(0, 0.5)
+      .setInteractive({ cursor: DRAG_CURSOR });
+    this.input.setDraggable(levelSliderZone);
+    levelSliderZone.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      ({ x: xPx }: Phaser.Input.Pointer) => controller.pressLevelSlider(getLevelSliderLevel(xPx)),
+    );
+    levelSliderZone.on(Phaser.Input.Events.GAMEOBJECT_DRAG, ({ x: xPx }: Phaser.Input.Pointer) =>
+      controller.dragLevelSlider(getLevelSliderLevel(xPx)),
+    );
+    // 끌기 끝은 슬라이더 밖에서 놓아도 온다.
+    levelSliderZone.on(Phaser.Input.Events.GAMEOBJECT_DRAG_END, () =>
+      controller.releaseLevelSlider(),
+    );
     const detailOutlines = DETAIL_OUTLINES.map(({ offsetYPx, widthPx, heightPx }) =>
       addGlassPanel(
         this,
@@ -480,9 +555,22 @@ export class SongSelectScene extends Phaser.Scene {
         RADIUS.smallPx,
       ).setVisible(false),
     );
-    const widgets: Omit<SongSelectWidgets, 'settingsButton' | 'backButton' | 'rankingButton'> = {
+    const widgets: Omit<
+      SongSelectWidgets,
+      'settingsButton' | 'backButton' | 'rankingButton' | 'levelResetButton'
+    > = {
       chrome,
       tabs,
+      levelSlider: new LevelRangeSlider(
+        this,
+        {
+          handle: this.celestial.atlasPresentations[LEVEL_SLIDER_HANDLE_ID],
+          halo: this.celestial.atlasPresentations[SELECTED_HALO_ID],
+        },
+        levelSliderCenterYPx,
+        // Lv. 글자는 탭 글자와 한 줄로 읽히게 탭 글자 기준선에 얹는다.
+        tabs.getBaselineYPx('all'),
+      ),
       rows: this.createSongRows(hoverInput, (slot) => controller.selectRow(slot)),
       notice: new NoticeText(
         this,
@@ -519,7 +607,7 @@ export class SongSelectScene extends Phaser.Scene {
       selectedHalo: new SelectedRowHalo(this, this.celestial.atlasPresentations[SELECTED_HALO_ID]),
       orbitArc: this.addCelestial(ORBIT_ARC_ID, ORBIT_ARC_POSITION_PX.x, ORBIT_ARC_POSITION_PX.y),
       zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
-      zodiacLines: this.add.graphics(),
+      zodiacLines: this.add.image(0, 0, '__DEFAULT'),
       jacketGlint: this.addCelestial(
         JACKET_GLINT_ID,
         JACKET_GLINT_POSITION_PX.x,
@@ -537,6 +625,16 @@ export class SongSelectScene extends Phaser.Scene {
         textStyle('secondary', CELESTIAL_COLORS.textNeutral),
       ),
       laneMarks: addLaneMarks(this, this.celestial),
+      levelDivider: addVerticalDivider(this, INFO_DIVIDER_HEIGHT_PX).setVisible(false),
+      levelLabel: this.add
+        .text(0, 0, 'Lv.', typeStyle(LEVEL_LABEL.type, CELESTIAL_COLORS.textNeutral))
+        .setLetterSpacing(LEVEL_LABEL.letterSpacingPx)
+        .setOrigin(0, 0.5)
+        .setVisible(false),
+      levelValue: this.add
+        .text(0, 0, '', typeStyle(INFO_VALUE_TYPE, COLORS.textPrimary))
+        .setOrigin(0, 0.5)
+        .setVisible(false),
       difficultyTabs: new TextTabs(
         this,
         DIFFICULTY_TAB_ITEMS,
@@ -589,6 +687,7 @@ export class SongSelectScene extends Phaser.Scene {
       ),
       backButton: requireDefined(backButton, 'Missing song select header button', 'BACK'),
       rankingButton: this.createRankingButton(pointer),
+      levelResetButton: this.createLevelResetButton(pointer, levelSliderCenterYPx),
     };
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
@@ -680,22 +779,33 @@ export class SongSelectScene extends Phaser.Scene {
       const thumbnailXPx = ROW_X_PX + THUMBNAIL_INSET_PX;
       const thumbnailYPx = centerYPx - THUMBNAIL_SIZE_PX / 2;
       const thumbnail = new JacketView(this, thumbnailXPx, thumbnailYPx, THUMBNAIL_SIZE_PX);
-      const title = this.add
-        .text(
-          thumbnailXPx + THUMBNAIL_SIZE_PX + THUMBNAIL_TITLE_GAP_PX,
-          centerYPx,
-          '',
-          textStyle('primary', COLORS.textPrimary),
-        )
-        .setOrigin(0, 0.5);
-      const category = this.add
-        .text(
-          ROW_X_PX + ROW_WIDTH_PX - ROW_TEXT_INSET_PX,
-          centerYPx,
-          '',
-          textStyle('meta', CELESTIAL_COLORS.textNeutral),
-        )
-        .setOrigin(1, 0.5);
+      const titleXPx = thumbnailXPx + THUMBNAIL_SIZE_PX + THUMBNAIL_TITLE_GAP_PX;
+      const addTitle = (weight: number): Phaser.GameObjects.Text =>
+        this.add
+          .text(
+            titleXPx,
+            centerYPx + ROW_TITLE_OFFSET_Y_PX,
+            '',
+            textStyle('primary', COLORS.textPrimary, weight),
+          )
+          .setOrigin(0, 0.5);
+      const addCategory = (weight: number): Phaser.GameObjects.Text =>
+        this.add
+          .text(
+            ROW_X_PX + ROW_WIDTH_PX - ROW_TEXT_INSET_PX,
+            centerYPx,
+            '',
+            textStyle('meta', CELESTIAL_COLORS.textNeutral, weight),
+          )
+          .setOrigin(1, 0.5);
+      const titles = {
+        selected: addTitle(TYPE_SCALE.primary.weight),
+        unselected: addTitle(UNSELECTED_WEIGHT),
+      };
+      const categories = {
+        selected: addCategory(TYPE_SCALE.meta.weight),
+        unselected: addCategory(UNSELECTED_WEIGHT),
+      };
       bindHoverTarget(background, {
         onOver: () =>
           hoverInput.hover({
@@ -709,14 +819,23 @@ export class SongSelectScene extends Phaser.Scene {
           }),
         onActivate: () => onSelect(slot),
       });
-      const content = this.add.container(0, 0, [thumbnail, title]);
+      const level = new LevelConstellation(this)
+        .setPosition(titleXPx + ROW_LEVEL_OFFSET_X_PX, centerYPx + ROW_LEVEL_OFFSET_Y_PX)
+        .setVisible(false);
+      const content = this.add.container(0, 0, [
+        thumbnail,
+        titles.selected,
+        titles.unselected,
+        level,
+      ]);
       return {
         marker,
         background,
         content,
         thumbnail,
-        title,
-        category,
+        titles,
+        categories,
+        level,
         topRank: new TopRankBadge(this, this.celestial, {
           xPx: ROW_TOP_RANK_RIGHT_X_PX,
           yPx: centerYPx,
@@ -749,6 +868,30 @@ export class SongSelectScene extends Phaser.Scene {
         button.width,
       RANKING_BUTTON_CENTER_Y_PX - button.height / 2,
     );
+  }
+
+  // 둥근 획의 밑면을 레벨 레일에 맞춘다.
+  private createLevelResetButton(
+    pointer: ButtonPointer<SongSelectButton>,
+    railYPx: number,
+  ): Button {
+    const button = new Button(this, 0, 0, {
+      variant: 'quiet',
+      focus: 'slide',
+      label: '',
+      pointer: pointButton(pointer, 'levelReset'),
+      paddingXPx: LEVEL_RESET_PADDING_X_PX,
+    }).setIcon(getResetIconTexture(this, LEVEL_RESET_ICON_SIZE_PX), LEVEL_RESET_ICON_SIZE_PX);
+    return button
+      .setPosition(
+        LIST_PANEL.xPx +
+          LIST_PANEL.widthPx +
+          LEVEL_RESET_PADDING_X_PX +
+          LEVEL_RESET_OFFSET_X_PX -
+          button.width,
+        railYPx - LEVEL_RESET_ARC_BOTTOM_PX - button.height / 2,
+      )
+      .setVisible(false);
   }
 
   private addCelestial(id: CelestialAtlasId, xPx: number, yPx: number): Phaser.GameObjects.Sprite {
@@ -786,8 +929,19 @@ export class SongSelectScene extends Phaser.Scene {
       INFO_X_PX,
       TITLE_Y_PX,
       this.i18n.t('songSelect.noRecord'),
-      textStyle('secondary', CELESTIAL_COLORS.textNeutral),
+      textStyle('meta', CELESTIAL_COLORS.textNeutral),
     );
+    // RANKING 의 MY RANK 처럼 순위 숫자 한 줄의 세로 가운데에 오도록 그 줄 높이만큼 위아래를 띄운다.
+    const rankLine = this.make.text(
+      {
+        text: '0',
+        style: textStyle('primary', COLORS.textPrimary, MY_RANK_VALUE_WEIGHT),
+      },
+      false,
+    );
+    const linePaddingPx = (rankLine.height - noRecordText.height) / 2;
+    rankLine.destroy();
+    noRecordText.setPadding(0, linePaddingPx, 0, linePaddingPx);
     return {
       recordLabel,
       recordValue,
@@ -862,6 +1016,9 @@ export class SongSelectScene extends Phaser.Scene {
     event: KeyboardEvent,
     controller: SongSelectController,
   ): void {
+    if (controller.handleLevelSliderKey(action)) {
+      return;
+    }
     switch (action) {
       case 'up':
         controller.moveSong(-1);
@@ -870,10 +1027,10 @@ export class SongSelectScene extends Phaser.Scene {
         controller.moveSong(1);
         return;
       case 'left':
-        controller.moveDifficulty(-1);
+        controller.moveDifficulty('previous');
         return;
       case 'right':
-        controller.moveDifficulty(1);
+        controller.moveDifficulty('next');
         return;
       case 'confirm':
         controller.play();
@@ -882,10 +1039,10 @@ export class SongSelectScene extends Phaser.Scene {
         controller.back();
         return;
       case 'previousTab':
-        controller.cycleFilter(-1);
+        controller.cycleFilter('previous');
         return;
       case 'nextTab':
-        controller.cycleFilter(1);
+        controller.cycleFilter('next');
         return;
       case null:
         break;
@@ -899,6 +1056,9 @@ export class SongSelectScene extends Phaser.Scene {
         return;
       case 'openRanking':
         controller.openRanking();
+        return;
+      case 'resetLevelFilter':
+        controller.resetLevelFilter();
         return;
       case null:
         return;
@@ -915,6 +1075,12 @@ export class SongSelectScene extends Phaser.Scene {
     switch (region) {
       case 'filterTabs':
         this.renderTabs(view, state);
+        return;
+      case 'levelSlider':
+        view.levelSlider.render({
+          ...state.levelSlider.range,
+          focus: getLevelSliderFocus(state),
+        });
         return;
       case 'rows': {
         const rows = getSongRows(state, ROWS_PER_PAGE);
@@ -937,16 +1103,17 @@ export class SongSelectScene extends Phaser.Scene {
         this.renderSelectedHalo(view, state);
         return;
       case 'notice':
-        view.loadFailure.render(
-          notice === 'loadFailed'
-            ? {
-                title: this.i18n.t('songSelect.loadFailed'),
-                body: this.i18n.t('loadFailure.body'),
-              }
-            : null,
-        );
+        if (notice === 'loadFailed') {
+          view.loadFailure.render({
+            title: this.i18n.t('songSelect.loadFailed'),
+            body: this.i18n.t('loadFailure.body'),
+          });
+          view.notice.show({ kind: 'none' });
+          return;
+        }
+        view.loadFailure.render(null);
         view.notice.show(
-          notice === null || notice === 'loadFailed'
+          notice === null
             ? { kind: 'none' }
             : {
                 kind: getNoticeKind(notice),
@@ -1009,6 +1176,7 @@ export class SongSelectScene extends Phaser.Scene {
               state.current.song,
               state.laneCount,
               getSelectedRecordView(state),
+              getSelectedLevel(state),
             );
             return;
           case 'none':
@@ -1033,7 +1201,7 @@ export class SongSelectScene extends Phaser.Scene {
         return;
       case 'controls':
         view.chrome.renderControls(
-          next.state.isControlsOpen
+          isControlsPanelOpen(next.state)
             ? getControlsGuide(
                 this.i18n.t('controls', { returnObjects: true }),
                 this.save.loadSettings(),
@@ -1050,6 +1218,11 @@ export class SongSelectScene extends Phaser.Scene {
       case 'rankingButton':
         view.rankingButton.render(getRankingButtonView(next));
         return;
+      case 'levelResetButton': {
+        const resetView = getLevelResetButtonView(next);
+        view.levelResetButton.setVisible(resetView.appearance !== 'disabled').render(resetView);
+        return;
+      }
       case 'retryButton':
         view.loadFailure.renderRetry(getRetryButtonView(next));
         return;
@@ -1061,6 +1234,12 @@ export class SongSelectScene extends Phaser.Scene {
         return;
       case 'controlsClose':
         view.chrome.renderControlsClose(getSongSelectControlsCloseView(next));
+        return;
+      case 'controlsHelpCard':
+        view.chrome.renderControlsHelpCard(isControlsHelpShown(next.state));
+        return;
+      case 'controlsHelpButton':
+        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(next.state));
         return;
       case 'accountButton':
         view.chrome.renderAccountButton(getAccountPanelButtonView(next.state.hover));
@@ -1138,14 +1317,17 @@ export class SongSelectScene extends Phaser.Scene {
 
   private renderRow(view: SongSelectWidgets, slot: number, rowView: SongRowView): void {
     const row = getSongRow(view, slot);
-    const { marker, background, thumbnail, title, category, topRank } = row;
+    const { marker, background, thumbnail, titles, categories, topRank, level } = row;
     const hasSong = rowView.kind === 'song';
     const isSelected = hasSong && rowView.appearance === 'selected';
     thumbnail.setVisible(hasSong);
-    title.setVisible(hasSong);
-    category.setVisible(hasSong);
     if (!hasSong) {
+      [titles, categories].forEach(({ selected, unselected }) => {
+        selected.setVisible(false);
+        unselected.setVisible(false);
+      });
       topRank.render(null);
+      level.setVisible(false);
       marker.render(null);
       background.disableInteractive(true);
       return;
@@ -1153,11 +1335,20 @@ export class SongSelectScene extends Phaser.Scene {
     const { song } = rowView;
     background.setInteractive();
     thumbnail.setSong(song).setAlpha(isSelected ? 1 : UNSELECTED_THUMBNAIL_ALPHA);
-    category.setText(song.category.toUpperCase());
+    // 숨는 쪽 글자는 그리지 않도록 보일 쪽에만 내용을 넣는다.
+    const [title, hiddenTitle] = isSelected
+      ? [titles.selected, titles.unselected]
+      : [titles.unselected, titles.selected];
+    const [category, hiddenCategory] = isSelected
+      ? [categories.selected, categories.unselected]
+      : [categories.unselected, categories.selected];
+    hiddenTitle.setVisible(false);
+    hiddenCategory.setVisible(false);
+    title.setVisible(true);
+    category.setVisible(true).setText(song.category.toUpperCase());
     setTextColor(category, CATEGORY_COLORS[song.category]);
-    setTextWeight(category, isSelected ? TYPE_SCALE.meta.weight : UNSELECTED_WEIGHT);
-    setTextWeight(title, isSelected ? TYPE_SCALE.primary.weight : UNSELECTED_WEIGHT);
     topRank.render(rowView.topRank);
+    level.render(rowView.level);
     const topRankLeftXPx = topRank.getLeftXPx();
     // 선택 행은 오른쪽으로 밀리므로 그만큼 빼야 선택돼도 분류나 TOP 표시와 겹치지 않는다.
     const titleRightXPx =
@@ -1182,6 +1373,7 @@ export class SongSelectScene extends Phaser.Scene {
     song: Song,
     laneCount: LaneCount,
     record: SelectedRecordView,
+    level: ChartLevel | null,
   ): void {
     fitSongTitle(view.titleText, song.title);
     setTextColor(view.categoryText, CATEGORY_COLORS[song.category]);
@@ -1189,6 +1381,14 @@ export class SongSelectScene extends Phaser.Scene {
       .setText(song.category.toUpperCase())
       .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
     renderLaneMarks(view.laneMarks, view.categoryText, laneCount);
+    const laneText = view.laneMarks.text;
+    const dividerXPx = laneText.x + laneText.width + INFO_DIVIDER_GAP_PX;
+    view.levelDivider.setPosition(dividerXPx, laneText.y).setVisible(true);
+    view.levelLabel.setPosition(dividerXPx + INFO_DIVIDER_GAP_PX, laneText.y).setVisible(true);
+    view.levelValue
+      .setText(level === null ? '—' : String(level))
+      .setPosition(view.levelLabel.x + view.levelLabel.width + LEVEL_LABEL_GAP_PX, laneText.y)
+      .setVisible(true);
     const recordYPx = view.categoryText.y + view.categoryText.height + RECORD_GROUP_GAP_PX;
     const hasRecord = record.kind === 'record';
     view.recordLabel.setY(recordYPx).setVisible(hasRecord);
@@ -1233,6 +1433,9 @@ export class SongSelectScene extends Phaser.Scene {
     view.titleText.setText('');
     view.categoryText.setText('');
     renderLaneMarks(view.laneMarks, view.categoryText, null);
+    view.levelDivider.setVisible(false);
+    view.levelLabel.setVisible(false);
+    view.levelValue.setVisible(false);
     view.recordLabel.setVisible(false);
     view.recordValue.setVisible(false);
     view.recordGrade.render(null);

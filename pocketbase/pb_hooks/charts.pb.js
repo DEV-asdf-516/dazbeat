@@ -14,6 +14,7 @@ onRecordCreateRequest((e) => {
         difficulty: e.record.getString('difficulty'),
         laneCount: e.record.getInt('laneCount'),
         data: toString(e.record.get('data')),
+        level: e.record.getFloat('level'),
       }),
     );
   } catch (error) {
@@ -57,6 +58,7 @@ onRecordUpdateRequest((e) => {
         difficulty: e.record.getString('difficulty'),
         laneCount: e.record.getInt('laneCount'),
         data: toString(e.record.get('data')),
+        level: e.record.getFloat('level'),
       }),
     );
     if (isSuperuser) {

@@ -21,15 +21,7 @@ const LEADERBOARD_KEYS = [
   'top',
   'totalPlayers',
 ];
-const MY_RECORD_KEYS = [
-  'accuracy',
-  'cleared',
-  'difficulty',
-  'laneCount',
-  'maxCombo',
-  'score',
-  'songId',
-];
+const MY_RECORD_KEYS = ['accuracy', 'difficulty', 'laneCount', 'maxCombo', 'score', 'songId'];
 const ANY_STRING: unknown = expect.any(String);
 
 interface RankedChartItem {
@@ -114,7 +106,7 @@ async function play(
   player: TestUser,
   chart: RecordModel,
   inputs: readonly InputEvent[],
-): Promise<{ score: number; accuracy: number; maxCombo: number; cleared: boolean }> {
+): Promise<{ score: number; accuracy: number; maxCombo: number }> {
   const { sessionId } = await player.client.send<{ sessionId: string }>(
     '/api/dazbeat/play-sessions',
     {
@@ -292,7 +284,6 @@ describe('GET /api/dazbeat/leaderboards/{chartId}', () => {
         score: 900_000,
         accuracy,
         maxCombo: 4,
-        cleared: true,
         counts: {
           perfect: 4,
           great: 0,
@@ -469,7 +460,6 @@ describe('GET /api/dazbeat/profile/rankings', () => {
         score: 900_000,
         accuracy: 0.95,
         maxCombo: 4,
-        cleared: true,
         counts: {
           perfect: 4,
           great: 0,
@@ -508,7 +498,6 @@ describe('GET /api/dazbeat/profile/rankings', () => {
         score,
         accuracy: 0.95,
         maxCombo: 4,
-        cleared: true,
         counts: {
           perfect: 4,
           great: 0,
@@ -554,7 +543,6 @@ describe('GET /api/dazbeat/profile/rankings', () => {
         score: 900_000,
         accuracy: 0.95,
         maxCombo: 4,
-        cleared: true,
         counts: {
           perfect: 4,
           great: 0,
@@ -583,7 +571,6 @@ describe('GET /api/dazbeat/profile/rankings', () => {
       score: 900_000,
       accuracy: 0.95,
       maxCombo: 4,
-      cleared: true,
       counts: {
         perfect: 4,
         great: 0,
@@ -608,7 +595,6 @@ describe('GET /api/dazbeat/profile/rankings', () => {
       score: 900_000,
       accuracy: 0.95,
       maxCombo: 4,
-      cleared: true,
       counts: {
         perfect: 4,
         great: 0,
@@ -643,7 +629,6 @@ describe('GET /api/dazbeat/profile/rankings', () => {
         score,
         accuracy: 0.95,
         maxCombo: 4,
-        cleared: true,
         counts: {
           perfect: 4,
           great: 0,
@@ -692,7 +677,6 @@ describe('GET /api/dazbeat/profile/rankings', () => {
         score: 900_000,
         accuracy: 0.95,
         maxCombo: 4,
-        cleared: true,
         counts: {
           perfect: 4,
           great: 0,
@@ -774,7 +758,7 @@ describe('GET /api/dazbeat/profile/records', () => {
 
   function recordOf(
     chart: RankedTestChart,
-    { score, accuracy, maxCombo, cleared }: Awaited<ReturnType<typeof play>>,
+    { score, accuracy, maxCombo }: Awaited<ReturnType<typeof play>>,
   ) {
     return {
       songId: chart.data.songId,
@@ -783,7 +767,6 @@ describe('GET /api/dazbeat/profile/records', () => {
       score,
       accuracy,
       maxCombo,
-      cleared,
     };
   }
 
@@ -844,14 +827,12 @@ describe('GET /api/dazbeat/profile/records', () => {
         score: 900_000,
         accuracy: 0.9,
         maxCombo: 2,
-        cleared: true,
       },
       {
         chartRevision: String(edited['revision']),
         score: 800_000,
         accuracy: 0.95,
         maxCombo: 4,
-        cleared: false,
       },
     ];
     for (const score of scores) {
@@ -875,7 +856,6 @@ describe('GET /api/dazbeat/profile/records', () => {
         score: 900_000,
         accuracy: 0.95,
         maxCombo: 4,
-        cleared: true,
       }),
     ]);
   });

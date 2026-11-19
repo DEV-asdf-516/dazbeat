@@ -22,11 +22,20 @@ const SONG: Song = {
   constellation: 'gemini',
   gameStartMs: 0,
   gameEndMs: 30000,
-  chartIds: {
+  charts: {
     4: {
-      easy: 'easy-4',
-      normal: 'normal-4',
-      hard: 'hard-4',
+      easy: {
+        id: 'easy-4',
+        level: 1,
+      },
+      normal: {
+        id: 'normal-4',
+        level: 1,
+      },
+      hard: {
+        id: 'hard-4',
+        level: 1,
+      },
     },
   },
 };
@@ -35,6 +44,7 @@ const EASY: ChartRef = {
   laneCount: 4,
   difficulty: 'easy',
   chartId: 'easy-4',
+  level: 1,
 };
 const WHEEL_STEP_PX = 100;
 
@@ -305,7 +315,7 @@ describe('RankingController', () => {
       harness.controller.handleMenuKey('down');
       expect(harness.last().topRow).toBe(1);
       harness.controller.scrollByWheel(WHEEL_STEP_PX * 30, 0);
-      expect(harness.last().topRow).toBe(11);
+      expect(harness.last().topRow).toBe(12);
     });
 
     it('does not scroll while a dialog is open', async () => {
@@ -386,10 +396,11 @@ describe('RankingController', () => {
 
     it.each([
       [1, 0],
-      [9, 0],
+      [8, 0],
+      [9, 4],
       [10, 5],
       [15, 10],
-      [20, 11],
+      [20, 12],
     ])('brings rank %i into view from row %i', async (myRank, topRow) => {
       const harness = await loaded(
         boardOf('easy-4', {
@@ -425,9 +436,9 @@ describe('RankingController', () => {
         }),
       );
 
-      expect(harness.last().topRow).toBe(12);
+      expect(harness.last().topRow).toBe(13);
       const rows = getRankingRows(harness.last());
-      expect(rows).toHaveLength(9);
+      expect(rows).toHaveLength(8);
       expect(rows.at(-1)).toMatchObject({
         nickname: 'me',
         isMe: true,
@@ -436,7 +447,7 @@ describe('RankingController', () => {
       });
       expect(rows.at(0)?.outsideTopRank).toBeNull();
       harness.controller.scrollByWheel(WHEEL_STEP_PX * 30, 0);
-      expect(harness.last().topRow).toBe(12);
+      expect(harness.last().topRow).toBe(13);
     });
 
     it('does not add my row twice when I am inside the top 20', async () => {
@@ -455,7 +466,7 @@ describe('RankingController', () => {
       );
 
       harness.controller.scrollByWheel(WHEEL_STEP_PX * 30, 0);
-      expect(harness.last().topRow).toBe(11);
+      expect(harness.last().topRow).toBe(12);
     });
 
     it('adds no row for a guest or a player without a record', async () => {
@@ -467,7 +478,7 @@ describe('RankingController', () => {
       );
 
       harness.controller.scrollByWheel(WHEEL_STEP_PX * 30, 0);
-      expect(harness.last().topRow).toBe(11);
+      expect(harness.last().topRow).toBe(12);
     });
   });
 
@@ -489,10 +500,12 @@ describe('RankingController', () => {
       harness.controller.pointerDown('controlsEntry');
       harness.controller.pointerUp('controlsEntry');
 
-      expect(harness.last().isControlsOpen).toBe(false);
+      expect(harness.last().controls).toBe('closed');
       expect(harness.last().dialog).toBe('failed');
       expect(harness.sounds).toHaveLength(sounds);
-      expect(harness.renders.slice(rendered).every((state) => !state.isControlsOpen)).toBe(true);
+      expect(harness.renders.slice(rendered).every((state) => state.controls === 'closed')).toBe(
+        true,
+      );
     });
 
     it('does not scroll behind the controls guide', async () => {
@@ -512,12 +525,12 @@ describe('RankingController', () => {
     it('closes the controls guide when a response opens a dialog', async () => {
       const harness = createHarness();
       harness.controller.handleControlsKey(H_KEY);
-      expect(harness.last().isControlsOpen).toBe(true);
+      expect(harness.last().controls).toBe('open');
 
       harness.request(0).reject(new RankingRequestError('failed', undefined));
       await flush();
 
-      expect(harness.last().isControlsOpen).toBe(false);
+      expect(harness.last().controls).toBe('closed');
       expect(harness.last().dialog).toBe('failed');
     });
   });
