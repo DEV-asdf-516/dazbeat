@@ -3,11 +3,10 @@ import type { Judgment, JudgmentCounts } from './types.js';
 export const ACCURACY_WEIGHTS: Record<Judgment, number> = {
   perfect: 1,
   great: 0.8,
-  good: 0.5,
-  bad: 0.2,
+  good: 0.3,
+  bad: 0.1,
   miss: 0,
 };
-export const CLEAR_ACCURACY = 0.7;
 
 export function calculateAccuracy(counts: JudgmentCounts): number {
   const total = counts.perfect + counts.great + counts.good + counts.bad + counts.miss;
@@ -21,8 +20,4 @@ export function calculateAccuracy(counts: JudgmentCounts): number {
     counts.bad * ACCURACY_WEIGHTS.bad +
     counts.miss * ACCURACY_WEIGHTS.miss;
   return weighted / total;
-}
-
-export function isCleared(accuracy: number): boolean {
-  return accuracy >= CLEAR_ACCURACY;
 }

@@ -1,6 +1,7 @@
 import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import { cycleItem } from '../../../range.js';
+import type { ListDirection } from '../../../range.js';
 import { canOpenChartEditor } from '../../app/accountState.js';
 import type { AccountState } from '../../app/accountState.js';
 import {
@@ -13,8 +14,15 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
-import type { ControlsButton } from '../../app/controlsGuide.js';
+import {
+  getControlsCloseView,
+  getControlsHelpButtonView,
+  isControlsEntryHovered,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+  leaveControlsButton,
+} from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 
 export type MainMenuItem = 'play' | 'practice' | 'chartEditor' | 'settings' | 'credits';
 
@@ -40,7 +48,7 @@ export type MainButton = MainFocus | 'account' | ControlsButton;
 export interface MainState {
   readonly account: AccountState;
   readonly focus: MainFocus;
-  readonly isControlsOpen: boolean;
+  readonly controls: ControlsPanel;
   readonly hover: ButtonHover<MainButton> | null;
 }
 
@@ -50,7 +58,7 @@ export function createMainState(account: AccountState): MainState {
   return {
     account,
     focus: INITIAL_FOCUS,
-    isControlsOpen: false,
+    controls: 'closed',
     hover: null,
   };
 }
@@ -110,7 +118,7 @@ export function hoverMainButton(state: MainState, button: MainButton): MainState
 }
 
 export function unhoverMainButton(state: MainState, button: MainButton): MainState {
-  return withHover(state, unhoverButton(state.hover, button));
+  return leaveControlsButton(withHover(state, unhoverButton(state.hover, button)), button);
 }
 
 export function pressMainButton(state: MainState, button: MainButton): MainState {
@@ -133,8 +141,8 @@ export function isMainControlsEntryHovered(state: MainState): boolean {
   return isControlsEntryHovered(state.hover);
 }
 
-export function moveMainFocus(state: MainState, delta: 1 | -1): MainState {
-  const focus = cycleItem(getFocusOrder(state.account), state.focus, delta);
+export function moveMainFocus(state: MainState, direction: ListDirection): MainState {
+  const focus = cycleItem(getFocusOrder(state.account), state.focus, direction);
   return focus === state.focus
     ? state
     : {
@@ -157,6 +165,8 @@ export type MainRegion =
   | 'controls'
   | 'controlsEntry'
   | 'controlsClose'
+  | 'controlsHelpCard'
+  | 'controlsHelpButton'
   | 'menuFocusMotion'
   | 'menuItemsMotion'
   | 'youtubeHearts';
@@ -173,7 +183,7 @@ function readButton(button: MainButton): readonly MainReader[] {
 const readAccount: MainReader = (state) => state.account;
 const readMenuItems: MainReader = (state) => getMainMenuItems(state.account);
 const readFocus: MainReader = (state) => state.focus;
-const readControlsOpen: MainReader = (state) => state.isControlsOpen;
+const readControlsOpen: MainReader = (state) => isControlsPanelOpen(state);
 
 const REGION_SOURCES: Readonly<
   Record<
@@ -190,6 +200,8 @@ const REGION_SOURCES: Readonly<
   controls: [readControlsOpen],
   controlsEntry: [(state) => isButtonHovered(state.hover, 'controlsEntry')],
   controlsClose: readButton('controlsClose'),
+  controlsHelpCard: [isControlsHelpShown],
+  controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
 };
 
 export function getChangedRegions(

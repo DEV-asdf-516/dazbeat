@@ -227,7 +227,6 @@ describe('loadMyRecords', () => {
     score: 309850,
     accuracy: 0.97,
     maxCombo: 120,
-    cleared: true,
   };
 
   it('gets my best records', async () => {
@@ -242,7 +241,6 @@ describe('loadMyRecords', () => {
   it.each([
     ['an unknown lane count', { laneCount: 3 }],
     ['an unknown difficulty', { difficulty: 'impossible' }],
-    ['a missing cleared flag', { cleared: undefined }],
   ])('rejects a response with %s', async (_case, fields) => {
     // JSON 으로 보낼 때 undefined 필드는 빠진다.
     respondWith(200, {

@@ -1,4 +1,5 @@
 import { MY_RANK_LIMIT, TOP_RANK_LIMIT } from '../../../data/ranking.js';
+import { isInRange } from '../../../range.js';
 
 export type TopRankTier = 'gold' | 'silver' | 'bronze' | 'plain';
 
@@ -9,7 +10,7 @@ const MEDAL_TIERS: Readonly<Record<number, TopRankTier>> = {
 };
 
 export function getTopRankTier(rank: number): TopRankTier | 'none' {
-  if (rank < 1 || rank > TOP_RANK_LIMIT) {
+  if (!isInRange(rank, 1, TOP_RANK_LIMIT)) {
     return 'none';
   }
   return MEDAL_TIERS[rank] ?? 'plain';

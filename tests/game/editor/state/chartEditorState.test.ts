@@ -6,6 +6,7 @@ import {
   completeSave,
   createDraft,
   selectNote,
+  setDraftLevel,
 } from '../../../../src/game/editor/state/chartDraft.js';
 import type { ChartDraft } from '../../../../src/game/editor/state/chartDraft.js';
 import {
@@ -18,8 +19,10 @@ import {
   hoverEditorButton,
   hoverSegment,
   pressEditorButton,
+  getEditorButtonView,
   getEditorDecorations,
   getEditorStatus,
+  getLevelControl,
   getInitialDifficulty,
   getNotes,
   getPending,
@@ -50,7 +53,14 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 1000,
   gameEndMs: 10000,
-  chartIds: { 4: { normal: 'chart_normal' } },
+  charts: {
+    4: {
+      normal: {
+        id: 'chart_normal',
+        level: 1,
+      },
+    },
+  },
 };
 
 const TAP: Note = {
@@ -76,6 +86,7 @@ function makeDraft(notes: readonly Note[]): ChartDraft {
       notes,
     },
     'r0',
+    1,
   );
 }
 
@@ -142,10 +153,16 @@ describe('getSelection', () => {
   it('reads the selection from the phase, and from the draft while editing', () => {
     const savedSong: Song = {
       ...song,
-      chartIds: {
+      charts: {
         4: {
-          normal: 'chart_normal',
-          hard: 'chart_hard',
+          normal: {
+            id: 'chart_normal',
+            level: 1,
+          },
+          hard: {
+            id: 'chart_hard',
+            level: 1,
+          },
         },
       },
     };
@@ -161,6 +178,7 @@ describe('getSelection', () => {
             notes: [TAP],
           },
           'r0',
+          1,
         ),
       ),
     );
@@ -280,6 +298,7 @@ describe('getChangedRegions', () => {
     'deleteButton',
     'clearButton',
     'confirmButtons',
+    'levelControl',
   ];
 
   const allButToolIndicator = all.filter((region) => region !== 'toolIndicator');
@@ -325,10 +344,16 @@ describe('getChangedRegions', () => {
   it('redraws what reads the song and the status when a save changes the song and the saved notes', () => {
     const savedSong: Song = {
       ...song,
-      chartIds: {
+      charts: {
         4: {
-          normal: 'chart_normal',
-          hard: 'chart_hard',
+          normal: {
+            id: 'chart_normal',
+            level: 1,
+          },
+          hard: {
+            id: 'chart_hard',
+            level: 1,
+          },
         },
       },
     };
@@ -338,19 +363,26 @@ describe('getChangedRegions', () => {
         dirty,
         editing({
           ...dirtySession,
-          draft: completeSave(dirtySession.draft, dirtySession.draft.notes, savedSong, 'r1'),
+          draft: completeSave(
+            dirtySession.draft,
+            dirtySession.draft.notes,
+            dirtySession.draft.level,
+            savedSong,
+            'r1',
+          ),
         }),
       ),
     ).toEqual(['selection', 'status', 'playhead', 'seekMarks', 'notes', 'saveButton']);
   });
 
-  it('redraws SAVE and TEST PLAY with the dialog and the decorations when it opens or closes', () => {
+  it('redraws SAVE, TEST PLAY and the level control with the dialog and the decorations when it opens or closes', () => {
     expect(getChangedRegions(dirty, withPending(dirtySession))).toEqual([
       'status',
       'confirm',
       'decorations',
       'saveButton',
       'testPlayButton',
+      'levelControl',
     ]);
     expect(getChangedRegions(withPending(dirtySession), dirty)).toEqual([
       'status',
@@ -358,6 +390,7 @@ describe('getChangedRegions', () => {
       'decorations',
       'saveButton',
       'testPlayButton',
+      'levelControl',
     ]);
   });
 
@@ -540,6 +573,56 @@ describe('buttons', () => {
   });
 });
 
+describe('level', () => {
+  const leveled = (level: Parameters<typeof setDraftLevel>[1]) =>
+    editing(withDraft(cleanSession, setDraftLevel(cleanSession.draft, level)));
+
+  it('makes the draft unsaved and redraws the status, SAVE and the level control when only the level changes', () => {
+    const changed = leveled(3.5);
+
+    expect(hasUnsavedChanges(changed)).toBe(true);
+    expect(canSave(changed)).toBe(true);
+    expect(getEditorStatus(changed)).toEqual({ kind: 'unsaved' });
+    expect(getChangedRegions(clean, changed)).toEqual(['status', 'saveButton', 'levelControl']);
+  });
+
+  it('redraws the status when a save makes only the saved level match', () => {
+    const changed = leveled(3.5);
+    const session = requireDefined(
+      changed.phase.kind === 'editing' ? changed.phase.session : undefined,
+      'Leveled state is not editing',
+    );
+    const saved = editing({
+      ...session,
+      draft: completeSave(session.draft, session.draft.notes, 3.5, song, 'r0'),
+    });
+
+    expect(hasUnsavedChanges(saved)).toBe(false);
+    expect(getChangedRegions(changed, saved)).toContain('status');
+  });
+
+  it('disables ◀ at level 1 and ▶ at level 5', () => {
+    expect(getEditorButtonView(clean, 'levelDown').appearance).toBe('disabled');
+    expect(getEditorButtonView(clean, 'levelUp').appearance).not.toBe('disabled');
+    expect(getEditorButtonView(leveled(5), 'levelUp').appearance).toBe('disabled');
+    expect(getEditorButtonView(leveled(5), 'levelDown').appearance).not.toBe('disabled');
+  });
+
+  it('cannot be used while loading, after a failed load or behind a dialog', () => {
+    expect(getLevelControl(loading)).toEqual({
+      level: null,
+      isEnabled: false,
+    });
+    expect(getLevelControl(loadFailed).isEnabled).toBe(false);
+    expect(getLevelControl(withPending(dirtySession)).isEnabled).toBe(false);
+    expect(getEditorButtonView(loading, 'levelUp').appearance).toBe('disabled');
+    expect(getLevelControl(leveled(2))).toEqual({
+      level: 2,
+      isEnabled: true,
+    });
+  });
+});
+
 describe('readEditorKey', () => {
   const key = (
     code: string,
@@ -554,39 +637,49 @@ describe('readEditorKey', () => {
   });
 
   it('undoes on Ctrl+Z or Meta+Z but not with Shift', () => {
-    expect(readEditorKey(key('KeyZ', { ctrlKey: true }))).toBe('undo');
-    expect(readEditorKey(key('KeyZ', { metaKey: true }))).toBe('undo');
+    expect(readEditorKey(key('KeyZ', { ctrlKey: true }), false)).toBe('undo');
+    expect(readEditorKey(key('KeyZ', { metaKey: true }), false)).toBe('undo');
     expect(
       readEditorKey(
         key('KeyZ', {
           ctrlKey: true,
           shiftKey: true,
         }),
+        false,
       ),
     ).toBeNull();
   });
 
   it('confirms the pending action on Enter but not on a repeat', () => {
-    expect(readEditorKey(key('Enter'))).toBe('confirmPending');
-    expect(readEditorKey(key('Enter', { repeat: true }))).toBeNull();
+    expect(readEditorKey(key('Enter'), false)).toBe('confirmPending');
+    expect(readEditorKey(key('Enter', { repeat: true }), false)).toBeNull();
   });
 
   it('toggles playback on Space but not on a repeat', () => {
-    expect(readEditorKey(key('Space'))).toBe('togglePlayback');
-    expect(readEditorKey(key('Space', { repeat: true }))).toBeNull();
+    expect(readEditorKey(key('Space'), false)).toBe('togglePlayback');
+    expect(readEditorKey(key('Space', { repeat: true }), false)).toBeNull();
   });
 
   it('deletes the selected note on Delete or Backspace', () => {
-    expect(readEditorKey(key('Delete'))).toBe('deleteSelected');
-    expect(readEditorKey(key('Backspace'))).toBe('deleteSelected');
+    expect(readEditorKey(key('Delete'), false)).toBe('deleteSelected');
+    expect(readEditorKey(key('Backspace'), false)).toBe('deleteSelected');
   });
 
   it('goes back on Escape but not on a repeat', () => {
-    expect(readEditorKey(key('Escape'))).toBe('back');
-    expect(readEditorKey(key('Escape', { repeat: true }))).toBeNull();
+    expect(readEditorKey(key('Escape'), false)).toBe('back');
+    expect(readEditorKey(key('Escape', { repeat: true }), false)).toBeNull();
   });
 
   it('ignores other keys', () => {
-    expect(readEditorKey(key('KeyX'))).toBeNull();
+    expect(readEditorKey(key('KeyX'), false)).toBeNull();
+  });
+
+  it('only commits on Enter and cancels on Escape while the level input is focused', () => {
+    expect(readEditorKey(key('Enter'), true)).toBe('commitLevelInput');
+    expect(readEditorKey(key('Escape'), true)).toBe('cancelLevelInput');
+    expect(readEditorKey(key('Space'), true)).toBeNull();
+    expect(readEditorKey(key('Backspace'), true)).toBeNull();
+    expect(readEditorKey(key('Delete'), true)).toBeNull();
+    expect(readEditorKey(key('KeyZ', { ctrlKey: true }), true)).toBeNull();
   });
 });

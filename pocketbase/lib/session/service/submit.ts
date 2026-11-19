@@ -87,7 +87,6 @@ export function recordPlayResult(
       accuracy: result.accuracy,
       maxCombo: result.maxCombo,
       counts: result.counts,
-      cleared: result.cleared,
       autoplayCheck: autoplayCheck.kind,
       autoplayReasons: autoplayCheck.reasons,
       inputStats: autoplayCheck.stats,

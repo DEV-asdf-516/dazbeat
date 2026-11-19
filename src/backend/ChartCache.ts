@@ -7,6 +7,7 @@ function freezeCopy(loaded: LoadedChart): LoadedChart {
   const { chart } = loaded;
   return Object.freeze({
     revision: loaded.revision,
+    level: loaded.level,
     chart: Object.freeze({
       ...chart,
       notes: Object.freeze(chart.notes.map((note) => Object.freeze({ ...note }))),

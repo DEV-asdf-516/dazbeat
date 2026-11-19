@@ -1,7 +1,13 @@
 import type { Leaderboard } from '../../data/ranking.js';
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
-import { readControlsKey, readControlsWheel, withControlsOpen } from '../app/controlsGuide.js';
+import {
+  clickControlsHelp,
+  isControlsPanelOpen,
+  readControlsKey,
+  readControlsWheel,
+  withControlsOpen,
+} from '../app/controlsGuide.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
@@ -75,7 +81,7 @@ export class RankingController {
     if ('kind' in this.state) {
       return;
     }
-    const read = readControlsWheel(this.state.isControlsOpen, this.wheel, {
+    const read = readControlsWheel(isControlsPanelOpen(this.state), this.wheel, {
       deltaYPx,
       atMs,
       rowPx: this.wheelStepPx,
@@ -134,6 +140,10 @@ export class RankingController {
       case 'controlsBackdrop':
         this.closeControls();
         return;
+      case 'controlsHelp':
+        this.screen.playSound('click');
+        this.apply(clickControlsHelp);
+        return;
       case 'accountProfile':
         this.screen.playSound('click');
         this.screen.openProfile();
@@ -145,7 +155,7 @@ export class RankingController {
     if ('kind' in this.state) {
       return false;
     }
-    switch (readControlsKey(this.state.isControlsOpen, event)) {
+    switch (readControlsKey(isControlsPanelOpen(this.state), event)) {
       case 'open':
         this.openControls();
         return true;
@@ -170,7 +180,7 @@ export class RankingController {
         this.apply((state) => scrollRanking(state, action.rows));
         return;
       case 'difficulty':
-        this.changeChart((state) => stepRankingDifficulty(state, action.step));
+        this.changeChart((state) => stepRankingDifficulty(state, action.direction));
         return;
       case 'retry':
         this.changeChart(retryLeaderboard);

@@ -23,10 +23,7 @@ export interface ApprovedPlay {
     readonly constellation: Zodiac;
   };
   readonly chartRevision: string;
-  readonly result: Pick<
-    FinishedGameplayResult,
-    'score' | 'accuracy' | 'maxCombo' | 'counts' | 'cleared'
-  >;
+  readonly result: Pick<FinishedGameplayResult, 'score' | 'accuracy' | 'maxCombo' | 'counts'>;
   readonly achievedAtMs: number;
 }
 

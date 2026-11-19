@@ -22,7 +22,8 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
   const fail = (status, code, message) => e.json(status, { status, code, message });
 
   const requestInfo = e.requestInfo();
-  const { title, category, afterReleasedOn, afterId, scope } = requestInfo.query;
+  const { title, category, afterReleasedOn, afterId, scope, laneCount, minLevel, maxLevel } =
+    requestInfo.query;
   let search;
   try {
     search = buildSongSearchQuery(
@@ -32,6 +33,9 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
         afterReleasedOn,
         afterId,
         scope,
+        laneCount,
+        minLevel,
+        maxLevel,
         // superuser 의 e.auth 는 users 레코드가 아니라 isEditor 가 없다.
         canListUnpublished:
           requestInfo.hasSuperuserAuth() || (e.auth !== null && e.auth.getBool('isEditor')),

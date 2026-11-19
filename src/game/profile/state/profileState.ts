@@ -30,6 +30,7 @@ import type { Zodiac } from '../../../data/songs.js';
 import type { Difficulty, LaneCount } from '../../../rhythm/types.js';
 import { requireDefined } from '../../../invariant.js';
 import { clamp, cycleItem, stepItem } from '../../../range.js';
+import type { ListDirection } from '../../../range.js';
 import { isShallowEqual } from '../../../shallowEqual.js';
 import type { SoundEffect } from '../../ui/view/soundEffects.js';
 import {
@@ -42,8 +43,15 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
-import type { ControlsButton } from '../../app/controlsGuide.js';
+import {
+  getControlsCloseView,
+  getControlsHelpButtonView,
+  isControlsEntryHovered,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+  leaveControlsButton,
+} from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import type { MenuAction } from '../../ui/state/menuAction.js';
 import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 import type { TabAppearance } from '../../ui/state/tabAppearance.js';
@@ -77,16 +85,30 @@ export type RankingsMore =
   | { readonly kind: 'end' }
   | { readonly kind: 'ready' | 'loading'; readonly cursor: RankedChartCursor };
 
+export interface LoadedRankings {
+  readonly kind: 'loaded';
+  readonly items: readonly RankedChart[];
+  readonly more: RankingsMore;
+  readonly topRow: number;
+}
+
+// 다시 받는 동안 직전 목록을 그대로 두어 줄이 비었다 채워지며 깜박이지 않게 하고,
+// 응답이 늦을 때(isSlow)만 로딩을 드러낸다.
 export type RankingsLoad =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'loading' }
   | {
-      readonly kind: 'loaded';
-      readonly items: readonly RankedChart[];
-      readonly more: RankingsMore;
-      readonly topRow: number;
+      readonly kind: 'loading';
+      readonly previous: LoadedRankings | null;
+      readonly isSlow: boolean;
     }
+  | LoadedRankings
   | { readonly kind: 'failed' };
+
+const FIRST_RANKINGS_LOADING: RankingsLoad = {
+  kind: 'loading',
+  previous: null,
+  isSlow: false,
+};
 
 export type SummaryFocus = 'nickname' | AchievementSet;
 
@@ -188,6 +210,8 @@ type ScreenRegion =
   | 'retryButton'
   | 'controlsEntry'
   | 'controlsClose'
+  | 'controlsHelpCard'
+  | 'controlsHelpButton'
   | 'accountButton'
   | 'deleteEntry'
   | 'deleteDialog'
@@ -198,7 +222,7 @@ export type ProfileRegion = 'pages' | 'title' | 'notice' | 'nicknameInput' | Scr
 // 조작 안내와 포인터는 페이지와 상관없이 있으므로 페이지 union 을 감싼다.
 export interface ProfileScreenState {
   readonly page: ProfileState;
-  readonly isControlsOpen: boolean;
+  readonly controls: ControlsPanel;
   readonly hover: ProfileHover | null;
 }
 
@@ -428,11 +452,11 @@ function moveCollectionFocus(
     const next = stepItem(
       row,
       requireDefined(row[columnIndex], 'Focused column is missing'),
-      direction === 'left' ? -1 : 1,
+      direction === 'left' ? 'previous' : 'next',
     );
     return withCollection(state, state.collection.set, next.id);
   }
-  const nextRow = cycleItem(rows, row, direction === 'up' ? -1 : 1);
+  const nextRow = cycleItem(rows, row, direction === 'up' ? 'previous' : 'next');
   const next = requireDefined(
     nextRow[clamp(columnIndex, 0, nextRow.length - 1)],
     'Collection row is empty',
@@ -454,7 +478,7 @@ export function moveFocus(
   if (direction === 'left' || direction === 'right') {
     return selectSummaryTab(
       state,
-      stepItem(SUMMARY_TABS, state.summaryTab, direction === 'left' ? -1 : 1),
+      stepItem(SUMMARY_TABS, state.summaryTab, direction === 'left' ? 'previous' : 'next'),
     );
   }
   // RANKING 탭은 포커스할 항목이 닉네임뿐이라 위아래는 목록을 넘긴다.
@@ -464,7 +488,7 @@ export function moveFocus(
   const summaryFocus = cycleItem(
     SUMMARY_FOCUS_ORDER[state.summaryTab],
     state.summaryFocus,
-    direction === 'up' ? -1 : 1,
+    direction === 'up' ? 'previous' : 'next',
   );
   return summaryFocus === state.summaryFocus
     ? state
@@ -485,7 +509,7 @@ export function selectSummaryTab(state: LoadedProfileState, tab: SummaryTab): Lo
     summaryFocus: 'nickname',
     // 랭킹은 탭을 처음 열 때 한 번만 요청한다.
     rankings:
-      tab === 'ranking' && state.rankings.kind === 'idle' ? { kind: 'loading' } : state.rankings,
+      tab === 'ranking' && state.rankings.kind === 'idle' ? FIRST_RANKINGS_LOADING : state.rankings,
   };
 }
 
@@ -546,13 +570,17 @@ function reloadRankings(
   return {
     ...state,
     ...change,
-    rankings: { kind: 'loading' },
+    rankings: {
+      kind: 'loading',
+      previous: getShownRankings(state.rankings),
+      isSlow: false,
+    },
   };
 }
 
 export function toggleRankingSort(state: LoadedProfileState): LoadedProfileState {
   return reloadRankings(state, {
-    rankingSort: cycleItem(RANKED_CHART_SORTS, state.rankingSort, 1),
+    rankingSort: cycleItem(RANKED_CHART_SORTS, state.rankingSort, 'next'),
   });
 }
 
@@ -584,10 +612,10 @@ export function selectRankingDifficulty(
 
 export function cycleRankingDifficulty(
   state: LoadedProfileState,
-  delta: -1 | 1,
+  direction: ListDirection,
 ): LoadedProfileState {
   return reloadRankings(state, {
-    rankingDifficulty: cycleItem(RANKING_DIFFICULTY_FILTERS, state.rankingDifficulty, delta),
+    rankingDifficulty: cycleItem(RANKING_DIFFICULTY_FILTERS, state.rankingDifficulty, direction),
   });
 }
 
@@ -624,8 +652,34 @@ export function failRankings(state: LoadedProfileState, error: unknown): Profile
 export function retryRankings(state: LoadedProfileState): LoadedProfileState {
   return {
     ...state,
-    rankings: { kind: 'loading' },
+    rankings: FIRST_RANKINGS_LOADING,
   };
+}
+
+export function markRankingsSlow(state: LoadedProfileState): LoadedProfileState {
+  const { rankings } = state;
+  if (rankings.kind !== 'loading' || rankings.isSlow) {
+    return state;
+  }
+  return {
+    ...state,
+    rankings: {
+      ...rankings,
+      isSlow: true,
+    },
+  };
+}
+
+function getShownRankings(rankings: RankingsLoad): LoadedRankings | null {
+  switch (rankings.kind) {
+    case 'loaded':
+      return rankings;
+    case 'loading':
+      return rankings.previous;
+    case 'idle':
+    case 'failed':
+      return null;
+  }
 }
 
 export type ProfileConfirm =
@@ -685,16 +739,23 @@ export function scrollRankings(state: LoadedProfileState, rows: number): LoadedP
   };
 }
 
-export function getRankingRows(state: LoadedProfileState): readonly RankedChart[] {
-  const { rankings } = state;
-  return rankings.kind === 'loaded'
-    ? rankings.items.slice(rankings.topRow, rankings.topRow + PROFILE_RANKING_VISIBLE_ROWS)
-    : [];
+export function getRankingRows(state: LoadedProfileState): {
+  readonly rows: readonly RankedChart[];
+  readonly isDimmed: boolean;
+} {
+  const shown = getShownRankings(state.rankings);
+  return {
+    rows:
+      shown === null
+        ? []
+        : shown.items.slice(shown.topRow, shown.topRow + PROFILE_RANKING_VISIBLE_ROWS),
+    isDimmed: state.rankings.kind === 'loading' && state.rankings.isSlow,
+  };
 }
 
 export function getRankingsScroll(state: LoadedProfileState): ScrollBarScroll {
-  const { rankings } = state;
-  if (rankings.kind !== 'loaded' || rankings.items.length === 0) {
+  const rankings = getShownRankings(state.rankings);
+  if (rankings === null || rankings.items.length === 0) {
     return { kind: 'hidden' };
   }
   const totalCount = rankings.items.length;
@@ -712,22 +773,30 @@ export function getRankingsScroll(state: LoadedProfileState): ScrollBarScroll {
 export function getRankingsNotice(
   state: LoadedProfileState,
 ): 'none' | 'loading' | 'failed' | 'empty' {
-  switch (state.rankings.kind) {
+  const { rankings } = state;
+  switch (rankings.kind) {
     case 'idle':
       return 'none';
-    case 'loading':
     case 'failed':
-      return state.rankings.kind;
+      return 'failed';
+    case 'loading':
+      if (rankings.previous === null) {
+        return rankings.isSlow ? 'loading' : 'none';
+      }
+      if (rankings.previous.items.length > 0) {
+        return 'none';
+      }
+      return rankings.isSlow ? 'loading' : 'empty';
     case 'loaded':
-      return state.rankings.items.length === 0 ? 'empty' : 'none';
+      return rankings.items.length === 0 ? 'empty' : 'none';
   }
 }
 
-export function switchSet(state: LoadedProfileState, delta: -1 | 1): LoadedProfileState {
+export function switchSet(state: LoadedProfileState, direction: ListDirection): LoadedProfileState {
   if (state.view !== 'collection') {
     return state;
   }
-  const set = cycleItem(ACHIEVEMENT_SETS, state.collection.set, delta);
+  const set = cycleItem(ACHIEVEMENT_SETS, state.collection.set, direction);
   return withCollection(state, set, firstAchievementOf(state.profile.achievements, set));
 }
 
@@ -850,7 +919,7 @@ export function closeCollection(state: LoadedProfileState): LoadedProfileState {
 export function createProfileScreen(page: ProfileState): ProfileScreenState {
   return {
     page,
-    isControlsOpen: false,
+    controls: 'closed',
     hover: null,
   };
 }
@@ -954,7 +1023,7 @@ export function unhoverProfileButton(
   screen: ProfileScreenState,
   button: ProfileButton,
 ): ProfileScreenState {
-  return withHover(screen, unhoverButton(screen.hover, button));
+  return leaveControlsButton(withHover(screen, unhoverButton(screen.hover, button)), button);
 }
 
 export function pressProfileButton(
@@ -1263,39 +1332,23 @@ export function getChoiceAppearance(
   { page: state, hover }: LoadedScreen,
   target: Exclude<ProfileTarget, { readonly kind: 'nickname' }>,
 ): Exclude<TabAppearance, 'disabled'> {
+  const unselected = isSameHover(hover, target) ? 'emphasized' : 'normal';
   switch (target.kind) {
     case 'summaryTab':
-      if (state.summaryTab === target.tab) {
-        return 'selected';
-      }
-      break;
+      return state.summaryTab === target.tab ? 'selected' : unselected;
     case 'setRow':
-      if (state.summaryFocus === target.set) {
-        return 'selected';
-      }
-      break;
+      return state.summaryFocus === target.set ? 'selected' : unselected;
     case 'collectionTab':
-      if (state.collection.set === target.set) {
-        return 'selected';
-      }
-      break;
+      return state.collection.set === target.set ? 'selected' : unselected;
+    case 'rankingSort':
+      return unselected;
     case 'rankingAllOption':
-      if (isRankingFilterCleared(state)) {
-        return 'selected';
-      }
-      break;
+      return isRankingFilterCleared(state) ? 'selected' : unselected;
     case 'rankingLaneOption':
-      if (state.rankingLane === target.filter) {
-        return 'selected';
-      }
-      break;
+      return state.rankingLane === target.filter ? 'selected' : unselected;
     case 'rankingDifficultyOption':
-      if (state.rankingDifficulty === target.filter) {
-        return 'selected';
-      }
-      break;
+      return state.rankingDifficulty === target.filter ? 'selected' : unselected;
   }
-  return isSameHover(hover, target) ? 'emphasized' : 'normal';
 }
 
 /** 바뀐 입력은 이전 오류를 지우고, 지금 닉네임과 다른 유효한 이름일 때만 사용 여부를 묻는다. */
@@ -1407,7 +1460,7 @@ export interface ProfileRegions {
 
 type ScreenReader = StateReader<ProfileScreenState>;
 
-const readControlsOpen: ScreenReader = (screen) => screen.isControlsOpen;
+const readControlsOpen: ScreenReader = (screen) => isControlsPanelOpen(screen);
 const readHovered =
   (button: ProfileButton): ScreenReader =>
   (screen) =>
@@ -1424,6 +1477,8 @@ const SCREEN_REGION_SOURCES: Readonly<Record<ScreenRegion, readonly ScreenReader
   controlsEntry: [readHovered('controlsEntry')],
   accountButton: [readHovered('accountSignOut'), readPressed('accountSignOut')],
   controlsClose: [readHovered('controlsClose'), readPressed('controlsClose')],
+  controlsHelpCard: [isControlsHelpShown],
+  controlsHelpButton: [(screen) => getControlsHelpButtonView(screen).appearance],
   deleteEntry: [isDeleteEntryShown, readHovered('deleteEntry')],
   deleteDialog: [(screen) => getAccountDeletion(screen).kind],
   deleteButtons: [

@@ -56,7 +56,6 @@ function verifiedPlaySchema(catalog: AchievementCatalog) {
       score: z.number(),
       accuracy: z.number(),
       maxCombo: z.number(),
-      cleared: z.boolean(),
       review: playReviewSchema,
       newAchievements: z.array(z.string()).default([]),
     })

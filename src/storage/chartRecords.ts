@@ -1,11 +1,10 @@
 import type { Difficulty, FinishedGameplayResult, LaneCount } from '../rhythm/types.js';
-import { isBoolean, isFiniteNumber, isRecord } from '../typeGuards.js';
+import { isFiniteNumber, isRecord } from '../typeGuards.js';
 
 export interface ChartRecord {
   score: number;
   accuracy: number;
   maxCombo: number;
-  cleared: boolean;
 }
 
 export type ChartRecords = ReadonlyMap<string, ChartRecord>;
@@ -18,16 +17,12 @@ export function parseChartRecord(value: unknown): ChartRecord | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
-  const { score, accuracy, maxCombo, cleared } = value;
-  return isFiniteNumber(score) &&
-    isFiniteNumber(accuracy) &&
-    isFiniteNumber(maxCombo) &&
-    isBoolean(cleared)
+  const { score, accuracy, maxCombo } = value;
+  return isFiniteNumber(score) && isFiniteNumber(accuracy) && isFiniteNumber(maxCombo)
     ? {
         score,
         accuracy,
         maxCombo,
-        cleared,
       }
     : undefined;
 }
@@ -46,18 +41,16 @@ export function mergeBestRecord(
   result: FinishedGameplayResult,
 ): ChartRecord {
   if (existing === undefined) {
-    const { score, accuracy, maxCombo, cleared } = result;
+    const { score, accuracy, maxCombo } = result;
     return {
       score,
       accuracy,
       maxCombo,
-      cleared,
     };
   }
   return {
     score: Math.max(existing.score, result.score),
     accuracy: Math.max(existing.accuracy, result.accuracy),
     maxCombo: Math.max(existing.maxCombo, result.maxCombo),
-    cleared: existing.cleared || result.cleared,
   };
 }

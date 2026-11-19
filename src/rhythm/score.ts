@@ -8,8 +8,19 @@ export const JUDGMENT_SCORES: Record<Judgment, number> = {
   miss: 0,
 };
 
-export function getJudgmentScore(judgment: Judgment): number {
-  return JUDGMENT_SCORES[judgment];
+// 콤보가 길수록 노트마다 판정 점수에 보너스를 얹는다. 상한을 둬 판정 정확도가 점수 대부분을 정하게 한다.
+const COMBO_BONUS_STEP = 50;
+const COMBO_BONUS_PERCENT_PER_STEP = 1;
+const COMBO_BONUS_MAX_PERCENT = 10;
+const PERCENT = 100;
+
+// 클라이언트와 서버가 같은 점수를 내도록 정수 퍼센트로 계산하고 내림한다.
+export function getJudgmentScore(judgment: Judgment, combo: number): number {
+  const bonusPercent = Math.min(
+    Math.floor(combo / COMBO_BONUS_STEP) * COMBO_BONUS_PERCENT_PER_STEP,
+    COMBO_BONUS_MAX_PERCENT,
+  );
+  return Math.floor((JUDGMENT_SCORES[judgment] * (PERCENT + bonusPercent)) / PERCENT);
 }
 
 export function getNextCombo(combo: number, judgment: Judgment): number {

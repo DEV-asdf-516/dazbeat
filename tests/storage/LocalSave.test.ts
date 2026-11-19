@@ -58,7 +58,6 @@ function makeResult(overrides: Partial<FinishedGameplayResult>): FinishedGamepla
       miss: 1,
     },
     outcome: 'finished',
-    cleared: false,
     ...overrides,
   };
 }
@@ -399,19 +398,17 @@ describe('LocalSave records', () => {
       makeResult({
         score: 5000,
         accuracy: 0.8,
-        cleared: true,
       }),
     );
     expect(getChartRecord(save.loadRecords(), 'song-a', 4, 'hard')).toEqual({
       score: 5000,
       accuracy: 0.8,
       maxCombo: 10,
-      cleared: true,
     });
     expect(getChartRecord(save.loadRecords(), 'song-a', 4, 'easy')).toBeNull();
   });
 
-  it('merges each field with its best value and ORs cleared', () => {
+  it('merges each field with its best value', () => {
     save.saveResult(
       'song-a',
       4,
@@ -420,7 +417,6 @@ describe('LocalSave records', () => {
         score: 9000,
         accuracy: 0.75,
         maxCombo: 5,
-        cleared: true,
       }),
     );
     save.saveResult(
@@ -431,14 +427,12 @@ describe('LocalSave records', () => {
         score: 7000,
         accuracy: 0.6,
         maxCombo: 30,
-        cleared: false,
       }),
     );
     expect(getChartRecord(save.loadRecords(), 'song-a', 4, 'normal')).toEqual({
       score: 9000,
       accuracy: 0.75,
       maxCombo: 30,
-      cleared: true,
     });
   });
 
@@ -456,13 +450,11 @@ describe('LocalSave records', () => {
           score: '100',
           accuracy: 0.5,
           maxCombo: 1,
-          cleared: false,
         },
         'song-b/4k/easy': {
           score: 200,
           accuracy: 0.9,
           maxCombo: 4,
-          cleared: true,
         },
       }),
     );
@@ -471,7 +463,6 @@ describe('LocalSave records', () => {
       score: 200,
       accuracy: 0.9,
       maxCombo: 4,
-      cleared: true,
     });
 
     save.saveResult('song-c', 4, 'expert', makeResult({ score: 300 }));
@@ -481,13 +472,11 @@ describe('LocalSave records', () => {
         score: 200,
         accuracy: 0.9,
         maxCombo: 4,
-        cleared: true,
       },
       'song-c/4k/expert': {
         score: 300,
         accuracy: 0.5,
         maxCombo: 10,
-        cleared: false,
       },
     });
   });
@@ -499,7 +488,6 @@ describe('LocalSave records', () => {
       'hard',
       makeResult({
         score: 4000,
-        cleared: true,
       }),
     );
     save.saveResult('song-a', 6, 'hard', makeResult({ score: 6000 }));
@@ -507,11 +495,9 @@ describe('LocalSave records', () => {
     const records = save.loadRecords();
     expect(getChartRecord(records, 'song-a', 4, 'hard')).toMatchObject({
       score: 4000,
-      cleared: true,
     });
     expect(getChartRecord(records, 'song-a', 6, 'hard')).toMatchObject({
       score: 6000,
-      cleared: false,
     });
     expect(getChartRecord(records, 'song-a', 5, 'hard')).toBeNull();
     const stored: unknown = JSON.parse(storage.getItem(RECORDS_KEY) ?? '');

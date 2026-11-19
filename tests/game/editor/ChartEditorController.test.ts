@@ -3,7 +3,7 @@ import type {
   YouTubePlayerHandlers,
   YouTubePlayerState,
 } from '../../../src/audio/YouTubePlayer.js';
-import type { ChartRef, Song } from '../../../src/data/songs.js';
+import type { ChartLevel, ChartRef, Song, SongChart } from '../../../src/data/songs.js';
 import { ChartEditorController } from '../../../src/game/editor/ChartEditorController.js';
 import type {
   ChartCatalog,
@@ -18,6 +18,7 @@ import {
   canSave,
   getEditorDecorations,
   getEditorStatus,
+  getEditorButtonView,
   getNotes,
   getPending,
   getSelection,
@@ -42,15 +43,28 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 1000,
   gameEndMs: 10000,
-  chartIds: { 4: { normal: 'chart_normal' } },
+  charts: {
+    4: {
+      normal: {
+        id: 'chart_normal',
+        level: 1,
+      },
+    },
+  },
 };
 
 const savedSong: Song = {
   ...song,
-  chartIds: {
+  charts: {
     4: {
-      normal: 'chart_normal',
-      hard: 'chart_hard',
+      normal: {
+        id: 'chart_normal',
+        level: 1,
+      },
+      hard: {
+        id: 'chart_hard',
+        level: 1,
+      },
     },
   },
 };
@@ -61,6 +75,7 @@ const SAVED: ChartSaveOutcome = {
   kind: 'saved',
   chartId: SAVED_CHART_ID,
   revision: 'revision-saved',
+  level: 3,
 };
 
 const otherSong: Song = {
@@ -102,21 +117,24 @@ interface Harness {
   readonly saves: (Pending<ChartSaveOutcome> & {
     readonly song: Song;
     readonly chart: Chart;
+    readonly level: ChartLevel;
     readonly baseRevision: string | null;
   })[];
   readonly applied: {
     songId: string;
     laneCount: LaneCount;
     difficulty: Difficulty;
-    chartId: string;
+    saved: SongChart;
   }[];
   readonly leftWith: (string | null)[];
+  readonly syncedLevels: (ChartLevel | null)[];
   readonly testPlays: ChartRef[];
   readonly testPlayStartsMs: number[];
   readonly requestedSec: number[];
   songs: readonly Song[];
-  // 다음으로 끝나는 채보 로드가 돌려줄 revision.
+  // 다음으로 끝나는 채보 로드가 돌려줄 revision 과 레벨.
   loadRevision: string;
+  loadLevel: ChartLevel;
   isCreateThrowing: boolean;
   nowMs: number;
   // 화면에 보일 프레임 시각이 벽시계보다 이른 만큼.
@@ -140,11 +158,13 @@ function createHarness(
     apiLoads: [],
     players: [],
     leftWith: [],
+    syncedLevels: [],
     testPlays: [],
     testPlayStartsMs: [],
     requestedSec: [],
     songs: [song, otherSong],
     loadRevision: LOADED_REVISION,
+    loadLevel: 1,
     isCreateThrowing: false,
     nowMs: 0,
     frameLagMs: 0,
@@ -166,12 +186,14 @@ function createHarness(
       ).then((chart) => ({
         chart,
         revision: harness.loadRevision,
+        level: harness.loadLevel,
       })),
-    saveChart: (target, chart, baseRevision) =>
+    saveChart: (target, chart, level, baseRevision) =>
       new Promise((resolve, reject) =>
         harness.saves.push({
           song: target,
           chart,
+          level,
           baseRevision,
           resolve,
           reject,
@@ -182,12 +204,12 @@ function createHarness(
     get songs() {
       return harness.songs;
     },
-    applySavedChart: (songId, laneCount, difficulty, chartId) => {
+    applySavedChart: (songId, laneCount, difficulty, saved) => {
       harness.applied.push({
         songId,
         laneCount,
         difficulty,
-        chartId,
+        saved,
       });
       return savedSong;
     },
@@ -242,6 +264,7 @@ function createHarness(
         expect(next).toBe(editor.state);
         harness.renderCount += 1;
       },
+      syncLevelInput: (level) => harness.syncedLevels.push(level),
     },
     TIMING,
     {
@@ -356,6 +379,7 @@ describe('opening a chart', () => {
       laneCount: 4,
       difficulty: 'normal',
       chartId: 'chart_normal',
+      level: 1,
     });
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'loading' });
     expect(getSelection(harness.editor.state)).toEqual({
@@ -404,16 +428,16 @@ describe('opening a chart', () => {
     const harness = createHarness();
     harness.editor.start();
     const first = lastLoad(harness);
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     const loading = harness.editor.state;
 
     first.resolve(makeChart([TAP_AT_2000]));
     await flush();
     expect(harness.editor.state).toBe(loading);
 
-    harness.editor.moveSong(-1);
+    harness.editor.moveSong('previous');
     const second = lastLoad(harness);
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     second.reject(new Error('network'));
     await flush();
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'loading' });
@@ -458,7 +482,7 @@ describe('opening a chart', () => {
     harness.editor.selectDifficulty('hard');
     expect(harness.apiLoads).toHaveLength(1);
 
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     expect(harness.apiLoads).toHaveLength(2);
   });
 
@@ -495,7 +519,7 @@ describe('opening a chart', () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
     void harness.editor.save();
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     harness.editor.confirmPending();
     harness.editor.close();
     const renderCount = harness.renderCount;
@@ -540,27 +564,28 @@ describe('moving in the song list', () => {
     id: 'last-song',
   };
 
-  it('moves by delta keeping the difficulty and stops at both ends', async () => {
+  it('moves one song keeping the difficulty and stops at both ends', async () => {
     const harness = await openLoaded();
     harness.songs = [first, song, last];
 
-    harness.editor.moveSong(-5);
+    harness.editor.moveSong('previous');
     expect(getSelection(harness.editor.state)).toEqual({
       song: first,
       laneCount: 4,
       difficulty: 'normal',
     });
     const atStart = harness.editor.state;
-    harness.editor.moveSong(-1);
+    harness.editor.moveSong('previous');
     expect(harness.editor.state).toBe(atStart);
 
-    harness.editor.moveSong(5);
+    harness.editor.moveSong('next');
+    harness.editor.moveSong('next');
     expect(getSelection(harness.editor.state)).toEqual({
       song: last,
       laneCount: 4,
       difficulty: 'normal',
     });
-    expect(harness.apiLoads).toHaveLength(3);
+    expect(harness.apiLoads).toHaveLength(4);
   });
 
   it('selects another difficulty of the current song', async () => {
@@ -580,7 +605,7 @@ describe('moving in the song list', () => {
     const harness = await openLoaded();
     harness.songs = [savedSong, otherSong];
 
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
 
     expect(getSelection(harness.editor.state)?.song).toBe(otherSong);
   });
@@ -589,7 +614,7 @@ describe('moving in the song list', () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
 
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
 
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'select',
@@ -617,7 +642,7 @@ describe('unsaved changes confirmation', () => {
     addTap(harness, 3000);
     const dirtyDraft = getDraft(harness);
 
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'select',
       song: otherSong,
@@ -630,7 +655,7 @@ describe('unsaved changes confirmation', () => {
     expect(getPending(harness.editor.state)).toBeNull();
     expect(getDraft(harness)).toBe(dirtyDraft);
 
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     harness.editor.confirmPending();
     expect(getPending(harness.editor.state)).toBeNull();
     expect(harness.apiLoads).toHaveLength(2);
@@ -658,7 +683,7 @@ describe('unsaved changes confirmation', () => {
     harness.editor.selectDifficulty('hard');
     const held = harness.editor.state;
 
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     harness.editor.selectDifficulty('expert');
 
     expect(harness.editor.state).toBe(held);
@@ -759,7 +784,7 @@ describe('the open confirm dialog', () => {
     harness.editor.deleteSelected();
     harness.editor.togglePlayback();
     harness.editor.requestClearNotes();
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     void harness.editor.save();
 
     expect(harness.editor.state).toBe(held);
@@ -1143,7 +1168,10 @@ describe('saving', () => {
         songId: song.id,
         laneCount: 4,
         difficulty: 'normal',
-        chartId: SAVED_CHART_ID,
+        saved: {
+          id: SAVED_CHART_ID,
+          level: 3,
+        },
       },
     ]);
     expect(getDraft(harness).song).toBe(savedSong);
@@ -1352,9 +1380,19 @@ describe('saving', () => {
 describe('lane counts', () => {
   const laneSong: Song = {
     ...song,
-    chartIds: {
-      4: { normal: 'chart_normal' },
-      5: { normal: 'chart_5k_normal' },
+    charts: {
+      4: {
+        normal: {
+          id: 'chart_normal',
+          level: 1,
+        },
+      },
+      5: {
+        normal: {
+          id: 'chart_5k_normal',
+          level: 2.5,
+        },
+      },
     },
   };
 
@@ -1378,6 +1416,7 @@ describe('lane counts', () => {
       laneCount: 5,
       difficulty: 'normal',
       chartId: 'chart_5k_normal',
+      level: 2.5,
     });
     expect(getSelection(harness.editor.state)).toEqual({
       song: laneSong,
@@ -1501,7 +1540,10 @@ describe('lane counts', () => {
         songId: laneSong.id,
         laneCount: 6,
         difficulty: 'normal',
-        chartId: SAVED_CHART_ID,
+        saved: {
+          id: SAVED_CHART_ID,
+          level: 3,
+        },
       },
     ]);
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'none' });
@@ -1534,7 +1576,10 @@ describe('lane counts', () => {
         songId: laneSong.id,
         laneCount: 4,
         difficulty: 'normal',
-        chartId: SAVED_CHART_ID,
+        saved: {
+          id: SAVED_CHART_ID,
+          level: 3,
+        },
       },
     ]);
   });
@@ -1708,7 +1753,7 @@ describe('video player', () => {
     harness.editor.selectLaneCount(5);
     expect(harness.apiLoads).toHaveLength(1);
 
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     expect(first.isDestroyed).toBe(true);
     expect(harness.editor.state.player).toEqual({ kind: 'loading' });
     await readyPlayer(harness);
@@ -1763,7 +1808,7 @@ describe('video player', () => {
   it('ignores a late load and late events of the previous song', async () => {
     const harness = await openLoaded();
     const first = lastPlayer(harness);
-    harness.editor.moveSong(1);
+    harness.editor.moveSong('next');
     const pendingLoad = requireDefined(harness.apiLoads.at(-1), 'expected an API load');
     const switched = harness.editor.state;
 
@@ -1771,7 +1816,7 @@ describe('video player', () => {
     first.handlers.onError('videoNotFound', 100);
 
     expect(harness.editor.state).toBe(switched);
-    harness.editor.moveSong(-1);
+    harness.editor.moveSong('previous');
     pendingLoad.resolve();
     await flush();
     expect(harness.players).toHaveLength(1);
@@ -1872,6 +1917,7 @@ describe('TEST PLAY', () => {
         laneCount: 4,
         difficulty: 'normal',
         chartId: 'chart_normal',
+        level: 1,
       },
     ]);
     expect(harness.saves).toEqual([]);
@@ -1980,6 +2026,7 @@ describe('TEST PLAY', () => {
         laneCount: 4,
         difficulty: 'hard',
         chartId: 'chart_hard',
+        level: 1,
       },
     ]);
     expect(harness.saves).toHaveLength(1);
@@ -1993,6 +2040,123 @@ describe('TEST PLAY', () => {
 
     expect(harness.requestedSec).toHaveLength(1);
     expect(harness.testPlays).toEqual([]);
+  });
+});
+
+describe('level', () => {
+  it('starts from the level of the loaded chart and the difficulty default for a new chart', async () => {
+    const harness = createHarness();
+    harness.loadLevel = 2.5;
+    harness.editor.start();
+    lastLoad(harness).resolve(makeChart([]));
+    await flush();
+
+    expect(getDraft(harness).level).toBe(2.5);
+    expect(hasUnsavedChanges(harness.editor.state)).toBe(false);
+
+    const fresh = createHarness(song, 4, 'hard');
+    fresh.editor.start();
+
+    expect(getDraft(fresh).level).toBe(3.5);
+  });
+
+  it('steps through the half steps with ◀ ▶, staying at 1 and 5', async () => {
+    const harness = await openLoaded();
+
+    harness.editor.moveLevel('previous');
+    expect(getDraft(harness).level).toBe(1);
+    expect(getEditorButtonView(harness.editor.state, 'levelDown').appearance).toBe('disabled');
+    harness.editor.moveLevel('next');
+    expect(getDraft(harness).level).toBe(1.5);
+    for (let step = 0; step < 10; step += 1) {
+      harness.editor.moveLevel('next');
+    }
+    expect(getDraft(harness).level).toBe(5);
+    expect(getEditorButtonView(harness.editor.state, 'levelUp').appearance).toBe('disabled');
+  });
+
+  it('steps the level with the ◀ ▶ buttons on pointer up', async () => {
+    const harness = await openLoaded();
+
+    harness.editor.pointerOverButton('levelUp');
+    harness.editor.pointerDownButton('levelUp');
+    expect(getDraft(harness).level).toBe(1);
+    harness.editor.pointerUpButton('levelUp');
+    harness.editor.pointerOverButton('levelDown');
+    harness.editor.pointerDownButton('levelDown');
+    harness.editor.pointerUpButton('levelDown');
+    harness.editor.pointerOverButton('levelUp');
+    harness.editor.pointerDownButton('levelUp');
+    harness.editor.pointerUpButton('levelUp');
+
+    expect(getDraft(harness).level).toBe(1.5);
+  });
+
+  it('commits a typed level and restores the input on anything else', async () => {
+    const harness = await openLoaded();
+
+    harness.editor.commitLevelInput(' 3.5 ');
+    expect(getDraft(harness).level).toBe(3.5);
+    harness.editor.commitLevelInput('2.3');
+    expect(getDraft(harness).level).toBe(3.5);
+    harness.editor.commitLevelInput('abc');
+    expect(getDraft(harness).level).toBe(3.5);
+    harness.editor.commitLevelInput('');
+    expect(getDraft(harness).level).toBe(3.5);
+
+    expect(harness.syncedLevels).toEqual([3.5, 3.5, 3.5, 3.5]);
+  });
+
+  it('keeps the level and restores the input when the input is cancelled', async () => {
+    const harness = await openLoaded();
+    harness.editor.moveLevel('next');
+
+    harness.editor.cancelLevelInput();
+
+    expect(getDraft(harness).level).toBe(1.5);
+    expect(harness.syncedLevels).toEqual([1.5]);
+  });
+
+  it('makes the draft unsaved, saves the level with the notes and is saved after success', async () => {
+    const harness = await openLoaded([TAP_AT_2000]);
+    harness.editor.moveLevel('next');
+    harness.editor.moveLevel('next');
+
+    expect(hasUnsavedChanges(harness.editor.state)).toBe(true);
+    expect(canSave(harness.editor.state)).toBe(true);
+    void harness.editor.save();
+
+    expect(lastSave(harness).level).toBe(2);
+    expect(lastSave(harness).chart.notes).toEqual([TAP_AT_2000]);
+    lastSave(harness).resolve({
+      ...SAVED,
+      level: 2,
+    });
+    await flush();
+
+    expect(hasUnsavedChanges(harness.editor.state)).toBe(false);
+    expect(getDraft(harness).savedLevel).toBe(2);
+  });
+
+  it('does not undo a level change', async () => {
+    const harness = await openLoaded();
+    addTap(harness, 3000);
+    harness.editor.moveLevel('next');
+
+    harness.editor.undo();
+
+    expect(getNotes(harness.editor.state)).toEqual([]);
+    expect(getDraft(harness).level).toBe(1.5);
+  });
+
+  it('ignores level changes while the chart is loading', () => {
+    const harness = createHarness();
+    harness.editor.start();
+
+    harness.editor.moveLevel('next');
+    harness.editor.commitLevelInput('3');
+
+    expect(getSession(harness.editor.state)).toBeNull();
   });
 });
 

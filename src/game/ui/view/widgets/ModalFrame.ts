@@ -2,21 +2,15 @@ import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../../../app/config.js';
 import { bindPointer } from '../input/hoverTarget.js';
 import type { PointerActions } from '../input/hoverTarget.js';
-import { getBrushRectTexture } from '../textures/brushRect.js';
 import { CELESTIAL_COLORS, MODAL } from '../theme.js';
 import { MOTION } from '../../state/motion.js';
-
-// 패널 색 위에 흰빛을 옅게 얹어 질감만 더한다. 그 아래 단색 패널이 뒤 화면을 가린다.
-const PANEL_TEXTURE_ALPHA = 0.06;
+import { ModalPanel } from './ModalPanel.js';
 
 export class ModalFrame {
   readonly container: Phaser.GameObjects.Container;
   private readonly scene: Phaser.Scene;
   private readonly backdrop: Phaser.GameObjects.Rectangle;
-  private readonly shadow: Phaser.GameObjects.Rectangle;
-  private readonly panel: Phaser.GameObjects.Rectangle;
-  private readonly panelTexture: Phaser.GameObjects.Image;
-  private readonly panelHitArea = new Phaser.Geom.Rectangle();
+  private readonly panel: ModalPanel;
   private readonly backdropHitArea = new Phaser.Geom.Rectangle();
 
   constructor(scene: Phaser.Scene, backdropPointer: PointerActions | null) {
@@ -34,51 +28,17 @@ export class ModalFrame {
     if (backdropPointer !== null) {
       bindPointer(this.backdrop, backdropPointer);
     }
-    this.shadow = scene.add
-      .rectangle(
-        MODAL.shadowOffsetXPx,
-        MODAL.shadowOffsetYPx,
-        0,
-        0,
-        MODAL.shadowColor,
-        MODAL.shadowAlpha,
-      )
-      .setOrigin(0, 0)
-      .setRounded(MODAL.panelRadiusPx);
-    // 패널 안 클릭이 막으로 가 닫히지 않도록 패널도 입력을 받는다.
-    this.panel = scene.add
-      .rectangle(0, 0, 0, 0, MODAL.panelColor)
-      .setOrigin(0, 0)
-      .setRounded(MODAL.panelRadiusPx)
-      .setInteractive(this.panelHitArea, (hitArea: Phaser.Geom.Rectangle, x: number, y: number) =>
-        Phaser.Geom.Rectangle.Contains(hitArea, x, y),
-      );
-    this.panelTexture = scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0);
-    this.container = scene.add
-      .container(0, 0, [this.shadow, this.panel, this.panelTexture])
-      .setDepth(MODAL.depth);
+    this.panel = new ModalPanel(scene);
+    this.container = scene.add.container(0, 0, [...this.panel.objects]).setDepth(MODAL.depth);
     this.backdrop.setVisible(false);
     this.container.setVisible(false);
   }
 
   setPanelSize(widthPx: number, heightPx: number): void {
     this.panel.setSize(widthPx, heightPx);
-    this.panelTexture.setTexture(
-      getBrushRectTexture(this.scene, {
-        widthPx,
-        heightPx,
-        radiusPx: MODAL.panelRadiusPx,
-        fillColor: CELESTIAL_COLORS.highlight,
-        fillAlpha: PANEL_TEXTURE_ALPHA,
-        border: null,
-      }),
-    );
-    this.panelHitArea.setTo(0, 0, widthPx, heightPx);
-    this.shadow.setSize(widthPx, heightPx);
     this.container.setPosition((GAME_WIDTH - widthPx) / 2, (GAME_HEIGHT - heightPx) / 2);
   }
 
-  /** 부르는 쪽이 열림이 바뀔 때만 부른다. 열 때마다 페이드를 다시 건다. */
   render(isOpen: boolean): void {
     if (!isOpen) {
       this.scene.tweens.killTweensOf([this.backdrop, this.container]);

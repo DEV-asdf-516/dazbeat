@@ -1,4 +1,4 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
 import { LANE_COUNTS } from '../../../../rhythm/lanes.js';
 import type { LaneCount } from '../../../../rhythm/types.js';
 import { GAME_WIDTH } from '../../../app/config.js';
@@ -10,6 +10,7 @@ import { addCelestialSprite } from '../../../celestial/view/celestialSprites.js'
 import { formatLaneCount } from '../../state/format.js';
 import { addBrushRect } from '../textures/brushRect.js';
 import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from '../theme.js';
+import { addVerticalDivider } from './verticalDivider.js';
 import type { TextTabsLayout, TextTabsStyle } from './TextTabs.js';
 
 // 곡 선택과 RANKING 이 같은 배치를 쓴다. 왼쪽은 목록 패널, 오른쪽은 재킷과 곡 정보다.
@@ -25,8 +26,8 @@ export const LIST_PANEL = {
 export const ROW_X_PX = LIST_PANEL.xPx + 72;
 export const ROW_Y_PX = 200;
 export const ROW_WIDTH_PX = 640;
-export const ROW_HEIGHT_PX = 72;
-export const ROWS_PER_PAGE = 9;
+export const ROW_HEIGHT_PX = 81;
+export const ROWS_PER_PAGE = 8;
 export const PAGE_X_PX = ROW_X_PX;
 export const PAGE_Y_PX = 872;
 // 바깥 여백을 넓히고 목록·자켓·정보 사이는 좁혀 화면 가운데로 한 덩어리처럼 모이게 한다.
@@ -67,37 +68,85 @@ export const ZODIAC_AREA_LEFT_X_PX = INFO_X_PX + 40;
 export const ZODIAC_AREA_GAP_PX = 40;
 
 export function fitSongTitle(text: Phaser.GameObjects.Text, title: string): void {
+  // 크기마다 굽지 않도록 그 크기의 폰트로 폭만 재서 크기를 정하고, 크기·줄바꿈·문자열을 한 번에 굽는다.
+  const { style, context } = text;
+  const bakedFont = context.font;
+  const measureWidthPx = (sizePx: number): number => {
+    context.font = `${style.fontStyle} ${sizePx}px ${style.fontFamily}`.trim();
+    return (
+      Math.ceil(context.measureText(title).width) +
+      (text.padding.left ?? 0) +
+      (text.padding.right ?? 0)
+    );
+  };
   let titleSizePx = TYPE_SCALE.title.sizePx;
-  text.setWordWrapWidth(null).setFontSize(titleSizePx).setText(title);
-  while (text.width > TITLE_MAX_WIDTH_PX && titleSizePx > TITLE_MIN_SIZE_PX) {
+  while (measureWidthPx(titleSizePx) > TITLE_MAX_WIDTH_PX && titleSizePx > TITLE_MIN_SIZE_PX) {
     titleSizePx -= TITLE_SHRINK_STEP_PX;
-    text.setFontSize(titleSizePx);
   }
-  text.setWordWrapWidth(TITLE_MAX_WIDTH_PX, true);
+  // 굽지 않은 채로 다른 측정이 이 캔버스의 글꼴을 읽어도 지금 그려진 글꼴이 되도록 되돌린다.
+  context.font = bakedFont;
+  const fontSizeCssPx = `${titleSizePx}px`;
+  const isStyleChanged =
+    style.fontSize !== fontSizeCssPx ||
+    style.wordWrapWidth !== TITLE_MAX_WIDTH_PX ||
+    !style.wordWrapUseAdvanced;
+  if (isStyleChanged) {
+    style.setStyle(
+      {
+        fontSize: fontSizeCssPx,
+        wordWrap: {
+          width: TITLE_MAX_WIDTH_PX,
+          useAdvancedWrap: true,
+        },
+      },
+      false,
+    );
+    // 굽지 않는 setStyle 은 metrics 를 다시 재지 않으므로 바뀐 글자 크기의 높이를 맞춘다.
+    // TextStyle 타입에 metrics 필드가 없어 설정 객체의 metrics 로 넣는다.
+    style.setStyle({ metrics: Phaser.GameObjects.MeasureText(style) }, false);
+  }
+  if (text.text !== title) {
+    text.setText(title);
+  } else if (isStyleChanged) {
+    text.updateText();
+  }
 }
 
 // 레인 수가 기록·채보를 가르므로 곡 정보 옆에 레인 수만큼 별을 놓아 글자를 읽지 않아도 바뀐 것을 알아보게 한다.
 export const LANE_STAR_ID: CelestialAtlasId = 'R17';
-const LANE_GROUP_GAP_PX = 28;
+// 분류, 레인 수, 레벨은 세로선으로 갈라 별 무리끼리 붙어 읽히지 않게 한다.
+export const INFO_DIVIDER_HEIGHT_PX = 20;
+export const INFO_DIVIDER_GAP_PX = 18;
 const LANE_STAR_STEP_PX = 16;
 const LANE_TEXT_GAP_PX = 12;
-const LANE_TEXT_TYPE = {
+// 레인 수와 레벨 숫자가 같은 굵기로 나란히 읽히게 한다.
+export const INFO_VALUE_TYPE = {
   sizePx: TYPE_SCALE.secondary.sizePx,
   weight: 800,
 } as const;
+// 상세 정보와 레벨 필터의 "Lv." 가 같은 글자로 읽히게 한 곳에 둔다.
+export const LEVEL_LABEL = {
+  type: {
+    sizePx: 16,
+    weight: 600,
+  },
+  letterSpacingPx: 2,
+} as const;
 
 export interface LaneMarks {
+  readonly divider: Phaser.GameObjects.Image;
   readonly stars: readonly Phaser.GameObjects.Sprite[];
   readonly text: Phaser.GameObjects.Text;
 }
 
 export function addLaneMarks(scene: Phaser.Scene, celestial: CelestialCatalog): LaneMarks {
   return {
+    divider: addVerticalDivider(scene, INFO_DIVIDER_HEIGHT_PX).setVisible(false),
     stars: Array.from({ length: Math.max(...LANE_COUNTS) }, () =>
       addCelestialSprite(scene, celestial.atlasPresentations[LANE_STAR_ID], 0, 0).setVisible(false),
     ),
     text: scene.add
-      .text(0, 0, '', typeStyle(LANE_TEXT_TYPE, COLORS.textPrimary))
+      .text(0, 0, '', typeStyle(INFO_VALUE_TYPE, COLORS.textPrimary))
       .setOrigin(0, 0.5)
       .setVisible(false),
   };
@@ -109,12 +158,15 @@ export function renderLaneMarks(
   laneCount: LaneCount | null,
 ): void {
   if (laneCount === null) {
+    marks.divider.setVisible(false);
     marks.stars.forEach((star) => star.setVisible(false));
     marks.text.setVisible(false);
     return;
   }
   const centerYPx = categoryText.y + categoryText.height / 2;
-  const firstStarXPx = categoryText.x + categoryText.width + LANE_GROUP_GAP_PX;
+  const dividerXPx = categoryText.x + categoryText.width + INFO_DIVIDER_GAP_PX;
+  marks.divider.setPosition(dividerXPx, centerYPx).setVisible(true);
+  const firstStarXPx = dividerXPx + INFO_DIVIDER_GAP_PX + LANE_STAR_STEP_PX / 2;
   marks.stars.forEach((star, index) => {
     star
       .setPosition(firstStarXPx + index * LANE_STAR_STEP_PX, centerYPx)

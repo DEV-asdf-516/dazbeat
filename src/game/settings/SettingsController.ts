@@ -1,5 +1,10 @@
 import type { Language } from '../../i18n/language.js';
-import { readControlsKey, withControlsOpen } from '../app/controlsGuide.js';
+import {
+  clickControlsHelp,
+  isControlsPanelOpen,
+  readControlsKey,
+  withControlsOpen,
+} from '../app/controlsGuide.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { Settings } from '../../storage/settings.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
@@ -150,6 +155,9 @@ export class SettingsController {
       case 'controlsBackdrop':
         this.closeControls();
         return;
+      case 'controlsHelp':
+        this.apply(clickControlsHelp);
+        return;
       default:
         this.applyPointer((state) => pointRowButton(state, button));
         return;
@@ -160,7 +168,7 @@ export class SettingsController {
     if ('kind' in this.state) {
       return false;
     }
-    switch (readControlsKey(this.state.isControlsOpen, event)) {
+    switch (readControlsKey(isControlsPanelOpen(this.state), event)) {
       case 'open':
         this.openControls();
         return true;
@@ -178,13 +186,13 @@ export class SettingsController {
     switch (action) {
       case 'up':
       case 'down':
-        this.apply((state) => moveFocus(state, action === 'up' ? -1 : 1));
+        this.apply((state) => moveFocus(state, action === 'up' ? 'previous' : 'next'));
         return;
       case 'left':
-        this.apply((state) => adjustRow(state, state.rowIndex, -1));
+        this.apply((state) => adjustRow(state, state.rowIndex, 'previous'));
         return;
       case 'right':
-        this.apply((state) => adjustRow(state, state.rowIndex, 1));
+        this.apply((state) => adjustRow(state, state.rowIndex, 'next'));
         return;
       case 'confirm':
         this.apply((state) => confirmRow(state, state.rowIndex));

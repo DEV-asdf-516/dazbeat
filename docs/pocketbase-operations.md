@@ -51,6 +51,10 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
         "6": {
           "hard": "example-song/charts/6k-hard.json"
         }
+      },
+      "levels": {
+        "4": { "easy": 1, "expert": 4.5 },
+        "6": { "hard": 3.5 }
       }
     }
   ]
@@ -64,6 +68,7 @@ dazbeat 의 곡·채보·랭킹 데이터를 담는 PocketBase 의 개발 환경
 - 재킷 확장자는 `.jpg`/`.jpeg`/`.png`/`.webp` 만 허용한다.
 - `version` 은 `2` 만 허용한다. 난이도를 바로 두던 version 1 manifest 는 변환하지 않고 오류로 거부한다.
 - `charts` 는 레인 수(`"4"`·`"5"`·`"6"`) → 난이도 → 채보 파일 경로이며, 레인 수·난이도 모두 일부만 있어도 된다. 각 채보 파일은 게임의 채보 검증을 그 곡의 `key`·`gameStartMs`·`gameEndMs`, 난이도, manifest 의 레인 수로 통과해야 한다.
+- `levels` 는 `charts` 와 같은 레인 수 → 난이도 모양이고 값은 1~5 의 0.5 단위 레벨이다. `charts` 의 채보마다 레벨이 있어야 한다.
 - 채보 파일에는 `laneCount` 필드가 있고 manifest 의 레인 수 키와 같아야 하며, 노트의 `lane` 은 `0` 부터 `laneCount - 1` 까지의 정수다. 예: `{ "songId": "example-song", "difficulty": "hard", "laneCount": 6, "offsetMs": 0, "notes": [{ "type": "tap", "timeMs": 1200, "lane": 5 }] }`
 - 검증은 모두 첫 네트워크 요청 전에 끝난다. 실패하면 실패한 파일의 절대 경로와 manifest 안의 위치를 출력하고 아무것도 쓰지 않는다.
 

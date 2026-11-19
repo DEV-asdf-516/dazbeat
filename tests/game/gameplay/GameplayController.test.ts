@@ -41,7 +41,14 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 3000,
   gameEndMs: 10000,
-  chartIds: { 4: { normal: 'chart_normal' } },
+  charts: {
+    4: {
+      normal: {
+        id: 'chart_normal',
+        level: 1,
+      },
+    },
+  },
 };
 
 const chart: Chart = {
@@ -70,10 +77,10 @@ const HOLD_CHART: Chart = {
   ],
 };
 
-// miss 하나에 HP 10 이 줄어 열 개를 모두 놓치면 HP 가 0 이 된다.
+// miss 하나에 HP 5 가 줄어 스무 개를 모두 놓치면 HP 가 0 이 된다.
 const FAIL_CHART: Chart = {
   ...chart,
-  notes: Array.from({ length: 10 }, (_, index) => ({
+  notes: Array.from({ length: 20 }, (_, index) => ({
     type: 'tap' as const,
     timeMs: 4000 + index * 10,
     lane: 0 as const,
@@ -214,6 +221,7 @@ function createHarness(
     laneCount: playedChart.laneCount,
     difficulty: 'normal',
     chartId: 'chart_normal',
+    level: 1,
     origin,
   };
   const harness: Omit<Harness, 'controller'> = {
@@ -478,11 +486,13 @@ function report(harness: Harness, positionSec: number): void {
   handlers.onPositionReport(positionSec);
 }
 
-// 영상이 positionSec 에서 1배속으로 흐르는 보고 두 개.
+// 영상이 positionSec 에서 1배속으로 흐르는 보고 세 개. 재생 객체는 이어지는 두 구간이 모두 정상 속도여야 믿는다.
 function reportSteadyFrom(harness: Harness, positionSec: number): void {
   report(harness, positionSec);
   harness.nowMs += REPORT_INTERVAL_MS;
   report(harness, positionSec + msToSec(REPORT_INTERVAL_MS));
+  harness.nowMs += REPORT_INTERVAL_MS;
+  report(harness, positionSec + msToSec(REPORT_INTERVAL_MS * 2));
 }
 
 // 예열이 흐르고 보정 seek 가 250ms 뒤 S 에서 흐른다고 보고해 프리롤 카운트다운이 시작된 상태.
@@ -1845,7 +1855,6 @@ describe('GameplayController run end', () => {
         score: 0,
         accuracy: 0,
         maxCombo: 0,
-        cleared: true,
         review: {
           kind: 'approved',
           ranking: null,

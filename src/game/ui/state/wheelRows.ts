@@ -1,3 +1,5 @@
+import { isWithin } from '../../../time.js';
+
 // 이보다 오래 멈추면 쌓인 이동량을 버려, 휠을 살짝 건드린 양이 나중 입력과 합쳐져 넘어가지 않게 한다.
 const GESTURE_GAP_MS = 150;
 // 굴리기 시작할 때는 한 줄의 이 비율만 움직여도 넘어가 반응을 빠르게 하고, 그보다 작은 떨림은 무시한다.
@@ -29,7 +31,8 @@ export function readWheelRows(
     };
   }
   const direction = Math.sign(deltaYPx);
-  const isNewGesture = direction !== gesture.direction || atMs - gesture.lastAtMs > GESTURE_GAP_MS;
+  const isNewGesture =
+    direction !== gesture.direction || !isWithin(gesture.lastAtMs, atMs, GESTURE_GAP_MS);
   const carriedPx = isNewGesture ? rowPx * (1 - START_ROW_RATIO) : gesture.remainderPx;
   const accumulatedPx = carriedPx + Math.abs(deltaYPx);
   const rows = Math.floor(accumulatedPx / rowPx);

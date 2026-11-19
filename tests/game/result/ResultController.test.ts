@@ -49,10 +49,16 @@ const SONG: Song = {
   constellation: 'gemini',
   gameStartMs: 0,
   gameEndMs: 30000,
-  chartIds: {
+  charts: {
     4: {
-      easy: 'easy.json',
-      hard: 'hard.json',
+      easy: {
+        id: 'easy.json',
+        level: 1,
+      },
+      hard: {
+        id: 'hard.json',
+        level: 1,
+      },
     },
   },
 };
@@ -61,6 +67,7 @@ const EASY: ChartRef = {
   laneCount: 4,
   difficulty: 'easy',
   chartId: 'easy.json',
+  level: 1,
 };
 
 interface Harness {
@@ -91,7 +98,6 @@ function savedWith(
       score: 0,
       accuracy: 0,
       maxCombo: 0,
-      cleared: true,
       newAchievements: achievements,
       review,
     },
@@ -355,8 +361,8 @@ describe('ResultController', () => {
     it('plays the focus sound for each focus move', () => {
       const harness = createHarness();
 
-      harness.controller.moveFocus(1);
-      harness.controller.moveFocus(1);
+      harness.controller.moveFocus('next');
+      harness.controller.moveFocus('next');
 
       expect(harness.last().focus).toBe('retry');
       expect(harness.focusSoundCount()).toBe(2);
@@ -377,7 +383,7 @@ describe('ResultController', () => {
         restore,
       };
       const harness = createHarness(origin);
-      harness.controller.stepDifficulty(1);
+      harness.controller.stepDifficulty('next');
 
       harness.controller.confirm();
       harness.controller.back();
@@ -390,6 +396,7 @@ describe('ResultController', () => {
             laneCount: 4,
             difficulty: 'hard',
             chartId: 'hard.json',
+            level: 1,
             origin,
           },
         },
@@ -445,6 +452,7 @@ describe('ResultController', () => {
               laneCount: 4,
               difficulty: 'hard',
               chartId: 'hard.json',
+              level: 1,
               origin,
             },
           },
@@ -487,7 +495,7 @@ describe('ResultController', () => {
       harness.controller.selectDifficulty('hard');
       expect(harness.last().retryChart.chartId).toBe('hard.json');
 
-      harness.controller.stepDifficulty(-1);
+      harness.controller.stepDifficulty('previous');
       expect(harness.last().retryChart.chartId).toBe('easy.json');
     });
   });
@@ -510,8 +518,8 @@ describe('ResultController sounds', () => {
   it('plays the click sound only when a click or a key changes the retry difficulty', () => {
     const harness = createHarness();
 
-    harness.controller.stepDifficulty(1);
-    harness.controller.stepDifficulty(1);
+    harness.controller.stepDifficulty('next');
+    harness.controller.stepDifficulty('next');
     harness.controller.selectDifficulty('easy');
     harness.controller.selectDifficulty('easy');
 
@@ -544,13 +552,13 @@ describe('ResultController controls', () => {
 
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(harness.last().isControlsOpen).toBe(true);
+    expect(harness.last().controls).toBe('open');
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(harness.last().isControlsOpen).toBe(false);
+    expect(harness.last().controls).toBe('closed');
     harness.controller.openControls();
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
-    expect(harness.last().isControlsOpen).toBe(false);
+    expect(harness.last().controls).toBe('closed');
   });
 });
 
@@ -597,16 +605,16 @@ describe('ResultController button pointer', () => {
 
     harness.controller.pointerDown('controlsEntry');
     harness.controller.pointerUp('controlsEntry');
-    expect(harness.last().isControlsOpen).toBe(true);
+    expect(harness.last().controls).toBe('open');
 
     harness.controller.pointerDown('controlsClose');
     harness.controller.pointerUp('controlsClose');
-    expect(harness.last().isControlsOpen).toBe(false);
+    expect(harness.last().controls).toBe('closed');
 
     harness.controller.openControls();
     harness.controller.pointerDown('controlsBackdrop');
     harness.controller.pointerUp('controlsBackdrop');
-    expect(harness.last().isControlsOpen).toBe(false);
+    expect(harness.last().controls).toBe('closed');
   });
 
   it('releases the hover of the close button when the controls close', () => {
@@ -684,7 +692,7 @@ describe('ResultController ranking notice', () => {
     await flush();
 
     expect(harness.last()).toMatchObject({
-      isControlsOpen: false,
+      controls: 'closed',
       rankingNotice: 'unknown',
     });
   });
@@ -707,8 +715,8 @@ describe('ResultController ranking notice', () => {
     const harness = await withNotice();
     const state = harness.last();
 
-    harness.controller.moveFocus(1);
-    harness.controller.stepDifficulty(1);
+    harness.controller.moveFocus('next');
+    harness.controller.stepDifficulty('next');
     harness.controller.selectDifficulty('hard');
     harness.controller.openControls();
 
@@ -791,7 +799,7 @@ describe('ResultController ranking notice', () => {
     });
     const renderCount = harness.renders.length;
 
-    harness.controller.stepDifficulty(1);
+    harness.controller.stepDifficulty('next');
 
     expect(harness.renders).toHaveLength(renderCount);
     expect(harness.clickSoundCount()).toBe(0);

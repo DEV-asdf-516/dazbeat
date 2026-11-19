@@ -17,7 +17,7 @@ function makeSong(index: number, credit?: readonly string[]): Song {
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    chartIds: {},
+    charts: {},
     ...(credit === undefined ? {} : { credit }),
   };
 }
@@ -236,13 +236,13 @@ describe('CreditsController controls', () => {
 
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(lastRender(harness).next.isControlsOpen).toBe(true);
+    expect(lastRender(harness).next.controls).toBe('open');
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
-    expect(lastRender(harness).next.isControlsOpen).toBe(false);
+    expect(lastRender(harness).next.controls).toBe('closed');
     harness.controller.openControls();
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
-    expect(lastRender(harness).next.isControlsOpen).toBe(false);
+    expect(lastRender(harness).next.controls).toBe('closed');
   });
 
   it('ignores wheels while the controls are open', () => {
@@ -299,16 +299,16 @@ describe('CreditsController button pointer', () => {
 
     harness.controller.pointerDown('controlsEntry');
     harness.controller.pointerUp('controlsEntry');
-    expect(lastRender(harness).next.isControlsOpen).toBe(true);
+    expect(lastRender(harness).next.controls).toBe('open');
 
     harness.controller.pointerDown('controlsClose');
     harness.controller.pointerUp('controlsClose');
-    expect(lastRender(harness).next.isControlsOpen).toBe(false);
+    expect(lastRender(harness).next.controls).toBe('closed');
 
     harness.controller.openControls();
     harness.controller.pointerDown('controlsBackdrop');
     harness.controller.pointerUp('controlsBackdrop');
-    expect(lastRender(harness).next.isControlsOpen).toBe(false);
+    expect(lastRender(harness).next.controls).toBe('closed');
   });
 
   it('releases the hover of the close button when the controls close', () => {

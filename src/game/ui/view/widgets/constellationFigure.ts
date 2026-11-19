@@ -1,9 +1,17 @@
 import Phaser from 'phaser';
 import { clamp, getProgress, lerp } from '../../../../range.js';
+import { maskImage } from '../canvas/mask.js';
 import { createCanvasTexture } from '../textures/canvasTexture.js';
-import { applyGrain, strokeGrainedLine } from '../textures/grain.js';
-import { isReducedMotionPreferred } from '../theme.js';
-import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
+import { applyGrain, strokeGrainedCanvasLine } from '../textures/grain.js';
+import { PIXEL_CHANNEL, getPixelIndex } from '../textures/imagePixels.js';
+import { cssColor, isReducedMotionPreferred } from '../theme.js';
+import {
+  LIGHT_TEXTURES,
+  addLight,
+  ensureLightTextures,
+  fillGradient,
+  white,
+} from '../textures/lightTextures.js';
 import { requireDefined } from '../../../../invariant.js';
 
 /** 좌표는 모두 선화(1122×1402) 픽셀 기준이고 크기만 화면 픽셀이다. */
@@ -11,12 +19,13 @@ const CORE_TEXTURE_KEY = 'main:constellation-core';
 const HALO_TEXTURE_KEY = 'main:constellation-halo';
 const BAND_TEXTURE_KEY = 'main:constellation-band';
 const TRAIL_TEXTURE_KEY = 'main:constellation-trail';
+const LINES_TEXTURE_KEY = 'main:constellation-lines';
 const SPARKLE_TEXTURE_KEY = 'main:constellation-sparkle';
 
 /** 로고·메뉴보다 앞서 보이지 않도록 선은 흰색이 아닌 옅은 별빛색으로, 불투명도를 낮춰 둔다. */
 const CORE_TINT = 0xd4e0ff;
 const CORE_ALPHA = 0.66;
-const HALO_COLOR = 'rgba(110, 160, 255, 1)';
+const HALO_COLOR = cssColor(0x6ea0ff);
 const HALO_BLUR_PX = 18;
 const HALO_PASSES = 2;
 const HALO_ALPHA = 0.9;
@@ -175,6 +184,11 @@ const TRAIL_LENGTH_PX = 320;
 const TRAIL_HEAD_SIZE_PX = 22;
 /** 유성 경로를 선화 바깥으로 늘여 화면 밖처럼 먼 곳에서 들어와 사라지게 한다. */
 const TRAIL_PATH_MARGIN_PX = 260;
+const CENTER_PEAK_STOPS = [
+  [0, white(0)],
+  [0.5, white(1)],
+  [1, white(0)],
+] as const;
 const STAR_FLARE_SCALE = 1.9;
 const STAR_FLARE_MS = 520;
 
@@ -210,27 +224,59 @@ export function addConstellationFigure(
     .setScale(scale)
     .setTint(CORE_TINT)
     .setAlpha(0);
-  const lines = scene.add.graphics().setAlpha(0);
-  for (const path of CONSTELLATION_PATHS) {
-    const points = path.map((name) => toScene(STARS[name].x, STARS[name].y));
-    points.slice(1).forEach((to, index) => {
-      const from = requireDefined(points[index], 'Constellation path gap', index);
-      strokeGrainedLine(
-        lines,
-        {
-          fromXPx: from.x,
-          fromYPx: from.y,
-          toXPx: to.x,
-          toYPx: to.y,
-        },
-        {
-          widthPx: LINE_WIDTH_PX,
-          color: LINE_COLOR,
-          alpha: LINE_ALPHA,
-        },
-      );
-    });
+  const pathPoints = CONSTELLATION_PATHS.map((path) =>
+    path.map((name) => toScene(STARS[name].x, STARS[name].y)),
+  );
+  // 선의 질감 결은 화면 좌표로 정해지므로 화면 좌표 그대로 긋고 캔버스만 정수 px 만큼 옮겨 같은 결을 남긴다.
+  let minXPx = Infinity;
+  let minYPx = Infinity;
+  let maxXPx = -Infinity;
+  let maxYPx = -Infinity;
+  for (const { x, y } of pathPoints.flat()) {
+    minXPx = Math.min(minXPx, x);
+    minYPx = Math.min(minYPx, y);
+    maxXPx = Math.max(maxXPx, x);
+    maxYPx = Math.max(maxYPx, y);
   }
+  const linesLeftPx = Math.floor(minXPx - LINE_WIDTH_PX);
+  const linesTopPx = Math.floor(minYPx - LINE_WIDTH_PX);
+  const linesRightPx = Math.ceil(maxXPx + LINE_WIDTH_PX);
+  const linesBottomPx = Math.ceil(maxYPx + LINE_WIDTH_PX);
+  const linesTextureKey = `${LINES_TEXTURE_KEY}:${textureKey}:${centerXPx}:${centerYPx}:${scale}`;
+  createCanvasTexture(
+    scene,
+    {
+      key: linesTextureKey,
+      widthPx: linesRightPx - linesLeftPx,
+      heightPx: linesBottomPx - linesTopPx,
+    },
+    (context) => {
+      context.translate(-linesLeftPx, -linesTopPx);
+      for (const points of pathPoints) {
+        points.slice(1).forEach((to, index) => {
+          const from = requireDefined(points[index], 'Constellation path gap', index);
+          strokeGrainedCanvasLine(
+            context,
+            {
+              fromXPx: from.x,
+              fromYPx: from.y,
+              toXPx: to.x,
+              toYPx: to.y,
+            },
+            {
+              widthPx: LINE_WIDTH_PX,
+              color: LINE_COLOR,
+              alpha: LINE_ALPHA,
+            },
+          );
+        });
+      }
+    },
+  );
+  const lines = scene.add
+    .image(linesLeftPx, linesTopPx, linesTextureKey)
+    .setOrigin(0, 0)
+    .setAlpha(0);
   const starEntries = (Object.keys(STARS) as StarName[]).map((name) => {
     const star: Star = STARS[name];
     const position = toScene(star.x, star.y);
@@ -314,7 +360,7 @@ export function addConstellationFigure(
   const band = new Phaser.GameObjects.Image(scene, 0, 0, BAND_TEXTURE_KEY)
     .setDisplaySize(BAND_WIDTH_PX, diagonalPx)
     .setRotation(PASS_DIRECTION.angle());
-  glint.enableFilters().filters?.internal.addMask(band, false, scene.cameras.main);
+  maskImage(glint, band, scene.cameras.main);
 
   const trail = scene.add
     .image(0, 0, TRAIL_TEXTURE_KEY)
@@ -407,46 +453,64 @@ function createFigureTextures(
 ): void {
   const widthPx = source.width;
   const heightPx = source.height;
-  createCanvasTexture(scene, CORE_TEXTURE_KEY, widthPx, heightPx, (context) => {
-    context.drawImage(source, 0, 0);
-    dissolveBottom(context, widthPx, heightPx);
-    applyGrain(context, widthPx, heightPx, GRAIN);
-  });
-  createCanvasTexture(scene, HALO_TEXTURE_KEY, widthPx, heightPx, (context) => {
-    // 선 자체는 캔버스 밖에 그리고 그림자만 제자리에 떨어뜨려 번짐만 남긴다.
-    context.shadowColor = HALO_COLOR;
-    context.shadowBlur = HALO_BLUR_PX;
-    context.shadowOffsetX = widthPx;
-    for (let pass = 0; pass < HALO_PASSES; pass++) {
-      context.drawImage(source, -widthPx, 0);
-    }
-    dissolveBottom(context, widthPx, heightPx);
-  });
   createCanvasTexture(
     scene,
-    BAND_TEXTURE_KEY,
-    BAND_TEXTURE_SIZE_PX,
-    BAND_TEXTURE_SIZE_PX,
+    {
+      key: CORE_TEXTURE_KEY,
+      widthPx,
+      heightPx,
+    },
     (context) => {
-      const gradient = context.createLinearGradient(0, 0, BAND_TEXTURE_SIZE_PX, 0);
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      gradient.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
-      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      context.fillStyle = gradient;
-      context.fillRect(0, 0, BAND_TEXTURE_SIZE_PX, BAND_TEXTURE_SIZE_PX);
+      context.drawImage(source, 0, 0);
+      dissolveBottom(context, widthPx, heightPx);
+      applyGrain(context, widthPx, heightPx, GRAIN);
     },
   );
   createCanvasTexture(
     scene,
-    SPARKLE_TEXTURE_KEY,
-    SPARKLE_TEXTURE_SIZE_PX,
-    SPARKLE_TEXTURE_SIZE_PX,
+    {
+      key: HALO_TEXTURE_KEY,
+      widthPx,
+      heightPx,
+    },
+    (context) => {
+      // 선 자체는 캔버스 밖에 그리고 그림자만 제자리에 떨어뜨려 번짐만 남긴다.
+      context.shadowColor = HALO_COLOR;
+      context.shadowBlur = HALO_BLUR_PX;
+      context.shadowOffsetX = widthPx;
+      for (let pass = 0; pass < HALO_PASSES; pass++) {
+        context.drawImage(source, -widthPx, 0);
+      }
+      dissolveBottom(context, widthPx, heightPx);
+    },
+  );
+  createCanvasTexture(
+    scene,
+    {
+      key: BAND_TEXTURE_KEY,
+      widthPx: BAND_TEXTURE_SIZE_PX,
+      heightPx: BAND_TEXTURE_SIZE_PX,
+    },
+    (context) =>
+      fillGradient(
+        context,
+        context.createLinearGradient(0, 0, BAND_TEXTURE_SIZE_PX, 0),
+        CENTER_PEAK_STOPS,
+        BAND_TEXTURE_SIZE_PX,
+        BAND_TEXTURE_SIZE_PX,
+      ),
+  );
+  createCanvasTexture(
+    scene,
+    {
+      key: SPARKLE_TEXTURE_KEY,
+      widthPx: SPARKLE_TEXTURE_SIZE_PX,
+      heightPx: SPARKLE_TEXTURE_SIZE_PX,
+    },
     (context) => {
       const center = SPARKLE_TEXTURE_SIZE_PX / 2;
       const ray = context.createLinearGradient(0, 0, SPARKLE_TEXTURE_SIZE_PX, 0);
-      ray.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      ray.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
-      ray.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      CENTER_PEAK_STOPS.forEach(([offset, color]) => ray.addColorStop(offset, color));
       context.fillStyle = ray;
       context.fillRect(0, center - 1, SPARKLE_TEXTURE_SIZE_PX, 2);
       context.translate(center, center);
@@ -457,23 +521,31 @@ function createFigureTextures(
   );
   createCanvasTexture(
     scene,
-    TRAIL_TEXTURE_KEY,
-    TRAIL_TEXTURE_WIDTH_PX,
-    TRAIL_TEXTURE_HEIGHT_PX,
+    {
+      key: TRAIL_TEXTURE_KEY,
+      widthPx: TRAIL_TEXTURE_WIDTH_PX,
+      heightPx: TRAIL_TEXTURE_HEIGHT_PX,
+    },
     (context) => {
-      const along = context.createLinearGradient(0, 0, TRAIL_TEXTURE_WIDTH_PX, 0);
-      along.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      along.addColorStop(0.85, 'rgba(255, 255, 255, 0.55)');
-      along.addColorStop(1, 'rgba(255, 255, 255, 1)');
-      context.fillStyle = along;
-      context.fillRect(0, 0, TRAIL_TEXTURE_WIDTH_PX, TRAIL_TEXTURE_HEIGHT_PX);
-      const across = context.createLinearGradient(0, 0, 0, TRAIL_TEXTURE_HEIGHT_PX);
-      across.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      across.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
-      across.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      fillGradient(
+        context,
+        context.createLinearGradient(0, 0, TRAIL_TEXTURE_WIDTH_PX, 0),
+        [
+          [0, white(0)],
+          [0.85, white(0.55)],
+          [1, white(1)],
+        ],
+        TRAIL_TEXTURE_WIDTH_PX,
+        TRAIL_TEXTURE_HEIGHT_PX,
+      );
       context.globalCompositeOperation = 'destination-in';
-      context.fillStyle = across;
-      context.fillRect(0, 0, TRAIL_TEXTURE_WIDTH_PX, TRAIL_TEXTURE_HEIGHT_PX);
+      fillGradient(
+        context,
+        context.createLinearGradient(0, 0, 0, TRAIL_TEXTURE_HEIGHT_PX),
+        CENTER_PEAK_STOPS,
+        TRAIL_TEXTURE_WIDTH_PX,
+        TRAIL_TEXTURE_HEIGHT_PX,
+      );
     },
   );
 }
@@ -497,7 +569,7 @@ function sampleLinePoints(
   for (let tries = 0; tries < DUST_MAX_TRIES && points.length < DUST_COUNT; tries++) {
     const xPx = random.between(0, width - 1);
     const yPx = random.between(0, maxYPx);
-    const alpha = pixels[(yPx * width + xPx) * 4 + 3] ?? 0;
+    const alpha = pixels[getPixelIndex(xPx, yPx, width) + PIXEL_CHANNEL.alpha] ?? 0;
     if (alpha >= DUST_MIN_SOURCE_ALPHA) {
       points.push(new Phaser.Math.Vector2(xPx, yPx));
     }
@@ -510,13 +582,18 @@ function dissolveBottom(
   widthPx: number,
   heightPx: number,
 ): void {
-  const gradient = context.createLinearGradient(0, 0, 0, heightPx);
-  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  gradient.addColorStop(DISSOLVE_START, 'rgba(255, 255, 255, 1)');
-  gradient.addColorStop(1, `rgba(255, 255, 255, ${DISSOLVE_END_ALPHA})`);
   context.save();
   context.globalCompositeOperation = 'destination-in';
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, widthPx, heightPx);
+  fillGradient(
+    context,
+    context.createLinearGradient(0, 0, 0, heightPx),
+    [
+      [0, white(1)],
+      [DISSOLVE_START, white(1)],
+      [1, white(DISSOLVE_END_ALPHA)],
+    ],
+    widthPx,
+    heightPx,
+  );
   context.restore();
 }

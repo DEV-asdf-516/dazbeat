@@ -9,6 +9,7 @@ import {
   setCelestialLoopActive,
 } from '../../../celestial/view/celestialSprites.js';
 import { MOTION } from '../../state/motion.js';
+import { addBakedRoundedRect } from '../textures/bakedTexture.js';
 import { LIST_ROW, RADIUS } from '../theme.js';
 
 export interface ListRowMarkerLayout {
@@ -27,7 +28,7 @@ export interface ListRowMarkerView {
 export class ListRowMarker {
   readonly nodeXPx: number;
   readonly nodeYPx: number;
-  private readonly fill: Phaser.GameObjects.Rectangle;
+  private readonly fill: Phaser.GameObjects.NineSlice;
   private readonly node: Phaser.GameObjects.Sprite;
 
   constructor(
@@ -38,17 +39,15 @@ export class ListRowMarker {
     const { insetYPx, color, alpha } = LIST_ROW.selectedFill;
     this.nodeXPx = layout.nodeXPx;
     this.nodeYPx = layout.topYPx + layout.heightPx / 2;
-    this.fill = scene.add
-      .rectangle(
-        layout.fillXPx,
-        layout.topYPx + insetYPx,
-        layout.fillWidthPx,
-        layout.heightPx - insetYPx * 2,
-        color,
-        alpha,
-      )
+    this.fill = addBakedRoundedRect(scene, layout.fillXPx, layout.topYPx + insetYPx, {
+      widthPx: layout.fillWidthPx,
+      heightPx: layout.heightPx - insetYPx * 2,
+      radiusPx: RADIUS.smallPx,
+      fillColor: color,
+      fillAlpha: alpha,
+      border: null,
+    })
       .setOrigin(0, 0)
-      .setRounded(RADIUS.smallPx)
       .setVisible(false);
     this.node = addCelestialSprite(scene, initialNode, this.nodeXPx, this.nodeYPx);
   }

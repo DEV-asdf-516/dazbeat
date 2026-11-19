@@ -4,15 +4,24 @@ import { lerp } from '../../../range.js';
 import type { JudgmentEvent, Lane } from '../../../rhythm/types.js';
 import type { CelestialCatalog } from '../../celestial/state/celestialCatalog.js';
 import { getPlayfieldTrapezoid } from '../state/playfieldLayout.js';
-import type { PlayfieldLayout } from '../state/playfieldLayout.js';
-import { fillTrapezoid } from './trapezoidFill.js';
+import type { PlayfieldLayout, Trapezoid } from '../state/playfieldLayout.js';
 import { getJudgmentEffect, getLaneEffectIds } from '../state/judgmentEffects.js';
 import type { LaneEffectId } from '../state/judgmentEffects.js';
 import { addCelestialSprite, playCelestialOnce } from '../../celestial/view/celestialSprites.js';
-import { ensureJudgeLineTexture } from './gameplayTextures.js';
+import { ensureJudgeLineTexture } from '../../ui/view/textures/noteTextures.js';
+import { ensureLaneColumnTexture } from './gameplayTextures.js';
 import { LIGHT_TEXTURES, addLight } from '../../ui/view/textures/lightTextures.js';
+import {
+  FULL_FADE_ROWS,
+  createStripIndices,
+  createStripVertices,
+  getStripRowVertex,
+  writeStripRow,
+} from '../../ui/view/textures/meshGeometry.js';
 import { COLORS, GAMEPLAY_DEPTH } from '../../ui/view/theme.js';
 import { MOTION } from '../../ui/state/motion.js';
+import { HIT_BLOOM } from '../../ui/state/noteLook.js';
+import type { HitBloomLayer } from '../../ui/state/noteLook.js';
 
 // 상시 halo 가 노트보다 먼저 보이지 않게 낮게 둔다.
 const JUDGE_CORE_HEIGHT_PX = 3;
@@ -34,43 +43,29 @@ const MISS_SHADE_ALPHA = 0.3;
 const MISS_SHADE_FADE_MS = 260;
 const NOTE_TRAIL_ID: LaneEffectId = 'R33';
 
-const HIT_BLOOM = {
-  core: {
-    widthPx: [96, 40],
-    heightPx: [96, 40],
-    alpha: 1,
-    durationMs: 120,
-  },
-  streak: {
-    widthPx: [160, 560],
-    heightPx: [10, 4],
-    alpha: 0.9,
-    durationMs: 260,
-  },
-  haze: {
-    widthPx: [160, 380],
-    heightPx: [70, 150],
-    alpha: 0.7,
-    durationMs: 420,
-  },
-} as const;
-type HitBloomLayer = keyof typeof HIT_BLOOM;
 // 위로 갈수록 사라지는 기둥이라 다가오는 노트를 가리지 않는다. 원근 레인을 따라 기울고 좁아진다.
 const HIT_PILLAR = {
-  widthLaneRatio: [0.9, 1.25],
-  heightPx: [200, 460],
+  widthLaneRatio: {
+    from: 0.9,
+    to: 1.25,
+  },
+  heightPx: {
+    from: 200,
+    to: 460,
+  },
   alpha: 0.5,
   durationMs: 440,
 } as const;
+const PILLAR_ROWS = FULL_FADE_ROWS;
 
 interface LaneFxView {
   xPx: number;
   anchor: Phaser.GameObjects.Image;
-  pulse: Phaser.GameObjects.Graphics;
-  missShade: Phaser.GameObjects.Graphics;
+  pulse: Phaser.GameObjects.Mesh2D;
+  missShade: Phaser.GameObjects.Mesh2D;
   effects: Record<LaneEffectId, Phaser.GameObjects.Sprite>;
   bloom: Record<HitBloomLayer, Phaser.GameObjects.Image>;
-  pillar: Phaser.GameObjects.Graphics;
+  pillar: Phaser.GameObjects.Mesh2D;
 }
 
 export class LaneFx {
@@ -103,14 +98,31 @@ export class LaneFx {
         .setTint(COLORS.holdRibbon)
         .setAlpha(ANCHOR_IDLE_ALPHA)
         .setDepth(GAMEPLAY_DEPTH.anchor);
-      const addColumn = (color: number): Phaser.GameObjects.Graphics => {
-        const column = scene.add.graphics().setAlpha(0).setDepth(GAMEPLAY_DEPTH.lanePulse);
-        drawLaneColumn(column, playfield, xPx, laneWidthPx, COLUMN_HEIGHT_PX, color);
-        return column;
-      };
+      const addColumn = (color: number): Phaser.GameObjects.Mesh2D =>
+        scene.add
+          .mesh2d(
+            xPx,
+            judgeLineYPx,
+            ensureLaneColumnTexture(scene, COLUMN_EDGE_FADE_RATIO, color),
+            createStripVertices(PILLAR_ROWS),
+            createStripIndices(1, PILLAR_ROWS),
+          )
+          .buildOrderedIndices(1, true)
+          .setAlpha(0)
+          .setDepth(GAMEPLAY_DEPTH.lanePulse);
+      // 모양이 바뀌지 않으므로 꼭짓점은 여기서 한 번만 놓는다.
+      const columnBand = getPlayfieldTrapezoid(
+        playfield,
+        xPx - laneWidthPx / 2,
+        xPx + laneWidthPx / 2,
+        judgeLineYPx - COLUMN_HEIGHT_PX,
+        judgeLineYPx,
+      );
       const pulse = addColumn(COLORS.note).setBlendMode(Phaser.BlendModes.SCREEN);
+      placeColumnVertices(pulse.vertices, columnBand, xPx, judgeLineYPx);
       // 빛이 아니라 어둡게 덮는 그림자라 SCREEN 합성을 쓰지 않는다.
       const missShade = addColumn(COLORS.background);
+      placeColumnVertices(missShade.vertices, columnBand, xPx, judgeLineYPx);
       // 같은 depth 의 note trail 이 anchor 위에 그려지도록 anchor 다음에 만든다.
       // role anchor 를 그대로 써서 flare core·trail head 가 판정선에 오게 한다.
       const addEffect = (id: LaneEffectId): Phaser.GameObjects.Sprite => {
@@ -126,11 +138,7 @@ export class LaneFx {
         R32: addEffect('R32'),
         R33: addEffect('R33'),
       };
-      const pillar = scene.add
-        .graphics()
-        .setBlendMode(Phaser.BlendModes.SCREEN)
-        .setAlpha(0)
-        .setDepth(GAMEPLAY_DEPTH.lanePulse);
+      const pillar = addColumn(COLORS.note).setBlendMode(Phaser.BlendModes.SCREEN);
       const addBloom = () =>
         addLight(scene, LIGHT_TEXTURES.glow, xPx, judgeLineYPx)
           .setTint(COLORS.note)
@@ -237,11 +245,11 @@ export class LaneFx {
       const image = bloom[layer];
       this.scene.tweens.killTweensOf(image);
       // 시작 순간에 최고 밝기로 켜고(0ms) 감속하며 사라지게 해 "툭" 치고 "길게" 남긴다.
-      image.setDisplaySize(widthPx[0], heightPx[0]).setAlpha(alpha * intensity);
+      image.setDisplaySize(widthPx.from, heightPx.from).setAlpha(alpha * intensity);
       this.scene.tweens.add({
         targets: image,
-        displayWidth: widthPx[1],
-        displayHeight: heightPx[1],
+        displayWidth: widthPx.to,
+        displayHeight: heightPx.to,
         alpha: 0,
         duration: durationMs,
         ease: 'Cubic.Out',
@@ -249,19 +257,21 @@ export class LaneFx {
     }
   }
 
-  // 사다리꼴은 크기를 tween 할 수 없으므로 alpha tween 의 진행률로 매 프레임 다시 그린다.
+  // 사다리꼴은 크기를 tween 할 수 없으므로 alpha tween 의 진행률로 매 프레임 꼭짓점만 옮긴다.
   private playPillar({ pillar, xPx }: LaneFxView, intensity: number): void {
     const { widthLaneRatio, heightPx, alpha, durationMs } = HIT_PILLAR;
+    const { judgeLineYPx } = this.playfield;
     const draw = (progress: number): void => {
-      pillar.clear();
-      drawLaneColumn(
-        pillar,
+      const widthPx =
+        this.playfield.laneWidthPx * lerp(widthLaneRatio.from, widthLaneRatio.to, progress);
+      const band = getPlayfieldTrapezoid(
         this.playfield,
-        xPx,
-        this.playfield.laneWidthPx * lerp(widthLaneRatio[0], widthLaneRatio[1], progress),
-        lerp(heightPx[0], heightPx[1], progress),
-        COLORS.note,
+        xPx - widthPx / 2,
+        xPx + widthPx / 2,
+        judgeLineYPx - lerp(heightPx.from, heightPx.to, progress),
+        judgeLineYPx,
       );
+      placeColumnVertices(pillar.vertices, band, xPx, judgeLineYPx);
     };
     this.scene.tweens.killTweensOf(pillar);
     draw(0);
@@ -287,39 +297,21 @@ export class LaneFx {
   }
 }
 
-function drawLaneColumn(
-  graphics: Phaser.GameObjects.Graphics,
-  playfield: PlayfieldLayout,
+// 꼭짓점은 메시 위치 기준이라 곡 끝에 메시를 옮겨 가라앉혀도 기둥이 함께 움직인다.
+function placeColumnVertices(
+  vertices: number[],
+  band: Trapezoid,
   xPx: number,
-  widthPx: number,
-  heightPx: number,
-  color: number,
+  judgeLineYPx: number,
 ): void {
-  const { judgeLineYPx } = playfield;
-  const fadeWidthPx = widthPx * COLUMN_EDGE_FADE_RATIO;
-  const leftXPx = xPx - widthPx / 2;
-  const rightXPx = xPx + widthPx / 2;
-  const fillBand = (
-    bandLeftXPx: number,
-    bandRightXPx: number,
-    leftAlpha: number,
-    rightAlpha: number,
-  ): void => {
-    const band = getPlayfieldTrapezoid(
-      playfield,
-      bandLeftXPx,
-      bandRightXPx,
-      judgeLineYPx - heightPx,
-      judgeLineYPx,
+  for (let row = 0; row <= PILLAR_ROWS; row += 1) {
+    const t = row / PILLAR_ROWS;
+    writeStripRow(
+      vertices,
+      getStripRowVertex(PILLAR_ROWS, 0, row),
+      lerp(band.topLeftXPx, band.bottomLeftXPx, t) - xPx,
+      lerp(band.topRightXPx, band.bottomRightXPx, t) - xPx,
+      lerp(band.topYPx, band.bottomYPx, t) - judgeLineYPx,
     );
-    fillTrapezoid(graphics, band, color, {
-      topLeft: 0,
-      topRight: 0,
-      bottomLeft: leftAlpha,
-      bottomRight: rightAlpha,
-    });
-  };
-  fillBand(leftXPx, leftXPx + fadeWidthPx, 0, 1);
-  fillBand(leftXPx + fadeWidthPx, rightXPx - fadeWidthPx, 1, 1);
-  fillBand(rightXPx - fadeWidthPx, rightXPx, 1, 0);
+  }
 }

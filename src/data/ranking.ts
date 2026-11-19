@@ -80,7 +80,6 @@ export interface MyChartRecord {
   readonly score: number;
   readonly accuracy: number;
   readonly maxCombo: number;
-  readonly cleared: boolean;
 }
 
 export type RankingRequestErrorKind = 'notFound' | 'unauthorized' | 'failed';

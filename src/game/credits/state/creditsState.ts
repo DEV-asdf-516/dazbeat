@@ -12,10 +12,17 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
+import {
+  getControlsCloseView,
+  getControlsHelpButtonView,
+  isControlsEntryHovered,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+  leaveControlsButton,
+} from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
 import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
-import type { ControlsButton } from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 
 export interface CreditEntry {
@@ -40,12 +47,12 @@ export interface CreditsState {
   readonly entries: readonly CreditEntry[];
   readonly readSongCount: number;
   readonly topRow: number;
-  readonly isControlsOpen: boolean;
+  readonly controls: ControlsPanel;
   readonly hover: ButtonHover<CreditsButton> | null;
 }
 
 export const INITIAL_CREDITS_STATE: CreditsState = {
-  isControlsOpen: false,
+  controls: 'closed',
   hover: null,
   entries: [],
   readSongCount: 0,
@@ -132,7 +139,7 @@ export function hoverCreditsButton(state: CreditsState, button: CreditsButton): 
 }
 
 export function unhoverCreditsButton(state: CreditsState, button: CreditsButton): CreditsState {
-  return withHover(state, unhoverButton(state.hover, button));
+  return leaveControlsButton(withHover(state, unhoverButton(state.hover, button)), button);
 }
 
 export function pressCreditsButton(state: CreditsState, button: CreditsButton): CreditsState {
@@ -162,13 +169,15 @@ export type CreditsRegion =
   | 'backButton'
   | 'controlsEntry'
   | 'controlsClose'
+  | 'controlsHelpCard'
+  | 'controlsHelpButton'
   | 'accountButton';
 
 type CreditsReader = StateReader<CreditsState>;
 
 const readEntries: CreditsReader = (state) => state.entries;
 const readTopRow: CreditsReader = (state) => state.topRow;
-const readControlsOpen: CreditsReader = (state) => state.isControlsOpen;
+const readControlsOpen: CreditsReader = (state) => isControlsPanelOpen(state);
 const readBackHovered: CreditsReader = (state) => isButtonHovered(state.hover, 'back');
 const readBackPressed: CreditsReader = (state) => isButtonPressed(state.hover, 'back');
 const readEntryHovered: CreditsReader = (state) => isButtonHovered(state.hover, 'controlsEntry');
@@ -183,6 +192,8 @@ const REGION_SOURCES: Readonly<Record<CreditsRegion, readonly CreditsReader[]>> 
   controlsEntry: [readEntryHovered],
   accountButton: [(state) => getAccountPanelPointerKey(state.hover)],
   controlsClose: [readCloseHovered, readClosePressed],
+  controlsHelpCard: [isControlsHelpShown],
+  controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
 };
 
 export function getChangedRegions(

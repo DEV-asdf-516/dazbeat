@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { addBrushRect, getBrushRectTexture } from '../textures/brushRect.js';
+import { getBrushRectTexture } from '../textures/brushRect.js';
 import type { AchievementCatalog } from '../../../../data/achievements.js';
 import type { AccountIdentity, AccountPanelButton } from '../../state/accountIdentity.js';
 import type { ButtonAppearance, ButtonView } from '../../state/buttonPointer.js';
@@ -20,6 +20,7 @@ import { Button, QUIET_PADDING_PX } from './Button.js';
 import { addCometUnderline } from './cometUnderline.js';
 import { setFittedText } from './fitText.js';
 import { getSignOutIconTexture } from './signOutIcon.js';
+import { addVerticalDivider } from './verticalDivider.js';
 
 /** 로그인 상태 문구는 배경 그림 위에 그대로 두면 떠 보이므로 반투명 카드 위에 얹는다. */
 export const ACCOUNT_CARD_PADDING_X_PX = 20;
@@ -59,7 +60,6 @@ const UNDERLINE_LOOK = {
 const CARD_ICON_SIZE_PX = 32;
 const CARD_ICON_GAP_PX = 20;
 const CARD_DIVIDER_HEIGHT_PX = 36;
-const CARD_DIVIDER_ALPHA = 0.7;
 const CARD_NAME_EMAIL_GAP_PX = 2;
 /** 한 단계 줄여 이름보다 앞서지 않게 한다. */
 const CARD_EMAIL_TYPE = {
@@ -190,14 +190,7 @@ export class AccountCard {
     signOut: PointerActions,
   ) {
     this.line = new AccountIdentityLine(scene, catalog, 'email');
-    this.divider = addBrushRect(scene, {
-      widthPx: CARD_PANEL.borderPx,
-      heightPx: CARD_DIVIDER_HEIGHT_PX,
-      radiusPx: 0,
-      fillColor: COLORS.textSecondary,
-      fillAlpha: CARD_DIVIDER_ALPHA,
-      border: null,
-    }).setPosition(
+    this.divider = addVerticalDivider(scene, CARD_DIVIDER_HEIGHT_PX).setPosition(
       IDENTITY_RIGHT_X_PX - CARD_ICON_SIZE_PX - CARD_ICON_GAP_PX,
       IDENTITY_CENTER_Y_PX,
     );

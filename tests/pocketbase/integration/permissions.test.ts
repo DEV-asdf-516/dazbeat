@@ -88,7 +88,6 @@ function achievementRecordBodies(userId: string) {
           bad: 0,
           miss: 0,
         },
-        cleared: true,
         reviewStatus: 'approved',
         achievedAt: new Date().toISOString(),
       },
@@ -146,7 +145,6 @@ function scoreBody(userId: string, chartRevision: string) {
     score: 900_000,
     accuracy: 95,
     maxCombo: 2,
-    cleared: true,
     counts: {
       perfect: 1,
       great: 1,

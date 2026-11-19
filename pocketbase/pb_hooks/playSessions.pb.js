@@ -119,13 +119,12 @@ routerAdd(
       return reject('chart_not_found');
     }
     const { review, newAchievements } = recording;
-    const { score, accuracy, maxCombo, counts, cleared } = result;
+    const { score, accuracy, maxCombo, counts } = result;
     return e.json(HTTP_STATUS.ok, {
       score,
       accuracy,
       maxCombo,
       counts,
-      cleared,
       newAchievements,
       review,
     });

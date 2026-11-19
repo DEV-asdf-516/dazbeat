@@ -42,7 +42,7 @@ describe('readControlsKey', () => {
 
 describe('getControlsGuide', () => {
   it('builds the gameplay and menu groups in order with the default lane keys', () => {
-    expect(getControlsGuide(ko.controls, DEFAULT_SETTINGS)).toEqual([
+    expect(getControlsGuide(ko.controls, DEFAULT_SETTINGS).groups).toEqual([
       {
         title: '플레이',
         rows: [
@@ -103,7 +103,7 @@ describe('getControlsGuide', () => {
         ...DEFAULT_SETTINGS.keyBindings,
         4: ['KeyA', 'Semicolon', 'Digit1', 'Space'],
       },
-    });
+    }).groups;
 
     expect(gameplay?.rows[0]?.keys).toEqual(['A', 'Semicolon', '1', 'SPACE']);
   });
@@ -115,7 +115,7 @@ describe('getControlsGuide', () => {
     const [gameplay] = getControlsGuide(ko.controls, {
       ...DEFAULT_SETTINGS,
       laneMode,
-    });
+    }).groups;
 
     expect(gameplay?.rows[0]?.keys).toEqual(expected);
   });

@@ -635,7 +635,7 @@ export class GameplayController {
   }
 
   private finishRun(run: PlayRun, result: GameplayResult): void {
-    const { song, laneCount, difficulty, chartId, origin } = this.route;
+    const { song, laneCount, difficulty, chartId, level, origin } = this.route;
     let ranking: ResultRanking = { kind: 'none' };
     const record = getRunRecord(run.mode, result);
     if (record.kind === 'save') {
@@ -671,6 +671,7 @@ export class GameplayController {
       laneCount,
       difficulty,
       chartId,
+      level,
       origin,
       report: run.report,
       result,
@@ -679,7 +680,7 @@ export class GameplayController {
   }
 
   private cycleMvMode(): void {
-    const next = cycleItem(MV_MODES, this.settings.mvMode, 1);
+    const next = cycleItem(MV_MODES, this.settings.mvMode, 'next');
     this.settings = {
       ...this.settings,
       mvMode: next,

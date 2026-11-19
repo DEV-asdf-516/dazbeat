@@ -20,7 +20,14 @@ const song: Song = {
   constellation: 'gemini',
   gameStartMs: 0,
   gameEndMs: 10000,
-  chartIds: { 4: { normal: 'chart_normal' } },
+  charts: {
+    4: {
+      normal: {
+        id: 'chart_normal',
+        level: 1,
+      },
+    },
+  },
 };
 
 const normalChart: ChartRef = {
@@ -28,6 +35,7 @@ const normalChart: ChartRef = {
   laneCount: 4,
   difficulty: 'normal',
   chartId: 'chart_normal',
+  level: 1,
 };
 
 const REVISION = 'a'.repeat(64);
@@ -103,7 +111,6 @@ const verifiedResponse = {
     bad: 0,
     miss: 0,
   },
-  cleared: true,
   review: {
     kind: 'approved',
     ranking: {
@@ -189,7 +196,6 @@ describe('submitPlay', () => {
       score: 1000000,
       accuracy: 100,
       maxCombo: 1,
-      cleared: true,
       review: {
         kind: 'approved',
         ranking: {
@@ -267,7 +273,7 @@ describe('submitPlay', () => {
   it('rejects when the response is not a verified result', async () => {
     respondWith(200, {
       ...verifiedResponse,
-      cleared: 'yes',
+      score: 'high',
     });
 
     await expect(submitPlay(signedInClient(), CATALOG, 'session1', submission)).rejects.toThrow();
@@ -417,6 +423,7 @@ describe('preparePlay', () => {
         json(200, {
           data: chartData(1000),
           revision: REVISION,
+          level: 1,
         }),
       ],
       [SESSIONS_PATH]: [json(200, { sessionId: 'session1' }), json(200, { sessionId: 'session2' })],
@@ -463,6 +470,7 @@ describe('preparePlay', () => {
         json(200, {
           data: chartData(1000),
           revision: REVISION,
+          level: 1,
         }),
       ],
       [SESSIONS_PATH]: [
@@ -498,6 +506,7 @@ describe('preparePlay', () => {
         json(200, {
           data: chartData(1000),
           revision: REVISION,
+          level: 1,
         }),
       ],
       [SESSIONS_PATH]: [json(200, { sessionId: 1 })],
@@ -516,6 +525,7 @@ describe('preparePlay', () => {
         json(200, {
           data: chartData(1000),
           revision: REVISION,
+          level: 1,
         }),
       ],
     });
@@ -534,10 +544,12 @@ describe('preparePlay', () => {
         json(200, {
           data: chartData(1000),
           revision: REVISION,
+          level: 1,
         }),
         json(200, {
           data: chartData(2000),
           revision: REVISION_B,
+          level: 1,
         }),
       ],
       [SESSIONS_PATH]: [
@@ -615,10 +627,12 @@ describe('preparePlay', () => {
           json(200, {
             data: chartData(1000),
             revision: REVISION,
+            level: 1,
           }),
           json(200, {
             data: chartData(2000),
             revision: REVISION_B,
+            level: 1,
           }),
         ],
         [SESSIONS_PATH]: [chartChanged(), failure()],
@@ -644,6 +658,7 @@ describe('preparePlay', () => {
         json(200, {
           data: chartData(1000),
           revision: REVISION,
+          level: 1,
         }),
         json(500, {
           status: 500,
@@ -682,6 +697,7 @@ describe('preparePlay', () => {
           json(200, {
             data: chartData(1000),
             revision: REVISION,
+            level: 1,
           }),
         ],
         [SESSIONS_PATH]: [failure()],

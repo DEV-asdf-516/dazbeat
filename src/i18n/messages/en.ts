@@ -38,7 +38,7 @@ export const en: Messages = {
     loading: 'Loading songs',
     loadingMore: 'Loading more songs',
     loadFailed: "Couldn't load songs.",
-    noRecord: 'No record',
+    noRecord: 'NO RECORD',
     recordsFailed: "Couldn't load your records.",
   },
   settings: {
@@ -78,8 +78,9 @@ export const en: Messages = {
     backToEditor: 'Back to Editor',
     quitTitle: 'Quit this play?',
     quitConfirm: 'This play will not be recorded.',
-    resyncFailedTitle: "Couldn't sync back to the music.",
-    resyncFailedBody: 'Press CONTINUE to try again. If you QUIT, this play will not be recorded.',
+    resyncFailedTitle: 'Video Sync Failed',
+    resyncFailedBody:
+      "Couldn't sync with the YouTube video. If you quit, this play will not be recorded.",
   },
   chartEditorSelect: {
     title: 'CHART EDITOR',
@@ -113,6 +114,7 @@ export const en: Messages = {
     invalidChartBody: 'Chart validation failed: {{reason}}',
     noteCount: '{{count}} notes',
     laneSection: 'Lanes',
+    levelSection: 'Level',
     toolSection: 'Input tool',
     selectionSection: 'Selected note',
   },

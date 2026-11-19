@@ -256,7 +256,11 @@ const REVIEW_NOTE_MIGRATION = '1794362400_add_review_note.js';
 const MY_RANKING_INDEXES_MIGRATION = '1794448800_denormalize_score_chart_fields.js';
 const COVERING_INDEXES_MIGRATION = '1794535200_add_covering_indexes.js';
 const CLOSE_SONG_LISTS_MIGRATION = '1794621600_close_song_list_apis.js';
+const CHARTS_LEVEL_MIGRATION = '1794708000_add_charts_level.js';
+const CHARTS_LEVEL_FILTER_INDEX_MIGRATION = '1794794400_add_charts_level_filter_index.js';
+const REMOVE_CLEARED_MIGRATION = '1794880800_remove_cleared.js';
 // 순위·검토 페이지 인덱스와 검토 사유 칸은 검토 마이그레이션이 더한 열과 컬렉션에 얹고, 곡 목록 닫기는 공개 규칙을 바꾼다.
+// cleared 제거는 커버링 인덱스를 바꾸고, 앞선 마이그레이션들이 읽는 cleared 를 지운다.
 const REVIEW_DEPENDENT_MIGRATIONS = [
   ...REVIEW_MIGRATIONS,
   RANKING_INDEXES_MIGRATION,
@@ -265,6 +269,7 @@ const REVIEW_DEPENDENT_MIGRATIONS = [
   MY_RANKING_INDEXES_MIGRATION,
   COVERING_INDEXES_MIGRATION,
   CLOSE_SONG_LISTS_MIGRATION,
+  REMOVE_CLEARED_MIGRATION,
 ];
 const RANKING_INDEXES = {
   scores:
@@ -278,14 +283,21 @@ const MY_RANKING_INDEXES = {
   ],
   charts: 'CREATE INDEX idx_charts_id_revision_song ON charts (id, revision, song)',
 };
-const COVERING_INDEXES = {
-  scores:
+// 커버링 인덱스 마이그레이션이 cleared 를 담아 만들고, cleared 제거 마이그레이션이 빼고 다시 만든다.
+const BEST_FIELDS_INDEXES = {
+  withCleared:
     'CREATE INDEX idx_scores_user_chart_best_fields ON scores (user, chart, score, accuracy, maxCombo, cleared)',
+  withoutCleared:
+    'CREATE INDEX idx_scores_user_chart_best_fields ON scores (user, chart, score, accuracy, maxCombo)',
+};
+const COVERING_INDEXES = {
   charts: [
     'CREATE INDEX idx_charts_song_difficulty_lane_count_id ON charts (song, difficulty, laneCount, id)',
     'CREATE INDEX idx_charts_id_revision_song_lane_difficulty ON charts (id, revision, song, laneCount, difficulty)',
   ],
 };
+const CHARTS_LEVEL_FILTER_INDEX =
+  'CREATE INDEX idx_charts_song_lane_count_level ON charts (song, laneCount, level)';
 const REVIEW_PAGE_INDEXES = {
   oldPlayResults:
     'CREATE INDEX `idx_play_results_review_status_created` ON `play_results` (reviewStatus, created)',
@@ -502,11 +514,6 @@ describe('migrations', () => {
         required: false,
       },
       {
-        name: 'cleared',
-        type: 'bool',
-        required: false,
-      },
-      {
         name: 'counts',
         type: 'json',
         required: false,
@@ -545,7 +552,7 @@ describe('migrations', () => {
         'CREATE UNIQUE INDEX idx_scores_user_chart_revision ON scores (user, chart, chartRevision)',
         RANKING_INDEXES.scores,
         ...MY_RANKING_INDEXES.scores,
-        COVERING_INDEXES.scores,
+        BEST_FIELDS_INDEXES.withoutCleared,
       ],
     });
 
@@ -1342,7 +1349,6 @@ describe('migrations', () => {
         bad: 0,
         miss: 1,
       },
-      cleared: true,
     };
 
     const upgraded = await start({
@@ -1673,8 +1679,11 @@ describe('migrations', () => {
     });
     const { collections } = upgraded.superuser;
     const playResults = await collections.getOne('play_results');
+    // 뒤의 cleared 제거 마이그레이션이 지운다.
+    const withoutCleared = (collection: CollectionModel) =>
+      fieldSummary(collection).filter(({ name }) => name !== 'cleared');
     expect(fieldSummary(playResults)).toEqual([
-      ...fieldSummary(oldPlayResults),
+      ...withoutCleared(oldPlayResults),
       {
         name: 'reviewStatus',
         type: 'select',
@@ -1708,7 +1717,7 @@ describe('migrations', () => {
     ]);
     const scores = await collections.getOne('scores');
     expect(fieldSummary(scores)).toEqual([
-      ...fieldSummary(oldScores),
+      ...withoutCleared(oldScores),
       {
         name: 'achievedAt',
         type: 'date',
@@ -1730,7 +1739,7 @@ describe('migrations', () => {
       'CREATE UNIQUE INDEX idx_scores_user_chart_revision ON scores (user, chart, chartRevision)',
       RANKING_INDEXES.scores,
       ...MY_RANKING_INDEXES.scores,
-      COVERING_INDEXES.scores,
+      BEST_FIELDS_INDEXES.withoutCleared,
     ]);
     const playReviews = await collections.getOne('play_reviews');
     expect(fieldSummary(playReviews)).toEqual(
@@ -2118,7 +2127,7 @@ describe('migrations', () => {
         ...oldIndexes.scores.filter((index) => !index.includes('idx_scores_chart_revision_score')),
         RANKING_INDEXES.scores,
         ...MY_RANKING_INDEXES.scores,
-        COVERING_INDEXES.scores,
+        BEST_FIELDS_INDEXES.withoutCleared,
       ].sort(),
       // 뒤의 검토 페이지 인덱스 마이그레이션이 검토 상태 인덱스를 바꾼다.
       playResults: [
@@ -2217,9 +2226,13 @@ describe('migrations', () => {
       hooksDir: emptyHooksDir,
     });
     expect(await readIndexes(upgraded.superuser)).toEqual({
-      scores: [...oldIndexes.scores, ...MY_RANKING_INDEXES.scores, COVERING_INDEXES.scores].sort(),
-      // 뒤의 커버링 인덱스 마이그레이션이 채보 인덱스를 바꾼다.
-      charts: [...oldIndexes.charts, ...COVERING_INDEXES.charts].sort(),
+      scores: [
+        ...oldIndexes.scores,
+        ...MY_RANKING_INDEXES.scores,
+        BEST_FIELDS_INDEXES.withoutCleared,
+      ].sort(),
+      // 뒤의 커버링 인덱스 마이그레이션이 채보 인덱스를 바꾸고, 레벨 필터 인덱스 마이그레이션이 하나를 더한다.
+      charts: [...oldIndexes.charts, ...COVERING_INDEXES.charts, CHARTS_LEVEL_FILTER_INDEX].sort(),
     });
     await upgraded.stop();
 
@@ -2262,10 +2275,12 @@ describe('migrations', () => {
       hooksDir: emptyHooksDir,
     });
     expect(await readIndexes(upgraded.superuser)).toEqual({
-      scores: [...oldIndexes.scores, COVERING_INDEXES.scores].sort(),
+      scores: [...oldIndexes.scores, BEST_FIELDS_INDEXES.withoutCleared].sort(),
       charts: [
         ...oldIndexes.charts.filter((index) => index !== MY_RANKING_INDEXES.charts),
         ...COVERING_INDEXES.charts,
+        // 뒤의 레벨 필터 인덱스 마이그레이션이 더한다.
+        CHARTS_LEVEL_FILTER_INDEX,
       ].sort(),
     });
     await upgraded.stop();
@@ -2310,5 +2325,148 @@ describe('migrations', () => {
     await migrateDown(dataDir, laterMigrations.length + 1);
     const rolledBack = await startOld();
     await expectReadRules(rolledBack.superuser, READ_RULES_AFTER_PLAY_REVIEWS);
+  });
+
+  it('add the required charts level as 0 for existing charts and remove it on rollback', async () => {
+    const dataDir = await tempDir('charts-level-data');
+    const oldMigrationsDir = await tempDir('charts-level-migrations');
+    const emptyHooksDir = await tempDir('charts-level-hooks');
+    const repoMigrations = (await readdir(REPO_MIGRATIONS_DIR)).filter((file) =>
+      file.endsWith('.js'),
+    );
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < CHARTS_LEVEL_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const startOld = () =>
+      start({
+        dataDir,
+        migrationsDir: oldMigrationsDir,
+        hooksDir: emptyHooksDir,
+      });
+    const findLevelField = async (superuser: PocketBase) =>
+      (await superuser.collections.getOne('charts')).fields.find(({ name }) => name === 'level');
+
+    const old = await startOld();
+    const song = await createSong(old.superuser, 'leveled');
+    const chart = await createChart(
+      old.superuser,
+      song.id,
+      'easy',
+      fakeChartData('leveled', 'easy'),
+    );
+    expect(await findLevelField(old.superuser)).toBeUndefined();
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await findLevelField(upgraded.superuser)).toMatchObject({
+      type: 'number',
+      min: 1,
+      max: 5,
+      onlyInt: false,
+      required: true,
+    });
+    expect((await upgraded.superuser.collection('charts').getOne(chart.id))['level']).toBe(0);
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > CHARTS_LEVEL_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await startOld();
+    expect(await findLevelField(rolledBack.superuser)).toBeUndefined();
+    expect(await rolledBack.superuser.collection('charts').getOne(chart.id)).not.toHaveProperty(
+      'level',
+    );
+  });
+
+  it('add the charts level filter index and remove it on rollback', async () => {
+    const dataDir = await tempDir('migrations-level-filter-index');
+    const oldMigrationsDir = await tempDir('migrations-before-level-filter-index');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file !== CHARTS_LEVEL_FILTER_INDEX_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const hasLevelFilterIndex = async (superuser: PocketBase): Promise<boolean> =>
+      (await superuser.collections.getOne('charts')).indexes.includes(CHARTS_LEVEL_FILTER_INDEX);
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await hasLevelFilterIndex(upgraded.superuser)).toBe(true);
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter(
+      (file) => file > CHARTS_LEVEL_FILTER_INDEX_MIGRATION,
+    );
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await hasLevelFilterIndex(rolledBack.superuser)).toBe(false);
+  });
+
+  it('remove cleared from scores and play_results and restore it on rollback', async () => {
+    const dataDir = await tempDir('migrations-remove-cleared');
+    const oldMigrationsDir = await tempDir('migrations-before-remove-cleared');
+    const emptyHooksDir = await tempDir('hooks-empty');
+    const repoMigrations = await readdir(REPO_MIGRATIONS_DIR);
+    await Promise.all(
+      repoMigrations
+        .filter((file) => file < REMOVE_CLEARED_MIGRATION)
+        .map((file) => copyFile(join(REPO_MIGRATIONS_DIR, file), join(oldMigrationsDir, file))),
+    );
+    const readCleared = async (superuser: PocketBase) => {
+      const scores = await superuser.collections.getOne('scores');
+      const playResults = await superuser.collections.getOne('play_results');
+      return {
+        scoresField: scores.fields.find(({ name }) => name === 'cleared')?.type,
+        playResultsField: playResults.fields.find(({ name }) => name === 'cleared')?.type,
+        bestFieldsIndex: scores.indexes.find((index) =>
+          index.includes('idx_scores_user_chart_best_fields'),
+        ),
+      };
+    };
+    const withCleared = {
+      scoresField: 'bool',
+      playResultsField: 'bool',
+      bestFieldsIndex: BEST_FIELDS_INDEXES.withCleared,
+    };
+
+    const old = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await readCleared(old.superuser)).toEqual(withCleared);
+    await old.stop();
+
+    const upgraded = await start({
+      dataDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await readCleared(upgraded.superuser)).toEqual({
+      scoresField: undefined,
+      playResultsField: undefined,
+      bestFieldsIndex: BEST_FIELDS_INDEXES.withoutCleared,
+    });
+    await upgraded.stop();
+
+    const laterMigrations = repoMigrations.filter((file) => file > REMOVE_CLEARED_MIGRATION);
+    await migrateDown(dataDir, laterMigrations.length + 1);
+    const rolledBack = await start({
+      dataDir,
+      migrationsDir: oldMigrationsDir,
+      hooksDir: emptyHooksDir,
+    });
+    expect(await readCleared(rolledBack.superuser)).toEqual(withCleared);
   });
 });

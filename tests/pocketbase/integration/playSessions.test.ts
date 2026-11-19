@@ -46,7 +46,6 @@ interface ResultResponse {
   accuracy: number;
   maxCombo: number;
   counts: Record<string, number>;
-  cleared: boolean;
   newAchievements: string[];
   review: PlayReview;
 }
@@ -131,20 +130,20 @@ const mixedChart = chartOf(SONG_KEY, 'hard', [
     lane: 0,
   },
 ]);
-// Ten misses empty the HP, so a play without inputs fails.
+// Twenty misses empty the HP, so a play without inputs fails.
 const failingChart = chartOf(
   SONG_KEY,
   'expert',
-  Array.from({ length: 10 }, (_, index) => ({
+  Array.from({ length: 25 }, (_, index) => ({
     type: 'tap' as const,
     timeMs: 1_000 + index * 100,
     lane: 0 as const,
   })),
 );
-// Ten taps after the last tap of tapChart, so inputs for tapChart hit none of them and fail.
-const lateFailingNotes: Chart['notes'] = Array.from({ length: 10 }, (_, index) => ({
+// Taps from the end of tapChart's hold, so inputs for tapChart hit at most one and the misses empty the HP.
+const lateFailingNotes: Chart['notes'] = Array.from({ length: 25 }, (_, index) => ({
   type: 'tap' as const,
-  timeMs: 3_000 + index * 100,
+  timeMs: 3_000 + index * 60,
   lane: 0 as const,
 }));
 // Each test that saves a chart gets its own record so no test depends on another's edit.
@@ -642,7 +641,6 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
       score: 1_000_000,
       accuracy: 100,
       maxCombo: 4,
-      cleared: true,
       counts: {
         perfect: 4,
         great: 0,
@@ -659,7 +657,6 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
     const [stored] = await findScores(player.id, tapChart);
     expect(stored).toMatchObject({
       score: play.result.score,
-      cleared: play.result.cleared,
     });
   });
 
@@ -1083,7 +1080,6 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
         score: best.score,
         accuracy: best.accuracy,
         maxCombo: best.maxCombo,
-        cleared: best.cleared,
         counts: best.counts,
       });
     };

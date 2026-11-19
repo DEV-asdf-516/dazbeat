@@ -4,7 +4,12 @@ import type { AchievementCatalog } from '../../data/achievements.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import type { AccountAuth, SignInFailure } from '../app/accountState.js';
-import { getControlsGuide } from '../app/controlsGuide.js';
+import {
+  getControlsGuide,
+  getControlsHelpButtonView,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+} from '../app/controlsGuide.js';
 import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type { SceneRequest } from '../app/sceneRoutes.js';
 import { getAccountPanel } from './state/accountPanel.js';
@@ -226,10 +231,10 @@ export class MainScene extends Phaser.Scene {
         handleMenuKey: (action) => {
           switch (action) {
             case 'up':
-              controller.moveFocus(-1);
+              controller.moveFocus('previous');
               return;
             case 'down':
-              controller.moveFocus(1);
+              controller.moveFocus('next');
               return;
             case 'confirm':
               controller.confirm();
@@ -373,6 +378,12 @@ export class MainScene extends Phaser.Scene {
       case 'controlsClose':
         view.chrome.renderControlsClose(getMainControlsCloseView(state));
         return;
+      case 'controlsHelpCard':
+        view.chrome.renderControlsHelpCard(isControlsHelpShown(state));
+        return;
+      case 'controlsHelpButton':
+        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(state));
+        return;
       case 'menuFocusMotion':
         view.menuButtons.forEach(({ item, button }) =>
           button.playFocus(isMainFocused(state, item)),
@@ -386,7 +397,7 @@ export class MainScene extends Phaser.Scene {
         return;
       case 'controls':
         view.chrome.renderControls(
-          state.isControlsOpen
+          isControlsPanelOpen(state)
             ? getControlsGuide(
                 this.i18n.t('controls', { returnObjects: true }),
                 this.save.loadSettings(),

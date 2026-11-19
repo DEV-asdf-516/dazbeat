@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { AuthUser } from '../../../../src/data/account.js';
 import { parseNickname } from '../../../../src/data/nickname.js';
 import type { AccountState } from '../../../../src/game/app/accountState.js';
-import { withControlsOpen } from '../../../../src/game/app/controlsGuide.js';
+import {
+  clickControlsHelp,
+  isControlsHelpShown,
+  withControlsOpen,
+} from '../../../../src/game/app/controlsGuide.js';
 import {
   createMainState,
   getChangedRegions,
   hoverMainButton,
   moveMainFocus,
   pressMainButton,
+  unhoverMainButton,
   withAccount,
 } from '../../../../src/game/main/state/mainMenu.js';
 import { requireDefined } from '../../../../src/invariant.js';
@@ -47,6 +52,8 @@ describe('getChangedRegions', () => {
       'controls',
       'controlsEntry',
       'controlsClose',
+      'controlsHelpCard',
+      'controlsHelpButton',
       'menuFocusMotion',
     ]);
   });
@@ -60,7 +67,7 @@ describe('getChangedRegions', () => {
   it('plays the focus motion and the hearts when the focus moves to YouTube', () => {
     const state = createMainState(GUEST);
 
-    expect(getChangedRegions(state, moveMainFocus(state, -1))).toEqual([
+    expect(getChangedRegions(state, moveMainFocus(state, 'previous'))).toEqual([
       ...FOCUS_REGIONS,
       'menuFocusMotion',
       'youtubeHearts',
@@ -69,13 +76,13 @@ describe('getChangedRegions', () => {
 
   it('plays only the focus motion when the focus moves elsewhere', () => {
     const state = createMainState(GUEST);
-    const youtube = moveMainFocus(state, -1);
+    const youtube = moveMainFocus(state, 'previous');
 
-    expect(getChangedRegions(state, moveMainFocus(state, 1))).toEqual([
+    expect(getChangedRegions(state, moveMainFocus(state, 'next'))).toEqual([
       ...FOCUS_REGIONS,
       'menuFocusMotion',
     ]);
-    expect(getChangedRegions(youtube, moveMainFocus(youtube, 1))).toEqual([
+    expect(getChangedRegions(youtube, moveMainFocus(youtube, 'next'))).toEqual([
       ...FOCUS_REGIONS,
       'menuFocusMotion',
     ]);
@@ -90,7 +97,10 @@ describe('getChangedRegions', () => {
   });
 
   it('redraws the focus too when an account change moves the focus back', () => {
-    const profile = moveMainFocus(moveMainFocus(createMainState(signedIn(USER)), -1), -1);
+    const profile = moveMainFocus(
+      moveMainFocus(createMainState(signedIn(USER)), 'previous'),
+      'previous',
+    );
 
     expect(getChangedRegions(profile, withAccount(profile, GUEST))).toEqual([
       'account',
@@ -119,7 +129,7 @@ describe('getChangedRegions', () => {
         isEditor: true,
       }),
     );
-    const chartEditor = moveMainFocus(moveMainFocus(editor, 1), 1);
+    const chartEditor = moveMainFocus(moveMainFocus(editor, 'next'), 'next');
 
     expect(getChangedRegions(chartEditor, withAccount(chartEditor, GUEST))).toEqual([
       'account',
@@ -127,6 +137,48 @@ describe('getChangedRegions', () => {
       ...FOCUS_REGIONS,
       'menuFocusMotion',
     ]);
+  });
+});
+
+describe('controls help', () => {
+  const open = withControlsOpen(createMainState(GUEST), true);
+
+  it('shows the card on (?) hover, keeps it pinned and redraws the help regions but not the controls list', () => {
+    const hovered = hoverMainButton(open, 'controlsHelp');
+    const pinned = clickControlsHelp(hovered);
+    const left = unhoverMainButton(pinned, 'controlsHelp');
+
+    expect(isControlsHelpShown(hovered)).toBe(true);
+    expect(getChangedRegions(open, hovered)).toEqual(['controlsHelpCard', 'controlsHelpButton']);
+    expect(getChangedRegions(hovered, pinned)).not.toContain('controls');
+    expect(isControlsHelpShown(left)).toBe(true);
+    expect(getChangedRegions(pinned, left)).toEqual(['controlsHelpButton']);
+  });
+
+  it('hides a pinned card on the next click even under the pointer until the pointer comes back', () => {
+    const dismissed = clickControlsHelp(
+      hoverMainButton(
+        unhoverMainButton(clickControlsHelp(hoverMainButton(open, 'controlsHelp')), 'controlsHelp'),
+        'controlsHelp',
+      ),
+    );
+    const left = unhoverMainButton(dismissed, 'controlsHelp');
+
+    expect(isControlsHelpShown(dismissed)).toBe(false);
+    expect(left.controls).toBe('open');
+    expect(isControlsHelpShown(hoverMainButton(left, 'controlsHelp'))).toBe(true);
+  });
+
+  it('closes with the pin and the (?) hover dropped and reopens unpinned', () => {
+    const closed = withControlsOpen(
+      clickControlsHelp(hoverMainButton(open, 'controlsHelp')),
+      false,
+    );
+
+    expect(closed.controls).toBe('closed');
+    expect(closed.hover).toBeNull();
+    expect(isControlsHelpShown(closed)).toBe(false);
+    expect(withControlsOpen(closed, true).controls).toBe('open');
   });
 });
 

@@ -2,18 +2,22 @@ import { ClientResponseError } from 'pocketbase';
 import type PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { parseChart } from '../data/chartSchema.js';
-import type { ChartRef, Song } from '../data/songs.js';
+import { CHART_LEVELS } from '../data/songs.js';
+import type { ChartLevel, ChartRef, Song } from '../data/songs.js';
 import { HTTP_STATUS } from '../httpStatus.js';
 import { CHARTS, SONGS } from '../pbCollections.js';
 import { select, where } from '../pbQuery.js';
 import type { Chart, Difficulty, LaneCount } from '../rhythm/types.js';
-import { isString } from '../typeGuards.js';
+import { isOneOf, isString } from '../typeGuards.js';
 import { readRecordField } from './recordField.js';
 
 export interface LoadedChart {
   chart: Chart;
   revision: string;
+  level: ChartLevel;
 }
+
+const isChartLevel = isOneOf(CHART_LEVELS);
 
 export type SaveChartResult =
   | { readonly kind: 'saved'; readonly chartId: string; readonly loaded: LoadedChart }
@@ -26,16 +30,19 @@ function parseLoadedChartRecord(
   laneCount: LaneCount,
 ): LoadedChart {
   const data: unknown = record['data'];
+  const chart = parseChart(data, song, difficulty, laneCount);
+  const revision = readRecordField(record, 'charts', 'revision', isString);
   return {
-    chart: parseChart(data, song, difficulty, laneCount),
-    revision: readRecordField(record, 'charts', 'revision', isString),
+    chart,
+    revision,
+    level: readRecordField(record, 'charts', 'level', isChartLevel),
   };
 }
 
 export async function loadChart(pb: PocketBase, ref: ChartRef): Promise<LoadedChart> {
   const record = await pb
     .collection('charts')
-    .getOne(ref.chartId, select(CHARTS, ['data', 'revision']));
+    .getOne(ref.chartId, select(CHARTS, ['data', 'revision', 'level']));
   return parseLoadedChartRecord(record, ref.song, ref.difficulty, ref.laneCount);
 }
 
@@ -43,9 +50,10 @@ export async function saveChart(
   pb: PocketBase,
   song: Song,
   chart: Chart,
+  level: ChartLevel,
   baseRevision: string | null,
 ): Promise<SaveChartResult> {
-  const chartId = song.chartIds[chart.laneCount]?.[chart.difficulty];
+  const chartId = song.charts[chart.laneCount]?.[chart.difficulty]?.id;
   if (chartId !== undefined) {
     if (baseRevision === null) {
       throw new Error('Updating a saved chart requires the revision it was loaded with.');
@@ -53,6 +61,7 @@ export async function saveChart(
     try {
       const updated = await pb.collection('charts').update(chartId, {
         data: chart,
+        level,
         baseRevision,
       });
       return {
@@ -77,6 +86,7 @@ export async function saveChart(
     difficulty: chart.difficulty,
     laneCount: chart.laneCount,
     data: chart,
+    level,
   });
   return {
     kind: 'saved',

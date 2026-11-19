@@ -1,9 +1,7 @@
 import type Phaser from 'phaser';
-import { lerp } from '../../../range.js';
+import { getDistance, lerp } from '../../../range.js';
 import type { Trapezoid } from '../state/playfieldLayout.js';
-
-// 조각 하나 안에서 위아래 alpha 가 이보다 크게 바뀌지 않도록 나눈다.
-const MAX_SLICE_ALPHA_STEP = 0.04;
+import { MAX_ROW_ALPHA_STEP } from '../../ui/view/textures/meshGeometry.js';
 
 export interface CornerAlphas {
   readonly topLeft: number;
@@ -27,8 +25,8 @@ export function fillTrapezoid(
   const sliceCount = Math.max(
     1,
     Math.ceil(
-      Math.max(Math.abs(bottomLeft - topLeft), Math.abs(bottomRight - topRight)) /
-        MAX_SLICE_ALPHA_STEP,
+      Math.max(getDistance(bottomLeft, topLeft), getDistance(bottomRight, topRight)) /
+        MAX_ROW_ALPHA_STEP,
     ),
   );
   for (let slice = 0; slice < sliceCount; slice += 1) {

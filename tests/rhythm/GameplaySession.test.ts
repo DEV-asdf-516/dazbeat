@@ -162,7 +162,7 @@ describe('GameplaySession BAD judgment', () => {
         ...emptyCounts,
         bad: 1,
       },
-      hp: 95,
+      hp: 98,
     });
   });
 
@@ -399,7 +399,7 @@ describe('GameplaySession hold notes', () => {
         perfect: 1,
         miss: 1,
       },
-      hp: 90,
+      hp: 95,
     });
   });
 
@@ -580,6 +580,31 @@ describe('GameplaySession state and result', () => {
     });
   });
 
+  it('adds a combo bonus of 1% per 50 combo up to 10% and drops it when the combo breaks', () => {
+    const notes: Note[] = Array.from({ length: 602 }, (_, index) => ({
+      type: 'tap',
+      timeMs: 1000 + index * 1000,
+      lane: 0,
+    }));
+    const session = makeSession(notes);
+    for (const [index, note] of notes.entries()) {
+      // 601번째 노트는 놓쳐 다음 노트 전에 콤보를 끊는다.
+      session.update(note.timeMs);
+      if (index !== 600) {
+        session.press(0, note.timeMs);
+      }
+    }
+    session.update(1000 + 602 * 1000);
+
+    // 콤보 1~49는 1000, 50씩 1%가 붙고 500부터 1100에서 멈춘다. 끊긴 뒤 첫 노트는 다시 1000.
+    expect(session.getState().score).toBe(
+      49 * 1000 +
+        50 * (1010 + 1020 + 1030 + 1040 + 1050 + 1060 + 1070 + 1080 + 1090) +
+        101 * 1100 +
+        1000,
+    );
+  });
+
   it('finishes only after every note is judged and computes the result', () => {
     const session = makeSession([
       {
@@ -621,11 +646,10 @@ describe('GameplaySession state and result', () => {
         miss: 1,
       },
       outcome: 'finished',
-      cleared: true,
     });
   });
 
-  it('reports an uncleared result below the clear accuracy', () => {
+  it('clears a finished play at any accuracy', () => {
     const session = makeSession([
       {
         type: 'tap',
@@ -644,7 +668,6 @@ describe('GameplaySession state and result', () => {
     expect(session.getProgress()).toMatchObject({
       outcome: 'finished',
       accuracy: 0.5,
-      cleared: false,
     });
   });
 
@@ -701,7 +724,7 @@ function makeTaps(count: number, startMs = 1000): Note[] {
 }
 
 describe('GameplaySession STARLIGHT hp', () => {
-  it('starts at 100 and loses 10 on a tap miss', () => {
+  it('starts at 100 and loses 5 on a tap miss', () => {
     const session = makeSession([
       {
         type: 'tap',
@@ -712,10 +735,10 @@ describe('GameplaySession STARLIGHT hp', () => {
     expect(session.getState().hp).toBe(100);
 
     session.update(1131);
-    expect(session.getState().hp).toBe(90);
+    expect(session.getState().hp).toBe(95);
   });
 
-  it('loses 20 for a hold that is never pressed', () => {
+  it('loses 10 for a hold that is never pressed', () => {
     const session = makeSession([
       {
         type: 'hold',
@@ -726,7 +749,7 @@ describe('GameplaySession STARLIGHT hp', () => {
     ]);
 
     session.update(1131);
-    expect(session.getState().hp).toBe(80);
+    expect(session.getState().hp).toBe(90);
   });
 
   it('applies the start judgment and a miss when a hold is released early', () => {
@@ -744,12 +767,12 @@ describe('GameplaySession STARLIGHT hp', () => {
       },
     ]);
     session.update(631);
-    expect(session.getState().hp).toBe(90);
+    expect(session.getState().hp).toBe(95);
 
     session.press(1, 1050);
-    expect(session.getState().hp).toBe(90.5);
+    expect(session.getState().hp).toBe(95.5);
     session.release(1, 1500);
-    expect(session.getState().hp).toBe(80.5);
+    expect(session.getState().hp).toBe(90.5);
   });
 
   it('keeps hp on good', () => {
@@ -769,7 +792,7 @@ describe('GameplaySession STARLIGHT hp', () => {
 
     session.press(1, 1100);
     expect(session.getState()).toMatchObject({
-      hp: 90,
+      hp: 95,
       counts: {
         ...emptyCounts,
         good: 1,
@@ -781,15 +804,15 @@ describe('GameplaySession STARLIGHT hp', () => {
 
 describe('GameplaySession failure', () => {
   it('fails on the judgment that brings hp to exactly 0 and reports that event', () => {
-    const session = makeSession(makeTaps(11));
+    const session = makeSession(makeTaps(21));
 
-    session.update(1131 + 8 * 100);
-    expect(session.getState().hp).toBe(10);
+    session.update(1131 + 18 * 100);
+    expect(session.getState().hp).toBe(5);
     expect(session.getProgress().outcome).toBe('playing');
 
-    expect(session.update(1131 + 9 * 100)).toEqual([
+    expect(session.update(1131 + 19 * 100)).toEqual([
       {
-        noteIndex: 9,
+        noteIndex: 19,
         lane: 0,
         kind: 'tap',
         judgment: 'miss',
@@ -800,30 +823,30 @@ describe('GameplaySession failure', () => {
       hp: 0,
       counts: {
         ...emptyCounts,
-        miss: 10,
+        miss: 20,
       },
     });
   });
 
   it('stops applying candidates after the failing event in one update batch', () => {
     const session = makeSession([
-      ...makeTaps(9),
+      ...makeTaps(19),
       {
         type: 'tap',
-        timeMs: 2000,
+        timeMs: 5000,
         lane: 1,
       },
       {
         type: 'tap',
-        timeMs: 2000,
+        timeMs: 5000,
         lane: 2,
       },
     ]);
 
-    const events = session.update(3000);
-    expect(events).toHaveLength(10);
+    const events = session.update(6000);
+    expect(events).toHaveLength(20);
     expect(events.at(-1)).toEqual({
-      noteIndex: 9,
+      noteIndex: 19,
       lane: 1,
       kind: 'tap',
       judgment: 'miss',
@@ -831,9 +854,9 @@ describe('GameplaySession failure', () => {
     expect(session.getProgress().outcome).toBe('failed');
     expect(session.getState().counts).toEqual({
       ...emptyCounts,
-      miss: 10,
+      miss: 20,
     });
-    expect(session.getNoteStatus(10)).toBe('pending');
+    expect(session.getNoteStatus(20)).toBe('pending');
   });
 
   it('ignores press, release and update after failing without changing state', () => {
@@ -841,24 +864,24 @@ describe('GameplaySession failure', () => {
       {
         type: 'hold',
         timeMs: 500,
-        endTimeMs: 5000,
+        endTimeMs: 10000,
         lane: 1,
       },
-      ...makeTaps(10),
+      ...makeTaps(20),
       {
         type: 'tap',
-        timeMs: 3000,
+        timeMs: 9000,
         lane: 2,
       },
     ]);
     session.press(1, 500);
-    session.update(1131 + 9 * 100);
+    session.update(1131 + 19 * 100);
     expect(session.getProgress().outcome).toBe('failed');
     const state = session.getState();
 
-    expect(session.press(2, 3000)).toEqual([]);
-    expect(session.release(1, 5000)).toEqual([]);
-    expect(session.update(6000)).toEqual([]);
+    expect(session.press(2, 9000)).toEqual([]);
+    expect(session.release(1, 10000)).toEqual([]);
+    expect(session.update(11000)).toEqual([]);
     expect(session.getState()).toEqual(state);
   });
 
@@ -869,33 +892,31 @@ describe('GameplaySession failure', () => {
         timeMs: 500,
         lane: 1,
       },
-      ...makeTaps(10),
+      ...makeTaps(20),
       ...makeTaps(1, 9000),
     ]);
     session.press(1, 500);
-    session.update(1131 + 9 * 100);
+    session.update(1131 + 19 * 100);
 
     expect(session.getProgress()).toEqual({
       score: 1000,
-      accuracy: 1 / 11,
+      accuracy: 1 / 21,
       maxCombo: 1,
       counts: {
         ...emptyCounts,
         perfect: 1,
-        miss: 10,
+        miss: 20,
       },
       outcome: 'failed',
-      cleared: false,
     });
   });
 
   it('prefers the failed result when the last judgment brings hp to 0', () => {
-    const session = makeSession(makeTaps(10));
-    session.update(1131 + 9 * 100);
+    const session = makeSession(makeTaps(20));
+    session.update(1131 + 19 * 100);
 
     expect(session.getProgress()).toMatchObject({
       outcome: 'failed',
-      cleared: false,
     });
   });
 });
@@ -907,33 +928,33 @@ describe('GameplaySession without failure', () => {
 
   it('keeps judging presses on the same and other lanes after hp reaches 0 and regains hp', () => {
     const session = makePracticeSession([
-      ...makeTaps(10),
+      ...makeTaps(20),
       {
         type: 'tap',
-        timeMs: 3000,
+        timeMs: 9000,
         lane: 0,
       },
       {
         type: 'tap',
-        timeMs: 3500,
+        timeMs: 9500,
         lane: 1,
       },
     ]);
-    session.update(1131 + 9 * 100);
+    session.update(1131 + 19 * 100);
     expect(session.getState().hp).toBe(0);
     expect(session.getProgress().outcome).toBe('playing');
 
-    expect(session.press(0, 3000)).toEqual([
+    expect(session.press(0, 9000)).toEqual([
       {
-        noteIndex: 10,
+        noteIndex: 20,
         lane: 0,
         kind: 'tap',
         judgment: 'perfect',
       },
     ]);
-    expect(session.press(1, 3500)).toEqual([
+    expect(session.press(1, 9500)).toEqual([
       {
-        noteIndex: 11,
+        noteIndex: 21,
         lane: 1,
         kind: 'tap',
         judgment: 'perfect',
@@ -946,7 +967,7 @@ describe('GameplaySession without failure', () => {
       counts: {
         ...emptyCounts,
         perfect: 2,
-        miss: 10,
+        miss: 20,
       },
       hp: 2,
     });
@@ -954,100 +975,100 @@ describe('GameplaySession without failure', () => {
 
   it('applies every candidate in an update batch that passes hp 0', () => {
     const session = makePracticeSession([
-      ...makeTaps(9),
+      ...makeTaps(19),
       {
         type: 'tap',
-        timeMs: 2000,
+        timeMs: 5000,
         lane: 1,
       },
       {
         type: 'tap',
-        timeMs: 2000,
+        timeMs: 5000,
         lane: 2,
       },
     ]);
 
-    const events = session.update(3000);
-    expect(events).toHaveLength(11);
+    const events = session.update(6000);
+    expect(events).toHaveLength(21);
     expect(events.at(-1)).toEqual({
-      noteIndex: 10,
+      noteIndex: 20,
       lane: 2,
       kind: 'tap',
       judgment: 'miss',
     });
     expect(session.getState().counts).toEqual({
       ...emptyCounts,
-      miss: 11,
+      miss: 21,
     });
-    expect(session.getNoteStatus(10)).toBe('missed');
+    expect(session.getNoteStatus(20)).toBe('missed');
   });
 
   it('judges hold press and release after hp reaches 0', () => {
     const session = makePracticeSession([
-      ...makeTaps(10),
+      ...makeTaps(20),
       {
         type: 'hold',
-        timeMs: 3000,
-        endTimeMs: 4000,
+        timeMs: 9000,
+        endTimeMs: 10000,
         lane: 1,
       },
     ]);
-    session.update(1131 + 9 * 100);
+    session.update(1131 + 19 * 100);
 
-    expect(session.press(1, 3000)).toEqual([
+    expect(session.press(1, 9000)).toEqual([
       {
-        noteIndex: 10,
+        noteIndex: 20,
         lane: 1,
         kind: 'holdStart',
         judgment: 'perfect',
       },
     ]);
-    expect(session.getNoteStatus(10)).toBe('holding');
-    expect(session.release(1, 4000)).toEqual([
+    expect(session.getNoteStatus(20)).toBe('holding');
+    expect(session.release(1, 10000)).toEqual([
       {
-        noteIndex: 10,
+        noteIndex: 20,
         lane: 1,
         kind: 'holdEnd',
         judgment: 'perfect',
       },
     ]);
-    expect(session.getNoteStatus(10)).toBe('hit');
+    expect(session.getNoteStatus(20)).toBe('hit');
     expect(session.getState().hp).toBe(2);
   });
 
   it('records inputs after hp reaches 0', () => {
     const session = makePracticeSession([
-      ...makeTaps(10),
+      ...makeTaps(20),
       {
         type: 'tap',
-        timeMs: 3000,
+        timeMs: 9000,
         lane: 1,
       },
     ]);
-    session.update(1131 + 9 * 100);
+    session.update(1131 + 19 * 100);
 
-    session.press(1, 3000);
-    session.release(1, 3100);
+    session.press(1, 9000);
+    session.release(1, 9100);
     expect(session.getInputs()).toEqual([
       {
         lane: 1,
         kind: 'press',
-        songTimeMs: 3000,
+        songTimeMs: 9000,
       },
       {
         lane: 1,
         kind: 'release',
-        songTimeMs: 3100,
+        songTimeMs: 9100,
       },
     ]);
   });
 
   it('finishes instead of failing when the last judgment brings hp to 0', () => {
-    const notes = makeTaps(10);
+    const notes = makeTaps(20);
     const failingSession = makeSession(notes);
     const practiceSession = makePracticeSession(notes);
-    failingSession.update(1131 + 9 * 100);
-    practiceSession.update(1131 + 9 * 100);
+    failingSession.update(1131 + 19 * 100);
+    practiceSession.update(1131 + 19 * 100);
 
     expect(failingSession.getProgress().outcome).toBe('failed');
     expect(practiceSession.getProgress()).toEqual({
@@ -1056,27 +1077,9 @@ describe('GameplaySession without failure', () => {
       maxCombo: 0,
       counts: {
         ...emptyCounts,
-        miss: 10,
+        miss: 20,
       },
       outcome: 'finished',
-      cleared: false,
-    });
-  });
-
-  it('decides cleared by accuracy once every note is judged', () => {
-    const perfectNotes = makeTaps(30, 3000);
-    const session = makePracticeSession([...makeTaps(10), ...perfectNotes]);
-    session.update(1131 + 9 * 100);
-    expect(session.getState().hp).toBe(0);
-
-    perfectNotes.forEach((note) => {
-      session.press(note.lane, note.timeMs);
-    });
-
-    expect(session.getProgress()).toMatchObject({
-      accuracy: 0.75,
-      outcome: 'finished',
-      cleared: true,
     });
   });
 });
@@ -1276,30 +1279,30 @@ describe('GameplaySession deterministic judgment time', () => {
 
   it('ignores inputs after failing but still records them', () => {
     const session = makeSession([
-      ...makeTaps(10),
+      ...makeTaps(20),
       {
         type: 'tap',
-        timeMs: 3000,
+        timeMs: 9000,
         lane: 1,
       },
     ]);
-    session.update(1131 + 9 * 100);
+    session.update(1131 + 19 * 100);
     expect(session.getProgress().outcome).toBe('failed');
     const state = session.getState();
 
-    expect(session.press(1, 3000)).toEqual([]);
-    expect(session.release(1, 3100)).toEqual([]);
+    expect(session.press(1, 9000)).toEqual([]);
+    expect(session.release(1, 9100)).toEqual([]);
     expect(session.getState()).toEqual(state);
     expect(session.getInputs()).toEqual([
       {
         lane: 1,
         kind: 'press',
-        songTimeMs: 3000,
+        songTimeMs: 9000,
       },
       {
         lane: 1,
         kind: 'release',
-        songTimeMs: 3100,
+        songTimeMs: 9100,
       },
     ]);
   });

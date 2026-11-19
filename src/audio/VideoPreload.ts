@@ -1,6 +1,6 @@
 import type { YouTubePlayer, YouTubePlayerState } from './YouTubePlayer.js';
 import { getVideoStartSec } from './LeadInPlayback.js';
-import { msToSec } from '../time.js';
+import { hasElapsed, msToSec } from '../time.js';
 
 type Stage =
   | { readonly kind: 'warming' }
@@ -89,8 +89,8 @@ export class VideoPreload {
         : stage;
     this.stage = current;
     return current.bufferedEndSec >= msToSec(this.preloadEndMs) ||
-      nowMs - current.grewAtMs >= PRELOAD_IDLE_MS ||
-      nowMs - current.startedAtMs >= PRELOAD_MAX_MS
+      hasElapsed(current.grewAtMs, nowMs, PRELOAD_IDLE_MS) ||
+      hasElapsed(current.startedAtMs, nowMs, PRELOAD_MAX_MS)
       ? 'ready'
       : 'waiting';
   }

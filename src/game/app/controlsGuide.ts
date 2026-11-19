@@ -1,6 +1,7 @@
 import { getButtonView, isButtonHovered, unhoverButton } from '../ui/state/buttonPointer.js';
 import type { ButtonView } from '../ui/state/buttonPointer.js';
 import type { Messages } from '../../i18n/messages/ko.js';
+import { requireDefined } from '../../invariant.js';
 import type { Settings } from '../../storage/settings.js';
 import { formatKeyCode } from '../ui/state/format.js';
 import { readMenuAction } from '../ui/state/menuAction.js';
@@ -10,7 +11,16 @@ import type { WheelGesture } from '../ui/state/wheelRows.js';
 export type ControlsKeyAction = 'open' | 'close' | 'block' | 'pass';
 
 // 막도 버튼 항목으로 다뤄, 진입 클릭의 pointer up 이 열자마자 막을 닫지 않게 막에서 누른 경우만 닫는다.
-export type ControlsButton = 'controlsEntry' | 'controlsClose' | 'controlsBackdrop';
+export type ControlsButton =
+  'controlsEntry' | 'controlsClose' | 'controlsBackdrop' | 'controlsHelp';
+
+/** helpDismissed 는 고정을 클릭으로 푼 직후, 포인터가 아직 (?) 위에 있는 동안이다. */
+export type ControlsPanel = 'closed' | 'open' | 'helpPinned' | 'helpDismissed';
+
+interface ControlsState {
+  readonly controls: ControlsPanel;
+  readonly hover: { readonly kind: string } | null;
+}
 
 export interface ControlsRow {
   readonly keys: readonly string[];
@@ -22,7 +32,14 @@ export interface ControlsGroup {
   readonly rows: readonly ControlsRow[];
 }
 
+export interface ControlsGuide {
+  readonly groups: readonly ControlsGroup[];
+  readonly helpKey: string;
+}
+
 const TOGGLE_CODE = 'KeyH';
+// 도움말 그림은 레인 하나만 그려 레인 2 의 키를 보인다(기본 4K 는 F).
+const HELP_LANE_INDEX = 1;
 const MOVE_KEYS = '↑↓';
 const SELECT_KEY = 'Enter';
 const BACK_KEY = 'Esc';
@@ -60,19 +77,66 @@ export function readControlsWheel(
 }
 
 // Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 팝업을 닫을 때 그 안 버튼의 hover 를 푼다.
-export function withControlsOpen<
-  S extends { readonly isControlsOpen: boolean; readonly hover: { readonly kind: string } | null },
->(state: S, isControlsOpen: boolean): S {
-  if (state.isControlsOpen === isControlsOpen) {
+export function withControlsOpen<S extends ControlsState>(state: S, isOpen: boolean): S {
+  if (isControlsPanelOpen(state) === isOpen) {
     return state;
+  }
+  if (isOpen) {
+    return {
+      ...state,
+      controls: 'open',
+    };
   }
   return {
     ...state,
-    isControlsOpen,
-    hover: isControlsOpen
-      ? state.hover
-      : unhoverButton(unhoverButton(state.hover, 'controlsClose'), 'controlsBackdrop'),
+    controls: 'closed',
+    hover: unhoverButton(
+      unhoverButton(unhoverButton(state.hover, 'controlsClose'), 'controlsBackdrop'),
+      'controlsHelp',
+    ),
   };
+}
+
+export function isControlsPanelOpen(state: ControlsState): boolean {
+  return state.controls !== 'closed';
+}
+
+export function clickControlsHelp<S extends ControlsState>(state: S): S {
+  switch (state.controls) {
+    case 'closed':
+      return state;
+    case 'open':
+    case 'helpDismissed':
+      return {
+        ...state,
+        controls: 'helpPinned',
+      };
+    case 'helpPinned':
+      return {
+        ...state,
+        controls: 'helpDismissed',
+      };
+  }
+}
+
+export function leaveControlsButton<S extends ControlsState>(state: S, button: string): S {
+  return button === 'controlsHelp' && state.controls === 'helpDismissed'
+    ? {
+        ...state,
+        controls: 'open',
+      }
+    : state;
+}
+
+export function isControlsHelpShown(state: ControlsState): boolean {
+  return (
+    state.controls === 'helpPinned' ||
+    (state.controls === 'open' && isButtonHovered(state.hover, 'controlsHelp'))
+  );
+}
+
+export function getControlsHelpButtonView(state: ControlsState): ButtonView {
+  return getButtonView(state.hover, 'controlsHelp', true, state.controls === 'helpPinned');
 }
 
 export function getControlsCloseView(hover: { readonly kind: string } | null): ButtonView {
@@ -86,13 +150,14 @@ export function isControlsEntryHovered(hover: { readonly kind: string } | null):
 export function getControlsGuide(
   messages: Messages['controls'],
   { keyBindings, laneMode }: Pick<Settings, 'keyBindings' | 'laneMode'>,
-): readonly ControlsGroup[] {
-  return [
+): ControlsGuide {
+  const laneKeys = keyBindings[laneMode];
+  const groups: readonly ControlsGroup[] = [
     {
       title: messages.gameplay.title,
       rows: [
         {
-          keys: keyBindings[laneMode].map(formatKeyCode),
+          keys: laneKeys.map(formatKeyCode),
           label: messages.gameplay.hitNotes,
         },
         {
@@ -139,4 +204,10 @@ export function getControlsGuide(
       ],
     },
   ];
+  return {
+    groups,
+    helpKey: formatKeyCode(
+      requireDefined(laneKeys[HELP_LANE_INDEX], 'Lane mode without a second lane key', laneMode),
+    ),
+  };
 }

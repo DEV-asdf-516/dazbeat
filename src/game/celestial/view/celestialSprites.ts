@@ -30,10 +30,26 @@ export function queueCelestialTextures(
       // 1px 이면 된다. 이후 씬은 이 텍스처가 있으므로 다시 로드·경고하지 않는다.
       const atlas = catalog.atlasFrames.find(({ textureKey }) => textureKey === key);
       if (atlas === undefined) {
-        createCanvasTexture(scene, key, 1, 1, () => undefined);
+        createCanvasTexture(
+          scene,
+          {
+            key,
+            widthPx: 1,
+            heightPx: 1,
+          },
+          () => undefined,
+        );
         return;
       }
-      createCanvasTexture(scene, key, atlas.standInWidthPx, atlas.standInHeightPx, () => undefined);
+      createCanvasTexture(
+        scene,
+        {
+          key,
+          widthPx: atlas.standInWidthPx,
+          heightPx: atlas.standInHeightPx,
+        },
+        () => undefined,
+      );
       const texture = scene.textures.get(key);
       atlas.frames.forEach(({ frameName, widthPx, heightPx }) => {
         texture.add(frameName, 0, 0, 0, widthPx, heightPx);
@@ -126,8 +142,48 @@ export function applyCelestialPresentation(
   sprite: Phaser.GameObjects.Sprite,
   presentation: CelestialStaticPresentation,
 ): void {
-  requireCelestialTexture(sprite.scene, presentation.textureKey);
-  applyPresentation(sprite, presentation);
+  const { scene } = sprite;
+  requireCelestialTexture(scene, presentation.textureKey);
+  // atlas 가 2의 거듭제곱 크기가 아니라 밉맵이 없어서 GPU 로 1/6 쯤 줄이면 가는 가시가 빠져 별이 눌려 보인다.
+  // 표시 크기로 Canvas 2D 에서 미리 줄여 둔다.
+  const frame = scene.textures.getFrame(presentation.textureKey, presentation.firstFrameName);
+  const sourceImage = frame.source.image;
+  if (sourceImage === null) {
+    throw new Error('Celestial texture source has no image');
+  }
+  const [scaleX, scaleY] = presentation.scaleXY;
+  const displayWidthPx = frame.cutWidth * scaleX;
+  const displayHeightPx = frame.cutHeight * scaleY;
+  const widthPx = Math.ceil(displayWidthPx);
+  const heightPx = Math.ceil(displayHeightPx);
+  const key = `${presentation.textureKey}:${presentation.firstFrameName}:${widthPx}x${heightPx}`;
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx,
+      heightPx,
+    },
+    (context) => {
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(
+        sourceImage,
+        frame.cutX,
+        frame.cutY,
+        frame.cutWidth,
+        frame.cutHeight,
+        0,
+        0,
+        widthPx,
+        heightPx,
+      );
+    },
+  );
+  sprite
+    .setTexture(key)
+    .setScale(displayWidthPx / widthPx, displayHeightPx / heightPx)
+    .setOrigin(...presentation.originXY)
+    .setAlpha(presentation.opacity);
 }
 
 /** 씬 preload 가 요청 목록에 빠뜨린 텍스처를 쓰는 개발 오류를 드러낸다. */

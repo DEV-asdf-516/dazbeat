@@ -19,7 +19,12 @@ export async function preloadCjkFonts(text: string): Promise<void> {
 
 /** 캔버스 글자는 처음 그릴 때의 글꼴로 굳으므로 씬을 만들기 전에 받아 둔다. */
 export async function preloadUiFonts(): Promise<void> {
-  await document.fonts.load('600 16px "Pretendard Variable"').catch((error: unknown) => {
+  await Promise.all([
+    document.fonts.load('600 16px "Pretendard Variable"'),
+    document.fonts.load('600 16px "Fredoka"', 'TOP0123456789'),
+    document.fonts.load('700 16px "Fredoka"', 'TOP0123456789'),
+    document.fonts.load('900 16px "Nunito"', 'SABCD'),
+  ]).catch((error: unknown) => {
     console.warn('Failed to load fonts', error);
   });
 }

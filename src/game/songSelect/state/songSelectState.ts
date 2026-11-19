@@ -1,11 +1,20 @@
 import {
+  CHART_LEVELS,
+  FULL_CHART_LEVEL_RANGE,
   findChart,
   getAvailableCharts,
   getAvailableDifficulties,
   stepChart,
 } from '../../../data/songs.js';
 import type { ChartTopRank, MyChartRecord } from '../../../data/ranking.js';
-import type { ChartRef, Song, SongFilter } from '../../../data/songs.js';
+import type {
+  ChartLevel,
+  ChartLevelRange,
+  ChartRef,
+  Song,
+  SongFilter,
+  SongQuery,
+} from '../../../data/songs.js';
 import { getRank } from '../../../rhythm/rank.js';
 import type { Difficulty, LaneCount, Rank } from '../../../rhythm/types.js';
 import { getChartRecord, recordKey } from '../../../storage/chartRecords.js';
@@ -21,18 +30,35 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
+import {
+  getControlsCloseView,
+  getControlsHelpButtonView,
+  isControlsEntryHovered,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+  leaveControlsButton,
+} from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
 import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
-import type { ControlsButton } from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import type { CelestialStaticId } from '../../celestial/state/celestialCatalog.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
 import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 import { requireDefined } from '../../../invariant.js';
-import { clamp } from '../../../range.js';
+import {
+  clamp,
+  getDistance,
+  getFraction,
+  getProgress,
+  isInRange,
+  lerp,
+  stepItem,
+} from '../../../range.js';
 import { isShallowEqual } from '../../../shallowEqual.js';
 import type { SongFeed, SongFeedStatus } from '../../app/SongFeed.js';
 import type { SongSelectRestore } from '../../app/sceneRoutes.js';
+import type { MenuAction } from '../../ui/state/menuAction.js';
+import type { ListDirection } from '../../../range.js';
 
 export type SongSelection =
   | { readonly kind: 'none'; readonly difficulty: Difficulty | null }
@@ -47,7 +73,14 @@ export const SONG_SELECT_ACTIONS = ['random', 'play'] as const;
 export type SongSelectAction = (typeof SONG_SELECT_ACTIONS)[number];
 
 export type SongSelectButton =
-  'settings' | 'back' | 'ranking' | 'retry' | 'recordsRetry' | ControlsButton | AccountPanelButton;
+  | 'settings'
+  | 'back'
+  | 'ranking'
+  | 'retry'
+  | 'recordsRetry'
+  | 'levelReset'
+  | ControlsButton
+  | AccountPanelButton;
 
 export type SongSelectHover =
   | { readonly kind: 'filter'; readonly filter: SongFilter }
@@ -61,13 +94,28 @@ export type SongRecords =
   | { readonly kind: 'ready'; readonly records: ChartRecords }
   | { readonly kind: 'failed' };
 
+export type LevelHandle = 'min' | 'max';
+
+export type LevelSliderInput =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'focused'; readonly handle: LevelHandle }
+  | { readonly kind: 'dragging'; readonly handle: LevelHandle; readonly anchor: ChartLevel };
+
+export interface LevelSlider {
+  readonly range: ChartLevelRange;
+  readonly input: LevelSliderInput;
+}
+
 export interface SongSelectState {
   readonly filter: SongFilter;
+  /** 지금 목록이 걸러진 범위. 끄는 중이나 키 반영 대기 중에는 슬라이더 범위와 다르다. */
+  readonly levelRange: ChartLevelRange | null;
+  readonly levelSlider: LevelSlider;
   readonly songs: readonly Song[];
   readonly laneCount: LaneCount;
   readonly current: SongSelection;
   readonly hover: SongSelectHover | null;
-  readonly isControlsOpen: boolean;
+  readonly controls: ControlsPanel;
   /** 로그인 사용자가 20위 안인 채보의 순위. 채보 id 로 찾는다. */
   readonly topRanks: ReadonlyMap<string, number>;
   readonly records: SongRecords;
@@ -83,6 +131,7 @@ export type SongRowView =
       readonly appearance: SongRowAppearance;
       readonly nodeId: SongRowNodeId;
       readonly topRank: number | null;
+      readonly level: ChartLevel | null;
     };
 
 export type SongSelectNotice = 'loading' | 'loadFailed' | 'noSongs';
@@ -96,6 +145,10 @@ export interface SongSelectView {
 }
 
 const NO_TOP_RANKS: ReadonlyMap<string, number> = new Map();
+const IDLE_LEVEL_SLIDER: LevelSlider = {
+  range: FULL_CHART_LEVEL_RANGE,
+  input: { kind: 'idle' },
+};
 
 type SongSelectTarget = Pick<SongSelectRestore, 'index' | 'songId' | 'difficulty'>;
 
@@ -108,11 +161,13 @@ export function createSongSelectState(
   if (target === undefined) {
     return {
       filter,
+      levelRange: null,
+      levelSlider: IDLE_LEVEL_SLIDER,
       songs,
       laneCount,
-      current: selectAt(songs, laneCount, 0, null),
+      current: selectAt(songs, laneCount, 0, null, null),
       hover: null,
-      isControlsOpen: false,
+      controls: 'closed',
       topRanks: NO_TOP_RANKS,
       records: { kind: 'loading' },
     };
@@ -120,6 +175,8 @@ export function createSongSelectState(
   const found = songs.findIndex((song) => song.id === target.songId);
   return {
     filter,
+    levelRange: null,
+    levelSlider: IDLE_LEVEL_SLIDER,
     songs,
     laneCount,
     current: selectAt(
@@ -127,9 +184,10 @@ export function createSongSelectState(
       laneCount,
       found === -1 ? clamp(target.index, 0, songs.length - 1) : found,
       target.difficulty,
+      null,
     ),
     hover: null,
-    isControlsOpen: false,
+    controls: 'closed',
     topRanks: NO_TOP_RANKS,
     records: { kind: 'loading' },
   };
@@ -201,22 +259,43 @@ export function openSongSelect(
     };
   }
   const { feed } = restore;
+  const state = createSongSelectState(feed.songs, feed.query.category, laneCount, restore);
+  const { level } = feed.query;
+  if (level === null) {
+    return {
+      feed,
+      state,
+    };
+  }
+  const range: ChartLevelRange = {
+    min: level.min,
+    max: level.max,
+  };
   return {
     feed,
-    state: createSongSelectState(feed.songs, feed.query.category, laneCount, restore),
+    state: {
+      ...state,
+      levelRange: range,
+      levelSlider: {
+        range,
+        input: { kind: 'idle' },
+      },
+    },
   };
 }
 
-export function getSongSelectTarget(state: SongSelectState): SongSelectTarget {
+export function getSongSelectRestore(state: SongSelectState, feed: SongFeed): SongSelectRestore {
   const { current } = state;
   if (current.kind === 'none') {
     return {
+      feed,
       index: 0,
       songId: null,
       difficulty: current.difficulty,
     };
   }
   return {
+    feed,
     index: current.index,
     songId: current.song.id,
     difficulty: current.chart?.difficulty ?? null,
@@ -253,6 +332,10 @@ export function isFeedRetryInput(state: SongSelectState, status: SongFeedStatus)
 
 export function getPlayableSelection(state: SongSelectState): ChartRef | null {
   return state.current.kind === 'song' ? state.current.chart : null;
+}
+
+export function getSelectedLevel(state: SongSelectState): ChartLevel | null {
+  return getPlayableSelection(state)?.level ?? null;
 }
 
 export function getSelectedRecord(state: SongSelectState): ChartRecord | null {
@@ -311,7 +394,6 @@ export const SONG_ROW_NODE_IDS = [
   'R16',
   'R17',
   'R18',
-  'C:node-played',
 ] as const satisfies readonly CelestialStaticId[];
 
 type SongRowNodeId = (typeof SONG_ROW_NODE_IDS)[number];
@@ -326,10 +408,7 @@ export function getSongRowNodeId(
     case 'hovered':
       return 'R16';
     case 'idle':
-      if (record === null) {
-        return 'R15';
-      }
-      return record.cleared ? 'R18' : 'C:node-played';
+      return record === null ? 'R15' : 'R18';
   }
 }
 
@@ -379,15 +458,14 @@ export function getSongRows(state: SongSelectState, rowsPerPage: number): SongRo
       return { kind: 'empty' };
     }
     const appearance = getSongRowAppearance(state, slot, selectedSlot);
-    const recordChart =
-      difficulty === null ? undefined : findChart(song, state.laneCount, difficulty);
+    const recordChart = getRowChart(state, song, difficulty);
     return {
       kind: 'song',
       song,
       appearance,
       nodeId: getSongRowNodeId(
         appearance,
-        recordChart === undefined || state.records.kind !== 'ready'
+        recordChart === null || state.records.kind !== 'ready'
           ? null
           : getChartRecord(
               state.records.records,
@@ -396,7 +474,8 @@ export function getSongRows(state: SongSelectState, rowsPerPage: number): SongRo
               recordChart.difficulty,
             ),
       ),
-      topRank: recordChart === undefined ? null : (state.topRanks.get(recordChart.chartId) ?? null),
+      topRank: recordChart === null ? null : (state.topRanks.get(recordChart.chartId) ?? null),
+      level: recordChart?.level ?? null,
     };
   });
 }
@@ -429,6 +508,19 @@ export function getLoadingMoreAnchor(
         kind: 'row',
         slot: filledCount,
       };
+}
+
+// 레벨 범위 필터가 켜져 있으면 곡 목록 줄에 지금 난이도의 채보 대신, 그 곡을 골랐을 때 실제로 선택될 범위 안 채보(pickChart)를 보인다.
+// 지금 난이도가 범위 밖인 곡도 줄에 보이는 레벨과 고른 뒤 레벨이 같아야 하기 때문이다.
+function getRowChart(
+  state: SongSelectState,
+  song: Song,
+  difficulty: Difficulty | null,
+): ChartRef | null {
+  if (state.levelRange !== null) {
+    return pickChart(song, state.laneCount, difficulty, state.levelRange);
+  }
+  return difficulty === null ? null : (findChart(song, state.laneCount, difficulty) ?? null);
 }
 
 function getSongRowAppearance(
@@ -479,13 +571,20 @@ export function moveSong(state: SongSelectState, delta: number): SongSelectState
 }
 
 export function selectSong(state: SongSelectState, index: number): SongSelectState {
-  const { current } = state;
+  const blurred = blurLevelSlider(state);
+  const { current } = blurred;
   if (state.songs[index] === undefined || (current.kind === 'song' && index === current.index)) {
-    return state;
+    return blurred;
   }
   return {
-    ...state,
-    current: selectAt(state.songs, state.laneCount, index, getSelectedDifficulty(current)),
+    ...blurred,
+    current: selectAt(
+      state.songs,
+      state.laneCount,
+      index,
+      getSelectedDifficulty(current),
+      state.levelRange,
+    ),
   };
 }
 
@@ -528,12 +627,12 @@ export function selectRandomSong(state: SongSelectState, random: () => number): 
   );
 }
 
-export function moveDifficulty(state: SongSelectState, delta: 1 | -1): SongSelectState {
+export function moveDifficulty(state: SongSelectState, direction: ListDirection): SongSelectState {
   const { current } = state;
   if (current.kind === 'none' || current.chart === null) {
     return state;
   }
-  const chart = stepChart(current.chart, delta);
+  const chart = stepChart(current.chart, direction);
   return chart === current.chart ? state : withChart(state, current, chart);
 }
 
@@ -551,13 +650,16 @@ export function withFilter(
   filter: SongFilter,
   songs: readonly Song[],
 ): SongSelectState {
+  const levelRange = getSliderLevelRange(state);
   return {
     filter,
+    levelRange,
+    levelSlider: state.levelSlider,
     songs,
     laneCount: state.laneCount,
-    current: selectAt(songs, state.laneCount, 0, getSelectedDifficulty(state.current)),
+    current: selectAt(songs, state.laneCount, 0, getSelectedDifficulty(state.current), levelRange),
     hover: state.hover,
-    isControlsOpen: state.isControlsOpen,
+    controls: state.controls,
     topRanks: state.topRanks,
     records: state.records,
   };
@@ -576,8 +678,285 @@ export function withSongs(state: SongSelectState, songs: readonly Song[]): SongS
       state.laneCount,
       current.kind === 'song' ? current.index : 0,
       getSelectedDifficulty(current),
+      state.levelRange,
     ),
   };
+}
+
+export function withLevelRange(
+  state: SongSelectState,
+  levelRange: ChartLevelRange | null,
+  songs: readonly Song[],
+): SongSelectState {
+  return {
+    ...state,
+    levelRange,
+    songs,
+    current: selectAt(songs, state.laneCount, 0, getSelectedDifficulty(state.current), levelRange),
+  };
+}
+
+export function getSliderLevelRange(state: SongSelectState): ChartLevelRange | null {
+  const { range } = state.levelSlider;
+  return isShallowEqual(range, FULL_CHART_LEVEL_RANGE) ? null : range;
+}
+
+export function getSongSelectQuery(state: SongSelectState, filter: SongFilter): SongQuery {
+  const range = getSliderLevelRange(state);
+  return {
+    category: filter,
+    title: '',
+    level:
+      range === null
+        ? null
+        : {
+            laneCount: state.laneCount,
+            min: range.min,
+            max: range.max,
+          },
+  };
+}
+
+export function isSameSongQuery(a: SongQuery, b: SongQuery): boolean {
+  if (!isShallowEqual(a, b, ['level'])) {
+    return false;
+  }
+  return a.level === null || b.level === null
+    ? a.level === b.level
+    : isShallowEqual(a.level, b.level);
+}
+
+export function getLevelSliderFocus(state: SongSelectState): LevelHandle | null {
+  const { input } = state.levelSlider;
+  return input.kind === 'idle' ? null : input.handle;
+}
+
+export type LevelSliderKey =
+  | { readonly kind: 'pass' }
+  | { readonly kind: 'block' }
+  | { readonly kind: 'focus' }
+  | { readonly kind: 'move'; readonly direction: ListDirection }
+  | { readonly kind: 'switchHandle' }
+  | { readonly kind: 'blur' };
+
+export function readLevelSliderKey(
+  state: SongSelectState,
+  action: MenuAction | null,
+): LevelSliderKey {
+  switch (state.levelSlider.input.kind) {
+    case 'idle': {
+      const { current } = state;
+      return action === 'up' && (current.kind === 'none' || current.index === 0)
+        ? { kind: 'focus' }
+        : { kind: 'pass' };
+    }
+    case 'focused':
+      switch (action) {
+        case 'left':
+          return {
+            kind: 'move',
+            direction: 'previous',
+          };
+        case 'right':
+          return {
+            kind: 'move',
+            direction: 'next',
+          };
+        case 'confirm':
+          return { kind: 'switchHandle' };
+        case 'down':
+        case 'back':
+          return { kind: 'blur' };
+        case 'up':
+          return { kind: 'block' };
+        case 'previousTab':
+        case 'nextTab':
+        case null:
+          return { kind: 'pass' };
+      }
+      break;
+    case 'dragging':
+      return action === null || action === 'previousTab' || action === 'nextTab'
+        ? { kind: 'pass' }
+        : { kind: 'block' };
+  }
+}
+
+function withLevelSlider(state: SongSelectState, levelSlider: LevelSlider): SongSelectState {
+  return {
+    ...state,
+    levelSlider,
+  };
+}
+
+export function focusLevelSlider(state: SongSelectState): SongSelectState {
+  const { levelSlider } = state;
+  return levelSlider.input.kind === 'idle'
+    ? withLevelSlider(state, {
+        range: levelSlider.range,
+        input: {
+          kind: 'focused',
+          handle: 'min',
+        },
+      })
+    : state;
+}
+
+export function blurLevelSlider(state: SongSelectState): SongSelectState {
+  const { levelSlider } = state;
+  return levelSlider.input.kind === 'focused'
+    ? withLevelSlider(state, {
+        range: levelSlider.range,
+        input: { kind: 'idle' },
+      })
+    : state;
+}
+
+export function switchLevelHandle(state: SongSelectState): SongSelectState {
+  const { levelSlider } = state;
+  const { input } = levelSlider;
+  return input.kind === 'focused'
+    ? withLevelSlider(state, {
+        range: levelSlider.range,
+        input: {
+          kind: 'focused',
+          handle: input.handle === 'min' ? 'max' : 'min',
+        },
+      })
+    : state;
+}
+
+export function resetLevelSlider(state: SongSelectState): SongSelectState {
+  const { levelSlider } = state;
+  return isShallowEqual(levelSlider.range, FULL_CHART_LEVEL_RANGE)
+    ? state
+    : withLevelSlider(state, {
+        range: FULL_CHART_LEVEL_RANGE,
+        input: levelSlider.input,
+      });
+}
+
+export function moveLevelHandle(state: SongSelectState, direction: ListDirection): SongSelectState {
+  const { levelSlider } = state;
+  const { input, range } = levelSlider;
+  if (input.kind !== 'focused') {
+    return state;
+  }
+  const next = spanLevels(
+    input.handle === 'min' ? range.max : range.min,
+    stepItem(CHART_LEVELS, range[input.handle], direction),
+    input.handle,
+  );
+  return isShallowEqual(next.range, range) && next.handle === input.handle
+    ? state
+    : withLevelSlider(state, {
+        range: next.range,
+        input: {
+          kind: 'focused',
+          handle: next.handle,
+        },
+      });
+}
+
+export function pressLevelSlider(state: SongSelectState, level: ChartLevel): SongSelectState {
+  const { range } = state.levelSlider;
+  const isMaxNearer = getDistance(level, range.min) > getDistance(level, range.max);
+  return dragTo(state, isMaxNearer ? range.min : range.max, level, isMaxNearer ? 'max' : 'min');
+}
+
+export function dragLevelSlider(state: SongSelectState, level: ChartLevel): SongSelectState {
+  const { input } = state.levelSlider;
+  return input.kind === 'dragging' ? dragTo(state, input.anchor, level, input.handle) : state;
+}
+
+export function releaseLevelSlider(state: SongSelectState): SongSelectState {
+  const { levelSlider } = state;
+  const { input } = levelSlider;
+  return input.kind === 'dragging'
+    ? withLevelSlider(state, {
+        range: levelSlider.range,
+        input: {
+          kind: 'focused',
+          handle: input.handle,
+        },
+      })
+    : state;
+}
+
+function spanLevels(
+  anchor: ChartLevel,
+  level: ChartLevel,
+  movingHandle: LevelHandle,
+): { readonly range: ChartLevelRange; readonly handle: LevelHandle } {
+  let handle = movingHandle;
+  if (level < anchor) {
+    handle = 'min';
+  } else if (level > anchor) {
+    handle = 'max';
+  }
+  return {
+    range: {
+      min: level < anchor ? level : anchor,
+      max: level > anchor ? level : anchor,
+    },
+    handle,
+  };
+}
+
+function dragTo(
+  state: SongSelectState,
+  anchor: ChartLevel,
+  level: ChartLevel,
+  draggedHandle: LevelHandle,
+): SongSelectState {
+  const { range, handle } = spanLevels(anchor, level, draggedHandle);
+  const next: LevelSlider = {
+    range,
+    input: {
+      kind: 'dragging',
+      handle,
+      anchor,
+    },
+  };
+  const { levelSlider } = state;
+  return isShallowEqual(next.range, levelSlider.range) &&
+    isShallowEqual(next.input, levelSlider.input)
+    ? state
+    : withLevelSlider(state, next);
+}
+
+export const LEVEL_SLIDER_LAYOUT = {
+  labelXPx: 566,
+  railLeftXPx: 628,
+  railRightXPx: 814,
+} as const;
+
+const LAST_LEVEL_INDEX = CHART_LEVELS.length - 1;
+
+export function getLevelSliderLevel(xPx: number): ChartLevel {
+  const { railLeftXPx, railRightXPx } = LEVEL_SLIDER_LAYOUT;
+  const index = Math.round(getProgress(xPx, railLeftXPx, railRightXPx) * LAST_LEVEL_INDEX);
+  return requireDefined(CHART_LEVELS[index], 'Level slider index outside the rail', index);
+}
+
+export function getLevelSliderXPx(level: ChartLevel): number {
+  const { railLeftXPx, railRightXPx } = LEVEL_SLIDER_LAYOUT;
+  return lerp(
+    railLeftXPx,
+    railRightXPx,
+    getFraction(CHART_LEVELS.indexOf(level), 0, LAST_LEVEL_INDEX),
+  );
+}
+
+export type LevelHandleSpacing = 'single' | 'adjacent' | 'apart';
+
+// 한 칸 차이면 두 별 위의 레벨 숫자가 맞닿아 서로 비켜 놓아야 한다.
+export function getLevelHandleSpacing(min: ChartLevel, max: ChartLevel): LevelHandleSpacing {
+  const steps = CHART_LEVELS.indexOf(max) - CHART_LEVELS.indexOf(min);
+  if (steps === 0) {
+    return 'single';
+  }
+  return steps === 1 ? 'adjacent' : 'apart';
 }
 
 export function setHover(state: SongSelectState, target: SongSelectHover): SongSelectState {
@@ -598,7 +977,8 @@ export function clearHover(state: SongSelectState, target: SongSelectHover): Son
     : state;
 }
 
-// 빈 줄과 누를 수 없게 된 RANDOM, PLAY 는 씬이 입력을 꺼 Phaser 가 POINTER_OUT 을 보내지 않으므로 hover 를 여기서 푼다.
+// 빈 줄, 누를 수 없게 된 RANDOM 과 PLAY, 전체 범위로 돌아가 숨은 레벨 초기화는 씬이 입력을 꺼
+// Phaser 가 POINTER_OUT 을 보내지 않으므로 hover 를 여기서 푼다.
 export function releaseHover(state: SongSelectState, rowsPerPage: number): SongSelectState {
   const { hover } = state;
   if (hover === null) {
@@ -607,8 +987,14 @@ export function releaseHover(state: SongSelectState, rowsPerPage: number): SongS
   switch (hover.kind) {
     case 'filter':
     case 'difficulty':
-    case 'button':
       return state;
+    case 'button':
+      return hover.button === 'levelReset' && !isSongSelectButtonEnabled(state, 'levelReset')
+        ? {
+            ...state,
+            hover: null,
+          }
+        : state;
     case 'row':
       return getSongPage(state, rowsPerPage).startIndex + hover.slot >= state.songs.length
         ? {
@@ -653,7 +1039,7 @@ export function unhoverSongSelectButton(
   state: SongSelectState,
   button: SongSelectButton,
 ): SongSelectState {
-  return withHover(state, unhoverButton(state.hover, button));
+  return leaveControlsButton(withHover(state, unhoverButton(state.hover, button)), button);
 }
 
 export function pressSongSelectButton(
@@ -670,6 +1056,8 @@ function isSongSelectButtonEnabled(state: SongSelectState, button: SongSelectBut
   switch (button) {
     case 'ranking':
       return getPlayableSelection(state) !== null;
+    case 'levelReset':
+      return getSliderLevelRange(state) !== null;
     case 'settings':
     case 'back':
     case 'retry':
@@ -677,6 +1065,7 @@ function isSongSelectButtonEnabled(state: SongSelectState, button: SongSelectBut
     case 'controlsEntry':
     case 'controlsClose':
     case 'controlsBackdrop':
+    case 'controlsHelp':
     case 'accountProfile':
       return true;
   }
@@ -714,6 +1103,15 @@ export function getRankingButtonView(view: SongSelectView): ButtonView {
   );
 }
 
+export function getLevelResetButtonView(view: SongSelectView): ButtonView {
+  return getButtonView(
+    view.state.hover,
+    'levelReset',
+    isSongSelectButtonEnabled(view.state, 'levelReset'),
+    false,
+  );
+}
+
 export function getSongSelectControlsCloseView(view: SongSelectView): ButtonView {
   return getControlsCloseView(view.state.hover);
 }
@@ -722,7 +1120,8 @@ export function isSongSelectControlsEntryHovered(view: SongSelectView): boolean 
   return isControlsEntryHovered(view.state.hover);
 }
 
-export type SongSelectShortcut = 'openSettings' | 'selectRandomSong' | 'openRanking';
+export type SongSelectShortcut =
+  'openSettings' | 'selectRandomSong' | 'openRanking' | 'resetLevelFilter';
 
 export function readSongSelectShortcut(
   event: Pick<KeyboardEvent, 'code' | 'repeat'>,
@@ -737,6 +1136,8 @@ export function readSongSelectShortcut(
       return 'selectRandomSong';
     case 'KeyL':
       return 'openRanking';
+    case 'Backspace':
+      return 'resetLevelFilter';
     default:
       return null;
   }
@@ -766,6 +1167,7 @@ function selectAt(
   laneCount: LaneCount,
   index: number,
   previous: Difficulty | null,
+  levelRange: ChartLevelRange | null,
 ): SongSelection {
   const song = songs[index];
   if (song === undefined) {
@@ -774,13 +1176,28 @@ function selectAt(
       difficulty: previous,
     };
   }
-  const charts = getAvailableCharts(song, laneCount);
   return {
     kind: 'song',
     index,
     song,
-    chart: charts.find((chart) => chart.difficulty === previous) ?? charts[0] ?? null,
+    chart: pickChart(song, laneCount, previous, levelRange),
   };
+}
+
+// 범위 안 채보가 없으면(저장 직후 등) 범위 없이 고른다.
+function pickChart(
+  song: Song,
+  laneCount: LaneCount,
+  previous: Difficulty | null,
+  levelRange: ChartLevelRange | null,
+): ChartRef | null {
+  const charts = getAvailableCharts(song, laneCount);
+  const inRange =
+    levelRange === null
+      ? charts
+      : charts.filter(({ level }) => isInRange(level, levelRange.min, levelRange.max));
+  const candidates = inRange.length > 0 ? inRange : charts;
+  return candidates.find((chart) => chart.difficulty === previous) ?? candidates[0] ?? null;
 }
 
 function getRandomCandidates(state: SongSelectState): number[] {
@@ -818,6 +1235,7 @@ function getSelectedDifficulty(current: SongSelection): Difficulty | null {
 
 export type SongSelectRegion =
   | 'filterTabs'
+  | 'levelSlider'
   | 'rows'
   | 'selectedHalo'
   | 'notice'
@@ -832,11 +1250,14 @@ export type SongSelectRegion =
   | 'settingsButton'
   | 'backButton'
   | 'rankingButton'
+  | 'levelResetButton'
   | 'retryButton'
   | 'recordsRetryButton'
   | 'controlsEntry'
   | 'accountButton'
   | 'controlsClose'
+  | 'controlsHelpCard'
+  | 'controlsHelpButton'
   | 'jacketGlint'
   | 'rowShift';
 
@@ -856,6 +1277,7 @@ const readHoveredSlot: SongSelectReader = ({ view }) =>
 const readHoveredDifficulty: SongSelectReader = ({ view }) =>
   view.state.hover?.kind === 'difficulty' ? view.state.hover.difficulty : null;
 const readSongs: SongSelectReader = ({ view }) => view.state.songs;
+const readLevelRange: SongSelectReader = ({ view }) => view.state.levelRange;
 const readLaneCount: SongSelectReader = ({ view }) => view.state.laneCount;
 const readCurrent: SongSelectReader = ({ view }) => view.state.current;
 const readCurrentSong: SongSelectReader = ({ view }) =>
@@ -863,6 +1285,7 @@ const readCurrentSong: SongSelectReader = ({ view }) =>
 const readRecords: SongSelectReader = ({ view }) => view.state.records;
 const readRecordsKind: SongSelectReader = ({ view }) => view.state.records.kind;
 const readSelectedRecord: SongSelectReader = ({ view }) => getSelectedRecord(view.state);
+const readSelectedLevel: SongSelectReader = ({ view }) => getSelectedLevel(view.state);
 const readStartIndex: SongSelectReader = ({ view, rowsPerPage }) =>
   getSongPage(view.state, rowsPerPage).startIndex;
 const readSelectedSlot: SongSelectReader = ({ view, rowsPerPage }) =>
@@ -878,7 +1301,7 @@ const readLoadingMoreSlot: SongSelectReader = ({ view, rowsPerPage }) => {
 const readRandomAppearance: SongSelectReader = ({ view }) =>
   getActionAppearance(view.state, 'random');
 const readPlayAppearance: SongSelectReader = ({ view }) => getActionAppearance(view.state, 'play');
-const readControlsOpen: SongSelectReader = ({ view }) => view.state.isControlsOpen;
+const readControlsOpen: SongSelectReader = ({ view }) => isControlsPanelOpen(view.state);
 const readSettingsHovered: SongSelectReader = ({ view }) =>
   isButtonHovered(view.state.hover, 'settings');
 const readSettingsPressed: SongSelectReader = ({ view }) =>
@@ -901,6 +1324,11 @@ const REGION_SOURCES: Readonly<
   Record<Exclude<SongSelectRegion, 'jacketGlint' | 'rowShift'>, readonly SongSelectReader[]>
 > = {
   filterTabs: [readFilter, readHoveredFilter],
+  levelSlider: [
+    ({ view }) => view.state.levelSlider.range.min,
+    ({ view }) => view.state.levelSlider.range.max,
+    ({ view }) => getLevelSliderFocus(view.state),
+  ],
   // 칸마다 곡, 모양(고름, hover), 기록 노드를 읽는다. 어느 칸을 칠할지는 getChangedRowSlots 가 정한다.
   rows: [
     readSongs,
@@ -909,6 +1337,7 @@ const REGION_SOURCES: Readonly<
     readHoveredSlot,
     readCurrent,
     readLaneCount,
+    readLevelRange,
     readRecords,
     readTopRanks,
   ],
@@ -918,7 +1347,13 @@ const REGION_SOURCES: Readonly<
   loadingMore: [readIsLoadingMore, readLoadingMoreSlot],
   jacket: [readCurrentSong],
   // 고른 채보에 기록이 없어도 받는 중, 없음, 실패는 다르게 그리므로 기록 상태 종류도 읽는다.
-  songInfo: [readCurrentSong, readLaneCount, readSelectedRecord, readRecordsKind],
+  songInfo: [
+    readCurrentSong,
+    readLaneCount,
+    readSelectedRecord,
+    readRecordsKind,
+    readSelectedLevel,
+  ],
   difficultyTabs: [readCurrent, readLaneCount, readHoveredDifficulty],
   actions: [readRandomAppearance, readPlayAppearance],
   jacketLoads: [readSongs, readStartIndex],
@@ -929,6 +1364,11 @@ const REGION_SOURCES: Readonly<
     ({ view }) => isButtonPressed(view.state.hover, 'back'),
   ],
   rankingButton: [readRankingEnabled, readRankingHovered, readRankingPressed],
+  levelResetButton: [
+    ({ view }) => isSongSelectButtonEnabled(view.state, 'levelReset'),
+    ({ view }) => isButtonHovered(view.state.hover, 'levelReset'),
+    ({ view }) => isButtonPressed(view.state.hover, 'levelReset'),
+  ],
   retryButton: [
     ({ view }) => isButtonHovered(view.state.hover, 'retry'),
     ({ view }) => isButtonPressed(view.state.hover, 'retry'),
@@ -940,6 +1380,8 @@ const REGION_SOURCES: Readonly<
   controlsEntry: [readEntryHovered],
   accountButton: [({ view }) => getAccountPanelPointerKey(view.state.hover)],
   controlsClose: [readCloseHovered, readClosePressed],
+  controlsHelpCard: [({ view }) => isControlsHelpShown(view.state)],
+  controlsHelpButton: [({ view }) => getControlsHelpButtonView(view.state).appearance],
 };
 
 export function getChangedRegions(

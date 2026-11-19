@@ -299,7 +299,7 @@ describe('verifyPlay', () => {
 
   it('rejects a play that fails at hp 0', () => {
     const failingChart = makeChart(
-      Array.from({ length: 12 }, (_, index) => tap(0, 3000 + index * 100)),
+      Array.from({ length: 22 }, (_, index) => tap(0, 3000 + index * 100)),
     );
 
     expect(

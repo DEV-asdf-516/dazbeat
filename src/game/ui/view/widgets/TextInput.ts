@@ -11,6 +11,7 @@ export interface TextInputOptions {
   readonly enterKeyHint: string;
   /** 테두리와 바탕을 씬이 캔버스에 그려, 입력 전후로 같은 칸을 보여 줄 때 쓴다. */
   readonly isBare?: boolean;
+  readonly align?: 'left' | 'center';
 }
 
 /** IME 조합·캐럿·선택을 캔버스로 다시 만들 수 없으므로 실제 HTML input 을 캔버스 위에 띄운다. */
@@ -34,6 +35,7 @@ export class TextInput {
     input.setAttribute('autocorrect', 'off');
     input.enterKeyHint = options.enterKeyHint;
     input.className = options.isBare === true ? 'text-input text-input--bare' : 'text-input';
+    input.style.textAlign = options.align ?? 'left';
     // :hover·:focus·::placeholder·::selection 은 inline style 로 쓸 수 없어 style.css 가 이 값으로 그린다.
     const properties: Record<string, string> = {
       '--text-input-width': `${frame.widthPx}px`,
@@ -71,6 +73,10 @@ export class TextInput {
 
   onInput(listener: (text: string) => void): void {
     this.input.addEventListener('input', () => listener(this.input.value));
+  }
+
+  onBlur(listener: () => void): void {
+    this.input.addEventListener('blur', () => listener());
   }
 
   focus(): void {

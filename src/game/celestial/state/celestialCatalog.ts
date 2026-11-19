@@ -349,7 +349,8 @@ function resolveResource(
 
 function toOrigin(anchorPx: readonly [number, number], region: RegionState): [number, number] {
   const [firstFrame] = region.frames;
-  return [anchorPx[0] / firstFrame.w, anchorPx[1] / firstFrame.h];
+  const [anchorXPx, anchorYPx] = anchorPx;
+  return [anchorXPx / firstFrame.w, anchorYPx / firstFrame.h];
 }
 
 function toFrames(resolved: ResolvedResource, durationsMs: readonly number[]): CelestialFrame[] {

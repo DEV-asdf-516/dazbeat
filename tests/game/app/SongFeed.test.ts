@@ -23,7 +23,7 @@ function makeSong(id: string, overrides: Partial<Song> = {}): Song {
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    chartIds: {},
+    charts: {},
     ...overrides,
   };
 }
@@ -132,6 +132,7 @@ describe('SongFeed', () => {
     const query: SongQuery = {
       category: 'cover',
       title: 'star',
+      level: null,
     };
     const feed = new SongFeed(query, server.loadBatch);
 
@@ -324,11 +325,21 @@ describe('SongFeed', () => {
     expect(shrunk.songCount).toBe(150);
   });
 
-  it('applies a saved chart id to its lane count and difficulty of a listed song', async () => {
+  it('applies a saved chart id and level to its lane count and difficulty of a listed song', async () => {
     const song = makeSong('a', {
-      chartIds: {
-        4: { easy: 'c1' },
-        6: { hard: 'c6' },
+      charts: {
+        4: {
+          easy: {
+            id: 'c1',
+            level: 1,
+          },
+        },
+        6: {
+          hard: {
+            id: 'c6',
+            level: 1,
+          },
+        },
       },
     });
     const other = makeSong('b');
@@ -336,33 +347,93 @@ describe('SongFeed', () => {
     const listener = vi.fn();
     feed.subscribe(listener);
 
-    const saved = feed.applySavedChart('a', 4, 'hard', 'c2');
+    const saved = feed.applySavedChart('a', 4, 'hard', {
+      id: 'c2',
+      level: 3.5,
+    });
 
     expect(saved).toEqual({
       ...song,
-      chartIds: {
+      charts: {
         4: {
-          easy: 'c1',
-          hard: 'c2',
+          easy: {
+            id: 'c1',
+            level: 1,
+          },
+          hard: {
+            id: 'c2',
+            level: 3.5,
+          },
         },
-        6: { hard: 'c6' },
+        6: {
+          hard: {
+            id: 'c6',
+            level: 1,
+          },
+        },
       },
     });
-    expect(saved?.chartIds[6]).toBe(song.chartIds[6]);
+    expect(saved?.charts[6]).toBe(song.charts[6]);
     expect(feed.songs).toEqual([saved, other]);
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the list when the saved chart id is already listed', async () => {
-    const song = makeSong('a', { chartIds: { 4: { easy: 'c1' } } });
+  it('keeps the list when the saved chart id and level are already listed', async () => {
+    const song = makeSong('a', {
+      charts: {
+        4: {
+          easy: {
+            id: 'c1',
+            level: 2,
+          },
+        },
+      },
+    });
     const feed = await loadFeedOf([song]);
     const songs = feed.songs;
     const listener = vi.fn();
     feed.subscribe(listener);
 
-    expect(feed.applySavedChart('a', 4, 'easy', 'c1')).toBe(song);
+    expect(
+      feed.applySavedChart('a', 4, 'easy', {
+        id: 'c1',
+        level: 2,
+      }),
+    ).toBe(song);
     expect(feed.songs).toBe(songs);
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('applies a saved level when only the level of a listed chart changed', async () => {
+    const song = makeSong('a', {
+      charts: {
+        4: {
+          easy: {
+            id: 'c1',
+            level: 2,
+          },
+        },
+      },
+    });
+    const feed = await loadFeedOf([song]);
+    const listener = vi.fn();
+    feed.subscribe(listener);
+
+    const saved = feed.applySavedChart('a', 4, 'easy', {
+      id: 'c1',
+      level: 1,
+    });
+
+    expect(saved?.charts).toEqual({
+      4: {
+        easy: {
+          id: 'c1',
+          level: 1,
+        },
+      },
+    });
+    expect(feed.songs).toEqual([saved]);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a saved chart for a song it has not loaded', async () => {
@@ -371,7 +442,12 @@ describe('SongFeed', () => {
     const listener = vi.fn();
     feed.subscribe(listener);
 
-    expect(feed.applySavedChart('missing', 4, 'easy', 'c1')).toBeUndefined();
+    expect(
+      feed.applySavedChart('missing', 4, 'easy', {
+        id: 'c1',
+        level: 1,
+      }),
+    ).toBeUndefined();
     expect(feed.songs).toBe(songs);
     expect(listener).not.toHaveBeenCalled();
   });
@@ -405,6 +481,7 @@ describe('SharedSongFeeds', () => {
   const cover: SongQuery = {
     category: 'cover',
     title: '',
+    level: null,
   };
 
   it('keeps one feed per category and the catalog for all, but a new one per title search', async () => {
@@ -421,6 +498,30 @@ describe('SharedSongFeeds', () => {
       title: 'star',
     };
     expect(feeds.create(search)).not.toBe(feeds.create(search));
+    expect(server.calls).toHaveLength(1);
+  });
+
+  it('creates a new feed per level range query but keeps the category feed without one', async () => {
+    const server = createServer(makeServerSongs(3));
+    const feeds = new SharedSongFeeds(server.loadBatch);
+    const coverFeed = feeds.create(cover);
+    await coverFeed.requestMore();
+    const leveled: SongQuery = {
+      ...cover,
+      level: {
+        laneCount: 4,
+        min: 2,
+        max: 3.5,
+      },
+    };
+
+    const first = feeds.create(leveled);
+    const second = feeds.create(leveled);
+
+    expect(first).not.toBe(second);
+    expect(first).not.toBe(coverFeed);
+    expect(first.query).toBe(leveled);
+    expect(feeds.create(cover)).toBe(coverFeed);
     expect(server.calls).toHaveLength(1);
   });
 
@@ -457,9 +558,26 @@ describe('SharedSongFeeds', () => {
     const coverFeed = feeds.create(cover);
     await coverFeed.requestMore();
 
-    feeds.applySavedChart('a', 4, 'easy', 'c1');
+    feeds.applySavedChart('a', 4, 'easy', {
+      id: 'c1',
+      level: 4,
+    });
 
-    expect(feeds.catalog.songs[0]?.chartIds).toEqual({ 4: { easy: 'c1' } });
-    expect(coverFeed.songs[0]?.chartIds).toEqual({ 4: { easy: 'c1' } });
+    expect(feeds.catalog.songs[0]?.charts).toEqual({
+      4: {
+        easy: {
+          id: 'c1',
+          level: 4,
+        },
+      },
+    });
+    expect(coverFeed.songs[0]?.charts).toEqual({
+      4: {
+        easy: {
+          id: 'c1',
+          level: 4,
+        },
+      },
+    });
   });
 });

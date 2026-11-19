@@ -4,6 +4,7 @@ import type {
   SongBatch,
   SongBatchCursor,
   SongCategory,
+  SongChart,
   SongQuery,
 } from '../../data/songs.js';
 import type { Difficulty, LaneCount } from '../../rhythm/types.js';
@@ -76,12 +77,12 @@ export class SongFeed {
     songId: string,
     laneCount: LaneCount,
     difficulty: Difficulty,
-    chartId: string,
+    chart: SongChart,
   ): Song | undefined {
     if (!this.loaded.some((song) => song.id === songId)) {
       return undefined;
     }
-    const { songs, saved } = withSavedChart(this.loaded, songId, laneCount, difficulty, chartId);
+    const { songs, saved } = withSavedChart(this.loaded, songId, laneCount, difficulty, chart);
     if (songs !== this.loaded) {
       this.loaded = songs;
       this.notify();
@@ -158,7 +159,7 @@ export interface SongFeeds {
   create(query: SongQuery): SongFeed;
 }
 
-// 카테고리 목록은 몇 개뿐이라 앱이 켜져 있는 동안 두고 탭을 오가도 다시 받지 않는다. 제목 검색은 검색어마다 달라 매번 새로 받는다.
+// 카테고리 목록은 몇 개뿐이라 앱이 켜져 있는 동안 두고 탭을 오가도 다시 받지 않는다. 제목 검색과 레벨 범위는 조합이 많아 매번 새로 받는다.
 export class SharedSongFeeds implements SongFeeds {
   readonly catalog: SongFeed;
   private readonly categories = new Map<SongCategory, SongFeed>();
@@ -168,7 +169,7 @@ export class SharedSongFeeds implements SongFeeds {
   }
 
   create(query: SongQuery): SongFeed {
-    if (query.title !== '') {
+    if (query.title !== '' || query.level !== null) {
       return new SongFeed(query, this.loadBatch);
     }
     if (query.category === 'all') {
@@ -188,10 +189,10 @@ export class SharedSongFeeds implements SongFeeds {
     songId: string,
     laneCount: LaneCount,
     difficulty: Difficulty,
-    chartId: string,
+    chart: SongChart,
   ): void {
     [this.catalog, ...this.categories.values()].forEach((feed) => {
-      feed.applySavedChart(songId, laneCount, difficulty, chartId);
+      feed.applySavedChart(songId, laneCount, difficulty, chart);
     });
   }
 }

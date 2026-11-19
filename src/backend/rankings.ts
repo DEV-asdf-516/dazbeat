@@ -108,7 +108,6 @@ const myRecordsSchema = z.object({
       score: z.number(),
       accuracy: z.number(),
       maxCombo: z.number(),
-      cleared: z.boolean(),
     }),
   ),
 });

@@ -18,7 +18,6 @@ const VERIFIED_PLAY = {
   score: 1000000,
   accuracy: 100,
   maxCombo: 1,
-  cleared: true,
   review: {
     kind: 'approved',
     ranking: {
@@ -35,7 +34,6 @@ const RECORD = {
   score: 1000000,
   accuracy: 100,
   maxCombo: 1,
-  cleared: true,
 };
 const RECORDS_PATH = '/api/dazbeat/profile/records';
 

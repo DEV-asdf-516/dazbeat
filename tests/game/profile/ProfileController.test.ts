@@ -295,7 +295,7 @@ function createHarness(isSignedIn = true): Harness {
       render: (previousState, next) => {
         rendered.push(next.page);
         previous.push(previousState?.page ?? null);
-        controlsOpen.push(next.isControlsOpen);
+        controlsOpen.push(next.controls !== 'closed');
         hovers.push(next.hover);
       },
       playSound: (sound) => sounds.push(sound),
@@ -597,12 +597,12 @@ describe('ProfileController focus and views', () => {
     harness.controller.moveFocus('down');
     harness.controller.select();
 
-    harness.controller.switchSet(-1);
+    harness.controller.switchSet('previous');
 
     expect(harness.loaded().collection.set).toBe('discography');
     expect(harness.loaded().collection.focusedId).toBe('ALBUM_REMINDFUL_ONE_CLEAR');
 
-    harness.controller.switchSet(1);
+    harness.controller.switchSet('next');
 
     expect(harness.loaded().collection).toEqual({
       set: 'rhythm',
@@ -1231,7 +1231,7 @@ describe('ProfileController set tab sound', () => {
     const clicksBefore = harness.clickSoundCount();
     const focusesBefore = harness.focusSoundCount();
 
-    harness.controller.switchSet(1);
+    harness.controller.switchSet('next');
     harness.controller.selectSet('rhythm');
     harness.controller.selectSet('rhythm');
 
@@ -1561,7 +1561,11 @@ describe('ProfileController ranking tab', () => {
     expect(harness.rankings).toHaveLength(0);
 
     harness.controller.selectTab('ranking');
-    expect(harness.loaded().rankings).toEqual({ kind: 'loading' });
+    expect(harness.loaded().rankings).toEqual({
+      kind: 'loading',
+      previous: null,
+      isSlow: false,
+    });
     const items = [rankedChart(1), rankedChart(4)];
     harness.rankings[0]?.resolve({
       items,
@@ -1618,7 +1622,11 @@ describe('ProfileController ranking tab', () => {
 
     harness.controller.confirm();
     expect(harness.loaded().nickname).toEqual({ kind: 'idle' });
-    expect(harness.loaded().rankings).toEqual({ kind: 'loading' });
+    expect(harness.loaded().rankings).toEqual({
+      kind: 'loading',
+      previous: null,
+      isSlow: false,
+    });
     harness.rankings[1]?.resolve({
       items: [rankedChart(2)],
       next: null,
@@ -1666,7 +1674,11 @@ describe('ProfileController ranking tab', () => {
     harness.controller.pointerDown('retry');
     harness.controller.pointerUp('retry');
 
-    expect(harness.loaded().rankings).toEqual({ kind: 'loading' });
+    expect(harness.loaded().rankings).toEqual({
+      kind: 'loading',
+      previous: null,
+      isSlow: false,
+    });
     expect(harness.rankings).toHaveLength(2);
   });
 
@@ -1699,7 +1711,10 @@ describe('ProfileController ranking tab', () => {
 
     harness.controller.toggleRankingSort();
 
-    expect(harness.loaded().rankings).toEqual({ kind: 'loading' });
+    expect(harness.loaded().rankings).toMatchObject({
+      kind: 'loading',
+      isSlow: false,
+    });
     expect(harness.loaded().rankings.kind).toBe('loading');
     expect(harness.rankingQueries.at(-1)).toEqual({
       sort: 'achieved',
@@ -1743,7 +1758,10 @@ describe('ProfileController ranking tab', () => {
       next: null,
     });
     await flush();
-    expect(harness.loaded().rankings).toEqual({ kind: 'loading' });
+    expect(harness.loaded().rankings).toMatchObject({
+      kind: 'loading',
+      isSlow: false,
+    });
 
     const items = [rankedChart(3)];
     harness.rankings.at(-1)?.resolve({
@@ -1754,17 +1772,48 @@ describe('ProfileController ranking tab', () => {
     expect(harness.loaded().rankings).toMatchObject({ items });
   });
 
+  it('keeps the previous list while a filter reloads and marks it only once the answer is late', async () => {
+    const harness = await rankingHarness([rankedChart(1)]);
+    const shown = harness.loaded().rankings;
+
+    harness.controller.selectRankingDifficulty('hard');
+    expect(harness.loaded().rankings).toEqual({
+      kind: 'loading',
+      previous: shown,
+      isSlow: false,
+    });
+
+    harness.waits.at(-1)?.done.resolve();
+    await flush();
+    expect(harness.loaded().rankings).toEqual({
+      kind: 'loading',
+      previous: shown,
+      isSlow: true,
+    });
+
+    const items = [rankedChart(2)];
+    harness.rankings.at(-1)?.resolve({
+      items,
+      next: null,
+    });
+    await flush();
+    expect(harness.loaded().rankings).toMatchObject({
+      kind: 'loaded',
+      items,
+    });
+  });
+
   it('turns the difficulty with the tab keys only on the ranking tab', async () => {
     const harness = await rankingHarness([rankedChart(1)]);
 
-    harness.controller.switchTab(1);
+    harness.controller.switchTab('next');
     expect(harness.loaded().rankingDifficulty).toBe('easy');
-    harness.controller.switchTab(-1);
+    harness.controller.switchTab('previous');
     expect(harness.loaded().rankingDifficulty).toBe('all');
 
     harness.controller.selectTab('stats');
     const requestCount = harness.rankings.length;
-    harness.controller.switchTab(1);
+    harness.controller.switchTab('next');
     expect(harness.loaded().rankingDifficulty).toBe('all');
     expect(harness.rankings).toHaveLength(requestCount);
   });

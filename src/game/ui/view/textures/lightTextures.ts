@@ -15,38 +15,56 @@ const RIBBON_EDGE_PX = 2;
 const RIBBON_CENTER_ALPHA = 0.35;
 
 export function ensureLightTextures(scene: Phaser.Scene): void {
-  createCanvasTexture(scene, LIGHT_TEXTURES.glow, GLOW_SIZE_PX, GLOW_SIZE_PX, (context) => {
-    fillGradient(
-      context,
-      centeredRadialGradient(context, GLOW_SIZE_PX),
-      [
-        [0, white(1)],
-        [0.4, white(0.45)],
-        [1, white(0)],
-      ],
-      GLOW_SIZE_PX,
-      GLOW_SIZE_PX,
-    );
-  });
-  createCanvasTexture(scene, LIGHT_TEXTURES.star, STAR_SIZE_PX, STAR_SIZE_PX, (context) => {
-    fillGradient(
-      context,
-      centeredRadialGradient(context, STAR_SIZE_PX),
-      [
-        [0, white(1)],
-        [0.12, white(1)],
-        [0.3, white(0.35)],
-        [1, white(0)],
-      ],
-      STAR_SIZE_PX,
-      STAR_SIZE_PX,
-    );
-  });
   createCanvasTexture(
     scene,
-    LIGHT_TEXTURES.ribbon,
-    RIBBON_WIDTH_PX,
-    RIBBON_HEIGHT_PX,
+    {
+      key: LIGHT_TEXTURES.glow,
+      widthPx: GLOW_SIZE_PX,
+      heightPx: GLOW_SIZE_PX,
+    },
+    (context) => {
+      fillGradient(
+        context,
+        centeredRadialGradient(context, GLOW_SIZE_PX),
+        [
+          [0, white(1)],
+          [0.4, white(0.45)],
+          [1, white(0)],
+        ],
+        GLOW_SIZE_PX,
+        GLOW_SIZE_PX,
+      );
+    },
+  );
+  createCanvasTexture(
+    scene,
+    {
+      key: LIGHT_TEXTURES.star,
+      widthPx: STAR_SIZE_PX,
+      heightPx: STAR_SIZE_PX,
+    },
+    (context) => {
+      fillGradient(
+        context,
+        centeredRadialGradient(context, STAR_SIZE_PX),
+        [
+          [0, white(1)],
+          [0.12, white(1)],
+          [0.3, white(0.35)],
+          [1, white(0)],
+        ],
+        STAR_SIZE_PX,
+        STAR_SIZE_PX,
+      );
+    },
+  );
+  createCanvasTexture(
+    scene,
+    {
+      key: LIGHT_TEXTURES.ribbon,
+      widthPx: RIBBON_WIDTH_PX,
+      heightPx: RIBBON_HEIGHT_PX,
+    },
     (context) => {
       context.fillStyle = white(RIBBON_CENTER_ALPHA);
       context.fillRect(0, 0, RIBBON_WIDTH_PX, RIBBON_HEIGHT_PX);
@@ -74,6 +92,21 @@ export function white(alpha: number): string {
 
 export function rgba(color: number, alpha: number): string {
   return `rgba(${(color >> 16) & 0xff}, ${(color >> 8) & 0xff}, ${color & 0xff}, ${alpha})`;
+}
+
+export function fillLight(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  stops: readonly (readonly [offset: number, color: string])[],
+): void {
+  const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+  stops.forEach(([offset, color]) => gradient.addColorStop(offset, color));
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(x, y, radius, 0, 2 * Math.PI);
+  context.fill();
 }
 
 function centeredRadialGradient(context: CanvasRenderingContext2D, sizePx: number): CanvasGradient {

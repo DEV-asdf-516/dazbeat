@@ -8,6 +8,7 @@ import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import { requireDefined } from '../../../invariant.js';
 import { cycleItem, getFraction } from '../../../range.js';
+import type { ListDirection } from '../../../range.js';
 import {
   getButtonView,
   hoverButton,
@@ -19,10 +20,17 @@ import {
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
-import { getControlsCloseView, isControlsEntryHovered } from '../../app/controlsGuide.js';
+import {
+  getControlsCloseView,
+  getControlsHelpButtonView,
+  isControlsEntryHovered,
+  isControlsHelpShown,
+  isControlsPanelOpen,
+  leaveControlsButton,
+} from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
 import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
-import type { ControlsButton } from '../../app/controlsGuide.js';
+import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import { readMenuAction } from '../../ui/state/menuAction.js';
 import { readKeyCapture } from './keyCapture.js';
 import { formatRowValue } from './settingsRowView.js';
@@ -33,8 +41,6 @@ export type SettingsMode =
   | { readonly kind: 'waitingKey'; readonly lane: Lane }
   | { readonly kind: 'confirmingReset' };
 
-type StepDirection = 1 | -1;
-
 export type SettingsButton =
   | 'back'
   | 'resetEntry'
@@ -43,7 +49,7 @@ export type SettingsButton =
   | ControlsButton
   | AccountPanelButton
   | `keyBox:${number}`
-  | `step:${number}:${StepDirection}`
+  | `step:${number}:${ListDirection}`
   | `mute:${number}`;
 
 export type SettingsHover =
@@ -56,22 +62,22 @@ export interface SettingsEditorState {
   readonly mode: SettingsMode;
   readonly hover: SettingsHover | null;
   readonly displayedLanguage: Language;
-  readonly isControlsOpen: boolean;
+  readonly controls: ControlsPanel;
 }
 
 const BROWSING: SettingsMode = { kind: 'browsing' };
-const STEP_DIRECTIONS: readonly StepDirection[] = [-1, 1];
+const STEP_DIRECTIONS: readonly ListDirection[] = ['previous', 'next'];
 
 type RowButton =
   | { readonly kind: 'keyBox'; readonly index: number }
-  | { readonly kind: 'step'; readonly index: number; readonly direction: StepDirection }
+  | { readonly kind: 'step'; readonly index: number; readonly direction: ListDirection }
   | { readonly kind: 'mute'; readonly index: number };
 
 export function getKeyBoxButton(index: number): SettingsButton {
   return `keyBox:${index}`;
 }
 
-export function getStepButton(index: number, direction: StepDirection): SettingsButton {
+export function getStepButton(index: number, direction: ListDirection): SettingsButton {
   return `step:${index}:${direction}`;
 }
 
@@ -91,7 +97,7 @@ export function createSettingsEditorState(
     mode: BROWSING,
     hover: null,
     displayedLanguage,
-    isControlsOpen: false,
+    controls: 'closed',
   };
 }
 
@@ -150,7 +156,7 @@ export function unhoverSettingsButton(
   state: SettingsEditorState,
   button: SettingsButton,
 ): SettingsEditorState {
-  return withHover(state, unhoverButton(state.hover, button));
+  return leaveControlsButton(withHover(state, unhoverButton(state.hover, button)), button);
 }
 
 export function pressSettingsButton(
@@ -186,17 +192,20 @@ export function pointRowButton(
   }
 }
 
-export function moveFocus(state: SettingsEditorState, delta: 1 | -1): SettingsEditorState {
+export function moveFocus(
+  state: SettingsEditorState,
+  direction: ListDirection,
+): SettingsEditorState {
   const shownIndexes = state.rows.flatMap((row, index) =>
     isRowShown(row, state.settings) ? [index] : [],
   );
-  return focusRow(state, cycleItem(shownIndexes, state.rowIndex, delta));
+  return focusRow(state, cycleItem(shownIndexes, state.rowIndex, direction));
 }
 
 export function adjustRow(
   state: SettingsEditorState,
   index: number,
-  direction: 1 | -1,
+  direction: ListDirection,
 ): SettingsEditorState {
   const settings = adjustSetting(
     state.settings,
@@ -434,8 +443,15 @@ function getActionSound(
   if (next.mode.kind !== previous.mode.kind) {
     return next.mode.kind === 'browsing' ? 'close' : 'click';
   }
-  if (next.isControlsOpen !== previous.isControlsOpen) {
-    return next.isControlsOpen ? 'click' : 'close';
+  const isControlsOpen = isControlsPanelOpen(next);
+  if (isControlsOpen !== isControlsPanelOpen(previous)) {
+    return isControlsOpen ? 'click' : 'close';
+  }
+  if (
+    next.controls !== previous.controls &&
+    (next.controls === 'helpPinned' || previous.controls === 'helpPinned')
+  ) {
+    return 'click';
   }
   return null;
 }
@@ -460,7 +476,7 @@ export function getRowValue(state: SettingsEditorState, index: number): string {
 export function canAdjustRow(
   state: SettingsEditorState,
   index: number,
-  direction: 1 | -1,
+  direction: ListDirection,
 ): boolean {
   return canAdjust(state.settings, getRow(state, index), direction, state.displayedLanguage);
 }
@@ -472,7 +488,7 @@ export function getKeyBoxView(state: SettingsEditorState, index: number): Button
 export function getStepView(
   state: SettingsEditorState,
   index: number,
-  direction: StepDirection,
+  direction: ListDirection,
 ): ButtonView {
   return getButtonView(
     state.hover,
@@ -562,7 +578,9 @@ export type SettingsRegion =
   | 'backButton'
   | 'resetEntry'
   | 'resetButtons'
-  | 'controlsClose';
+  | 'controlsClose'
+  | 'controlsHelpCard'
+  | 'controlsHelpButton';
 
 type SettingsReader = StateReader<SettingsEditorState>;
 
@@ -586,7 +604,7 @@ const readCloseHovered: SettingsReader = (state) => isButtonHovered(state.hover,
 const readClosePressed: SettingsReader = (state) => isButtonPressed(state.hover, 'controlsClose');
 const readMode: SettingsReader = (state) => state.mode;
 const readDisplayedLanguage: SettingsReader = (state) => state.displayedLanguage;
-const readControlsOpen: SettingsReader = (state) => state.isControlsOpen;
+const readControlsOpen: SettingsReader = (state) => isControlsPanelOpen(state);
 const readIsConfirmingReset: SettingsReader = (state) => state.mode.kind === 'confirmingReset';
 
 const REGION_SOURCES: Readonly<Record<SettingsRegion, readonly SettingsReader[]>> = {
@@ -607,6 +625,8 @@ const REGION_SOURCES: Readonly<Record<SettingsRegion, readonly SettingsReader[]>
   resetEntry: [readResetEntryHovered],
   resetButtons: [readCancelHovered, readCancelPressed, readAcceptHovered, readAcceptPressed],
   controlsClose: [readCloseHovered, readClosePressed],
+  controlsHelpCard: [isControlsHelpShown],
+  controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
 };
 
 export function getChangedRegions(
@@ -619,24 +639,31 @@ export function getChangedRegions(
 // 숨긴 행은 POINTER_OUT 을 받지 못하므로 설정을 바꾸는 전이에서 그 행과 행 버튼의 hover 를 직접 해제한다.
 // 설정이 바뀌어 비활성이 된 조정 버튼의 눌림도 함께 푼다.
 function settleHover(state: SettingsEditorState): SettingsEditorState {
-  let { hover } = state;
-  for (const [index, row] of state.rows.entries()) {
-    if (!isRowShown(row, state.settings)) {
-      if (index === getHoveredRowIndex(state)) {
-        hover = null;
-      }
-      hover = unhoverButton(hover, getKeyBoxButton(index));
-      continue;
-    }
-    for (const direction of STEP_DIRECTIONS) {
-      hover = releaseDisabledButton(
-        hover,
-        getStepButton(index, direction),
-        canAdjust(state.settings, row, direction, state.displayedLanguage),
-      );
-    }
+  const { hover } = state;
+  if (hover === null) {
+    return state;
   }
-  return withHover(state, hover);
+  if (hover.kind === 'row') {
+    return isRowShownAt(state, hover.index) ? state : withHover(state, null);
+  }
+  const rowButton = findRowButton(state, hover.button);
+  if (rowButton === undefined) {
+    return state;
+  }
+  if (!isRowShownAt(state, rowButton.index)) {
+    return withHover(state, null);
+  }
+  if (rowButton.kind !== 'step') {
+    return state;
+  }
+  return withHover(
+    state,
+    releaseDisabledButton(
+      hover,
+      hover.button,
+      canAdjustRow(state, rowButton.index, rowButton.direction),
+    ),
+  );
 }
 
 // Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 확인 창을 닫을 때 그 안 버튼의 hover 를 푼다.
@@ -672,13 +699,14 @@ function findRowButton(state: SettingsEditorState, button: SettingsButton): RowB
       };
     }
     for (const direction of STEP_DIRECTIONS) {
-      if (button === getStepButton(index, direction)) {
-        return {
-          kind: 'step',
-          index,
-          direction,
-        };
+      if (button !== getStepButton(index, direction)) {
+        continue;
       }
+      return {
+        kind: 'step',
+        index,
+        direction,
+      };
     }
   }
   return undefined;
@@ -693,6 +721,7 @@ function isSettingsButtonEnabled(state: SettingsEditorState, button: SettingsBut
     case 'controlsEntry':
     case 'controlsClose':
     case 'controlsBackdrop':
+    case 'controlsHelp':
     case 'accountProfile':
       return true;
   }

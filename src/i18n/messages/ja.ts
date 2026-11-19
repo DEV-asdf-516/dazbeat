@@ -38,7 +38,7 @@ export const ja: Messages = {
     loading: '曲リストを読み込み中',
     loadingMore: '曲をさらに読み込み中',
     loadFailed: '曲リストを読み込めませんでした。',
-    noRecord: '記録なし',
+    noRecord: 'NO RECORD',
     recordsFailed: '記録を読み込めませんでした。',
   },
   settings: {
@@ -78,8 +78,9 @@ export const ja: Messages = {
     backToEditor: 'エディターへ',
     quitTitle: 'プレイをやめますか？',
     quitConfirm: '今回のプレイ記録は保存されません。',
-    resyncFailedTitle: '音楽と再同期できませんでした。',
-    resyncFailedBody: 'CONTINUE で再試行できます。QUIT すると今回のプレイ記録は保存されません。',
+    resyncFailedTitle: '映像同期失敗',
+    resyncFailedBody:
+      'YouTube 映像との同期に失敗しました。やめると今回のプレイ記録は保存されません。',
   },
   chartEditorSelect: {
     title: 'CHART EDITOR',
@@ -113,6 +114,7 @@ export const ja: Messages = {
     invalidChartBody: '譜面の検証に失敗しました: {{reason}}',
     noteCount: 'ノート{{count}}個',
     laneSection: 'レーン数',
+    levelSection: 'レベル',
     toolSection: '入力ツール',
     selectionSection: '選択中のノート',
   },

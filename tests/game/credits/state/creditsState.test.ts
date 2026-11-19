@@ -23,7 +23,7 @@ function makeSong(index: number, credit?: readonly string[]): Song {
     constellation: 'gemini',
     gameStartMs: 0,
     gameEndMs: 30000,
-    chartIds: {},
+    charts: {},
     ...(credit === undefined ? {} : { credit }),
   };
 }
@@ -191,6 +191,8 @@ describe('getChangedRegions', () => {
       'controlsEntry',
       'accountButton',
       'controlsClose',
+      'controlsHelpCard',
+      'controlsHelpButton',
     ]);
   });
 
@@ -216,7 +218,7 @@ describe('getChangedRegions for the controls', () => {
     expect(
       getChangedRegions(state, {
         ...state,
-        isControlsOpen: true,
+        controls: 'open',
       }),
     ).toEqual(['controls']);
   });

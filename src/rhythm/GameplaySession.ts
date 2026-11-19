@@ -1,5 +1,6 @@
 import { getDistance } from '../range.js';
-import { calculateAccuracy, isCleared } from './accuracy.js';
+import { isWithin } from '../time.js';
+import { calculateAccuracy } from './accuracy.js';
 import { judgeTap } from './judgment.js';
 import { getLanes } from './lanes.js';
 import { getJudgmentScore, getNextCombo } from './score.js';
@@ -135,12 +136,10 @@ export class GameplaySession {
       ? {
           ...base,
           outcome: 'failed',
-          cleared: false,
         }
       : {
           ...base,
           outcome: 'finished',
-          cleared: isCleared(accuracy),
         };
   }
 
@@ -181,7 +180,7 @@ export class GameplaySession {
     let selectedDiffMs = Infinity;
     for (let i = laneState.cursor; i < entries.length; i++) {
       const entry = entries[i];
-      if (entry === undefined || entry.note.timeMs > songTimeMs + this.windows.badMs) {
+      if (entry === undefined || !isWithin(songTimeMs, entry.note.timeMs, this.windows.badMs)) {
         break;
       }
       const diffMs = getDistance(songTimeMs, entry.note.timeMs);
@@ -322,8 +321,8 @@ export class GameplaySession {
   }
 
   private applyJudgment(judgment: Judgment): void {
-    this.score += getJudgmentScore(judgment);
     this.combo = getNextCombo(this.combo, judgment);
+    this.score += getJudgmentScore(judgment, this.combo);
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.counts[judgment] += 1;
     this.hp = getNextHp(this.hp, judgment);

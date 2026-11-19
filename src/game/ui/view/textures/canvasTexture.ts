@@ -1,12 +1,17 @@
 import type Phaser from 'phaser';
 
+export interface TextureSpec {
+  readonly key: string;
+  readonly widthPx: number;
+  readonly heightPx: number;
+}
+
 export function createCanvasTexture(
   scene: Phaser.Scene,
-  key: string,
-  widthPx: number,
-  heightPx: number,
+  spec: TextureSpec,
   paint: (context: CanvasRenderingContext2D) => void,
 ): void {
+  const { key, widthPx, heightPx } = spec;
   if (scene.textures.exists(key)) {
     return;
   }

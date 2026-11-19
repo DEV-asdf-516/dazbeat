@@ -30,7 +30,6 @@ export interface PlayResultFields {
   readonly accuracy: number;
   readonly maxCombo: number;
   readonly counts: FinishedGameplayResult['counts'];
-  readonly cleared: boolean;
   readonly autoplayCheck: AutoplayCheck['kind'];
   readonly autoplayReasons: readonly AutoplayReason[];
   readonly inputStats: InputStats;
@@ -95,7 +94,6 @@ export function parsePlayResultRecord(record: JsvmRecord) {
       accuracy: record.getFloat('accuracy'),
       maxCombo: record.getInt('maxCombo'),
       counts: parseCounts(record.getString('counts')),
-      cleared: record.getBool('cleared'),
     },
     achievedAtMs: record.getDateTime('achievedAt').time().unixMilli(),
   };

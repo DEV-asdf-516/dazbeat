@@ -23,9 +23,6 @@ interface Measurement {
 }
 
 export function getPlayMarks(result: FinishedGameplayResult): readonly AchievementMark[] {
-  if (!result.cleared) {
-    return [];
-  }
   const marks: AchievementMark[] = ['clear'];
   if (getRank(result.accuracy) === 'S') {
     marks.push('s');

@@ -3,6 +3,7 @@ import type { CelestialCatalog } from '../../../celestial/state/celestialCatalog
 import { addCelestialSprite, playCelestialOnce } from '../../../celestial/view/celestialSprites.js';
 import type { CelestialTextureUse } from '../../../celestial/view/celestialSprites.js';
 import { GAME_HEIGHT, GAME_WIDTH } from '../../../app/config.js';
+import { bakeTexture } from '../textures/bakedTexture.js';
 import { COLORS, SCREEN_LAYOUT, textStyle } from '../theme.js';
 import { addConstellationFigure } from './constellationFigure.js';
 
@@ -34,6 +35,7 @@ const CHARACTER_SCALE = 0.64;
 const GROUND_FADE_COLOR = 0x050c1a;
 const GROUND_FADE_TOP_Y_PX = 820;
 const GROUND_FADE_MAX_ALPHA = 0.92;
+const GROUND_FADE_TEXTURE_KEY = 'main:groundFade';
 
 export function getTitleBackdropTextureUses(
   catalog: CelestialCatalog,
@@ -58,19 +60,33 @@ export function addTitleBackdrop(
       CHARACTER_SCALE,
     );
   }
-  scene.add
-    .graphics()
-    .fillGradientStyle(
-      GROUND_FADE_COLOR,
-      GROUND_FADE_COLOR,
-      GROUND_FADE_COLOR,
-      GROUND_FADE_COLOR,
-      0,
-      0,
-      GROUND_FADE_MAX_ALPHA,
-      GROUND_FADE_MAX_ALPHA,
-    )
-    .fillRect(0, GROUND_FADE_TOP_Y_PX, GAME_WIDTH, GAME_HEIGHT - GROUND_FADE_TOP_Y_PX);
+  const groundFadeHeightPx = GAME_HEIGHT - GROUND_FADE_TOP_Y_PX;
+  bakeTexture(
+    scene,
+    {
+      key: GROUND_FADE_TEXTURE_KEY,
+      widthPx: GAME_WIDTH,
+      heightPx: groundFadeHeightPx,
+    },
+    (texture) => {
+      const graphics = scene.make
+        .graphics(undefined, false)
+        .fillGradientStyle(
+          GROUND_FADE_COLOR,
+          GROUND_FADE_COLOR,
+          GROUND_FADE_COLOR,
+          GROUND_FADE_COLOR,
+          0,
+          0,
+          GROUND_FADE_MAX_ALPHA,
+          GROUND_FADE_MAX_ALPHA,
+        )
+        .fillRect(0, 0, GAME_WIDTH, groundFadeHeightPx);
+      texture.draw(graphics, 0, 0);
+      return [graphics];
+    },
+  );
+  scene.add.image(0, GROUND_FADE_TOP_Y_PX, GROUND_FADE_TEXTURE_KEY).setOrigin(0, 0);
   const logo = scene.add.text(
     SCREEN_LAYOUT.leftXPx,
     TITLE_LOGO_Y_PX,

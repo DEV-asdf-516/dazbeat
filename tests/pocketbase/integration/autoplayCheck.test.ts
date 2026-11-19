@@ -22,15 +22,7 @@ const SLOT_START_TIME_MS = 1_000;
 const SLOT_GAP_MS = 200;
 // Human-like offsets: none within ±1ms, and consecutive values differ by more than 1ms.
 const SCATTERED_OFFSETS_MS = [-23, 17, -8, 31, -15, 6, 27, -30, 12, -4];
-const RESPONSE_KEYS = [
-  'accuracy',
-  'cleared',
-  'counts',
-  'maxCombo',
-  'newAchievements',
-  'review',
-  'score',
-];
+const RESPONSE_KEYS = ['accuracy', 'counts', 'maxCombo', 'newAchievements', 'review', 'score'];
 
 function tap(lane: Lane, timeMs: number): Note {
   return {

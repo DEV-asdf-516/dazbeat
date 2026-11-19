@@ -1,6 +1,6 @@
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
-import { withControlsOpen } from '../app/controlsGuide.js';
+import { clickControlsHelp, withControlsOpen } from '../app/controlsGuide.js';
 import type { PlayOrigin, ResultRanking, ResultReport, SceneRequest } from '../app/sceneRoutes.js';
 import {
   applyMenuInput,
@@ -26,6 +26,7 @@ import {
 } from './state/resultState.js';
 import type { ResultButton, ResultMenuItem, ResultState } from './state/resultState.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
+import type { ListDirection } from '../../range.js';
 
 export interface ResultScreen {
   render(previous: ResultState | null, next: ResultState): void;
@@ -76,15 +77,15 @@ export class ResultController {
     this.changeDifficultyFromUser((state) => selectRetryDifficulty(state, difficulty));
   }
 
-  stepDifficulty(delta: 1 | -1): void {
-    this.changeDifficultyFromUser((state) => stepRetryChart(state, delta));
+  stepDifficulty(direction: ListDirection): void {
+    this.changeDifficultyFromUser((state) => stepRetryChart(state, direction));
   }
 
-  moveFocus(delta: 1 | -1): void {
+  moveFocus(direction: ListDirection): void {
     if ('kind' in this.state) {
       return;
     }
-    const next = applyMenuInput(this.state, (state) => moveResultFocus(state, delta));
+    const next = applyMenuInput(this.state, (state) => moveResultFocus(state, direction));
     if (next === this.state) {
       return;
     }
@@ -133,6 +134,10 @@ export class ResultController {
       case 'controlsClose':
       case 'controlsBackdrop':
         this.closeControls();
+        return;
+      case 'controlsHelp':
+        this.screen.playSound('click');
+        this.apply(clickControlsHelp);
         return;
       case 'accountProfile':
         this.screen.playSound('click');

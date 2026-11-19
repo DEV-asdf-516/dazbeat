@@ -1,7 +1,7 @@
 import type { YouTubePlayer, YouTubePlayerState } from './YouTubePlayer.js';
-import { getDistance } from '../range.js';
+import { getDistance, isInRange } from '../range.js';
 import { isShallowEqual } from '../shallowEqual.js';
-import { msToSec, secToMs } from '../time.js';
+import { hasElapsed, isWithin, msToSec, secToMs } from '../time.js';
 
 export type LeadInPlayer = Pick<YouTubePlayer, 'requestPlay' | 'pause' | 'resume' | 'setVolume'>;
 
@@ -26,10 +26,17 @@ type GameClock =
 
 type PositionReport = { readonly atMs: number; readonly positionSec: number };
 
+type StableReports = readonly [PositionReport, PositionReport, PositionReport];
+
 // seek 는 모두 뒤로 가므로, seek 직전 보고 위치보다 작은 보고가 나오기 전까지는 seek 결과가 아니다.
 type ReportGate =
   | { readonly kind: 'seeking'; readonly fromSec: number }
-  | { readonly kind: 'following'; readonly previous: PositionReport | null };
+  | { readonly kind: 'awaiting' }
+  | {
+      readonly kind: 'following';
+      readonly previous: PositionReport;
+      readonly steadyFrom: PositionReport | null;
+    };
 
 // 일시정지 순간 정한 재개 방법: 영상 종료 뒤면 시계만, 곡 시작 전이면 최초 시작 절차로, 그 밖은 재동기화.
 // 허용 범위를 같은 방향으로 벗어난 보고가 이어지는 중. 첫 보고의 수신 시각부터 잰다.
@@ -101,6 +108,10 @@ const STABLE_MIN_INTERVAL_MS = 120;
 const STABLE_MIN_RATE = 0.9;
 const STABLE_MAX_RATE = 1.1;
 const SYNC_TOLERANCE_MS = 30;
+// Safari 는 seek 직후 한 구간을 정상 속도처럼 보고한 뒤 약 185ms 를 잃는다. 그래서 이어지는 두 구간이 모두 정상
+// 속도이고 진행 시작 시각이 맞을 때만 그 진행을 믿는다. 이 보고들로 맞춘 시계를 감시가 SYNC_TOLERANCE_MS 로 다시
+// 재므로 그 절반만 허용해 보고 흔들림의 여유를 남긴다.
+const STABLE_START_TOLERANCE_MS = SYNC_TOLERANCE_MS / 2;
 // 초 단위 뺄셈의 반올림 오차(수십 나노초)로 정확히 허용 범위 끝인 편차가 밖으로 분류되지 않게 한다.
 const DRIFT_ROUNDING_MS = 1e-6;
 // 이보다 짧게 이어지는 이탈은 보고 자체의 오차로 본다.
@@ -109,9 +120,10 @@ const WAIT_LIMIT_MS = 10000;
 const VERIFY_LIMIT_MS = 3000;
 // 재개 때 영상을 정지 값보다 이만큼 앞에서 흘려 정지 값에 닿는 시각을 잰다. 그동안 카운트다운을 보인다.
 const RESUME_LEAD_MS = COUNTDOWN_MS;
-// 0초에서 선행 재생할 때 seek 결과 실측(보고 두 개)이 영상의 정지 값 도달 전에 끝난다고 보장할 수 없는 구간.
+// 0초에서 선행 재생할 때 seek 결과 실측이 영상의 정지 값 도달 전에 끝난다고 보장할 수 없는 구간. 실측은 진행 뒤
+// 첫 보고까지 한 간격(약 250ms), 정상 속도 두 구간, Safari 가 seek 직후 버리게 하는 한 구간이 걸린다.
 // 이 안에서만 같은 재개에서 잰 seek 지연으로 계획한 재개 시각을 쓴다.
-const PLANNED_RESUME_MAX_MS = 550;
+const PLANNED_RESUME_MAX_MS = 1050;
 // 자동 복구로 다시 흐른 뒤 게임 시계가 이만큼 진행하기 전에 또 복구가 필요하면 복구할 수 없는 상황으로 본다.
 const AUTO_RECOVERY_INTERVAL_MS = 10000;
 
@@ -163,10 +175,7 @@ export class LeadInPlayback {
       kind: 'warming',
       isResuming: false,
       waitFromAtMs: now(),
-      gate: {
-        kind: 'following',
-        previous: null,
-      },
+      gate: { kind: 'awaiting' },
     };
     this.shownStatus = this.status;
   }
@@ -254,10 +263,7 @@ export class LeadInPlayback {
             kind: 'warming',
             isResuming: true,
             waitFromAtMs: this.now(),
-            gate: {
-              kind: 'following',
-              previous: null,
-            },
+            gate: { kind: 'awaiting' },
           };
           break;
         case 'resync':
@@ -280,10 +286,7 @@ export class LeadInPlayback {
             kind: 'preRollBuffering',
             seekLeadMs: stage.seekLeadMs,
             waitFromAtMs: this.now(),
-            gate: {
-              kind: 'following',
-              previous: null,
-            },
+            gate: { kind: 'awaiting' },
           };
         }
         return;
@@ -327,15 +330,15 @@ export class LeadInPlayback {
       case 'calibrating':
       case 'preRollBuffering':
       case 'starting': {
-        const pair = getStablePair(stage.gate, report);
-        if (pair === undefined) {
+        const reports = getStableReports(stage.gate, report);
+        if (reports === undefined) {
           this.stage = {
             ...stage,
             gate: followReport(stage.gate, report),
           };
           return;
         }
-        this.applyStablePair(stage, pair, report);
+        this.applyStableReports(stage, reports, report);
         return;
       }
       case 'preRoll':
@@ -368,7 +371,7 @@ export class LeadInPlayback {
           };
           return;
         }
-        if (report.atMs - stage.drift.fromAtMs >= SUSTAINED_DRIFT_MS) {
+        if (hasElapsed(stage.drift.fromAtMs, report.atMs, SUSTAINED_DRIFT_MS)) {
           this.requestAutoRecovery(false);
         }
         return;
@@ -381,9 +384,9 @@ export class LeadInPlayback {
     }
   }
 
-  private applyStablePair(
+  private applyStableReports(
     stage: Extract<Stage, { kind: 'warming' | 'calibrating' | 'preRollBuffering' | 'starting' }>,
-    pair: readonly [PositionReport, PositionReport],
+    reports: StableReports,
     report: PositionReport,
   ): void {
     switch (stage.kind) {
@@ -391,7 +394,7 @@ export class LeadInPlayback {
         this.calibrate(stage.isResuming, stage.waitFromAtMs, report);
         return;
       case 'calibrating': {
-        const seekLeadMs = getStartAtMs(pair, this.videoStartSec) - stage.seekAtMs;
+        const seekLeadMs = getStartAtMs(reports, this.videoStartSec) - stage.seekAtMs;
         const songSeekSec = this.videoStartSec - msToSec(seekLeadMs);
         if (stage.isResuming && this.currentTime > songSeekSec) {
           this.startSongWhileHeld(seekLeadMs, report);
@@ -403,18 +406,13 @@ export class LeadInPlayback {
       case 'preRollBuffering':
         this.startPreRoll(stage.seekLeadMs, report);
         return;
-      case 'starting': {
-        const startedAtMs = getStartAtMs(pair, this.videoStartSec);
-        if (getDistance(startedAtMs, stage.startAtMs) > SYNC_TOLERANCE_MS) {
-          this.fail('startFailed');
-          return;
-        }
+      case 'starting':
+        // 시작 오차는 한 번 잰 값으로 실패시키지 않는다: 감시가 지속 편차로 판단해 다시 맞춘다.
         this.stage = {
           kind: 'watching',
           drift: null,
         };
         return;
-      }
     }
   }
 
@@ -437,8 +435,8 @@ export class LeadInPlayback {
       };
       return;
     }
-    const pair = getStablePair(step.gate, report);
-    if (pair === undefined) {
+    const reports = getStableReports(step.gate, report);
+    if (reports === undefined) {
       this.stage = {
         kind: 'resyncing',
         trigger,
@@ -478,7 +476,8 @@ export class LeadInPlayback {
         return;
       }
       case 'measuring': {
-        const resumeAtMs = getStartAtMs(pair, heldSec - msToSec(RESUME_LEAD_MS)) + RESUME_LEAD_MS;
+        const resumeAtMs =
+          getStartAtMs(reports, heldSec - msToSec(RESUME_LEAD_MS)) + RESUME_LEAD_MS;
         // 실측이 끝났을 때 영상이 이미 정지 값을 지났으면 그 계획으로는 맞출 수 없다.
         if (resumeAtMs <= nowMs) {
           this.requestAutoRecovery(false);
@@ -501,7 +500,7 @@ export class LeadInPlayback {
           step: {
             kind: 'planned',
             resumeAtMs: nowMs + RESUME_LEAD_MS,
-            probeLeadMs: getStartAtMs(pair, 0) - step.seekAtMs,
+            probeLeadMs: getStartAtMs(reports, 0) - step.seekAtMs,
             lastReportedSec: report.positionSec,
           },
         };
@@ -515,7 +514,7 @@ export class LeadInPlayback {
           return;
         }
         const heldMs = secToMs(heldSec);
-        const reachAtMs = getStartAtMs(pair, 0) + heldMs;
+        const reachAtMs = getStartAtMs(reports, 0) + heldMs;
         if (reachAtMs <= nowMs && heldMs > PLANNED_RESUME_MAX_MS) {
           this.requestAutoRecovery(false);
           return;
@@ -680,10 +679,7 @@ export class LeadInPlayback {
       step: {
         kind: 'warming',
         waitFromAtMs: this.now(),
-        gate: {
-          kind: 'following',
-          previous: null,
-        },
+        gate: { kind: 'awaiting' },
       },
     };
   }
@@ -693,7 +689,11 @@ export class LeadInPlayback {
     if (
       isRecovering ||
       (this.autoResumedFromSec !== null &&
-        secToMs(this.currentTime - this.autoResumedFromSec) < AUTO_RECOVERY_INTERVAL_MS)
+        !hasElapsed(
+          secToMs(this.autoResumedFromSec),
+          secToMs(this.currentTime),
+          AUTO_RECOVERY_INTERVAL_MS,
+        ))
     ) {
       this.failResync();
       return;
@@ -752,20 +752,20 @@ export class LeadInPlayback {
       case 'warming':
       case 'calibrating':
       case 'preRollBuffering':
-        if (nowMs - stage.waitFromAtMs <= WAIT_LIMIT_MS) {
+        if (isWithin(stage.waitFromAtMs, nowMs, WAIT_LIMIT_MS)) {
           return false;
         }
         this.fail('startFailed');
         return true;
       case 'starting':
-        if (nowMs - stage.seekAtMs <= VERIFY_LIMIT_MS) {
+        if (isWithin(stage.seekAtMs, nowMs, VERIFY_LIMIT_MS)) {
           return false;
         }
         this.fail('startFailed');
         return true;
       case 'resyncing': {
         const waitFromAtMs = getResyncWaitFromAtMs(stage.step);
-        if (waitFromAtMs === null || nowMs - waitFromAtMs <= WAIT_LIMIT_MS) {
+        if (waitFromAtMs === null || isWithin(waitFromAtMs, nowMs, WAIT_LIMIT_MS)) {
           return false;
         }
         this.failResync();
@@ -826,38 +826,60 @@ export class LeadInPlayback {
   }
 }
 
+// 붙어 온 보고는 버리고 앞 보고에서 잰다. 바꿔 끼우면 짧은 간격으로 이어지는 보고가 구간을 영영 만들지 못한다.
 function followReport(gate: ReportGate, report: PositionReport): ReportGate {
   if (gate.kind === 'seeking' && report.positionSec >= gate.fromSec) {
+    return gate;
+  }
+  if (gate.kind !== 'following') {
+    return {
+      kind: 'following',
+      previous: report,
+      steadyFrom: null,
+    };
+  }
+  const { previous } = gate;
+  if (!hasElapsed(previous.atMs, report.atMs, STABLE_MIN_INTERVAL_MS)) {
     return gate;
   }
   return {
     kind: 'following',
     previous: report,
+    steadyFrom: isSteadySegment(previous, report) ? previous : null,
   };
 }
 
-function getStablePair(
-  gate: ReportGate,
-  report: PositionReport,
-): readonly [PositionReport, PositionReport] | undefined {
-  if (gate.kind !== 'following' || gate.previous === null) {
+function getStableReports(gate: ReportGate, report: PositionReport): StableReports | undefined {
+  if (gate.kind !== 'following' || gate.steadyFrom === null) {
     return undefined;
   }
-  const { previous } = gate;
-  const intervalMs = report.atMs - previous.atMs;
-  if (intervalMs < STABLE_MIN_INTERVAL_MS) {
+  const { previous, steadyFrom } = gate;
+  if (!isSteadySegment(previous, report)) {
     return undefined;
   }
-  const rate = secToMs(report.positionSec - previous.positionSec) / intervalMs;
-  return rate >= STABLE_MIN_RATE && rate <= STABLE_MAX_RATE ? [previous, report] : undefined;
+  const startGapMs = getDistance(
+    getStartAtMs([steadyFrom, previous], 0),
+    getStartAtMs([previous, report], 0),
+  );
+  return startGapMs <= STABLE_START_TOLERANCE_MS ? [steadyFrom, previous, report] : undefined;
 }
 
-// 보고 위치는 기대 시작 위치에서 1배속으로 흘렀다고 보고, 두 보고가 가리키는 진행 시작 시각을 평균한다.
-function getStartAtMs(pair: readonly [PositionReport, PositionReport], startSec: number): number {
-  const [first, second] = pair;
-  const firstStartAtMs = first.atMs - secToMs(first.positionSec - startSec);
-  const secondStartAtMs = second.atMs - secToMs(second.positionSec - startSec);
-  return (firstStartAtMs + secondStartAtMs) / 2;
+function isSteadySegment(from: PositionReport, to: PositionReport): boolean {
+  if (!hasElapsed(from.atMs, to.atMs, STABLE_MIN_INTERVAL_MS)) {
+    return false;
+  }
+  const intervalMs = to.atMs - from.atMs;
+  const rate = secToMs(to.positionSec - from.positionSec) / intervalMs;
+  return isInRange(rate, STABLE_MIN_RATE, STABLE_MAX_RATE);
+}
+
+// 보고 위치는 기대 시작 위치에서 1배속으로 흘렀다고 보고, 보고마다 가리키는 진행 시작 시각을 평균한다.
+function getStartAtMs(reports: readonly PositionReport[], startSec: number): number {
+  const totalMs = reports.reduce(
+    (sumMs, report) => sumMs + report.atMs - secToMs(report.positionSec - startSec),
+    0,
+  );
+  return totalMs / reports.length;
 }
 
 function getResyncWaitFromAtMs(step: ResyncStep): number | null {

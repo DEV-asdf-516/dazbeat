@@ -28,7 +28,7 @@ describe('dazbeat/paint-only', () => {
           line,
         })),
       ).toEqual(
-        [2, 3, 9, 12, 13, 14, 15, 16, 18, 22, 26].map((line) => ({
+        [9, 10, 11, 16, 17, 18, 19, 20, 22, 26, 30].map((line) => ({
           ruleId: 'dazbeat/paint-only',
           line,
         })),
@@ -38,7 +38,7 @@ describe('dazbeat/paint-only', () => {
   );
 
   it(
-    'allows previous values, widget caches, scene handlers and writes to objects outside state',
+    'allows previous values, comparisons outside state, widget caches, scene handlers and writes to objects outside state',
     async () => {
       const result = await lintFixture('allowed.ts');
 

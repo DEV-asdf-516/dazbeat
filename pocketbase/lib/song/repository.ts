@@ -44,7 +44,7 @@ function compileTitleClause(title: TitleSearch) {
 }
 
 export function buildSongSearchQuery(request: SongSearchRequest): SongSearchQuery {
-  const { title, category, cursor, scope } = request;
+  const { title, category, cursor, scope, level } = request;
   const titleClause = title === null ? null : compileTitleClause(title);
   const clauses: CompiledFilter[] = [
     titleClause,
@@ -70,6 +70,20 @@ export function buildSongSearchQuery(request: SongSearchRequest): SongSearchQuer
           params: {
             afterReleasedOn: cursor.releasedOn,
             afterId: cursor.id,
+          },
+        },
+    level === null
+      ? null
+      : {
+          // IN (SELECT …) 은 걸린 곡을 모두 모아 정렬하므로, 목록 인덱스 순서로 읽다 LIMIT 에서 멈추도록 곡마다 EXISTS 로 본다.
+          expression:
+            `EXISTS (SELECT 1 FROM ${CHARTS.name} WHERE ${joinOn(CHARTS, 'song', SONGS, 'id')} AND ` +
+            `${column(CHARTS, 'laneCount')} = {:levelLaneCount} AND ` +
+            `${column(CHARTS, 'level')} BETWEEN {:minLevel} AND {:maxLevel})`,
+          params: {
+            levelLaneCount: level.laneCount,
+            minLevel: level.min,
+            maxLevel: level.max,
           },
         },
   ].filter((clause) => clause !== null);
@@ -151,6 +165,7 @@ export function readSongSearchPage(
       column(CHARTS, 'song'),
       column(CHARTS, 'difficulty'),
       column(CHARTS, 'laneCount'),
+      column(CHARTS, 'level'),
     )
     .where(dbx.in(column(CHARTS, 'song'), ...songs.map((song) => song.id)))
     .all(charts);
@@ -162,6 +177,7 @@ export function readSongSearchPage(
       id: chart.id,
       difficulty: chart.getString('difficulty'),
       laneCount: chart.getInt('laneCount'),
+      level: chart.getFloat('level'),
     });
     chartsBySong.set(songId, songCharts);
   });

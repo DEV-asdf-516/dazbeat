@@ -31,34 +31,48 @@ export function getBrushRectTexture(scene: Phaser.Scene, look: BrushRectLook): s
   const { widthPx, heightPx, radiusPx, fillColor, fillAlpha, isFillSolid = false, border } = look;
   const borderKey = border === null ? 'none' : `${border.color}:${border.alpha}:${border.widthPx}`;
   const key = `brush-rect:${widthPx}:${heightPx}:${radiusPx}:${fillColor}:${fillAlpha}:${isFillSolid}:${borderKey}`;
-  createCanvasTexture(scene, key, Math.ceil(widthPx), Math.ceil(heightPx), (context) => {
-    const fill = context.createLinearGradient(0, 0, widthPx, heightPx);
-    fill.addColorStop(0, rgba(fillColor, Math.min(1, fillAlpha * FILL_START_RATIO)));
-    fill.addColorStop(1, rgba(fillColor, fillAlpha * FILL_END_RATIO));
-    const insetPx = (border?.widthPx ?? 0) / 2;
-    context.beginPath();
-    context.roundRect(insetPx, insetPx, widthPx - insetPx * 2, heightPx - insetPx * 2, radiusPx);
-    if (!isFillSolid) {
-      context.fillStyle = fill;
-      context.fill();
-    }
-    if (border !== null) {
-      const stroke = context.createLinearGradient(0, 0, widthPx, heightPx);
-      stroke.addColorStop(0, rgba(border.color, border.alpha));
-      stroke.addColorStop(1, rgba(border.color, border.alpha * BORDER_END_RATIO));
-      context.strokeStyle = stroke;
-      context.lineWidth = border.widthPx;
-      context.stroke();
-    }
-    applyGrain(context, widthPx, heightPx, GRAIN);
-    if (isFillSolid) {
-      context.globalCompositeOperation = 'destination-over';
-      context.fillStyle = rgba(fillColor, fillAlpha);
+  createCanvasTexture(
+    scene,
+    {
+      key,
+      widthPx: Math.ceil(widthPx),
+      heightPx: Math.ceil(heightPx),
+    },
+    (context) => {
+      const fill = context.createLinearGradient(0, 0, widthPx, heightPx);
+      fill.addColorStop(0, rgba(fillColor, Math.min(1, fillAlpha * FILL_START_RATIO)));
+      fill.addColorStop(1, rgba(fillColor, fillAlpha * FILL_END_RATIO));
+      const insetPx = (border?.widthPx ?? 0) / 2;
       context.beginPath();
       context.roundRect(insetPx, insetPx, widthPx - insetPx * 2, heightPx - insetPx * 2, radiusPx);
-      context.fill();
-    }
-  });
+      if (!isFillSolid) {
+        context.fillStyle = fill;
+        context.fill();
+      }
+      if (border !== null) {
+        const stroke = context.createLinearGradient(0, 0, widthPx, heightPx);
+        stroke.addColorStop(0, rgba(border.color, border.alpha));
+        stroke.addColorStop(1, rgba(border.color, border.alpha * BORDER_END_RATIO));
+        context.strokeStyle = stroke;
+        context.lineWidth = border.widthPx;
+        context.stroke();
+      }
+      applyGrain(context, widthPx, heightPx, GRAIN);
+      if (isFillSolid) {
+        context.globalCompositeOperation = 'destination-over';
+        context.fillStyle = rgba(fillColor, fillAlpha);
+        context.beginPath();
+        context.roundRect(
+          insetPx,
+          insetPx,
+          widthPx - insetPx * 2,
+          heightPx - insetPx * 2,
+          radiusPx,
+        );
+        context.fill();
+      }
+    },
+  );
   return key;
 }
 

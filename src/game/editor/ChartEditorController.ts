@@ -6,10 +6,11 @@ import type {
 import { RhythmClock } from '../../audio/RhythmClock.js';
 import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
 import { InvalidChartError, parseChart } from '../../data/chartSchema.js';
-import type { ChartRef, Song } from '../../data/songs.js';
+import type { ChartLevel, ChartRef, Song, SongChart } from '../../data/songs.js';
 import { requireDefined } from '../../invariant.js';
 import type { Chart, Difficulty, LaneCount } from '../../rhythm/types.js';
 import { stepItem } from '../../range.js';
+import type { ListDirection } from '../../range.js';
 import {
   clearNotes,
   completeSave,
@@ -18,6 +19,7 @@ import {
   deleteSelectedNote,
   findInvalidNote,
   selectNote,
+  setDraftLevel,
   toChart,
 } from './state/chartDraft.js';
 import type { ChartDraft } from './state/chartDraft.js';
@@ -25,15 +27,19 @@ import {
   decideNavigation,
   decideTestPlay,
   getActiveSelection,
+  getLevelControl,
   getSelection,
+  getEditableSession,
   getSession,
   hoverEditorButton,
   hoverSegment,
+  parseLevelInput,
   pressEditorButton,
   recordEdit,
   releaseEditorButton,
   settleEditorButtons,
   settleGesture,
+  stepLevel,
   undoEdit,
   unhoverEditorButton,
   unhoverSegment,
@@ -72,12 +78,28 @@ interface PlaybackPlayer {
 }
 
 export type ChartSaveOutcome =
-  | { readonly kind: 'saved'; readonly chartId: string; readonly revision: string }
+  | {
+      readonly kind: 'saved';
+      readonly chartId: string;
+      readonly revision: string;
+      readonly level: ChartLevel;
+    }
   | { readonly kind: 'conflict' };
 
+interface LoadedChart {
+  readonly chart: Chart;
+  readonly revision: string;
+  readonly level: ChartLevel;
+}
+
 export interface ChartCatalog {
-  loadChart(ref: ChartRef): Promise<{ readonly chart: Chart; readonly revision: string }>;
-  saveChart(song: Song, chart: Chart, baseRevision: string | null): Promise<ChartSaveOutcome>;
+  loadChart(ref: ChartRef): Promise<LoadedChart>;
+  saveChart(
+    song: Song,
+    chart: Chart,
+    level: ChartLevel,
+    baseRevision: string | null,
+  ): Promise<ChartSaveOutcome>;
 }
 
 export interface EditList {
@@ -86,7 +108,7 @@ export interface EditList {
     songId: string,
     laneCount: LaneCount,
     difficulty: Difficulty,
-    chartId: string,
+    saved: SongChart,
   ): Song | undefined;
 }
 
@@ -118,6 +140,8 @@ interface EditorScreen {
   leave(focusedSongId: string): void;
   render(previous: ChartEditorState | null, next: ChartEditorState): void;
   startTestPlay(chart: ChartRef, startTimeMs: number): void;
+  /** 레벨 입력칸 글자를 그 레벨로 맞추고 포커스를 푼다. */
+  syncLevelInput(level: ChartLevel | null): void;
 }
 
 interface EditorTiming {
@@ -204,16 +228,16 @@ export class ChartEditorController {
     this.requestNavigation({ kind: 'leave' });
   }
 
-  moveSong(delta: number): void {
-    this.selectInList(delta, {});
+  moveSong(direction: ListDirection): void {
+    this.selectInList({ direction });
   }
 
   selectLaneCount(laneCount: LaneCount): void {
-    this.selectInList(0, { laneCount });
+    this.selectInList({ laneCount });
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.selectInList(0, { difficulty });
+    this.selectInList({ difficulty });
   }
 
   confirmPending(): void {
@@ -249,7 +273,7 @@ export class ChartEditorController {
   }
 
   requestClearNotes(): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session === null) {
       return;
     }
@@ -263,7 +287,7 @@ export class ChartEditorController {
 
   /** 저장 중에도 편집할 수 있고, 끝나면 요청 때의 notes 만 저장 기준으로 삼으므로 그 뒤의 편집은 미저장으로 남는다. */
   async save(): Promise<void> {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session === null || session.saveProgress.kind === 'saving') {
       return;
     }
@@ -300,7 +324,7 @@ export class ChartEditorController {
       saveProgress: { kind: 'saving' },
     });
     const outcome = await this.catalog
-      .saveChart(draft.song, chart, draft.baseRevision)
+      .saveChart(draft.song, chart, draft.level, draft.baseRevision)
       .catch((error: unknown) => {
         console.error(
           `Failed to save chart for song ${draft.song.id} ${draft.laneCount}K difficulty ${draft.difficulty}`,
@@ -327,7 +351,10 @@ export class ChartEditorController {
     // 편집 목록은 곡 고르기 화면으로 돌아가도 쓰이므로 세션 확인 전에 반영한다. 저장이 겹칠 수 있으므로 요청 때의
     // 스냅샷이 아니라 지금의 편집 목록 곡에 chart id 를 더한다.
     const song = requireDefined(
-      this.list.applySavedChart(draft.song.id, draft.laneCount, draft.difficulty, outcome.chartId),
+      this.list.applySavedChart(draft.song.id, draft.laneCount, draft.difficulty, {
+        id: outcome.chartId,
+        level: outcome.level,
+      }),
       'Saved chart song is not in the edit list',
       draft.song.id,
     );
@@ -337,7 +364,7 @@ export class ChartEditorController {
     }
     this.setSession({
       ...current,
-      draft: completeSave(current.draft, draft.notes, song, outcome.revision),
+      draft: completeSave(current.draft, draft.notes, draft.level, song, outcome.revision),
       saveProgress: { kind: 'idle' },
     });
   }
@@ -384,10 +411,10 @@ export class ChartEditorController {
         this.back();
         return;
       case 'previousSong':
-        this.moveSong(-1);
+        this.moveSong('previous');
         return;
       case 'nextSong':
-        this.moveSong(1);
+        this.moveSong('next');
         return;
       case 'save':
         void this.save();
@@ -413,11 +440,39 @@ export class ChartEditorController {
       case 'confirmAccept':
         this.confirmPending();
         return;
+      case 'levelDown':
+        this.moveLevel('previous');
+        return;
+      case 'levelUp':
+        this.moveLevel('next');
+        return;
     }
   }
 
+  /** 레벨 변경은 Ctrl+Z 되돌리기 기록에 넣지 않는다. 되돌리기는 노트 편집만 되돌린다. */
+  moveLevel(direction: ListDirection): void {
+    const session = getEditableSession(this.current);
+    if (session !== null) {
+      this.setLevel(session, stepLevel(session.draft.level, direction));
+    }
+  }
+
+  /** 값 집합 밖의 글자는 레벨을 바꾸지 않고, 확정하면 입력칸은 지금 레벨 글자로 돌아간다. */
+  commitLevelInput(text: string): void {
+    const session = getEditableSession(this.current);
+    const level = parseLevelInput(text);
+    if (session !== null && level !== undefined) {
+      this.setLevel(session, level);
+    }
+    this.screen.syncLevelInput(getLevelControl(this.current).level);
+  }
+
+  cancelLevelInput(): void {
+    this.screen.syncLevelInput(getLevelControl(this.current).level);
+  }
+
   deleteSelected(): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session !== null) {
       this.setSession(
         recordEdit(withDraft(session, deleteSelectedNote(session.draft)), session.draft),
@@ -426,14 +481,14 @@ export class ChartEditorController {
   }
 
   undo(): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session !== null && session.gesture.kind === 'none') {
       this.setSession(undoEdit(session));
     }
   }
 
   pointerDown(pointer: TimelinePointer): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session === null) {
       return;
     }
@@ -450,7 +505,7 @@ export class ChartEditorController {
   }
 
   pointerMove(pointer: TimelinePointer): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session === null || session.gesture.kind === 'none') {
       return;
     }
@@ -459,7 +514,7 @@ export class ChartEditorController {
   }
 
   pointerUp(pointerTimeMs: number): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session === null || session.gesture.kind === 'none') {
       return;
     }
@@ -483,7 +538,7 @@ export class ChartEditorController {
   }
 
   togglePlayback(): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session === null) {
       return;
     }
@@ -530,10 +585,11 @@ export class ChartEditorController {
     }
   }
 
-  private selectInList(
-    delta: number,
-    change: { readonly laneCount?: LaneCount; readonly difficulty?: Difficulty },
-  ): void {
+  private selectInList(change: {
+    readonly direction?: ListDirection;
+    readonly laneCount?: LaneCount;
+    readonly difficulty?: Difficulty;
+  }): void {
     const selection = getSelection(this.current);
     const songs = this.list.songs;
     const listed = requireDefined(
@@ -543,7 +599,7 @@ export class ChartEditorController {
     );
     this.requestNavigation({
       kind: 'select',
-      song: stepItem(songs, listed, delta),
+      song: change.direction === undefined ? listed : stepItem(songs, listed, change.direction),
       laneCount: change.laneCount ?? selection.laneCount,
       difficulty: change.difficulty ?? selection.difficulty,
     });
@@ -602,8 +658,8 @@ export class ChartEditorController {
     const { song, laneCount, difficulty } = selection;
     const startTimeMs = keptTimeMs ?? song.gameStartMs;
     // 에디터는 채보가 없는 레인 수·난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
-    const chartId = song.chartIds[laneCount]?.[difficulty];
-    if (chartId === undefined) {
+    const listed = song.charts[laneCount]?.[difficulty];
+    if (listed === undefined) {
       this.enter(startEditing(createEmptyDraft(song, laneCount, difficulty)), startTimeMs);
       return;
     }
@@ -612,13 +668,14 @@ export class ChartEditorController {
       selection,
     };
     this.enter(loading, startTimeMs);
-    let loaded: { readonly chart: Chart; readonly revision: string };
+    let loaded: LoadedChart;
     try {
       loaded = await this.catalog.loadChart({
         song,
         laneCount,
         difficulty,
-        chartId,
+        chartId: listed.id,
+        level: listed.level,
       });
     } catch (error) {
       console.error(
@@ -639,7 +696,7 @@ export class ChartEditorController {
     if (this.current.phase !== loading) {
       return;
     }
-    const draft = createDraft(song, loaded.chart, loaded.revision);
+    const draft = createDraft(song, loaded.chart, loaded.revision, loaded.level);
     this.enter(
       startEditing(draft),
       keptTimeMs === null
@@ -756,6 +813,10 @@ export class ChartEditorController {
     }
   }
 
+  private setLevel(session: EditorSession, level: ChartLevel): void {
+    this.setSession(withDraft(session, setDraftLevel(session.draft, level)));
+  }
+
   private edit(session: EditorSession): void {
     this.setPhase({
       kind: 'editing',
@@ -764,7 +825,7 @@ export class ChartEditorController {
   }
 
   private requestTestPlay(): void {
-    const session = this.getEditableSession();
+    const session = getEditableSession(this.current);
     if (session === null) {
       return;
     }
@@ -831,11 +892,6 @@ export class ChartEditorController {
       this.player.pause();
     }
     this.screen.render(previous, next);
-  }
-
-  private getEditableSession(): EditorSession | null {
-    const { phase } = this.current;
-    return phase.kind === 'editing' ? phase.session : null;
   }
 
   private getGestureLimits(): GestureLimits {

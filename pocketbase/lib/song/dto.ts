@@ -1,5 +1,5 @@
-import { DIFFICULTIES, SONG_CATEGORIES } from '../../../src/data/songs.js';
-import type { SongCategory, SongScope } from '../../../src/data/songs.js';
+import { CHART_LEVELS, DIFFICULTIES, SONG_CATEGORIES } from '../../../src/data/songs.js';
+import type { SongCategory, SongLevelQuery, SongScope } from '../../../src/data/songs.js';
 import { HTTP_STATUS } from '../../../src/httpStatus.js';
 import { LANE_COUNTS } from '../../../src/rhythm/lanes.js';
 import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
@@ -14,6 +14,7 @@ const MAX_PREFIX_LENGTH = 2;
 const isCategory = isOneOf(SONG_CATEGORIES);
 const isDifficulty = isOneOf(DIFFICULTIES);
 const isLaneCount = isOneOf(LANE_COUNTS);
+const isChartLevel = isOneOf(CHART_LEVELS);
 
 type SongSearchRejectionCode = 'invalid_request' | 'editor_required';
 
@@ -34,7 +35,7 @@ export class InvalidSongSearchError extends Error {
 }
 
 export type ChartSaveRejectionCode =
-  'invalid_chart' | 'base_revision_required' | 'chart_revision_conflict';
+  'invalid_chart' | 'invalid_level' | 'base_revision_required' | 'chart_revision_conflict';
 
 export const CHART_SAVE_REJECTIONS: Record<
   ChartSaveRejectionCode,
@@ -43,6 +44,10 @@ export const CHART_SAVE_REJECTIONS: Record<
   invalid_chart: {
     status: HTTP_STATUS.badRequest,
     field: 'data',
+  },
+  invalid_level: {
+    status: HTTP_STATUS.badRequest,
+    field: 'level',
   },
   base_revision_required: {
     status: HTTP_STATUS.badRequest,
@@ -70,6 +75,7 @@ export interface ChartRecord {
   readonly difficulty: Difficulty;
   readonly laneCount: LaneCount;
   readonly data: string;
+  readonly level: number;
 }
 
 export function parseChartRecord(fields: {
@@ -77,8 +83,9 @@ export function parseChartRecord(fields: {
   readonly difficulty: string;
   readonly laneCount: number;
   readonly data: string;
+  readonly level: number;
 }): ChartRecord {
-  const { difficulty, laneCount } = fields;
+  const { difficulty, laneCount, level } = fields;
   if (!isDifficulty(difficulty)) {
     throw new InvalidChartSaveError(
       'invalid_chart',
@@ -89,6 +96,12 @@ export function parseChartRecord(fields: {
     throw new InvalidChartSaveError(
       'invalid_chart',
       `laneCount must be one of ${LANE_COUNTS.join(', ')}.`,
+    );
+  }
+  if (!isChartLevel(level)) {
+    throw new InvalidChartSaveError(
+      'invalid_level',
+      `level must be one of ${CHART_LEVELS.join(', ')}.`,
     );
   }
   return {
@@ -114,6 +127,9 @@ export interface SongSearchInput {
   readonly afterReleasedOn: unknown;
   readonly afterId: unknown;
   readonly scope: unknown;
+  readonly laneCount: unknown;
+  readonly minLevel: unknown;
+  readonly maxLevel: unknown;
   readonly canListUnpublished: boolean;
 }
 
@@ -132,6 +148,7 @@ export interface SongSearchRequest {
   readonly category: SongCategory | null;
   readonly cursor: SongSearchCursor | null;
   readonly scope: SongScope;
+  readonly level: SongLevelQuery | null;
 }
 
 export function parseSongSearchInput(input: SongSearchInput): SongSearchRequest {
@@ -140,6 +157,7 @@ export function parseSongSearchInput(input: SongSearchInput): SongSearchRequest 
     category: parseCategory(input.category),
     cursor: parseCursor(input.afterReleasedOn, input.afterId),
     scope: parseScope(input.scope, input.canListUnpublished),
+    level: parseLevel(input.laneCount, input.minLevel, input.maxLevel),
   };
 }
 
@@ -216,10 +234,50 @@ function parseCursor(releasedOn: unknown, id: unknown): SongSearchCursor | null 
   };
 }
 
+function parseLevel(
+  laneCount: unknown,
+  minLevel: unknown,
+  maxLevel: unknown,
+): SongLevelQuery | null {
+  if (laneCount === undefined && minLevel === undefined && maxLevel === undefined) {
+    return null;
+  }
+  if (!isString(laneCount) || !isString(minLevel) || !isString(maxLevel)) {
+    throw new InvalidSongSearchError(
+      'invalid_request',
+      'laneCount, minLevel and maxLevel must all be given.',
+    );
+  }
+  const lanes = Number(laneCount);
+  if (!isLaneCount(lanes)) {
+    throw new InvalidSongSearchError(
+      'invalid_request',
+      `laneCount must be one of ${LANE_COUNTS.join(', ')}.`,
+    );
+  }
+  const min = Number(minLevel);
+  const max = Number(maxLevel);
+  if (!isChartLevel(min) || !isChartLevel(max)) {
+    throw new InvalidSongSearchError(
+      'invalid_request',
+      `minLevel and maxLevel must be one of ${CHART_LEVELS.join(', ')}.`,
+    );
+  }
+  if (min > max) {
+    throw new InvalidSongSearchError('invalid_request', 'minLevel must not exceed maxLevel.');
+  }
+  return {
+    laneCount: lanes,
+    min,
+    max,
+  };
+}
+
 export interface SongSearchChart {
   readonly id: string;
   readonly difficulty: string;
   readonly laneCount: number;
+  readonly level: number;
 }
 
 export interface SongSearchPage {

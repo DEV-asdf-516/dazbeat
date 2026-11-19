@@ -415,7 +415,6 @@ export function readUserBestRecords(
       score: 'float',
       accuracy: 'float',
       maxCombo: 'int',
-      cleared: 'bool',
     },
     app
       .db()
@@ -427,7 +426,6 @@ export function readUserBestRecords(
         `MAX(${column(SCORES, 'score')}) AS score`,
         `MAX(${column(SCORES, 'accuracy')}) AS accuracy`,
         `MAX(${column(SCORES, 'maxCombo')}) AS maxCombo`,
-        `MAX(${column(SCORES, 'cleared')}) AS cleared`,
       )
       .from(SCORES.name)
       .innerJoin(CHARTS.name, dbx.exp(joinOn(CHARTS, 'id', SCORES, 'chart')))
@@ -447,6 +445,5 @@ export function readUserBestRecords(
     score: row.score,
     accuracy: row.accuracy,
     maxCombo: row.maxCombo,
-    cleared: row.cleared,
   }));
 }
