@@ -170,11 +170,11 @@ describe('readSettingsKey', () => {
   function readState(
     state: SettingsEditorState,
     code: string,
-    repeat = false,
+    isRepeat = false,
   ): SettingsEditorState {
     const result = readSettingsKey(state, {
       code,
-      repeat,
+      repeat: isRepeat,
     });
     if (result.kind !== 'state') {
       throw new Error('expected a state');

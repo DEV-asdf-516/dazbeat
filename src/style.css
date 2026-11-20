@@ -36,18 +36,44 @@ body {
   transform: translate(-50%, -50%);
 }
 
-#mv-layer[data-mv-mode='dim'] iframe {
-  filter: brightness(0.4);
+/* 하드웨어 가속이 꺼지면 CSS 필터를 CPU 가 화면 픽셀마다 계산한다.
+   그래서 어둡게 하기는 brightness 대신 검은 덮개로 한다. 불투명도 0.6 덮개는 brightness(0.4) 와 같은 색이다. */
+#mv-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+}
+
+#mv-layer[data-mv-mode='dim']::after {
+  opacity: 0.6;
+}
+
+#mv-layer[data-mv-mode='blur']::after {
+  opacity: 0.3;
 }
 
 #mv-layer[data-mv-mode='blur'] iframe {
-  filter: blur(24px) brightness(0.7);
+  filter: blur(24px);
   transform: translate(-50%, -50%) scale(1.1);
+}
+
+/* 흐림 비용은 흐리는 픽셀 수에 비례하는데, Chrome 은 흐릴 면을 화면까지의 확대 배율만큼 키워 잡는다.
+   변환에 원근 성분이 있으면 그 배율 계산을 건너뛰므로, 1/3 크기로 흐린 뒤 원근 행렬로 키우면 흐리는 픽셀이 1/9 로 준다.
+   원근 값 1e-6 은 화면에서 1px 미만이다. 1/3 은 1280px 폭 창에서도 YouTube 최소 플레이어 높이 200px 을 지킨다. */
+#mv-layer[data-graphics='low'][data-mv-mode='blur'] iframe {
+  width: calc(max(100vw, 177.78vh) / 3);
+  height: calc(max(100vh, 56.25vw) / 3);
+  filter: blur(8px);
+  transform: translate(-50%, -50%)
+    matrix3d(3.3, 0, 0, 0.000001, 0, 3.3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
 }
 
 /* 플레이 중 영상 위치를 다시 맞추는 동안(로딩·재개·카운트다운)은 MV 모드와 별개로 가린다.
    곡 선택 미리듣기는 소리만 내므로 곡 선택 화면에 있는 동안에도 가린다. */
-#mv-layer[data-mv-hidden] iframe {
+#mv-layer[data-mv-hidden] iframe,
+#mv-layer[data-mv-hidden]::after {
   opacity: 0;
 }
 
@@ -70,6 +96,14 @@ body {
   z-index: 1;
   width: 100vw;
   height: 100vh;
+}
+
+/* 2배율 화면은 가속이 꺼지면 캔버스를 화면 크기로 키우는 합성이 프레임을 막는다.
+   1배율은 합성이 병목이 아니고, nearest 로 줄이면 가는 선이 빠진다. */
+@media (min-resolution: 2dppx) {
+  #mv-layer[data-graphics='low'] ~ #game canvas {
+    image-rendering: pixelated;
+  }
 }
 
 /* 캔버스 위에 일반 요소가 없으면 Chrome 이 60Hz 화면에 프레임을 고르지 않게 내보내 노트가 끊겨 보인다. */

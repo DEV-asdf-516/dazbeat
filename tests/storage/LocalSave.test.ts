@@ -11,6 +11,7 @@ import type { FinishedGameplayResult } from '../../src/rhythm/types.js';
 const SETTINGS_KEY = 'dazbeat:settings:v1';
 const RECORDS_KEY = 'dazbeat:records:v2';
 const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
+const ACCELERATION_NOTICE_KEY = 'dazbeat:accelerationNotice:v1';
 const CUSTOM_KEY_BINDINGS: KeyBindings = {
   4: ['KeyQ', 'KeyW', 'KeyO', 'KeyP'],
   5: ['KeyQ', 'KeyW', 'Space', 'KeyO', 'KeyP'],
@@ -546,5 +547,33 @@ describe('LocalSave revision notices', () => {
     storage.setItem(REVISION_NOTICES_KEY, '{');
     expect(save.loadRevisionNotices()).toEqual(new Map());
     expect(warnSpy).toHaveBeenCalledOnce();
+  });
+});
+
+describe('LocalSave acceleration notice', () => {
+  it('is not dismissed when nothing is saved', () => {
+    expect(save.isAccelerationNoticeDismissed()).toBe(false);
+  });
+
+  it('stays dismissed for a new save on the same storage', () => {
+    save.dismissAccelerationNotice();
+
+    expect(new LocalSave(storage).isAccelerationNoticeDismissed()).toBe(true);
+    expect(storage.getItem(ACCELERATION_NOTICE_KEY)).toBe('{"isDismissed":true}');
+  });
+
+  it('is not dismissed when the saved value is broken or not a boolean', () => {
+    storage.setItem(ACCELERATION_NOTICE_KEY, '{');
+    expect(save.isAccelerationNoticeDismissed()).toBe(false);
+
+    storage.setItem(ACCELERATION_NOTICE_KEY, JSON.stringify({ isDismissed: 'true' }));
+    expect(save.isAccelerationNoticeDismissed()).toBe(false);
+  });
+
+  it('propagates setItem errors', () => {
+    vi.spyOn(storage, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+    expect(() => save.dismissAccelerationNotice()).toThrow('quota');
   });
 });

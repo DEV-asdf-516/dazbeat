@@ -11,6 +11,28 @@ export const en: Messages = {
       signInFailed: 'Google sign-in failed.',
       rejoinBlocked: "A deleted Google account can't be used again.",
     },
+    accelerationNotice: {
+      title: 'Hardware Acceleration Off',
+      body: {
+        chrome: 'Gameplay may not run smoothly.\nTurn on the setting below and restart Chrome.',
+        edge: 'Gameplay may not run smoothly.\nTurn on the setting below and restart Edge.',
+        whale: 'Gameplay may not run smoothly.\nTurn on the setting below and restart Whale.',
+        opera: 'Gameplay may not run smoothly.\nTurn on the setting below and restart Opera.',
+        firefox: 'Gameplay may not run smoothly.\nChange the settings below and restart Firefox.',
+        other:
+          'Gameplay may not run smoothly.\nTurn on hardware acceleration in your browser settings and restart the browser.',
+      },
+      setting: {
+        chrome: 'Settings > System > Use graphics acceleration when available',
+        edge: 'Settings > System and performance > Use graphics acceleration when available',
+        whale: 'Settings > Performance and Others > Use graphics acceleration when available',
+        opera: 'Settings > System > Use graphics acceleration when available',
+        firefox:
+          'Settings > General > Performance\nTurn off Use recommended performance settings\nTurn on Use hardware acceleration when available',
+      },
+      dismiss: "Don't show again",
+      accept: 'OK',
+    },
   },
   controls: {
     gameplay: {

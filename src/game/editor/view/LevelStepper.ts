@@ -100,10 +100,6 @@ export class LevelStepper {
     return this.input.isFocused;
   }
 
-  get inputText(): string {
-    return this.input.text;
-  }
-
   render(view: {
     readonly level: ChartLevel | null;
     readonly isEnabled: boolean;
@@ -119,10 +115,9 @@ export class LevelStepper {
     }
   }
 
-  /** 글자를 먼저 맞춘 뒤 포커스를 풀어, 그때 오는 blur 확정이 바뀐 것 없이 끝나게 한다. */
+  /** 글자만 맞춘다. 확정은 blur 리스너 한 곳이라 여기서 blur 하면 확정이 확정을 부른다. */
   syncInput(level: ChartLevel | null): void {
     this.input.setText(formatLevel(level));
-    this.input.blur();
   }
 
   blur(): void {

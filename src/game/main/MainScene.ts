@@ -14,8 +14,11 @@ import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type { SceneRequest } from '../app/sceneRoutes.js';
 import { getAccountPanel } from './state/accountPanel.js';
 import { MainController } from './MainController.js';
+import type { AccelerationNoticePorts } from './MainController.js';
+import type { BrowserKind } from './state/accelerationNotice.js';
 import type { CornerPanel, UserPanel } from './state/accountPanel.js';
 import {
+  getAccelerationNoticeButtonViews,
   getChangedRegions,
   getMainButtonView,
   getMainControlsCloseView,
@@ -61,6 +64,7 @@ import {
   getTitleBackdropTextureUses,
 } from '../ui/view/widgets/titleBackdrop.js';
 import { LOADING_STAR_ID, LoadingStar } from '../ui/view/widgets/LoadingStar.js';
+import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import { COLORS, LIST_ROW, SCREEN_LAYOUT, textStyle } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
 
@@ -146,9 +150,37 @@ const YOUTUBE_BUTTON_TOP_Y_PX =
   SCREEN_LAYOUT.hintYPx +
   (MENU_KEY_HINT_STYLE.capHeightPx - YOUTUBE_ICON_SIZE_PX) / 2 -
   QUIET_PADDING_PX.yPx;
+// 그 밖의 브라우저는 설정 위치를 하나로 정할 수 없다.
+const ACCELERATION_NOTICE_GUIDES = {
+  chrome: {
+    bodyKey: 'main.accelerationNotice.body.chrome',
+    settingKey: 'main.accelerationNotice.setting.chrome',
+  },
+  edge: {
+    bodyKey: 'main.accelerationNotice.body.edge',
+    settingKey: 'main.accelerationNotice.setting.edge',
+  },
+  whale: {
+    bodyKey: 'main.accelerationNotice.body.whale',
+    settingKey: 'main.accelerationNotice.setting.whale',
+  },
+  opera: {
+    bodyKey: 'main.accelerationNotice.body.opera',
+    settingKey: 'main.accelerationNotice.setting.opera',
+  },
+  firefox: {
+    bodyKey: 'main.accelerationNotice.body.firefox',
+    settingKey: 'main.accelerationNotice.setting.firefox',
+  },
+  other: {
+    bodyKey: 'main.accelerationNotice.body.other',
+    settingKey: null,
+  },
+} as const satisfies Record<BrowserKind, { bodyKey: string; settingKey: string | null }>;
 
 interface MainView {
   chrome: MenuSceneChrome;
+  accelerationNotice: ConfirmDialog;
   account: AccountView;
   menuButtons: readonly {
     item: MainMenuItem;
@@ -177,6 +209,7 @@ export class MainScene extends Phaser.Scene {
     private readonly auth: AccountAuth,
     private readonly celestial: CelestialCatalog,
     private readonly catalog: AchievementCatalog,
+    private readonly accelerationNotice: AccelerationNoticePorts,
   ) {
     super(SCENE_KEYS.main);
   }
@@ -227,6 +260,7 @@ export class MainScene extends Phaser.Scene {
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) => controller.handleAccelerationNoticeKey(event),
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => {
           switch (action) {
@@ -282,6 +316,11 @@ export class MainScene extends Phaser.Scene {
     ];
     const mainView: MainView = {
       chrome,
+      // 첫 render 가 팝업 영역을 그리므로 컨트롤러보다 먼저 만든다.
+      accelerationNotice: new ConfirmDialog(this, {
+        cancel: pointButton(pointer, 'accelerationNoticeDismiss'),
+        accept: pointButton(pointer, 'accelerationNoticeAccept'),
+      }),
       account: view,
       menuButtons: menuItems.map((item) => {
         const button = new Button(this, SCREEN_LAYOUT.leftXPx, MENU_TOP_Y_PX, {
@@ -316,15 +355,19 @@ export class MainScene extends Phaser.Scene {
       }),
     };
     chrome.start(logo.getBounds());
-    const controller = new MainController(this.auth, {
-      render: (previous, next) => {
-        for (const region of getChangedRegions(previous, next)) {
-          this.renderRegion(mainView, next, region);
-        }
+    const controller = new MainController(
+      this.auth,
+      {
+        render: (previous, next) => {
+          for (const region of getChangedRegions(previous, next)) {
+            this.renderRegion(mainView, next, region);
+          }
+        },
+        playSound: (sound) => soundEffects.play(sound),
+        activate: (button) => this.activate(button, controller),
       },
-      playSound: (sound) => soundEffects.play(sound),
-      activate: (button) => this.activate(button, controller),
-    });
+      this.accelerationNotice,
+    );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
   }
 
@@ -408,6 +451,28 @@ export class MainScene extends Phaser.Scene {
       case 'youtubeHearts':
         playYoutubeHearts(this, view.account.youtubeButton);
         return;
+      case 'accelerationNotice': {
+        const notice = state.accelerationNotice;
+        if (notice.kind === 'closed') {
+          view.accelerationNotice.render(null);
+          return;
+        }
+        const { bodyKey, settingKey } = ACCELERATION_NOTICE_GUIDES[notice.browser];
+        view.accelerationNotice.render({
+          title: this.i18n.t('main.accelerationNotice.title'),
+          body: this.i18n.t(bodyKey),
+          ...(settingKey === null ? {} : { emphasis: this.i18n.t(settingKey) }),
+          cancelLabel: this.i18n.t('main.accelerationNotice.dismiss'),
+          acceptLabel: this.i18n.t('main.accelerationNotice.accept'),
+          acceptTone: 'default',
+        });
+        return;
+      }
+      case 'accelerationNoticeButtons': {
+        const { dismiss, accept } = getAccelerationNoticeButtonViews(state);
+        view.accelerationNotice.renderButtons(dismiss, accept);
+        return;
+      }
     }
   }
 

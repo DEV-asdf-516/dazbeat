@@ -1269,11 +1269,13 @@ export class ChartEditorScene extends Phaser.Scene {
       case 'back':
         editor.back();
         return;
-      case 'commitLevelInput':
-        editor.commitLevelInput(view.levelStepper.inputText);
+      case 'blurLevelInput':
+        view.levelStepper.blur();
         return;
+      // 글자를 먼저 되돌려야 blur 확정이 지금 레벨로 끝나 아무것도 바꾸지 않는다.
       case 'cancelLevelInput':
         editor.cancelLevelInput();
+        view.levelStepper.blur();
         return;
       case null:
         return;

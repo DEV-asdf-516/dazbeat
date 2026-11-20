@@ -39,6 +39,7 @@ import { CreditsScene } from './game/credits/CreditsScene.js';
 import { GameplayScene } from './game/gameplay/GameplayScene.js';
 import type { RankedPlay } from './game/gameplay/GameplayController.js';
 import { MainScene } from './game/main/MainScene.js';
+import type { AccelerationNoticePorts } from './game/main/MainController.js';
 import type { ProfilePorts } from './game/profile/ProfileController.js';
 import { ProfileScene } from './game/profile/ProfileScene.js';
 import type { RankingPorts } from './game/ranking/RankingController.js';
@@ -236,8 +237,28 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       },
       catalog: achievements,
     };
+    // Phaser 는 webgl 컨텍스트를 못 만들 때만 Canvas 로 그리므로, 이 검사가 Canvas 렌더러까지 잡는다.
+    const isSoftwareRendering =
+      document
+        .createElement('canvas')
+        .getContext('webgl2', { failIfMajorPerformanceCaveat: true }) === null;
+    // 안내는 부팅 직후 첫 메인 화면에서만 띄우므로 한 번 넘기면 지운다.
+    let isAccelerationNoticeDue = isSoftwareRendering;
+    const accelerationNotice: AccelerationNoticePorts = {
+      takeBootSoftwareRendering: () => {
+        const isDue = isAccelerationNoticeDue;
+        isAccelerationNoticeDue = false;
+        return isDue;
+      },
+      isDismissed: () => save.isAccelerationNoticeDismissed(),
+      dismiss: () => save.dismissAccelerationNotice(),
+      browser: {
+        userAgentData: 'userAgentData' in navigator ? navigator.userAgentData : undefined,
+        userAgent: navigator.userAgent,
+      },
+    };
     const scenes = [
-      new MainScene(save, i18n, auth, celestial, achievements),
+      new MainScene(save, i18n, auth, celestial, achievements, accelerationNotice),
       new CreditsScene(save, catalog, i18n, celestial, account),
       new SongSelectScene(
         save,
@@ -255,7 +276,16 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       new SettingsScene(save, i18n, celestial, menuMusic, account),
       new ProfileScene(save, i18n, celestial, profilePorts, account),
       new RankingScene(save, i18n, celestial, achievements, rankingPorts, account),
-      new GameplayScene(save, mvLayer, prepareChart, loadPlayChart, i18n, celestial, rankedPlay),
+      new GameplayScene(
+        save,
+        mvLayer,
+        prepareChart,
+        loadPlayChart,
+        i18n,
+        celestial,
+        rankedPlay,
+        isSoftwareRendering,
+      ),
       new ResultScene(save, i18n, celestial, achievements, account),
       new ChartEditorSelectScene(editorFeeds, auth, i18n, celestial),
       new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),

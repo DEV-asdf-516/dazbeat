@@ -16,6 +16,7 @@ import {
   unhoverMainButton,
   withAccount,
 } from '../../../../src/game/main/state/mainMenu.js';
+import type { AccelerationNotice } from '../../../../src/game/main/state/accelerationNotice.js';
 import { requireDefined } from '../../../../src/invariant.js';
 
 const USER: AuthUser = {
@@ -38,11 +39,13 @@ function signedIn(user: AuthUser): AccountState {
   };
 }
 
+const CLOSED_NOTICE: AccelerationNotice = { kind: 'closed' };
+
 const FOCUS_REGIONS = ['menuButtons', 'profileButton', 'youtubeButton'] as const;
 
 describe('getChangedRegions', () => {
   it('draws every region and the focus motion first without hearts', () => {
-    expect(getChangedRegions(null, createMainState(GUEST))).toEqual([
+    expect(getChangedRegions(null, createMainState(GUEST, CLOSED_NOTICE))).toEqual([
       'account',
       'menu',
       'menuButtons',
@@ -54,18 +57,20 @@ describe('getChangedRegions', () => {
       'controlsClose',
       'controlsHelpCard',
       'controlsHelpButton',
+      'accelerationNotice',
+      'accelerationNoticeButtons',
       'menuFocusMotion',
     ]);
   });
 
   it('redraws only the controls when only the controls open', () => {
-    const state = createMainState(GUEST);
+    const state = createMainState(GUEST, CLOSED_NOTICE);
 
     expect(getChangedRegions(state, withControlsOpen(state, true))).toEqual(['controls']);
   });
 
   it('plays the focus motion and the hearts when the focus moves to YouTube', () => {
-    const state = createMainState(GUEST);
+    const state = createMainState(GUEST, CLOSED_NOTICE);
 
     expect(getChangedRegions(state, moveMainFocus(state, 'previous'))).toEqual([
       ...FOCUS_REGIONS,
@@ -75,7 +80,7 @@ describe('getChangedRegions', () => {
   });
 
   it('plays only the focus motion when the focus moves elsewhere', () => {
-    const state = createMainState(GUEST);
+    const state = createMainState(GUEST, CLOSED_NOTICE);
     const youtube = moveMainFocus(state, 'previous');
 
     expect(getChangedRegions(state, moveMainFocus(state, 'next'))).toEqual([
@@ -89,7 +94,7 @@ describe('getChangedRegions', () => {
   });
 
   it('redraws the account for an account change with the same menu items', () => {
-    const state = createMainState(GUEST);
+    const state = createMainState(GUEST, CLOSED_NOTICE);
 
     expect(getChangedRegions(state, withAccount(state, { kind: 'signingIn' }))).toEqual([
       'account',
@@ -98,7 +103,7 @@ describe('getChangedRegions', () => {
 
   it('redraws the focus too when an account change moves the focus back', () => {
     const profile = moveMainFocus(
-      moveMainFocus(createMainState(signedIn(USER)), 'previous'),
+      moveMainFocus(createMainState(signedIn(USER), CLOSED_NOTICE), 'previous'),
       'previous',
     );
 
@@ -110,7 +115,7 @@ describe('getChangedRegions', () => {
   });
 
   it('replays only the menu item motion when the editor permission changes the menu', () => {
-    const state = createMainState(signedIn(USER));
+    const state = createMainState(signedIn(USER), CLOSED_NOTICE);
     const editor = withAccount(
       state,
       signedIn({
@@ -128,6 +133,7 @@ describe('getChangedRegions', () => {
         ...USER,
         isEditor: true,
       }),
+      CLOSED_NOTICE,
     );
     const chartEditor = moveMainFocus(moveMainFocus(editor, 'next'), 'next');
 
@@ -141,7 +147,7 @@ describe('getChangedRegions', () => {
 });
 
 describe('controls help', () => {
-  const open = withControlsOpen(createMainState(GUEST), true);
+  const open = withControlsOpen(createMainState(GUEST, CLOSED_NOTICE), true);
 
   it('shows the card on (?) hover, keeps it pinned and redraws the help regions but not the controls list', () => {
     const hovered = hoverMainButton(open, 'controlsHelp');
@@ -183,7 +189,7 @@ describe('controls help', () => {
 });
 
 describe('getChangedRegions for the buttons', () => {
-  const state = createMainState(signedIn(USER));
+  const state = createMainState(signedIn(USER), CLOSED_NOTICE);
 
   it('redraws only the hovered button when the hover changes', () => {
     const hovered = hoverMainButton(state, 'account');
@@ -218,12 +224,14 @@ describe('getChangedRegions for the buttons', () => {
         ...USER,
         isEditor: true,
       }),
+      CLOSED_NOTICE,
     );
 
     expect(withAccount(hoverMainButton(editor, 'chartEditor'), GUEST).hover).toBeNull();
     expect(withAccount(hoverMainButton(state, 'profile'), GUEST).hover).toBeNull();
     expect(
-      withAccount(hoverMainButton(createMainState(GUEST), 'account'), signedIn(USER)).hover,
+      withAccount(hoverMainButton(createMainState(GUEST, CLOSED_NOTICE), 'account'), signedIn(USER))
+        .hover,
     ).toBeNull();
   });
 });

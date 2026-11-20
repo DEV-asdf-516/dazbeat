@@ -160,7 +160,21 @@ export function ensureCrescentTexture(scene: Phaser.Scene, sizePx: number): stri
   return key;
 }
 
-export function addSkyScrim(scene: Phaser.Scene): Phaser.GameObjects.Image {
+export function addSkyScrim(scene: Phaser.Scene, widthPx: number): Phaser.GameObjects.Image {
+  return addBakedImage(scene, makeSkyScrimGraphics(scene, widthPx), SKY_SCRIM_TEXTURE_KEY, widthPx);
+}
+
+export function fitSkyScrim(skyScrim: Phaser.GameObjects.Image, widthPx: number): void {
+  rebakeTexture(
+    skyScrim.scene,
+    makeSkyScrimGraphics(skyScrim.scene, widthPx),
+    SKY_SCRIM_TEXTURE_KEY,
+    widthPx,
+  );
+  skyScrim.setTexture(SKY_SCRIM_TEXTURE_KEY);
+}
+
+function makeSkyScrimGraphics(scene: Phaser.Scene, widthPx: number): Phaser.GameObjects.Graphics {
   const skyScrimGraphics = scene.make.graphics(undefined, false);
   fillVerticalProfile(
     skyScrimGraphics,
@@ -169,9 +183,9 @@ export function addSkyScrim(scene: Phaser.Scene): Phaser.GameObjects.Image {
       topYPx,
       bottomYPx,
       topLeftXPx: 0,
-      topRightXPx: GAME_WIDTH,
+      topRightXPx: widthPx,
       bottomLeftXPx: 0,
-      bottomRightXPx: GAME_WIDTH,
+      bottomRightXPx: widthPx,
     }),
     CELESTIAL_COLORS.background,
     {
@@ -179,7 +193,7 @@ export function addSkyScrim(scene: Phaser.Scene): Phaser.GameObjects.Image {
       right: 1,
     },
   );
-  return addBakedImage(scene, skyScrimGraphics, SKY_SCRIM_TEXTURE_KEY);
+  return skyScrimGraphics;
 }
 
 export function addLaneChrome(
@@ -292,7 +306,7 @@ export function addLaneChrome(
       },
     ),
   );
-  return addBakedImage(scene, laneChromeGraphics, LANE_CHROME_TEXTURE_KEY);
+  return addBakedImage(scene, laneChromeGraphics, LANE_CHROME_TEXTURE_KEY, GAME_WIDTH);
 }
 
 export function addLaneDividers(
@@ -313,7 +327,7 @@ export function addLaneDividers(
       },
     ),
   );
-  return addBakedImage(scene, laneDividersGraphics, LANE_DIVIDERS_TEXTURE_KEY);
+  return addBakedImage(scene, laneDividersGraphics, LANE_DIVIDERS_TEXTURE_KEY, GAME_WIDTH);
 }
 
 // 정적인 배경 Graphics 는 보이는 동안 매 프레임 명령 전체를 다시 처리하므로 한 번 구운 이미지로 바꿔 둔다.
@@ -321,7 +335,20 @@ function addBakedImage(
   scene: Phaser.Scene,
   graphics: Phaser.GameObjects.Graphics,
   key: string,
+  widthPx: number,
 ): Phaser.GameObjects.Image {
+  rebakeTexture(scene, graphics, key, widthPx);
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => scene.textures.remove(key));
+  return scene.add.image(0, 0, key).setOrigin(0, 0);
+}
+
+// bakeTexture 는 키가 있으면 굽지 않으므로 새 크기로 구우려면 먼저 지운다.
+function rebakeTexture(
+  scene: Phaser.Scene,
+  graphics: Phaser.GameObjects.Graphics,
+  key: string,
+  widthPx: number,
+): void {
   if (scene.textures.exists(key)) {
     scene.textures.remove(key);
   }
@@ -329,7 +356,7 @@ function addBakedImage(
     scene,
     {
       key,
-      widthPx: GAME_WIDTH,
+      widthPx,
       heightPx: GAME_HEIGHT,
     },
     (texture) => {
@@ -337,8 +364,6 @@ function addBakedImage(
       return [graphics];
     },
   );
-  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => scene.textures.remove(key));
-  return scene.add.image(0, 0, key).setOrigin(0, 0);
 }
 
 function fillVerticalProfile(

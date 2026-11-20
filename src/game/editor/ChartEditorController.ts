@@ -140,7 +140,7 @@ interface EditorScreen {
   leave(focusedSongId: string): void;
   render(previous: ChartEditorState | null, next: ChartEditorState): void;
   startTestPlay(chart: ChartRef, startTimeMs: number): void;
-  /** 레벨 입력칸 글자를 그 레벨로 맞추고 포커스를 푼다. */
+  /** 레벨 입력칸 글자를 그 레벨로 맞춘다(포커스는 건드리지 않는다). */
   syncLevelInput(level: ChartLevel | null): void;
 }
 

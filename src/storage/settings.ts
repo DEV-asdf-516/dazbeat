@@ -139,6 +139,6 @@ export const SETTINGS_PARSERS: {
   laneMode: (value) => (isLaneCount(value) ? value : undefined),
   keyBindings: parseKeyBindings,
   mvMode: (value) => MV_MODES.find((mode) => mode === value),
-  // 언어 필드가 생기기 전에 저장된 설정에는 값이 없으므로 미선택으로 본다.
+  // 언어를 고른 적이 없으면 저장하지 않고 부팅 때마다 브라우저 언어를 따른다.
   language: (value) => (value === undefined || value === null ? null : parseLanguage(value)),
 };

@@ -7,6 +7,7 @@ import type { AccountState } from '../../../src/game/app/accountState.js';
 import { isControlsHelpShown } from '../../../src/game/app/controlsGuide.js';
 import { MainController } from '../../../src/game/main/MainController.js';
 import type { MainFocus, MainState } from '../../../src/game/main/state/mainMenu.js';
+import type { BrowserIdentity } from '../../../src/game/main/state/accelerationNotice.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
@@ -58,11 +59,25 @@ interface Harness {
   readonly states: MainState[];
   focusSoundCount(): number;
   clickSoundCount(): number;
+  closeSoundCount(): number;
+  dismissCount(): number;
   cancelSignInCount(): number;
   signOutCount(): number;
 }
 
-function createHarness(restore: () => AuthUser | null): Harness {
+interface NoticeOptions {
+  readonly isSoftwareRendering?: boolean;
+  readonly isDismissed?: boolean;
+  readonly browser?: BrowserIdentity;
+  readonly dismiss?: () => void;
+}
+
+const UNKNOWN_BROWSER: BrowserIdentity = {
+  userAgentData: { brands: [] },
+  userAgent: 'TestAgent/1.0',
+};
+
+function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {}): Harness {
   const shown: AccountState[] = [];
   const signIns: Pending<AuthUser | null>[] = [];
   const refreshes: Pending<AuthUser | null>[] = [];
@@ -74,6 +89,7 @@ function createHarness(restore: () => AuthUser | null): Harness {
   const sounds: SoundEffect[] = [];
   let cancelSignInCount = 0;
   let signOutCount = 0;
+  let dismissCount = 0;
   const controller = new MainController(
     {
       getCurrentUser: restore,
@@ -105,6 +121,15 @@ function createHarness(restore: () => AuthUser | null): Harness {
       playSound: (sound) => sounds.push(sound),
       activate: (button) => activated.push(button),
     },
+    {
+      takeBootSoftwareRendering: () => notice.isSoftwareRendering ?? false,
+      isDismissed: () => notice.isDismissed ?? false,
+      dismiss: () => {
+        dismissCount += 1;
+        notice.dismiss?.();
+      },
+      browser: notice.browser ?? UNKNOWN_BROWSER,
+    },
   );
   return {
     controller,
@@ -118,6 +143,8 @@ function createHarness(restore: () => AuthUser | null): Harness {
     states,
     focusSoundCount: () => sounds.filter((sound) => sound === 'menuFocus').length,
     clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
+    closeSoundCount: () => sounds.filter((sound) => sound === 'close').length,
+    dismissCount: () => dismissCount,
     cancelSignInCount: () => cancelSignInCount,
     signOutCount: () => signOutCount,
   };
@@ -543,5 +570,147 @@ describe('MainController button pointer', () => {
     harness.controller.pointerUp('controlsClose');
     expect(harness.controlsOpen.at(-1)).toBe(false);
     expect(harness.hovers.at(-1)).toBeNull();
+  });
+});
+
+const ENTER_KEY = {
+  code: 'Enter',
+  repeat: false,
+};
+
+describe('MainController acceleration notice', () => {
+  function firstNotice(notice: NoticeOptions): MainState['accelerationNotice'] {
+    const harness = createHarness(() => null, notice);
+    return requireDefined(harness.states[0], 'Missing first render', 0).accelerationNotice;
+  }
+
+  function lastState(harness: Harness): MainState {
+    return requireDefined(harness.states.at(-1), 'Missing render', harness.states.length);
+  }
+
+  function openHarness(dismiss?: () => void): Harness {
+    return createHarness(() => null, {
+      isSoftwareRendering: true,
+      ...(dismiss === undefined ? {} : { dismiss }),
+    });
+  }
+
+  function brands(...names: string[]): BrowserIdentity {
+    return {
+      userAgentData: {
+        brands: names.map((brand) => ({
+          brand,
+          version: '1',
+        })),
+      },
+      userAgent: 'Mozilla/5.0 Chrome/130.0',
+    };
+  }
+
+  function userAgent(value: string): BrowserIdentity {
+    return {
+      userAgentData: undefined,
+      userAgent: value,
+    };
+  }
+
+  it.each([
+    ['Edge brand', brands('Chromium', 'Microsoft Edge'), 'edge'],
+    ['Chrome brand', brands('Chromium', 'Google Chrome'), 'chrome'],
+    ['other Chromium brand', brands('Chromium', 'Brave'), 'other'],
+    ['Firefox user agent', userAgent('Mozilla/5.0 Gecko/20100101 Firefox/130.0'), 'firefox'],
+    ['Edge user agent', userAgent('Mozilla/5.0 Chrome/130.0 Safari/537.36 Edg/130.0'), 'edge'],
+    ['Chrome user agent', userAgent('Mozilla/5.0 Chrome/130.0 Safari/537.36'), 'chrome'],
+    ['Whale brand', brands('Chromium', 'Whale'), 'whale'],
+    ['Opera brand', brands('Chromium', 'Opera'), 'opera'],
+    ['Whale user agent', userAgent('Mozilla/5.0 Chrome/130.0 Whale/4.29 Safari/537.36'), 'whale'],
+    ['Opera user agent', userAgent('Mozilla/5.0 Chrome/130.0 Safari/537.36 OPR/115.0'), 'opera'],
+    ['Safari user agent', userAgent('Mozilla/5.0 Version/18.0 Safari/605.1.15'), 'other'],
+  ] as const)('opens for the %s as %s', (_name, browser, kind) => {
+    expect(
+      firstNotice({
+        isSoftwareRendering: true,
+        browser,
+      }),
+    ).toEqual({
+      kind: 'open',
+      browser: kind,
+    });
+  });
+
+  it('stays closed without software rendering or after dismissing it', () => {
+    expect(firstNotice({ isSoftwareRendering: false })).toEqual({ kind: 'closed' });
+    expect(
+      firstNotice({
+        isSoftwareRendering: true,
+        isDismissed: true,
+      }),
+    ).toEqual({
+      kind: 'closed',
+    });
+  });
+
+  it.each([
+    ['Enter', ENTER_KEY],
+    ['Esc', ESCAPE_KEY],
+  ] as const)('closes with %s without saving and passes keys afterwards', (_name, key) => {
+    const harness = openHarness();
+
+    expect(harness.controller.handleAccelerationNoticeKey(key)).toBe(true);
+    expect(lastState(harness).accelerationNotice).toEqual({ kind: 'closed' });
+    expect(harness.closeSoundCount()).toBe(1);
+    expect(harness.dismissCount()).toBe(0);
+    expect(harness.controller.handleAccelerationNoticeKey(key)).toBe(false);
+  });
+
+  it('blocks other keys while open without changing the focus or the controls', () => {
+    const harness = openHarness();
+    const first = lastState(harness);
+
+    expect(harness.controller.handleAccelerationNoticeKey(H_KEY)).toBe(true);
+    expect(harness.controller.handleAccelerationNoticeKey(DOWN_KEY)).toBe(true);
+    expect(lastState(harness)).toBe(first);
+    expect(harness.states).toHaveLength(1);
+  });
+
+  it('closes with the accept button without saving or activating', () => {
+    const harness = openHarness();
+
+    harness.controller.pointerOver('accelerationNoticeAccept');
+    harness.controller.pointerDown('accelerationNoticeAccept');
+    harness.controller.pointerUp('accelerationNoticeAccept');
+
+    expect(lastState(harness).accelerationNotice).toEqual({ kind: 'closed' });
+    expect(lastState(harness).hover).toBeNull();
+    expect(harness.dismissCount()).toBe(0);
+    expect(harness.activated).toEqual([]);
+  });
+
+  it('saves once and closes with the dismiss button without activating', () => {
+    const harness = openHarness();
+
+    harness.controller.pointerOver('accelerationNoticeDismiss');
+    harness.controller.pointerDown('accelerationNoticeDismiss');
+    harness.controller.pointerUp('accelerationNoticeDismiss');
+
+    expect(harness.dismissCount()).toBe(1);
+    expect(lastState(harness).accelerationNotice).toEqual({ kind: 'closed' });
+    expect(lastState(harness).hover).toBeNull();
+    expect(harness.activated).toEqual([]);
+  });
+
+  it('closes even when saving the dismissal fails', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = openHarness(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    harness.controller.pointerDown('accelerationNoticeDismiss');
+    harness.controller.pointerUp('accelerationNoticeDismiss');
+
+    expect(harness.dismissCount()).toBe(1);
+    expect(lastState(harness).accelerationNotice).toEqual({ kind: 'closed' });
+    expect(error).toHaveBeenCalledOnce();
+    error.mockRestore();
   });
 });

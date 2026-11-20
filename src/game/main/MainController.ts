@@ -14,7 +14,10 @@ import {
   readControlsKey,
   withControlsOpen,
 } from '../app/controlsGuide.js';
+import { createAccelerationNotice, readAccelerationNoticeKey } from './state/accelerationNotice.js';
+import type { BrowserIdentity } from './state/accelerationNotice.js';
 import {
+  closeAccelerationNotice,
   createMainState,
   hoverMainButton,
   isCurrentAccountAttempt,
@@ -34,6 +37,14 @@ export interface MainScreen {
   activate(button: MainFocus | 'account'): void;
 }
 
+export interface AccelerationNoticePorts {
+  /** 부팅에서 소프트웨어 렌더링이 감지됐으면 처음 부를 때만 true 다. */
+  takeBootSoftwareRendering(): boolean;
+  isDismissed(): boolean;
+  dismiss(): void;
+  readonly browser: BrowserIdentity;
+}
+
 // 닫힌 뒤에는 입력과 늦은 로그인·갱신 결과를 받지 않는다.
 type ControllerState = MainState | { readonly kind: 'closed' };
 
@@ -43,9 +54,15 @@ export class MainController {
   constructor(
     private readonly auth: AccountAuth,
     private readonly screen: MainScreen,
+    private readonly accelerationNotice: AccelerationNoticePorts,
   ) {
     const account = this.restoreAccount();
-    const first = createMainState(account);
+    const notice = createAccelerationNotice({
+      isSoftwareRendering: accelerationNotice.takeBootSoftwareRendering(),
+      isDismissed: accelerationNotice.isDismissed(),
+      browser: accelerationNotice.browser,
+    });
+    const first = createMainState(account, notice);
     this.state = first;
     this.screen.render(null, first);
     if (account.kind === 'signedIn') {
@@ -139,6 +156,18 @@ export class MainController {
         this.screen.playSound('click');
         this.apply(clickControlsHelp);
         return;
+      case 'accelerationNoticeAccept':
+        this.closeAccelerationNotice();
+        return;
+      case 'accelerationNoticeDismiss':
+        // 저장에 실패해도 이번 부팅의 안내는 닫는다. 다음 부팅은 실제로 저장된 값을 따른다.
+        try {
+          this.accelerationNotice.dismiss();
+        } catch (error) {
+          console.error('Failed to save acceleration notice dismissal', error);
+        }
+        this.closeAccelerationNotice();
+        return;
       default:
         this.screen.playSound('click');
         this.screen.activate(button);
@@ -164,6 +193,21 @@ export class MainController {
     }
   }
 
+  handleAccelerationNoticeKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    if ('kind' in this.state) {
+      return false;
+    }
+    switch (readAccelerationNoticeKey(this.state.accelerationNotice, event)) {
+      case 'close':
+        this.closeAccelerationNotice();
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
+    }
+  }
+
   confirm(): void {
     if ('kind' in this.state) {
       return;
@@ -177,6 +221,11 @@ export class MainController {
       this.auth.cancelSignIn();
     }
     this.state = { kind: 'closed' };
+  }
+
+  private closeAccelerationNotice(): void {
+    this.apply(closeAccelerationNotice);
+    this.screen.playSound('close');
   }
 
   /** 저장된 세션을 해석하지 못해도 인증은 플레이에 필요 없으므로 세션을 지우고 Guest 로 둔다. */
