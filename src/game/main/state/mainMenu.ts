@@ -23,6 +23,7 @@ import {
   leaveControlsButton,
 } from '../../app/controlsGuide.js';
 import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
+import type { AccelerationNotice } from './accelerationNotice.js';
 
 export type MainMenuItem = 'play' | 'practice' | 'chartEditor' | 'settings' | 'credits';
 
@@ -43,22 +44,28 @@ export function getMainMenuItems(account: AccountState): readonly MainMenuItem[]
 
 export type MainFocus = MainMenuItem | 'profile' | 'youtube';
 
-export type MainButton = MainFocus | 'account' | ControlsButton;
+export type MainButton =
+  MainFocus | 'account' | ControlsButton | 'accelerationNoticeDismiss' | 'accelerationNoticeAccept';
 
 export interface MainState {
   readonly account: AccountState;
   readonly focus: MainFocus;
   readonly controls: ControlsPanel;
+  readonly accelerationNotice: AccelerationNotice;
   readonly hover: ButtonHover<MainButton> | null;
 }
 
 const INITIAL_FOCUS: MainFocus = 'play';
 
-export function createMainState(account: AccountState): MainState {
+export function createMainState(
+  account: AccountState,
+  accelerationNotice: AccelerationNotice,
+): MainState {
   return {
     account,
     focus: INITIAL_FOCUS,
     controls: 'closed',
+    accelerationNotice,
     hover: null,
   };
 }
@@ -141,6 +148,32 @@ export function isMainControlsEntryHovered(state: MainState): boolean {
   return isControlsEntryHovered(state.hover);
 }
 
+// Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 팝업을 닫을 때 두 버튼의 hover 를 푼다.
+export function closeAccelerationNotice(state: MainState): MainState {
+  if (state.accelerationNotice.kind === 'closed') {
+    return state;
+  }
+  return {
+    ...state,
+    accelerationNotice: { kind: 'closed' },
+    hover: unhoverButton(
+      unhoverButton(state.hover, 'accelerationNoticeDismiss'),
+      'accelerationNoticeAccept',
+    ),
+  };
+}
+
+export function getAccelerationNoticeButtonViews(state: MainState): {
+  readonly dismiss: ButtonView;
+  readonly accept: ButtonView;
+} {
+  const isOpen = state.accelerationNotice.kind === 'open';
+  return {
+    dismiss: getButtonView(state.hover, 'accelerationNoticeDismiss', isOpen, false),
+    accept: getButtonView(state.hover, 'accelerationNoticeAccept', isOpen, false),
+  };
+}
+
 export function moveMainFocus(state: MainState, direction: ListDirection): MainState {
   const focus = cycleItem(getFocusOrder(state.account), state.focus, direction);
   return focus === state.focus
@@ -167,6 +200,8 @@ export type MainRegion =
   | 'controlsClose'
   | 'controlsHelpCard'
   | 'controlsHelpButton'
+  | 'accelerationNotice'
+  | 'accelerationNoticeButtons'
   | 'menuFocusMotion'
   | 'menuItemsMotion'
   | 'youtubeHearts';
@@ -202,6 +237,12 @@ const REGION_SOURCES: Readonly<
   controlsClose: readButton('controlsClose'),
   controlsHelpCard: [isControlsHelpShown],
   controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
+  accelerationNotice: [(state) => state.accelerationNotice],
+  accelerationNoticeButtons: [
+    (state) => state.accelerationNotice.kind,
+    ...readButton('accelerationNoticeDismiss'),
+    ...readButton('accelerationNoticeAccept'),
+  ],
 };
 
 export function getChangedRegions(

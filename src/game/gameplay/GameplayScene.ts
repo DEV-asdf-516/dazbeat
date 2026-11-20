@@ -86,7 +86,12 @@ import { getNoteTrailMs } from './state/noteAppearance.js';
 import type { GameplayFrame, HudRegion } from './state/gameplayHud.js';
 import { getStarlightBand, isBreathingBand } from './state/starlightBand.js';
 import type { ComboTier } from './state/comboTier.js';
-import { addLaneChrome, addLaneDividers, addSkyScrim } from './view/gameplayTextures.js';
+import {
+  addLaneChrome,
+  addLaneDividers,
+  addSkyScrim,
+  fitSkyScrim,
+} from './view/gameplayTextures.js';
 import {
   CELESTIAL_COLORS,
   COLORS,
@@ -95,6 +100,7 @@ import {
   textStyle,
 } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
+import { getGraphicsLevel } from '../ui/state/graphicsLevel.js';
 
 // 판정·콤보는 플레이필드 가운데에, 안내·종료 문구는 화면 가운데에 놓는다.
 const SCREEN_CENTER_X_PX = GAME_WIDTH / 2;
@@ -241,6 +247,7 @@ export class GameplayScene extends Phaser.Scene {
     private readonly i18n: I18n,
     private readonly celestial: CelestialCatalog,
     private readonly rankedPlay: RankedPlay,
+    private readonly isSoftwareRendering: boolean,
   ) {
     super(SCENE_KEYS.gameplay);
   }
@@ -265,9 +272,12 @@ export class GameplayScene extends Phaser.Scene {
       data.song.constellation,
       SCREEN_CENTER_X_PX,
     );
-    // 화면에 고정해 기준 폭으로 그리고, 창 비율에 따라 넓어진 화면 폭만큼 가로로 늘린다.
-    const skyScrim = addSkyScrim(this).setScrollFactor(0).setDepth(GAMEPLAY_DEPTH.world);
+    // 늘려 그리는 화면 크기 덮개 한 장이 가속 꺼짐에서 약 8ms 라 지금 게임 폭으로 구워 1:1 로 그린다.
+    const skyScrim = addSkyScrim(this, this.scale.width)
+      .setScrollFactor(0)
+      .setDepth(GAMEPLAY_DEPTH.world);
     this.mvLayer.dataset.mvMode = settings.mvMode;
+    this.mvLayer.dataset.graphics = getGraphicsLevel(this.isSoftwareRendering);
     ensureLightTextures(this);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
@@ -517,10 +527,11 @@ export class GameplayScene extends Phaser.Scene {
       const gameWidthPx = Math.round((GAME_HEIGHT * width) / height);
       if (gameWidthPx !== this.scale.width) {
         this.scale.setGameSize(gameWidthPx, GAME_HEIGHT);
+        fitSkyScrim(skyScrim, gameWidthPx);
       }
-      const edgeOffsetPx = (gameWidthPx - GAME_WIDTH) / 2;
+      // 가속이 꺼지면 소수 px 위치의 화면 크기 그림을 보간해 그려 한 장에 약 3.6ms 가 들어 정수로 맞춘다.
+      const edgeOffsetPx = Math.round((gameWidthPx - GAME_WIDTH) / 2);
       this.cameras.main.setScroll(-edgeOffsetPx, 0);
-      skyScrim.setScale(gameWidthPx / GAME_WIDTH, 1);
       rightHud.setX(Math.max(edgeOffsetPx, minRightHudOffsetPx));
     };
     fitToWindow();
@@ -547,6 +558,7 @@ export class GameplayScene extends Phaser.Scene {
       this.scale.setGameSize(GAME_WIDTH, GAME_HEIGHT);
       controller.close();
       delete this.mvLayer.dataset.mvHidden;
+      delete this.mvLayer.dataset.graphics;
     });
 
     void controller.start().catch((error: unknown) => {

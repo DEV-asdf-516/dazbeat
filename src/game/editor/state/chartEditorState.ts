@@ -509,7 +509,7 @@ export type EditorKeyCommand =
   | 'togglePlayback'
   | 'deleteSelected'
   | 'back'
-  | 'commitLevelInput'
+  | 'blurLevelInput'
   | 'cancelLevelInput';
 
 export function readEditorKey(
@@ -520,7 +520,7 @@ export function readEditorKey(
   if (isLevelInputFocused) {
     switch (action) {
       case 'confirm':
-        return 'commitLevelInput';
+        return 'blurLevelInput';
       case 'back':
         return 'cancelLevelInput';
       default:

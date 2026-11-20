@@ -20,11 +20,12 @@ let editor: TestUser;
 
 // PocketBase stores a JSON field as compact JSON with object keys sorted, like Go's encoding/json.
 function storedJson(value: unknown): string {
-  return JSON.stringify(value, (_key, field: unknown) =>
-    field !== null && typeof field === 'object' && !Array.isArray(field)
-      ? Object.fromEntries(Object.entries(field).sort(([a], [b]) => (a < b ? -1 : 1)))
-      : field,
-  );
+  return JSON.stringify(value, (_key, field: unknown) => {
+    if (field === null || typeof field !== 'object' || Array.isArray(field)) {
+      return field;
+    }
+    return Object.fromEntries(Object.entries(field).sort(([a], [b]) => (a < b ? -1 : 1)));
+  });
 }
 
 function expectedRevision(data: unknown): string {

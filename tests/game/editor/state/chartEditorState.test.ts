@@ -674,8 +674,8 @@ describe('readEditorKey', () => {
     expect(readEditorKey(key('KeyX'), false)).toBeNull();
   });
 
-  it('only commits on Enter and cancels on Escape while the level input is focused', () => {
-    expect(readEditorKey(key('Enter'), true)).toBe('commitLevelInput');
+  it('only blurs on Enter and cancels on Escape while the level input is focused', () => {
+    expect(readEditorKey(key('Enter'), true)).toBe('blurLevelInput');
     expect(readEditorKey(key('Escape'), true)).toBe('cancelLevelInput');
     expect(readEditorKey(key('Space'), true)).toBeNull();
     expect(readEditorKey(key('Backspace'), true)).toBeNull();

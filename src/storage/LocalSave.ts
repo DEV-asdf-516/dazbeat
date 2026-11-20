@@ -9,6 +9,7 @@ import { isRecord, isString } from '../typeGuards.js';
 const SETTINGS_KEY = 'dazbeat:settings:v1';
 const RECORDS_KEY = 'dazbeat:records:v2';
 const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
+const ACCELERATION_NOTICE_KEY = 'dazbeat:accelerationNotice:v1';
 
 export class LocalSave {
   constructor(private readonly storage: Storage) {}
@@ -18,13 +19,13 @@ export class LocalSave {
     if (saved === undefined) {
       return { ...DEFAULT_SETTINGS };
     }
-    let recovered = false;
+    let isRecovered = false;
     const read = <K extends keyof Settings>(field: K): Settings[K] => {
       const value = SETTINGS_PARSERS[field](saved[field]);
       if (value !== undefined) {
         return value;
       }
-      recovered = true;
+      isRecovered = true;
       return DEFAULT_SETTINGS[field];
     };
     const settings: Settings = {
@@ -39,7 +40,7 @@ export class LocalSave {
       mvMode: read('mvMode'),
       language: read('language'),
     };
-    if (recovered) {
+    if (isRecovered) {
       console.warn('Saved settings had invalid fields; replaced them with defaults');
     }
     return settings;
@@ -73,6 +74,19 @@ export class LocalSave {
     const notices = this.readRevisionNotices();
     notices[chartId] = chartRevision;
     this.storage.setItem(REVISION_NOTICES_KEY, JSON.stringify(notices));
+  }
+
+  isAccelerationNoticeDismissed(): boolean {
+    const saved = this.readObject(
+      ACCELERATION_NOTICE_KEY,
+      'acceleration notice',
+      'showing it again',
+    );
+    return saved?.isDismissed === true;
+  }
+
+  dismissAccelerationNotice(): void {
+    this.storage.setItem(ACCELERATION_NOTICE_KEY, JSON.stringify({ isDismissed: true }));
   }
 
   private readRevisionNotices(): Record<string, string> {

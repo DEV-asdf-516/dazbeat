@@ -265,6 +265,12 @@ const SYNTAX_RULES = [
     message: 'Use a union type instead of enum.',
   },
   {
+    // no-nested-ternary 는 콜백 안으로 숨은 중첩을 보지 못한다.
+    selector: 'ConditionalExpression :function ConditionalExpression',
+    message:
+      'Split the outer ternary into branches instead of nesting a ternary inside its callback.',
+  },
+  {
     selector:
       "CallExpression[callee.name='clamp'][arguments.length=3][arguments.0.type!='Identifier'][arguments.1.value=0][arguments.2.value=1]",
     message: 'Use getProgress from range.ts for a 0..1 ratio.',
