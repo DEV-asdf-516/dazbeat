@@ -77,16 +77,13 @@ async function newPlayer(): Promise<TestUser> {
 }
 
 async function startRankedPlay(player: TestUser, chart: RecordModel): Promise<string> {
-  const { sessionId } = await player.client.send<{ sessionId: string }>(
-    '/api/dazbeat/play-sessions',
-    {
-      method: 'POST',
-      body: {
-        chartId: chart.id,
-        chartRevision: String(chart['revision']),
-      },
+  const { sessionId } = await player.client.send<{ sessionId: string }>('/api/dazbeat/play', {
+    method: 'POST',
+    body: {
+      chartId: chart.id,
+      chartRevision: String(chart['revision']),
     },
-  );
+  });
   // Moves issuedAt into the past so a submission is not rejected as too short without waiting.
   await server.superuser
     .collection('play_sessions')
@@ -100,7 +97,7 @@ async function submitResult(
   sessionId: string,
   inputs: readonly InputEvent[],
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await fetch(`${server.url}/api/dazbeat/play-sessions/${sessionId}/result`, {
+  const response = await fetch(`${server.url}/api/dazbeat/play/${sessionId}/result`, {
     method: 'POST',
     headers: {
       Authorization: client.authStore.token,
@@ -122,7 +119,7 @@ async function submitResult(
 }
 
 async function readPlayCount(client: PocketBase): Promise<unknown> {
-  const profile = await client.send<{ stats: { playCount: unknown } }>('/api/dazbeat/profile', {
+  const profile = await client.send<{ stats: { playCount: unknown } }>('/api/dazbeat/me/profile', {
     method: 'GET',
   });
   return profile.stats.playCount;
@@ -147,11 +144,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 
-describe('POST /api/dazbeat/play-sessions/{sessionId}/result autoplay check', () => {
+describe('POST /api/dazbeat/play/{sessionId}/result autoplay check', () => {
   it('records an exact play as suspicious and holds it for review without ranking it', async () => {
     const player = await newPlayer();
     const inputs = pressAll(longChart, () => 0);

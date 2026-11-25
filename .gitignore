@@ -45,3 +45,4 @@ docs/screenshots/
 
 # local investigation notes (not shipped)
 docs/*.md
+!docs/release-checklist.md

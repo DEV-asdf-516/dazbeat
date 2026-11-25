@@ -253,7 +253,7 @@ export function addConstellationFigure(
     (context) => {
       context.translate(-linesLeftPx, -linesTopPx);
       for (const points of pathPoints) {
-        points.slice(1).forEach((to, index) => {
+        for (const [index, to] of points.slice(1).entries()) {
           const from = requireDefined(points[index], 'Constellation path gap', index);
           strokeGrainedCanvasLine(
             context,
@@ -269,7 +269,7 @@ export function addConstellationFigure(
               alpha: LINE_ALPHA,
             },
           );
-        });
+        }
       }
     },
   );
@@ -331,7 +331,7 @@ export function addConstellationFigure(
     duration: ENTRY_FADE_MS,
     ease: 'Sine.easeOut',
   });
-  twinklers.forEach((targets) => {
+  for (const targets of twinklers) {
     scene.tweens.add({
       targets,
       alpha: {
@@ -344,7 +344,7 @@ export function addConstellationFigure(
       yoyo: true,
       repeat: -1,
     });
-  });
+  }
 
   // 지나간 자리만 밝히도록 금빛 선화 사본을 진행 방향에 수직인 빛 띠로 가린다.
   const glint = scene.add
@@ -417,9 +417,9 @@ export function addConstellationFigure(
         trailHead.setVisible(false);
       },
     });
-    starEntries.forEach(({ star, images }) => {
+    for (const { star, images } of starEntries) {
       const delayMs = easeInOutSineInverse(projectOnPath(star.x, star.y)) * PASS_DURATION_MS;
-      images.forEach((image) => {
+      for (const image of images) {
         scene.tweens.add({
           targets: image,
           scale: image.scaleX * STAR_FLARE_SCALE,
@@ -428,8 +428,8 @@ export function addConstellationFigure(
           ease: 'Quad.easeOut',
           yoyo: true,
         });
-      });
-    });
+      }
+    }
   };
   scene.time.delayedCall(FIRST_PASS_DELAY_MS, () => {
     playPass();

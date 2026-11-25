@@ -50,12 +50,6 @@ function createTopRankGradient(
   return gradient;
 }
 
-function fillTopRankText(text: Phaser.GameObjects.Text, tier: TopRankTier): void {
-  text
-    .setFill(createTopRankGradient(text.context, text.height, tier))
-    .setShadow(0, 0, rgba(TOP_RANK_COLORS[tier].glow, GLOW_ALPHA), GLOW_BLUR_PX, false, true);
-}
-
 function getWordTextureKey(tier: TopRankTier): string {
   return `topRankWord:${tier}`;
 }
@@ -78,7 +72,9 @@ function ensureWordTexture(scene: Phaser.Scene, tier: TopRankTier): void {
     },
     false,
   );
-  fillTopRankText(text, tier);
+  text
+    .setFill(createTopRankGradient(text.context, text.height, tier))
+    .setShadow(0, 0, rgba(TOP_RANK_COLORS[tier].glow, GLOW_ALPHA), GLOW_BLUR_PX, false, true);
   createCanvasTexture(
     scene,
     {

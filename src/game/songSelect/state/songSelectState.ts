@@ -31,14 +31,15 @@ import {
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
-  getControlsCloseView,
   getControlsHelpButtonView,
-  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
   leaveControlsButton,
 } from '../../app/controlsGuide.js';
-import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
+import {
+  completeAccountSignIn,
+  getAccountPanelPointerKey,
+} from '../../ui/state/accountIdentity.js';
 import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
 import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import type { CelestialStaticId } from '../../celestial/state/celestialCatalog.js';
@@ -235,6 +236,14 @@ export function failRecords(state: SongSelectState): SongSelectState {
   return {
     ...state,
     records: { kind: 'failed' },
+  };
+}
+
+/** 기록과 TOP 표시는 로그인한 계정의 것으로 다시 받는다. */
+export function completeSongSelectSignIn(state: SongSelectState): SongSelectState {
+  return {
+    ...completeAccountSignIn(state),
+    records: { kind: 'loading' },
   };
 }
 
@@ -458,7 +467,14 @@ export function getSongRows(state: SongSelectState, rowsPerPage: number): SongRo
       return { kind: 'empty' };
     }
     const appearance = getSongRowAppearance(state, slot, selectedSlot);
-    const recordChart = getRowChart(state, song, difficulty);
+    // 레벨 범위 필터가 켜져 있으면 곡 목록 줄에 지금 난이도의 채보 대신, 그 곡을 골랐을 때 실제로 선택될 범위 안 채보(pickChart)를 보인다.
+    // 지금 난이도가 범위 밖인 곡도 줄에 보이는 레벨과 고른 뒤 레벨이 같아야 하기 때문이다.
+    let recordChart: ChartRef | null = null;
+    if (state.levelRange !== null) {
+      recordChart = pickChart(song, state.laneCount, difficulty, state.levelRange);
+    } else if (difficulty !== null) {
+      recordChart = findChart(song, state.laneCount, difficulty) ?? null;
+    }
     return {
       kind: 'song',
       song,
@@ -508,19 +524,6 @@ export function getLoadingMoreAnchor(
         kind: 'row',
         slot: filledCount,
       };
-}
-
-// 레벨 범위 필터가 켜져 있으면 곡 목록 줄에 지금 난이도의 채보 대신, 그 곡을 골랐을 때 실제로 선택될 범위 안 채보(pickChart)를 보인다.
-// 지금 난이도가 범위 밖인 곡도 줄에 보이는 레벨과 고른 뒤 레벨이 같아야 하기 때문이다.
-function getRowChart(
-  state: SongSelectState,
-  song: Song,
-  difficulty: Difficulty | null,
-): ChartRef | null {
-  if (state.levelRange !== null) {
-    return pickChart(song, state.laneCount, difficulty, state.levelRange);
-  }
-  return difficulty === null ? null : (findChart(song, state.laneCount, difficulty) ?? null);
 }
 
 function getSongRowAppearance(
@@ -610,7 +613,9 @@ export function getActionAppearance(
 }
 
 function isActionEnabled(state: SongSelectState, action: SongSelectAction): boolean {
-  return action === 'random' ? canSelectRandomSong(state) : getPlayableSelection(state) !== null;
+  return action === 'random'
+    ? getRandomCandidates(state).length > 0
+    : getPlayableSelection(state) !== null;
 }
 
 export function selectRandomSong(state: SongSelectState, random: () => number): SongSelectState {
@@ -1067,6 +1072,7 @@ function isSongSelectButtonEnabled(state: SongSelectState, button: SongSelectBut
     case 'controlsBackdrop':
     case 'controlsHelp':
     case 'accountProfile':
+    case 'accountSignIn':
       return true;
   }
 }
@@ -1110,14 +1116,6 @@ export function getLevelResetButtonView(view: SongSelectView): ButtonView {
     isSongSelectButtonEnabled(view.state, 'levelReset'),
     false,
   );
-}
-
-export function getSongSelectControlsCloseView(view: SongSelectView): ButtonView {
-  return getControlsCloseView(view.state.hover);
-}
-
-export function isSongSelectControlsEntryHovered(view: SongSelectView): boolean {
-  return isControlsEntryHovered(view.state.hover);
 }
 
 export type SongSelectShortcut =

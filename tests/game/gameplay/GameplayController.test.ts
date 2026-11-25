@@ -12,6 +12,11 @@ import type { ChartRef, Song } from '../../../src/data/songs.js';
 import { SongFeed } from '../../../src/game/app/SongFeed.js';
 import { GameplayController } from '../../../src/game/gameplay/GameplayController.js';
 import type { GameplayFrame } from '../../../src/game/gameplay/state/gameplayHud.js';
+import { getFrame } from '../../../src/game/gameplay/state/gameplayScreen.js';
+import {
+  ACTIVATION_FALL_PER_MS,
+  ACTIVATION_RISE_PER_MS,
+} from '../../../src/game/gameplay/state/worldActivation.js';
 import type {
   GameplayButtons,
   GameplayLoadError,
@@ -116,6 +121,42 @@ const SIX_LANE_CHART: Chart = {
   ],
 };
 
+// 4000ms 의 두 노트로 콤보 2(목표 0.2), 7000ms 노트를 놓쳐 콤보가 0 이 된다. 판정 셋이라 임계 콤보는 최소값 10 이다.
+const ACTIVATION_CHART: Chart = {
+  ...chart,
+  notes: [
+    {
+      type: 'tap',
+      timeMs: 4000,
+      lane: 0,
+    },
+    {
+      type: 'tap',
+      timeMs: 4000,
+      lane: 1,
+    },
+    {
+      type: 'tap',
+      timeMs: 7000,
+      lane: 0,
+    },
+  ],
+};
+
+// 열 개를 모두 치면 임계 콤보 10 에 닿는다.
+const FULL_ACTIVATION_CHART: Chart = {
+  ...chart,
+  notes: Array.from({ length: 10 }, (_, index) => ({
+    type: 'tap' as const,
+    timeMs: 4000 + index * 100,
+    lane: 0 as const,
+  })),
+};
+
+const GUEST_SESSION: RankingSession = {
+  kind: 'signedOut',
+  chartRevision: 'rev-1',
+};
 const SETTINGS: Settings = {
   ...DEFAULT_SETTINGS,
   musicVolume: 0.5,
@@ -184,6 +225,8 @@ interface Harness {
     readonly sessionId: string;
     readonly submission: PlaySubmission;
   })[];
+  readonly reportedPlayers: (readonly [string, string])[];
+  readonly guestPlayerReports: Map<string, string>;
   readonly effectDones: (() => void)[];
   readonly shownResults: ResultSceneData[];
   readonly chart: Chart;
@@ -204,6 +247,7 @@ interface Harness {
   isCreateThrowing: boolean;
   isSaveSettingsThrowing: boolean;
   isSaveResultThrowing: boolean;
+  reportGuestPlayerError: Error | null;
   nowMs: number;
   bufferedEndSec: number;
   approachMs: number;
@@ -238,6 +282,8 @@ function createHarness(
     savedSettings: [],
     savedResults: [],
     submissions: [],
+    reportedPlayers: [],
+    guestPlayerReports: new Map(),
     effectDones: [],
     shownResults: [],
     chart: playedChart,
@@ -253,6 +299,7 @@ function createHarness(
     isCreateThrowing: false,
     isSaveSettingsThrowing: false,
     isSaveResultThrowing: false,
+    reportGuestPlayerError: null,
     nowMs: 1000,
     bufferedEndSec: 0,
     approachMs: APPROACH_MS,
@@ -276,6 +323,11 @@ function createHarness(
           }
           harness.callOrder.push('saveResult');
           harness.savedResults.push([songId, laneCount, difficulty, result]);
+        },
+        isGuestPlayerReported: (chartId, chartRevision) =>
+          harness.guestPlayerReports.get(chartId) === chartRevision,
+        saveGuestPlayerReport: (chartId, chartRevision) => {
+          harness.guestPlayerReports.set(chartId, chartRevision);
         },
       },
       prepareChart: (ref) =>
@@ -305,6 +357,12 @@ function createHarness(
               reject,
             });
           }),
+        reportGuestPlayer: (chartId, chartRevision) => {
+          harness.reportedPlayers.push([chartId, chartRevision]);
+          return harness.reportGuestPlayerError === null
+            ? Promise.resolve()
+            : Promise.reject(harness.reportGuestPlayerError);
+        },
       },
       players: {
         loadApi: () =>
@@ -336,40 +394,64 @@ function createHarness(
       frameNow: () => harness.nowMs,
     },
     {
-      showStatus: (previous, next) => {
-        record('showStatus', next);
-        harness.statuses.push({
-          previous,
-          next,
-        });
+      // 그린 state 에서 바뀐 부분을 화면 동작 이름으로 남긴다. 오류는 안내·확인 창 정리를 함께 그린다.
+      render: (previous, next) => {
+        if (previous === null || previous.buttons !== next.buttons) {
+          harness.buttonRenders.push({
+            previous: previous?.buttons ?? null,
+            next: next.buttons,
+          });
+        }
+        if (next.loadError !== null && previous?.loadError !== next.loadError) {
+          record('showLoadError', next.loadError);
+          return;
+        }
+        const isQuitConfirmChanged =
+          previous !== null &&
+          (previous.buttons.isQuitConfirmOpen !== next.buttons.isQuitConfirmOpen ||
+            (next.buttons.isQuitConfirmOpen &&
+              previous.quitConfirmReason !== next.quitConfirmReason));
+        if (isQuitConfirmChanged && !next.buttons.isQuitConfirmOpen) {
+          record('closeQuitConfirm');
+        }
+        if (previous === null || previous.status !== next.status) {
+          record('showStatus', next.status);
+          harness.statuses.push({
+            previous: previous?.status ?? null,
+            next: next.status,
+          });
+        }
+        if (previous !== null && previous.isMvVisible !== next.isMvVisible) {
+          record('setMvVisible', next.isMvVisible);
+        }
+        if (previous !== null && previous.mvMode !== next.mvMode) {
+          record('showMvMode', next.mvMode);
+        }
+        if (isQuitConfirmChanged && next.buttons.isQuitConfirmOpen) {
+          record('openQuitConfirm', next.quitConfirmReason);
+        }
+        const nextFrame = getFrame(next);
+        const previousFrame = previous === null ? null : getFrame(previous);
+        if (nextFrame !== null && previousFrame?.activation !== nextFrame.activation) {
+          record('drawFrame');
+          harness.songTimes.push(nextFrame.songTimeMs);
+          harness.frames.push({
+            previous: previousFrame,
+            next: nextFrame,
+          });
+        }
+        if (previous !== null && previous.isIntroVisible && !next.isIntroVisible) {
+          record('hideIntro');
+        }
       },
-      renderButtons: (previous, next) =>
-        harness.buttonRenders.push({
-          previous,
-          next,
-        }),
-      showMvMode: (next) => record('showMvMode', next),
-      setMvVisible: (isVisible) => record('setMvVisible', isVisible),
-      showLoadError: (error) => record('showLoadError', error),
-      openQuitConfirm: (reason) => record('openQuitConfirm', reason),
       playSound: (sound) => harness.sounds.push(sound),
-      closeQuitConfirm: () => record('closeQuitConfirm'),
       beginPlay: (played) => {
         record('beginPlay', played);
         return {
           approachMs: harness.approachMs,
-          drawFrame: (previous, next) => {
-            record('drawFrame');
-            harness.songTimes.push(next.songTimeMs);
-            harness.frames.push({
-              previous,
-              next,
-            });
-          },
           hasNoteEntered: (noteTimeMs) => noteTimeMs <= harness.enteredUntilMs,
           pressLane: (lane) => record('pressLane', lane),
           showJudgments: (events) => record('showJudgments', events),
-          hideIntro: () => record('hideIntro'),
           playFullCombo: (onDone) => {
             record('playFullCombo');
             harness.effectDones.push(onDone);
@@ -560,10 +642,7 @@ describe('GameplayController start', () => {
 
     getHandlers(harness).onReady();
     expect(harness.playerCalls).toEqual(['setVolume(0)', 'requestPlay(1)']);
-    expect(harness.screenCalls.slice(-2)).toEqual([
-      ['showStatus', { kind: 'loading' }],
-      ['setMvVisible', false],
-    ]);
+    expect(harness.screenCalls.slice(-1)).toEqual([['showStatus', { kind: 'loading' }]]);
   });
 
   it('loads the practice chart for practice mode', async () => {
@@ -582,7 +661,7 @@ describe('GameplayController start', () => {
 });
 
 describe('GameplayController origin', () => {
-  const BACK_TO_EDITOR: SceneRequest = {
+  const backToEditor: SceneRequest = {
     key: 'chartEditor',
     data: {
       songId: song.id,
@@ -630,9 +709,9 @@ describe('GameplayController origin', () => {
       [
         'leave',
         {
-          ...BACK_TO_EDITOR,
+          ...backToEditor,
           data: {
-            ...BACK_TO_EDITOR.data,
+            ...backToEditor.data,
             resumeTimeMs: EDITOR_START_MS + 1500 + SETTINGS.inputOffsetMs + chart.offsetMs,
           },
         },
@@ -647,7 +726,7 @@ describe('GameplayController origin', () => {
 
     harness.controller.keyDown('Escape', false, harness.nowMs);
 
-    expect(harness.screenCalls.at(-1)).toEqual(['leave', BACK_TO_EDITOR]);
+    expect(harness.screenCalls.at(-1)).toEqual(['leave', backToEditor]);
   });
 
   it('plays only the notes from the start time and starts the video before it', async () => {
@@ -708,13 +787,13 @@ describe('GameplayController origin', () => {
     });
   });
 
-  it('goes back to the chart it played in the editor on leave', () => {
+  it('goes back to the chart it played in the editor on Escape', () => {
     const harness = createHarness(EDITOR_ORIGIN);
     resetCalls(harness);
 
-    harness.controller.leave();
+    harness.controller.keyDown('Escape', false, harness.nowMs);
 
-    expect(harness.screenCalls).toEqual([['leave', BACK_TO_EDITOR]]);
+    expect(harness.screenCalls).toEqual([['leave', backToEditor]]);
   });
 
   it('goes back to the editor after the test chart fails to load', async () => {
@@ -727,9 +806,10 @@ describe('GameplayController origin', () => {
     await flush();
     resetCalls(harness);
 
-    harness.controller.leave();
+    harness.controller.pointerDown('back');
+    harness.controller.pointerUp('back');
 
-    expect(harness.screenCalls).toEqual([['leave', BACK_TO_EDITOR]]);
+    expect(harness.screenCalls).toEqual([['leave', backToEditor]]);
   });
 
   it('restores song select on the played difficulty and keeps the origin for the result', async () => {
@@ -749,7 +829,7 @@ describe('GameplayController origin', () => {
     const leaving = createHarness(origin);
     resetCalls(leaving);
 
-    leaving.controller.leave();
+    leaving.controller.keyDown('Escape', false, leaving.nowMs);
 
     expect(leaving.screenCalls).toEqual([
       [
@@ -949,7 +1029,7 @@ describe('GameplayController late results', () => {
 });
 
 describe('GameplayController start request', () => {
-  it('requests a muted warm-up from the lead-in start, shows loading and hides the MV once the player is ready', async () => {
+  it('requests a muted warm-up from the lead-in start and shows loading with the MV still hidden once the player is ready', async () => {
     const harness = createHarness();
     await startLoaded(harness);
     resetCalls(harness);
@@ -957,10 +1037,7 @@ describe('GameplayController start request', () => {
     getHandlers(harness).onReady();
 
     expect(harness.playerCalls).toEqual(['setVolume(0)', 'requestPlay(1)']);
-    expect(harness.screenCalls).toEqual([
-      ['showStatus', { kind: 'loading' }],
-      ['setMvVisible', false],
-    ]);
+    expect(harness.screenCalls).toEqual([['showStatus', { kind: 'loading' }]]);
   });
 
   it('ignores Enter while loading', async () => {
@@ -1248,19 +1325,18 @@ describe('GameplayController leaving', () => {
     harness.controller.keyDown('Escape', false, harness.nowMs);
     harness.controller.keyDown('Escape', false, harness.nowMs);
     harness.controller.keyDown('Tab', false, harness.nowMs);
-    harness.controller.leave();
 
     expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     expect(harness.savedSettings).toEqual([]);
   });
 
-  it('goes back to song select once on leave', async () => {
+  it('goes back to song select once on Escape while the video starts', async () => {
     const harness = createHarness();
     await startRequested(harness);
     resetCalls(harness);
 
-    harness.controller.leave();
-    harness.controller.leave();
+    harness.controller.keyDown('Escape', false, harness.nowMs);
+    harness.controller.keyDown('Escape', false, harness.nowMs);
 
     expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
     expect(harness.playerCalls).toEqual([]);
@@ -1821,7 +1897,7 @@ describe('GameplayController run end', () => {
 
   it('does not submit without a ranked session', async () => {
     const harness = createHarness();
-    harness.ranking = { kind: 'signedOut' };
+    harness.ranking = GUEST_SESSION;
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
@@ -1887,19 +1963,89 @@ describe('GameplayController run end', () => {
     expect(console.warn).toHaveBeenCalledWith('Failed to submit ranked play', error);
   });
 
-  it.each<[RankingSession, ResultRanking]>([
-    [{ kind: 'signedOut' }, { kind: 'none' }],
-    [{ kind: 'issueFailed' }, { kind: 'issueFailed' }],
-  ])('passes the ranking of a %o session without submitting', async (session, expected) => {
+  it('passes the local ranking of a signed-out run and reports the guest player', async () => {
     const harness = createHarness();
-    harness.ranking = session;
+    harness.ranking = GUEST_SESSION;
     await startVideo(harness);
     moveClock(harness, 10);
     harness.controller.tick();
     runEffectDone(harness);
 
     expect(harness.submissions).toEqual([]);
-    expect(getShownRanking(harness)).toEqual(expected);
+    expect(getShownRanking(harness)).toEqual({ kind: 'local' });
+    expect(harness.reportedPlayers).toEqual([['chart_normal', 'rev-1']]);
+    await Promise.resolve();
+    expect(harness.guestPlayerReports).toEqual(new Map([['chart_normal', 'rev-1']]));
+  });
+
+  it('passes the ranking of a failed session issue without submitting or reporting', async () => {
+    const harness = createHarness();
+    harness.ranking = {
+      kind: 'issueFailed',
+      chartRevision: 'rev-1',
+    };
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    expect(harness.submissions).toEqual([]);
+    expect(getShownRanking(harness)).toEqual({ kind: 'issueFailed' });
+    expect(harness.reportedPlayers).toEqual([]);
+  });
+
+  it('reports a guest player only once per chart revision in this browser', async () => {
+    const harness = createHarness();
+    harness.ranking = GUEST_SESSION;
+    harness.guestPlayerReports.set('chart_normal', 'rev-1');
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    expect(harness.reportedPlayers).toEqual([]);
+    expect(getShownRanking(harness)).toEqual({ kind: 'local' });
+  });
+
+  it('reports again after a new chart revision', async () => {
+    const harness = createHarness();
+    harness.ranking = GUEST_SESSION;
+    harness.guestPlayerReports.set('chart_normal', 'rev-0');
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    expect(harness.reportedPlayers).toEqual([['chart_normal', 'rev-1']]);
+  });
+
+  it('keeps the result and leaves the player unreported when reporting fails', async () => {
+    const harness = createHarness();
+    harness.ranking = GUEST_SESSION;
+    const error = new Error('network');
+    harness.reportGuestPlayerError = error;
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getShownRanking(harness)).toEqual({ kind: 'local' });
+    expect(harness.guestPlayerReports).toEqual(new Map());
+    expect(console.warn).toHaveBeenCalledWith('Failed to report guest player', error);
+  });
+
+  it('passes no ranking for a signed-out run when saving the result throws', async () => {
+    const harness = createHarness();
+    harness.ranking = GUEST_SESSION;
+    harness.isSaveResultThrowing = true;
+    await startVideo(harness);
+    moveClock(harness, 10);
+    harness.controller.tick();
+    runEffectDone(harness);
+
+    expect(getShownRanking(harness)).toEqual({ kind: 'none' });
   });
 
   it('passes no ranking in practice', async () => {
@@ -1921,6 +2067,7 @@ describe('GameplayController run end', () => {
 
     expect(harness.savedResults).toEqual([]);
     expect(harness.submissions).toEqual([]);
+    expect(harness.reportedPlayers).toEqual([]);
     expect(harness.screenCalls.at(-1)).toEqual([
       'showResult',
       expect.objectContaining({ origin: PRACTICE_ORIGIN }),
@@ -1968,7 +2115,14 @@ describe('GameplayController frames', () => {
 
     const [first, second] = harness.frames;
     expect(first?.previous).toBeNull();
-    expect(second?.previous).toBe(first?.next);
+    // 사이에 상태 안내가 바뀌어도 직전 state 는 마지막으로 그린 프레임 값을 그대로 지닌다.
+    expect(second?.previous).toMatchObject({
+      songTimeMs: first?.next.songTimeMs,
+      state: first?.next.state,
+      progress: first?.next.progress,
+      activation: first?.next.activation,
+      enteredNoteCount: first?.next.enteredNoteCount,
+    });
   });
 
   it('counts the notes the screen reports as entered and never counts down', async () => {
@@ -2010,6 +2164,16 @@ describe('GameplayController status', () => {
   });
 });
 
+// 뒤로 버튼은 불러오기에 실패했을 때만 보인다.
+async function startFailed(harness: Harness): Promise<void> {
+  void harness.controller.start();
+  requireDefined(harness.preparedCharts[0], 'prepared chart was not requested').reject(
+    new Error('network'),
+  );
+  await flush();
+  resetCalls(harness);
+}
+
 function lastButtons(harness: Harness): GameplayButtons {
   return requireDefined(harness.buttonRenders.at(-1), 'buttons were not rendered').next;
 }
@@ -2017,6 +2181,7 @@ function lastButtons(harness: Harness): GameplayButtons {
 describe('GameplayController button pointer', () => {
   it('paints every button once at the start', () => {
     const harness = createHarness();
+    void harness.controller.start();
 
     expect(harness.buttonRenders).toEqual([
       {
@@ -2029,8 +2194,9 @@ describe('GameplayController button pointer', () => {
     ]);
   });
 
-  it('goes back once for over, down and up on the back button', () => {
+  it('goes back once for over, down and up on the back button', async () => {
     const harness = createHarness();
+    await startFailed(harness);
 
     harness.controller.pointerOver('back');
     harness.controller.pointerDown('back');
@@ -2040,8 +2206,9 @@ describe('GameplayController button pointer', () => {
     expect(harness.screenCalls).toEqual([['leave', BACK_TO_SONG_SELECT]]);
   });
 
-  it('does not go back for an up that was pressed elsewhere', () => {
+  it('does not go back for an up that was pressed elsewhere', async () => {
     const harness = createHarness();
+    await startFailed(harness);
 
     harness.controller.pointerOver('back');
     harness.controller.pointerUp('back');
@@ -2049,8 +2216,9 @@ describe('GameplayController button pointer', () => {
     expect(harness.screenCalls).toEqual([]);
   });
 
-  it('releases the press when the pointer leaves the button', () => {
+  it('releases the press when the pointer leaves the button', async () => {
     const harness = createHarness();
+    await startFailed(harness);
 
     harness.controller.pointerOver('back');
     harness.controller.pointerDown('back');
@@ -2097,13 +2265,111 @@ describe('GameplayController button pointer', () => {
       isQuitConfirmOpen: false,
     });
   });
+});
 
-  it('ignores the pointer after close', () => {
-    const harness = createHarness();
-    harness.controller.close();
+describe('GameplayController world activation', () => {
+  const tickIntervalsMs = [1000 / 60, 100, 200];
 
-    harness.controller.pointerOver('back');
+  function lastFrame(harness: Harness): GameplayFrame {
+    return requireDefined(harness.frames.at(-1), 'no frame was drawn').next;
+  }
 
-    expect(harness.buttonRenders).toHaveLength(1);
+  function tickAt(harness: Harness, songTimeMs: number): GameplayFrame {
+    harness.nowMs = harness.clockOriginMs + songTimeMs;
+    harness.controller.tick();
+    return lastFrame(harness);
+  }
+
+  // 4000ms 에서 두 노트를 쳐 콤보 2 를 만든 상태. 이 tick 까지 콤보가 0 이라 level 은 0 이다.
+  async function startCombo(): Promise<Harness> {
+    const harness = createHarness(STANDARD_ORIGIN, ACTIVATION_CHART);
+    await startVideo(harness);
+    tickAt(harness, 4000);
+    harness.controller.keyDown('KeyD', false, harness.nowMs);
+    harness.controller.keyDown('KeyF', false, harness.nowMs);
+    return harness;
+  }
+
+  function tickEvery(
+    harness: Harness,
+    fromSongTimeMs: number,
+    spanMs: number,
+    intervalMs: number,
+  ): GameplayFrame {
+    const count = Math.round(spanMs / intervalMs);
+    for (let index = 1; index < count; index += 1) {
+      tickAt(harness, fromSongTimeMs + index * intervalMs);
+    }
+    return tickAt(harness, fromSongTimeMs + spanMs);
+  }
+
+  it.each(tickIntervalsMs)(
+    'rises by the same amount over 200ms of song time with %fms ticks',
+    async (intervalMs) => {
+      const harness = await startCombo();
+      const before = lastFrame(harness).activation.level;
+
+      const frame = tickEvery(harness, 4000, 200, intervalMs);
+
+      expect(frame.songTimeMs).toBeCloseTo(4200);
+      expect(frame.activation.level).toBeCloseTo(before + ACTIVATION_RISE_PER_MS * 200);
+    },
+  );
+
+  it.each(tickIntervalsMs)(
+    'falls by the same amount over 200ms of song time with %fms ticks after a miss',
+    async (intervalMs) => {
+      const harness = await startCombo();
+      tickEvery(harness, 4000, 3000, 100);
+      const missed = tickAt(harness, 7200);
+      expect(missed.state.combo).toBe(0);
+
+      const frame = tickEvery(harness, 7200, 200, intervalMs);
+
+      expect(frame.activation.level).toBeGreaterThan(0);
+      expect(frame.activation.level).toBeCloseTo(
+        missed.activation.level - ACTIVATION_FALL_PER_MS * 200,
+      );
+    },
+  );
+
+  it('advances 250ms gaps fully and longer gaps by 100ms', async () => {
+    const harness = await startCombo();
+
+    const afterExactGap = tickAt(harness, 4250);
+    const afterLongGap = tickAt(harness, 5250);
+
+    expect(afterExactGap.activation.level).toBeCloseTo(ACTIVATION_RISE_PER_MS * 250);
+    expect(afterLongGap.activation.level).toBeCloseTo(
+      afterExactGap.activation.level + ACTIVATION_RISE_PER_MS * 100,
+    );
+  });
+
+  it('keeps the level when the song time goes back', async () => {
+    const harness = await startCombo();
+    const before = tickAt(harness, 4100);
+
+    const after = tickAt(harness, 4050);
+
+    expect(after.songTimeMs).toBeLessThan(before.songTimeMs);
+    expect(after.activation.level).toBe(before.activation.level);
+  });
+
+  it('reports reaching full activation only on the frame the combo reaches it', async () => {
+    const harness = createHarness(STANDARD_ORIGIN, FULL_ACTIVATION_CHART);
+    await startVideo(harness);
+    for (const note of FULL_ACTIVATION_CHART.notes) {
+      tickAt(harness, note.timeMs);
+      harness.controller.keyDown('KeyD', false, harness.nowMs);
+    }
+    const reachedAt = harness.frames.length;
+
+    tickAt(harness, 4950);
+    tickAt(harness, 4970);
+    tickAt(harness, 6000);
+
+    const reached = harness.frames.map(({ next }) => next.activation.hasReachedFull);
+    expect(reached.slice(reachedAt)).toEqual([true, false, false]);
+    expect(reached.slice(0, reachedAt)).not.toContain(true);
   });
 });

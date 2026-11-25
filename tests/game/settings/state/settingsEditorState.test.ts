@@ -24,6 +24,7 @@ import {
   requestReset,
   startWaiting,
   unhoverRow,
+  unhoverSettingsButton,
   withDisplayedLanguage,
 } from '../../../../src/game/settings/state/settingsEditorState.js';
 import { getLanes } from '../../../../src/rhythm/lanes.js';
@@ -557,6 +558,7 @@ describe('getChangedRegions', () => {
       'controlsClose',
       'controlsHelpCard',
       'controlsHelpButton',
+      'inputOffsetHelp',
     ]);
   });
 
@@ -616,7 +618,21 @@ describe('getChangedRegions', () => {
       'rowControls',
       'waitingText',
       'rowButtons',
+      'inputOffsetHelp',
     ]);
+  });
+
+  it('redraws only the input offset help when its hover changes', () => {
+    const state = initial();
+    const hovered = hoverSettingsButton(state, 'inputOffsetHelp');
+
+    expect(getChangedRegions(state, hovered)).toEqual(['inputOffsetHelp']);
+    expect(getChangedRegions(hovered, unhoverSettingsButton(hovered, 'inputOffsetHelp'))).toEqual([
+      'inputOffsetHelp',
+    ]);
+    const back = hoverSettingsButton(state, 'back');
+    expect(getChangedRegions(state, back)).not.toContain('inputOffsetHelp');
+    expect(getChangedRegions(state, back)).not.toContain('rowLabels');
   });
 
   it('redraws only the hovered button when the hover changes between buttons', () => {

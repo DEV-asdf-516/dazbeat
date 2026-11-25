@@ -25,6 +25,12 @@ export interface SongListFrame {
   visibleRowCount: number;
 }
 
+export interface SongListActions {
+  readonly hoverRow: (rowIndex: number) => void;
+  readonly pickRow: (rowIndex: number) => void;
+  readonly scrollByWheel: (deltaYPx: number) => void;
+}
+
 interface RowView {
   readonly background: Phaser.GameObjects.NineSlice;
   readonly hitZone: Phaser.GameObjects.Zone;
@@ -57,19 +63,11 @@ export class SongListPanel {
   private readonly rows: RowView[];
   private readonly scrollBar: ScrollBar;
 
-  constructor(
-    scene: Phaser.Scene,
-    frame: SongListFrame,
-    actions: {
-      onHoverRow: (rowIndex: number) => void;
-      onPickRow: (rowIndex: number) => void;
-      onWheel: (deltaYPx: number) => void;
-    },
-  ) {
+  constructor(scene: Phaser.Scene, frame: SongListFrame, actions: SongListActions) {
     this.scene = scene;
     this.frame = frame;
     const onWheel = (_pointer: Phaser.Input.Pointer, _deltaX: number, deltaY: number): void =>
-      actions.onWheel(deltaY);
+      actions.scrollByWheel(deltaY);
     // 줄 사이 여백에서도 휠이 먹도록 패널 면도 입력을 받는다.
     this.panel = addBakedRoundedRect(scene, 0, 0, {
       widthPx: frame.widthPx,
@@ -85,8 +83,8 @@ export class SongListPanel {
     this.panelBorder = scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0).setVisible(false);
     this.rows = Array.from({ length: frame.visibleRowCount }, (_, rowIndex) =>
       this.createRow(rowIndex, {
-        onHover: () => actions.onHoverRow(rowIndex),
-        onPick: () => actions.onPickRow(rowIndex),
+        onHover: () => actions.hoverRow(rowIndex),
+        onPick: () => actions.pickRow(rowIndex),
         onWheel,
       }),
     );
@@ -144,14 +142,14 @@ export class SongListPanel {
   }
 
   renderFocus(focusedRowIndex: number | null): void {
-    this.rows.forEach(({ background, title }, rowIndex) => {
+    for (const [rowIndex, { background, title }] of this.rows.entries()) {
       const isFocused = rowIndex === focusedRowIndex;
       background.setVisible(isFocused);
       setTextColor(
         title,
         isFocused ? CELESTIAL_COLORS.textPrimary : CELESTIAL_COLORS.textSecondary,
       );
-    });
+    }
   }
 
   renderFrame(

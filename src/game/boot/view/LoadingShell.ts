@@ -36,10 +36,10 @@ export class LoadingShell implements LoadingScreen {
         this.stage.setAttribute('aria-valuenow', String(Math.round(next.fraction * 100)));
         return;
       case 'leaving':
-        this.fadingParts.forEach((part) => {
+        for (const part of this.fadingParts) {
           part.style.transition = `opacity ${MOTION.mediumMs}ms`;
           part.style.opacity = '0';
-        });
+        }
         return;
       case 'removed':
         this.shell.remove();
@@ -48,11 +48,11 @@ export class LoadingShell implements LoadingScreen {
   }
 
   private freezeCrawl(): void {
-    [this.fill, this.front].forEach((part) => {
+    for (const part of [this.fill, this.front]) {
       part.style.transform = getComputedStyle(part).transform;
       part.style.animation = 'none';
       // 굳힌 값을 스타일에 반영해 두어야 다음 진행 값의 전환이 CSS 애니메이션이 간 자리에서 시작한다.
       void getComputedStyle(part).transform;
-    });
+    }
   }
 }

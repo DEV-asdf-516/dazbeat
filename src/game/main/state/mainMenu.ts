@@ -15,9 +15,7 @@ import {
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
-  getControlsCloseView,
   getControlsHelpButtonView,
-  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
   leaveControlsButton,
@@ -138,14 +136,6 @@ export function releaseMainButton(state: MainState, button: MainButton): MainSta
 
 export function getMainButtonView(state: MainState, button: MainFocus | 'account'): ButtonView {
   return getButtonView(state.hover, button, true, state.focus === button);
-}
-
-export function getMainControlsCloseView(state: MainState): ButtonView {
-  return getControlsCloseView(state.hover);
-}
-
-export function isMainControlsEntryHovered(state: MainState): boolean {
-  return isControlsEntryHovered(state.hover);
 }
 
 // Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 팝업을 닫을 때 두 버튼의 hover 를 푼다.

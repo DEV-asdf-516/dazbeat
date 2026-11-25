@@ -4,8 +4,10 @@ import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.j
 import type { CelestialAtlasId } from '../celestial/state/celestialCatalog.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import {
+  getControlsCloseView,
   getControlsGuide,
   getControlsHelpButtonView,
+  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
 } from '../app/controlsGuide.js';
@@ -17,7 +19,7 @@ import type {
   SongSelectSceneData,
 } from '../app/sceneRoutes.js';
 import { SONG_FILTERS } from '../../data/songs.js';
-import type { ChartLevel, ChartRef, Song, SongFilter } from '../../data/songs.js';
+import type { SongFilter } from '../../data/songs.js';
 import type { SongFeeds } from '../app/SongFeed.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import { DEFAULT_SETTINGS, getAudibleVolume } from '../../storage/settings.js';
@@ -48,15 +50,13 @@ import {
   getSongDifficultyAppearance,
   getSongPage,
   getSongRows,
-  getSongSelectControlsCloseView,
-  isSongSelectControlsEntryHovered,
   openSongSelect,
   readSongSelectShortcut,
 } from './state/songSelectState.js';
 import { SongSelectController } from './SongSelectController.js';
 import type { SongSelectPorts, SongSelectScreen } from './SongSelectController.js';
 import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
-import type { Difficulty, LaneCount } from '../../rhythm/types.js';
+import type { Difficulty } from '../../rhythm/types.js';
 import { LevelConstellation } from './view/LevelConstellation.js';
 import { LevelRangeSlider } from './view/LevelRangeSlider.js';
 import { DRAG_CURSOR } from '../ui/view/input/cursor.js';
@@ -100,14 +100,9 @@ import type { JacketTextures } from './view/SongSelectJackets.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
 import type {
-  SelectedRecordView,
-  SongRowView,
   SongSelectAction,
   SongSelectButton,
   SongSelectNotice,
-  SongSelectRegion,
-  SongSelectState,
-  SongSelectView,
 } from './state/songSelectState.js';
 import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
@@ -133,7 +128,6 @@ import { GradeLetter } from '../ui/view/widgets/GradeLetter.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { ensureLightTextures } from '../ui/view/textures/lightTextures.js';
 import { requireKeyboard } from '../ui/view/input/menuInput.js';
-import type { MenuAction } from '../ui/state/menuAction.js';
 import { bindHoverTarget, pointButton } from '../ui/view/input/hoverTarget.js';
 import { getGrainedImageTexture } from '../ui/view/textures/grain.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
@@ -374,10 +368,10 @@ export class SongSelectScene extends Phaser.Scene {
   private mode: PlayMode = 'standard';
   private restore: SongSelectRestore | undefined;
   private readonly jacketTextures: JacketTextures = {
-    loadedSongIds: () => getLoadedJacketSongIds(this),
-    queue: (songs, onError) => queueJacketLoads(this, songs, onError),
+    loadedSongIds: getLoadedJacketSongIds.bind(null, this),
+    queue: queueJacketLoads.bind(null, this),
     start: () => this.load.start(),
-    remove: (songIds) => removeJacketTextures(this, songIds),
+    remove: removeJacketTextures.bind(null, this),
   };
   private jackets = new SongSelectJackets(this.jacketTextures);
 
@@ -428,48 +422,372 @@ export class SongSelectScene extends Phaser.Scene {
     this.mode = data.mode;
     // 미리듣기는 소리만 낸다.
     this.mvLayer.dataset.mvHidden = '';
-    const pointer: ButtonPointer<SongSelectButton> = {
-      pointerOver: (button) => controller.pointerOver(button),
-      pointerOut: (button) => controller.pointerOut(button),
-      pointerDown: (button) => controller.pointerDown(button),
-      pointerUp: (button) => controller.pointerUp(button),
-    };
-    const chrome = new MenuSceneChrome(
-      this,
-      {
-        celestial: this.celestial,
-        screen: 'songSelect',
-        account: {
-          kind: 'nameplate',
-          catalog: this.account.catalog,
-          pointer,
-        },
-      },
-      {
-        isLeaving: () => this.exit.kind === 'leaving',
-        handleControlsKey: (event) => controller.handleControlsKey(event),
-        handleMenuKey: (action, event) => this.handleMenuKey(action, event, controller),
-      },
-      pointer,
-    );
-    chrome.renderAccount(this.account.getIdentity());
-    addGlassPanel(this, LIST_PANEL, RADIUS.smallPx);
-    const keyboard = requireKeyboard(this);
-    ensureLightTextures(this);
-    this.cameras.main.fadeIn(MOTION.mediumMs);
-
-    const hoverInput: HoverInput = {
-      hover: (target) => controller.hover(target),
-      unhover: (target) => controller.unhover(target),
-    };
     const screen: SongSelectScreen = {
       render: (previous, next) => {
+        const { state, notice, isLoadingMore, songCount } = next;
         for (const region of getChangedRegions(previous, next, ROWS_PER_PAGE)) {
-          this.renderRegion(view, previous, next, region);
+          switch (region) {
+            case 'filterTabs': {
+              view.tabs.render((filter) => getFilterAppearance(state, filter), COLORS.textPrimary);
+              const bounds = view.tabs.getBounds(state.filter);
+              view.navigationStar.setPosition(bounds.left - NAVIGATION_STAR_GAP_PX, bounds.centerY);
+              break;
+            }
+            case 'levelSlider':
+              view.levelSlider.render({
+                ...state.levelSlider.range,
+                focus: getLevelSliderFocus(state),
+              });
+              break;
+            case 'rows': {
+              const rows = getSongRows(state, ROWS_PER_PAGE);
+              for (const slot of getChangedRowSlots(previous, next, ROWS_PER_PAGE)) {
+                const rowView = requireDefined(rows[slot], 'Invalid song row slot', slot);
+                const { marker, background, thumbnail, titles, categories, topRank, level } =
+                  requireDefined(view.rows[slot], 'Invalid song row slot', slot);
+                const hasSong = rowView.kind === 'song';
+                const isSelected = hasSong && rowView.appearance === 'selected';
+                thumbnail.setVisible(hasSong);
+                if (!hasSong) {
+                  titles.selected.setVisible(false);
+                  titles.unselected.setVisible(false);
+                  categories.selected.setVisible(false);
+                  categories.unselected.setVisible(false);
+                  topRank.render(null);
+                  level.setVisible(false);
+                  marker.render(null);
+                  background.disableInteractive(true);
+                  continue;
+                }
+                const { song } = rowView;
+                background.setInteractive();
+                thumbnail.setSong(song).setAlpha(isSelected ? 1 : UNSELECTED_THUMBNAIL_ALPHA);
+                // 숨는 쪽 글자는 그리지 않도록 보일 쪽에만 내용을 넣는다.
+                const [title, hiddenTitle] = isSelected
+                  ? [titles.selected, titles.unselected]
+                  : [titles.unselected, titles.selected];
+                const [category, hiddenCategory] = isSelected
+                  ? [categories.selected, categories.unselected]
+                  : [categories.unselected, categories.selected];
+                hiddenTitle.setVisible(false);
+                hiddenCategory.setVisible(false);
+                title.setVisible(true);
+                category.setVisible(true).setText(song.category.toUpperCase());
+                setTextColor(category, CATEGORY_COLORS[song.category]);
+                topRank.render(rowView.topRank);
+                level.render(rowView.level);
+                const topRankLeftXPx = topRank.getLeftXPx();
+                // 선택 행은 오른쪽으로 밀리므로 그만큼 빼야 선택돼도 분류나 TOP 표시와 겹치지 않는다.
+                const titleRightXPx =
+                  topRankLeftXPx === null
+                    ? category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX
+                    : topRankLeftXPx - ROW_TITLE_TOP_RANK_GAP_PX;
+                const titleMaxWidthPx = titleRightXPx - LIST_ROW.selectedShiftPx - title.x;
+                setFittedText(title, song.title, titleMaxWidthPx);
+                marker.render({
+                  node: this.celestial.atlasPresentations[rowView.nodeId],
+                  isSelected,
+                });
+              }
+              break;
+            }
+            case 'rowShift': {
+              const rows = getSongRows(state, ROWS_PER_PAGE);
+              for (const slot of getShiftedRowSlots(previous, next, ROWS_PER_PAGE)) {
+                const rowView = requireDefined(rows[slot], 'Invalid song row slot', slot);
+                slideSelectedRowContent(
+                  this,
+                  requireDefined(view.rows[slot], 'Invalid song row slot', slot).content,
+                  0,
+                  rowView.kind === 'song' && rowView.appearance === 'selected',
+                );
+              }
+              break;
+            }
+            case 'selectedHalo': {
+              const { selectedSlot } = getSongPage(state, ROWS_PER_PAGE);
+              view.selectedHalo.render(
+                selectedSlot === null
+                  ? null
+                  : requireDefined(view.rows[selectedSlot], 'Invalid song row slot', selectedSlot)
+                      .marker,
+              );
+              break;
+            }
+            case 'notice': {
+              if (notice === 'loadFailed') {
+                view.loadFailure.render({
+                  title: this.i18n.t('songSelect.loadFailed'),
+                  body: this.i18n.t('loadFailure.body'),
+                });
+                view.notice.show({ kind: 'none' });
+                break;
+              }
+              const translateNotice = (notice: Exclude<SongSelectNotice, 'loadFailed'>): string => {
+                // eslint-disable-next-line dazbeat/two-way-switch -- 목록 알림 종류는 늘어난다.
+                switch (notice) {
+                  case 'loading':
+                    return this.i18n.t('songSelect.loading');
+                  case 'noSongs':
+                    return this.i18n.t('songSelect.noSongs');
+                }
+              };
+              view.loadFailure.render(null);
+              view.notice.show(
+                notice === null
+                  ? { kind: 'none' }
+                  : {
+                      kind: getNoticeKind(notice),
+                      text: translateNotice(notice),
+                    },
+              );
+              break;
+            }
+            case 'pageIndicator': {
+              const indicator = getPageIndicator(state, ROWS_PER_PAGE, songCount);
+              if (indicator === null) {
+                view.pageText.setVisible(false);
+              } else {
+                view.pageText.setText(indicator.text).setVisible(true);
+              }
+              break;
+            }
+            case 'loadingMore': {
+              const anchor = getLoadingMoreAnchor(state, ROWS_PER_PAGE);
+              // eslint-disable-next-line dazbeat/two-way-switch -- 불러오는 중 표시 자리는 늘어난다.
+              switch (anchor.kind) {
+                case 'pageEnd':
+                  view.loadingMore.setPosition(PAGE_X_PX + ROW_WIDTH_PX, PAGE_LINE_CENTER_Y_PX, 1);
+                  break;
+                case 'row':
+                  view.loadingMore.setPosition(
+                    ROW_X_PX + ROW_WIDTH_PX / 2,
+                    getRowCenterYPx(anchor.slot),
+                    0.5,
+                  );
+                  break;
+              }
+              view.loadingMore.show(
+                isLoadingMore
+                  ? {
+                      kind: 'loading',
+                      text: this.i18n.t('songSelect.loadingMore'),
+                    }
+                  : { kind: 'none' },
+              );
+              break;
+            }
+            case 'jacket':
+              if (state.current.kind === 'song') {
+                view.jacket.setSong(state.current.song, true);
+                view.detailOutlines.forEach((outline) => outline.setVisible(false));
+                view.orbitArc.setVisible(true);
+              } else {
+                view.jacket.setEmptySlot(true);
+                view.detailOutlines.forEach((outline) => outline.setVisible(true));
+                view.orbitArc.setVisible(false);
+              }
+              break;
+            case 'songInfo':
+              if (state.current.kind === 'song') {
+                const { song } = state.current;
+                const record = getSelectedRecordView(state);
+                const level = getSelectedLevel(state);
+                fitSongTitle(view.titleText, song.title);
+                setTextColor(view.categoryText, CATEGORY_COLORS[song.category]);
+                view.categoryText
+                  .setText(song.category.toUpperCase())
+                  .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
+                renderLaneMarks(view.laneMarks, view.categoryText, state.laneCount);
+                const laneText = view.laneMarks.text;
+                const dividerXPx = laneText.x + laneText.width + INFO_DIVIDER_GAP_PX;
+                view.levelDivider.setPosition(dividerXPx, laneText.y).setVisible(true);
+                view.levelLabel
+                  .setPosition(dividerXPx + INFO_DIVIDER_GAP_PX, laneText.y)
+                  .setVisible(true);
+                view.levelValue
+                  .setText(level === null ? '—' : String(level))
+                  .setPosition(
+                    view.levelLabel.x + view.levelLabel.width + LEVEL_LABEL_GAP_PX,
+                    laneText.y,
+                  )
+                  .setVisible(true);
+                const recordYPx =
+                  view.categoryText.y + view.categoryText.height + RECORD_GROUP_GAP_PX;
+                const hasRecord = record.kind === 'record';
+                view.recordLabel.setY(recordYPx).setVisible(hasRecord);
+                view.noRecordText.setY(recordYPx).setVisible(record.kind === 'none');
+                view.recordValue
+                  .setY(recordYPx + view.recordLabel.height + RECORD_LABEL_GAP_PX)
+                  .setText(
+                    hasRecord
+                      ? `${formatScore(record.score)}   ${formatAccuracy(record.accuracy)}`
+                      : '',
+                  )
+                  .setVisible(hasRecord);
+                view.recordGrade.render(hasRecord ? record.grade : null);
+                // 글자 크기가 달라 기준선을 맞춰야 한 줄로 읽힌다.
+                view.recordGrade.place(
+                  view.recordValue.x + view.recordValue.width + RECORD_GRADE_GAP_PX,
+                  view.recordValue.y +
+                    view.recordValue.getTextMetrics().ascent -
+                    view.recordGrade.getAscentPx(),
+                );
+                view.recordsFailure.render(
+                  record.kind === 'failed'
+                    ? {
+                        title: this.i18n.t('songSelect.recordsFailed'),
+                        body: this.i18n.t('loadFailure.body'),
+                      }
+                    : null,
+                );
+                const recordBottom = hasRecord ? view.recordValue : view.noRecordText;
+                // 별자리는 기록 아래부터 RANDOM, PLAY 위까지 남는 하늘에 그린다.
+                renderZodiacFigure(
+                  view.zodiacStars,
+                  view.zodiacLines,
+                  song.constellation,
+                  {
+                    leftXPx: ZODIAC_AREA_LEFT_X_PX,
+                    rightXPx: DETAIL_RIGHT_X_PX,
+                    topYPx: recordBottom.y + recordBottom.height + ZODIAC_AREA_GAP_PX,
+                    bottomYPx: view.actions.random.text.y - ZODIAC_AREA_GAP_PX,
+                  },
+                  ZODIAC_MAX_SPAN_PX,
+                );
+              } else {
+                view.titleText.setText('');
+                view.categoryText.setText('');
+                renderLaneMarks(view.laneMarks, view.categoryText, null);
+                view.levelDivider.setVisible(false);
+                view.levelLabel.setVisible(false);
+                view.levelValue.setVisible(false);
+                view.recordLabel.setVisible(false);
+                view.recordValue.setVisible(false);
+                view.recordGrade.render(null);
+                view.noRecordText.setVisible(false);
+                view.recordsFailure.render(null);
+                view.zodiacStars.setVisible(false);
+                view.zodiacLines.setVisible(false);
+              }
+              break;
+            case 'difficultyTabs':
+              view.difficultyTabs.render(
+                (difficulty) => getSongDifficultyAppearance(state, difficulty),
+                getDifficultyAccent(state) ?? COLORS.textPrimary,
+              );
+              break;
+            case 'actions':
+              for (const action of SONG_SELECT_ACTIONS) {
+                const { text, underline, hitArea } = view.actions[action];
+                const { idleColor, hoverColor } = ACTION_STYLES[action];
+                switch (getActionAppearance(state, action)) {
+                  case 'disabled':
+                    hitArea.disableInteractive(true);
+                    setTextColor(text, COLORS.textDisabled);
+                    underline.setVisible(false);
+                    continue;
+                  case 'hovered':
+                    hitArea.setInteractive();
+                    setTextColor(text, hoverColor);
+                    underline.setTint(hoverColor).setVisible(true);
+                    continue;
+                  case 'idle':
+                    hitArea.setInteractive();
+                    setTextColor(text, idleColor);
+                    underline.setTint(idleColor).setVisible(false);
+                    continue;
+                }
+              }
+              break;
+            case 'jacketLoads':
+              this.jackets.show(getJacketRange(state, ROWS_PER_PAGE), getShownSongIds(view));
+              break;
+            case 'jacketGlint':
+              playCelestialOnce(view.jacketGlint);
+              break;
+            case 'controls':
+              view.chrome.controls.render(
+                isControlsPanelOpen(next.state)
+                  ? getControlsGuide(
+                      this.i18n.t('controls', { returnObjects: true }),
+                      this.save.loadSettings(),
+                    )
+                  : null,
+              );
+              break;
+            case 'settingsButton':
+              view.settingsButton.render(getSettingsButtonView(next));
+              break;
+            case 'backButton':
+              view.backButton.render(getBackButtonView(next));
+              break;
+            case 'rankingButton':
+              view.rankingButton.render(getRankingButtonView(next));
+              break;
+            case 'levelResetButton': {
+              const resetView = getLevelResetButtonView(next);
+              view.levelResetButton
+                .setVisible(resetView.appearance !== 'disabled')
+                .render(resetView);
+              break;
+            }
+            case 'retryButton':
+              view.loadFailure.renderRetry(getRetryButtonView(next));
+              break;
+            case 'recordsRetryButton':
+              view.recordsFailure.renderRetry(getRecordsRetryButtonView(next));
+              break;
+            case 'controlsEntry':
+              view.chrome.renderControlsEntry(isControlsEntryHovered(next.state.hover));
+              break;
+            case 'controlsClose':
+              view.chrome.controls.closeButton.render(getControlsCloseView(next.state.hover));
+              break;
+            case 'controlsHelpCard':
+              view.chrome.controls.helpCard.render(isControlsHelpShown(next.state));
+              break;
+            case 'controlsHelpButton':
+              view.chrome.controls.renderHelpButton(getControlsHelpButtonView(next.state));
+              break;
+            case 'accountButton': {
+              const views = getAccountPanelButtonView(next.state.hover);
+              view.chrome.accountCorner.nameplate.renderButton(views.accountProfile);
+              view.chrome.accountCorner.signInButton.render(views.accountSignIn);
+              break;
+            }
+          }
         }
       },
-      play: (chart, restore) => this.play(chart, restore),
-      openSettings: (restore) => this.openSettings(restore),
+      play: (chart, restore) => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'gameplay',
+          data: {
+            ...chart,
+            origin: {
+              kind: 'songSelect',
+              mode: this.mode,
+              quitKey: 'confirm',
+              start: { kind: 'whole' },
+              restore,
+            },
+          },
+        });
+      },
+      openSettings: (restore) => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'settings',
+          data: {
+            returnTo: {
+              key: 'songSelect',
+              data: {
+                mode: this.mode,
+                restore,
+              },
+            },
+          },
+        });
+      },
       openRanking: (chart, restore) => {
         this.exit = exitScene(this, this.exit, {
           key: 'ranking',
@@ -480,10 +798,130 @@ export class SongSelectScene extends Phaser.Scene {
           },
         });
       },
-      backToMain: () => this.backToMain(),
-      openProfile: (restore) => this.openProfile(restore),
+      backToMain: () => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'main',
+          data: undefined,
+        });
+      },
+      openProfile: (restore) => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'profile',
+          data: {
+            returnTo: {
+              key: 'songSelect',
+              data: {
+                mode: this.mode,
+                restore,
+              },
+            },
+          },
+        });
+      },
+      renderAccount: () => {
+        const identity = this.account.getIdentity();
+        chrome.accountCorner.nameplate.render(identity);
+        chrome.accountCorner.renderSignIn(identity);
+      },
       playSound: (sound) => soundEffects.play(sound),
     };
+    const settings = this.save.loadSettings();
+    const controller = new SongSelectController(
+      {
+        feeds: this.feeds,
+        random: Math.random,
+        preview: {
+          players: {
+            loadApi: loadYouTubeIframeApi,
+            create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
+          },
+          now: () => performance.now(),
+          volume: getAudibleVolume(settings, 'musicVolume'),
+        },
+        rankings: this.rankings,
+        loadLocalRecords: () => this.save.loadRecords(),
+        signIn: () => this.account.signIn(),
+      },
+      screen,
+      ROWS_PER_PAGE,
+      settings.laneMode,
+      this.restore,
+      WHEEL_STEP_PX,
+    );
+    const chrome = new MenuSceneChrome(
+      this,
+      {
+        celestial: this.celestial,
+        screen: 'songSelect',
+        account: {
+          kind: 'corner',
+          catalog: this.account.catalog,
+          pointer: controller,
+        },
+      },
+      {
+        isLeaving: () => this.exit.kind === 'leaving',
+        handleControlsKey: (event) => controller.handleControlsKey(event),
+        handleMenuKey: (action, event) => {
+          if (controller.handleLevelSliderKey(action)) {
+            return;
+          }
+          switch (action) {
+            case 'up':
+              controller.moveSong(-1);
+              return;
+            case 'down':
+              controller.moveSong(1);
+              return;
+            case 'left':
+              controller.moveDifficulty('previous');
+              return;
+            case 'right':
+              controller.moveDifficulty('next');
+              return;
+            case 'confirm':
+              controller.play();
+              return;
+            case 'back':
+              controller.back();
+              return;
+            case 'previousTab':
+              controller.cycleFilter('previous');
+              return;
+            case 'nextTab':
+              controller.cycleFilter('next');
+              return;
+            case null:
+              break;
+          }
+          switch (readSongSelectShortcut(event)) {
+            case 'openSettings':
+              controller.openSettings();
+              return;
+            case 'selectRandomSong':
+              controller.selectRandomSong();
+              return;
+            case 'openRanking':
+              controller.openRanking();
+              return;
+            case 'resetLevelFilter':
+              controller.resetLevelFilter();
+              return;
+            case null:
+              return;
+          }
+        },
+      },
+      controller,
+    );
+    const identity = this.account.getIdentity();
+    chrome.accountCorner.nameplate.render(identity);
+    chrome.accountCorner.renderSignIn(identity);
+    addGlassPanel(this, LIST_PANEL, RADIUS.smallPx);
+    const keyboard = requireKeyboard(this);
+    ensureLightTextures(this);
+    this.cameras.main.fadeIn(MOTION.mediumMs);
+
     if (this.mode === 'practice') {
       this.add.text(FILTER_X_PX, MODE_LABEL_Y_PX, 'PRACTICE', {
         ...typeStyle(MODE_LABEL_TYPE, COLORS.textMuted),
@@ -503,17 +941,9 @@ export class SongSelectScene extends Phaser.Scene {
       },
       FILTER_TABS_STYLE,
       {
-        onSelect: (filter) => controller.selectFilter(filter),
-        onHover: (filter) =>
-          hoverInput.hover({
-            kind: 'filter',
-            filter,
-          }),
-        onUnhover: (filter) =>
-          hoverInput.unhover({
-            kind: 'filter',
-            filter,
-          }),
+        onSelect: controller.selectFilter.bind(controller),
+        onHover: controller.hoverFilterTab.bind(controller),
+        onUnhover: controller.unhoverFilterTab.bind(controller),
       },
     );
     // 레일을 고른 탭 밑줄과 같은 높이에 둔다.
@@ -571,7 +1001,7 @@ export class SongSelectScene extends Phaser.Scene {
         // Lv. 글자는 탭 글자와 한 줄로 읽히게 탭 글자 기준선에 얹는다.
         tabs.getBaselineYPx('all'),
       ),
-      rows: this.createSongRows(hoverInput, (slot) => controller.selectRow(slot)),
+      rows: this.createSongRows(controller, controller.selectRow.bind(controller)),
       notice: new NoticeText(
         this,
         this.celestial,
@@ -590,7 +1020,7 @@ export class SongSelectScene extends Phaser.Scene {
           leftXPx: LIST_PANEL.xPx + LOAD_FAILURE_INSET_X_PX,
           centerYPx: LIST_PANEL.yPx + LIST_PANEL.heightPx / 2,
         },
-        pointButton(pointer, 'retry'),
+        pointButton(controller, 'retry'),
       ),
       pageText: this.add.text(
         PAGE_X_PX,
@@ -603,13 +1033,24 @@ export class SongSelectScene extends Phaser.Scene {
         this.celestial,
         this.add.text(0, 0, '', textStyle('secondary', CELESTIAL_COLORS.textNeutral)),
       ),
-      navigationStar: this.addCelestial(NAVIGATION_STAR_ID, 0, 0),
+      navigationStar: addCelestialSprite(
+        this,
+        this.celestial.atlasPresentations[NAVIGATION_STAR_ID],
+        0,
+        0,
+      ),
       selectedHalo: new SelectedRowHalo(this, this.celestial.atlasPresentations[SELECTED_HALO_ID]),
-      orbitArc: this.addCelestial(ORBIT_ARC_ID, ORBIT_ARC_POSITION_PX.x, ORBIT_ARC_POSITION_PX.y),
+      orbitArc: addCelestialSprite(
+        this,
+        this.celestial.atlasPresentations[ORBIT_ARC_ID],
+        ORBIT_ARC_POSITION_PX.x,
+        ORBIT_ARC_POSITION_PX.y,
+      ),
       zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
       zodiacLines: this.add.image(0, 0, '__DEFAULT'),
-      jacketGlint: this.addCelestial(
-        JACKET_GLINT_ID,
+      jacketGlint: addCelestialSprite(
+        this,
+        this.celestial.atlasPresentations[JACKET_GLINT_ID],
         JACKET_GLINT_POSITION_PX.x,
         JACKET_GLINT_POSITION_PX.y,
       ),
@@ -641,17 +1082,9 @@ export class SongSelectScene extends Phaser.Scene {
         DIFFICULTY_TABS_LAYOUT,
         DIFFICULTY_TABS_STYLE,
         {
-          onSelect: (difficulty) => controller.selectDifficulty(difficulty),
-          onHover: (difficulty) =>
-            controller.hover({
-              kind: 'difficulty',
-              difficulty,
-            }),
-          onUnhover: (difficulty) =>
-            controller.unhover({
-              kind: 'difficulty',
-              difficulty,
-            }),
+          onSelect: controller.selectDifficulty.bind(controller),
+          onHover: controller.hoverDifficultyTab.bind(controller),
+          onUnhover: controller.unhoverDifficultyTab.bind(controller),
         },
       ),
       ...this.createRecordTexts(),
@@ -661,21 +1094,21 @@ export class SongSelectScene extends Phaser.Scene {
           leftXPx: DETAIL_X_PX,
           centerYPx: RECORDS_FAILURE_CENTER_Y_PX,
         },
-        pointButton(pointer, 'recordsRetry'),
+        pointButton(controller, 'recordsRetry'),
       ),
-      actions: this.createActionButtons(hoverInput, {
-        random: () => controller.selectRandomSong(),
-        play: () => controller.play(),
+      actions: this.createActionButtons(controller, {
+        random: controller.selectRandomSong.bind(controller),
+        play: controller.play.bind(controller),
       }),
     };
     const [settingsButton, backButton] = createFooterAuxiliaryButtons(this, [
       {
         label: 'SETTINGS',
-        pointer: pointButton(pointer, 'settings'),
+        pointer: pointButton(controller, 'settings'),
       },
       {
         label: 'BACK',
-        pointer: pointButton(pointer, 'back'),
+        pointer: pointButton(controller, 'back'),
       },
     ]);
     const view: SongSelectWidgets = {
@@ -686,19 +1119,21 @@ export class SongSelectScene extends Phaser.Scene {
         'SETTINGS',
       ),
       backButton: requireDefined(backButton, 'Missing song select header button', 'BACK'),
-      rankingButton: this.createRankingButton(pointer),
-      levelResetButton: this.createLevelResetButton(pointer, levelSliderCenterYPx),
+      rankingButton: this.createRankingButton(controller),
+      levelResetButton: this.createLevelResetButton(controller, levelSliderCenterYPx),
     };
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
     const renderLoadedJackets = (): void => {
       this.jackets.complete(getShownSongIds(view));
       const { state } = controller.view;
-      getSongRows(state, ROWS_PER_PAGE).forEach((rowView, slot) => {
+      for (const [slot, rowView] of getSongRows(state, ROWS_PER_PAGE).entries()) {
         if (rowView.kind === 'song') {
-          getSongRow(view, slot).thumbnail.refreshTexture(rowView.song);
+          requireDefined(view.rows[slot], 'Invalid song row slot', slot).thumbnail.refreshTexture(
+            rowView.song,
+          );
         }
-      });
+      }
       if (state.current.kind === 'song') {
         view.jacket.refreshTexture(state.current.song, true);
       }
@@ -714,31 +1149,9 @@ export class SongSelectScene extends Phaser.Scene {
       // mv-layer 는 게임플레이·채보 에디터도 쓰므로 가림을 남기지 않는다.
       delete this.mvLayer.dataset.mvHidden;
     });
-    const settings = this.save.loadSettings();
     const soundEffects = new SoundEffects(this, settings);
     chrome.start(
       new Phaser.Geom.Rectangle(DETAIL_X_PX, JACKET_Y_PX, JACKET_SIZE_PX, JACKET_SIZE_PX),
-    );
-    const controller = new SongSelectController(
-      {
-        feeds: this.feeds,
-        random: Math.random,
-        preview: {
-          players: {
-            loadApi: loadYouTubeIframeApi,
-            create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
-          },
-          now: () => performance.now(),
-          volume: getAudibleVolume(settings, 'musicVolume'),
-        },
-        rankings: this.rankings,
-        loadLocalRecords: () => this.save.loadRecords(),
-      },
-      screen,
-      ROWS_PER_PAGE,
-      settings.laneMode,
-      this.restore,
-      WHEEL_STEP_PX,
     );
     // 상세 패널(PLAY 버튼) 위에서 휠이 살짝 움직여 선택 곡이 바뀌지 않도록 목록 위에서만 받는다.
     const listArea = new Phaser.Geom.Rectangle(
@@ -756,6 +1169,7 @@ export class SongSelectScene extends Phaser.Scene {
         controller.scrollByWheel(deltaY, this.time.now);
       },
     );
+    controller.start();
   }
 
   private createSongRows(hoverInput: HoverInput, onSelect: (slot: number) => void): SongRow[] {
@@ -855,10 +1269,11 @@ export class SongSelectScene extends Phaser.Scene {
       pointer: pointButton(pointer, 'ranking'),
     });
     if (this.textures.exists(RANKING_ICON_TEXTURE_KEY)) {
-      button.setIcon(
-        getGrainedImageTexture(this, RANKING_ICON_TEXTURE_KEY, RANKING_ICON_SIZE_PX),
-        RANKING_ICON_SIZE_PX,
-      );
+      button.setContent({
+        kind: 'icon',
+        textureKey: getGrainedImageTexture(this, RANKING_ICON_TEXTURE_KEY, RANKING_ICON_SIZE_PX),
+        sizePx: RANKING_ICON_SIZE_PX,
+      });
     }
     return button.setPosition(
       DETAIL_X_PX +
@@ -881,7 +1296,11 @@ export class SongSelectScene extends Phaser.Scene {
       label: '',
       pointer: pointButton(pointer, 'levelReset'),
       paddingXPx: LEVEL_RESET_PADDING_X_PX,
-    }).setIcon(getResetIconTexture(this, LEVEL_RESET_ICON_SIZE_PX), LEVEL_RESET_ICON_SIZE_PX);
+    }).setContent({
+      kind: 'icon',
+      textureKey: getResetIconTexture(this, LEVEL_RESET_ICON_SIZE_PX),
+      sizePx: LEVEL_RESET_ICON_SIZE_PX,
+    });
     return button
       .setPosition(
         LIST_PANEL.xPx +
@@ -892,10 +1311,6 @@ export class SongSelectScene extends Phaser.Scene {
         railYPx - LEVEL_RESET_ARC_BOTTOM_PX - button.height / 2,
       )
       .setVisible(false);
-  }
-
-  private addCelestial(id: CelestialAtlasId, xPx: number, yPx: number): Phaser.GameObjects.Sprite {
-    return addCelestialSprite(this, this.celestial.atlasPresentations[id], xPx, yPx);
   }
 
   private createRecordTexts(): Pick<
@@ -1010,483 +1425,10 @@ export class SongSelectScene extends Phaser.Scene {
       hitArea,
     };
   }
-
-  private handleMenuKey(
-    action: MenuAction | null,
-    event: KeyboardEvent,
-    controller: SongSelectController,
-  ): void {
-    if (controller.handleLevelSliderKey(action)) {
-      return;
-    }
-    switch (action) {
-      case 'up':
-        controller.moveSong(-1);
-        return;
-      case 'down':
-        controller.moveSong(1);
-        return;
-      case 'left':
-        controller.moveDifficulty('previous');
-        return;
-      case 'right':
-        controller.moveDifficulty('next');
-        return;
-      case 'confirm':
-        controller.play();
-        return;
-      case 'back':
-        controller.back();
-        return;
-      case 'previousTab':
-        controller.cycleFilter('previous');
-        return;
-      case 'nextTab':
-        controller.cycleFilter('next');
-        return;
-      case null:
-        break;
-    }
-    switch (readSongSelectShortcut(event)) {
-      case 'openSettings':
-        controller.openSettings();
-        return;
-      case 'selectRandomSong':
-        controller.selectRandomSong();
-        return;
-      case 'openRanking':
-        controller.openRanking();
-        return;
-      case 'resetLevelFilter':
-        controller.resetLevelFilter();
-        return;
-      case null:
-        return;
-    }
-  }
-
-  private renderRegion(
-    view: SongSelectWidgets,
-    previous: SongSelectView | null,
-    next: SongSelectView,
-    region: SongSelectRegion,
-  ): void {
-    const { state, notice, isLoadingMore, songCount } = next;
-    switch (region) {
-      case 'filterTabs':
-        this.renderTabs(view, state);
-        return;
-      case 'levelSlider':
-        view.levelSlider.render({
-          ...state.levelSlider.range,
-          focus: getLevelSliderFocus(state),
-        });
-        return;
-      case 'rows': {
-        const rows = getSongRows(state, ROWS_PER_PAGE);
-        for (const slot of getChangedRowSlots(previous, next, ROWS_PER_PAGE)) {
-          this.renderRow(view, slot, requireDefined(rows[slot], 'Invalid song row slot', slot));
-        }
-        return;
-      }
-      case 'rowShift': {
-        const rows = getSongRows(state, ROWS_PER_PAGE);
-        for (const slot of getShiftedRowSlots(previous, next, ROWS_PER_PAGE)) {
-          this.shiftRow(
-            getSongRow(view, slot),
-            requireDefined(rows[slot], 'Invalid song row slot', slot),
-          );
-        }
-        return;
-      }
-      case 'selectedHalo':
-        this.renderSelectedHalo(view, state);
-        return;
-      case 'notice':
-        if (notice === 'loadFailed') {
-          view.loadFailure.render({
-            title: this.i18n.t('songSelect.loadFailed'),
-            body: this.i18n.t('loadFailure.body'),
-          });
-          view.notice.show({ kind: 'none' });
-          return;
-        }
-        view.loadFailure.render(null);
-        view.notice.show(
-          notice === null
-            ? { kind: 'none' }
-            : {
-                kind: getNoticeKind(notice),
-                text: this.translateNotice(notice),
-              },
-        );
-        return;
-      case 'pageIndicator': {
-        const indicator = getPageIndicator(state, ROWS_PER_PAGE, songCount);
-        if (indicator === null) {
-          view.pageText.setVisible(false);
-        } else {
-          view.pageText.setText(indicator.text).setVisible(true);
-        }
-        return;
-      }
-      case 'loadingMore': {
-        const anchor = getLoadingMoreAnchor(state, ROWS_PER_PAGE);
-        switch (anchor.kind) {
-          case 'pageEnd':
-            view.loadingMore.setPosition(PAGE_X_PX + ROW_WIDTH_PX, PAGE_LINE_CENTER_Y_PX, 1);
-            break;
-          case 'row':
-            view.loadingMore.setPosition(
-              ROW_X_PX + ROW_WIDTH_PX / 2,
-              getRowCenterYPx(anchor.slot),
-              0.5,
-            );
-            break;
-        }
-        view.loadingMore.show(
-          isLoadingMore
-            ? {
-                kind: 'loading',
-                text: this.i18n.t('songSelect.loadingMore'),
-              }
-            : { kind: 'none' },
-        );
-        return;
-      }
-      case 'jacket':
-        switch (state.current.kind) {
-          case 'song':
-            view.jacket.setSong(state.current.song, true);
-            view.detailOutlines.forEach((outline) => outline.setVisible(false));
-            view.orbitArc.setVisible(true);
-            return;
-          case 'none':
-            view.jacket.setEmptySlot(true);
-            view.detailOutlines.forEach((outline) => outline.setVisible(true));
-            view.orbitArc.setVisible(false);
-            return;
-        }
-        return;
-      case 'songInfo':
-        switch (state.current.kind) {
-          case 'song':
-            this.renderSongInfo(
-              view,
-              state.current.song,
-              state.laneCount,
-              getSelectedRecordView(state),
-              getSelectedLevel(state),
-            );
-            return;
-          case 'none':
-            this.renderNoSongInfo(view);
-            return;
-        }
-        return;
-      case 'difficultyTabs':
-        view.difficultyTabs.render(
-          (difficulty) => getSongDifficultyAppearance(state, difficulty),
-          getDifficultyAccent(state) ?? COLORS.textPrimary,
-        );
-        return;
-      case 'actions':
-        SONG_SELECT_ACTIONS.forEach((action) => this.renderAction(view, state, action));
-        return;
-      case 'jacketLoads':
-        this.jackets.show(getJacketRange(state, ROWS_PER_PAGE), getShownSongIds(view));
-        return;
-      case 'jacketGlint':
-        playCelestialOnce(view.jacketGlint);
-        return;
-      case 'controls':
-        view.chrome.renderControls(
-          isControlsPanelOpen(next.state)
-            ? getControlsGuide(
-                this.i18n.t('controls', { returnObjects: true }),
-                this.save.loadSettings(),
-              )
-            : null,
-        );
-        return;
-      case 'settingsButton':
-        view.settingsButton.render(getSettingsButtonView(next));
-        return;
-      case 'backButton':
-        view.backButton.render(getBackButtonView(next));
-        return;
-      case 'rankingButton':
-        view.rankingButton.render(getRankingButtonView(next));
-        return;
-      case 'levelResetButton': {
-        const resetView = getLevelResetButtonView(next);
-        view.levelResetButton.setVisible(resetView.appearance !== 'disabled').render(resetView);
-        return;
-      }
-      case 'retryButton':
-        view.loadFailure.renderRetry(getRetryButtonView(next));
-        return;
-      case 'recordsRetryButton':
-        view.recordsFailure.renderRetry(getRecordsRetryButtonView(next));
-        return;
-      case 'controlsEntry':
-        view.chrome.renderControlsEntry(isSongSelectControlsEntryHovered(next));
-        return;
-      case 'controlsClose':
-        view.chrome.renderControlsClose(getSongSelectControlsCloseView(next));
-        return;
-      case 'controlsHelpCard':
-        view.chrome.renderControlsHelpCard(isControlsHelpShown(next.state));
-        return;
-      case 'controlsHelpButton':
-        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(next.state));
-        return;
-      case 'accountButton':
-        view.chrome.renderAccountButton(getAccountPanelButtonView(next.state.hover));
-        return;
-    }
-  }
-
-  private play(chart: ChartRef, restore: SongSelectRestore): void {
-    this.exit = exitScene(this, this.exit, {
-      key: 'gameplay',
-      data: {
-        ...chart,
-        origin: {
-          kind: 'songSelect',
-          mode: this.mode,
-          quitKey: 'confirm',
-          start: { kind: 'whole' },
-          restore,
-        },
-      },
-    });
-  }
-
-  private openSettings(restore: SongSelectRestore): void {
-    this.exit = exitScene(this, this.exit, {
-      key: 'settings',
-      data: {
-        returnTo: {
-          key: 'songSelect',
-          data: {
-            mode: this.mode,
-            restore,
-          },
-        },
-      },
-    });
-  }
-
-  private openProfile(restore: SongSelectRestore): void {
-    this.exit = exitScene(this, this.exit, {
-      key: 'profile',
-      data: {
-        returnTo: {
-          key: 'songSelect',
-          data: {
-            mode: this.mode,
-            restore,
-          },
-        },
-      },
-    });
-  }
-
-  private backToMain(): void {
-    this.exit = exitScene(this, this.exit, {
-      key: 'main',
-      data: undefined,
-    });
-  }
-
-  private translateNotice(notice: Exclude<SongSelectNotice, 'loadFailed'>): string {
-    switch (notice) {
-      case 'loading':
-        return this.i18n.t('songSelect.loading');
-      case 'noSongs':
-        return this.i18n.t('songSelect.noSongs');
-    }
-  }
-
-  private renderTabs(view: SongSelectWidgets, state: SongSelectState): void {
-    view.tabs.render((filter) => getFilterAppearance(state, filter), COLORS.textPrimary);
-    const bounds = view.tabs.getBounds(state.filter);
-    view.navigationStar.setPosition(bounds.left - NAVIGATION_STAR_GAP_PX, bounds.centerY);
-  }
-
-  private renderRow(view: SongSelectWidgets, slot: number, rowView: SongRowView): void {
-    const row = getSongRow(view, slot);
-    const { marker, background, thumbnail, titles, categories, topRank, level } = row;
-    const hasSong = rowView.kind === 'song';
-    const isSelected = hasSong && rowView.appearance === 'selected';
-    thumbnail.setVisible(hasSong);
-    if (!hasSong) {
-      [titles, categories].forEach(({ selected, unselected }) => {
-        selected.setVisible(false);
-        unselected.setVisible(false);
-      });
-      topRank.render(null);
-      level.setVisible(false);
-      marker.render(null);
-      background.disableInteractive(true);
-      return;
-    }
-    const { song } = rowView;
-    background.setInteractive();
-    thumbnail.setSong(song).setAlpha(isSelected ? 1 : UNSELECTED_THUMBNAIL_ALPHA);
-    // 숨는 쪽 글자는 그리지 않도록 보일 쪽에만 내용을 넣는다.
-    const [title, hiddenTitle] = isSelected
-      ? [titles.selected, titles.unselected]
-      : [titles.unselected, titles.selected];
-    const [category, hiddenCategory] = isSelected
-      ? [categories.selected, categories.unselected]
-      : [categories.unselected, categories.selected];
-    hiddenTitle.setVisible(false);
-    hiddenCategory.setVisible(false);
-    title.setVisible(true);
-    category.setVisible(true).setText(song.category.toUpperCase());
-    setTextColor(category, CATEGORY_COLORS[song.category]);
-    topRank.render(rowView.topRank);
-    level.render(rowView.level);
-    const topRankLeftXPx = topRank.getLeftXPx();
-    // 선택 행은 오른쪽으로 밀리므로 그만큼 빼야 선택돼도 분류나 TOP 표시와 겹치지 않는다.
-    const titleRightXPx =
-      topRankLeftXPx === null
-        ? category.x - category.width - ROW_TITLE_CATEGORY_GAP_PX
-        : topRankLeftXPx - ROW_TITLE_TOP_RANK_GAP_PX;
-    const titleMaxWidthPx = titleRightXPx - LIST_ROW.selectedShiftPx - title.x;
-    setFittedText(title, song.title, titleMaxWidthPx);
-    marker.render({
-      node: this.celestial.atlasPresentations[rowView.nodeId],
-      isSelected,
-    });
-  }
-
-  private renderSelectedHalo(view: SongSelectWidgets, state: SongSelectState): void {
-    const { selectedSlot } = getSongPage(state, ROWS_PER_PAGE);
-    view.selectedHalo.render(selectedSlot === null ? null : getSongRow(view, selectedSlot).marker);
-  }
-
-  private renderSongInfo(
-    view: SongSelectWidgets,
-    song: Song,
-    laneCount: LaneCount,
-    record: SelectedRecordView,
-    level: ChartLevel | null,
-  ): void {
-    fitSongTitle(view.titleText, song.title);
-    setTextColor(view.categoryText, CATEGORY_COLORS[song.category]);
-    view.categoryText
-      .setText(song.category.toUpperCase())
-      .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
-    renderLaneMarks(view.laneMarks, view.categoryText, laneCount);
-    const laneText = view.laneMarks.text;
-    const dividerXPx = laneText.x + laneText.width + INFO_DIVIDER_GAP_PX;
-    view.levelDivider.setPosition(dividerXPx, laneText.y).setVisible(true);
-    view.levelLabel.setPosition(dividerXPx + INFO_DIVIDER_GAP_PX, laneText.y).setVisible(true);
-    view.levelValue
-      .setText(level === null ? '—' : String(level))
-      .setPosition(view.levelLabel.x + view.levelLabel.width + LEVEL_LABEL_GAP_PX, laneText.y)
-      .setVisible(true);
-    const recordYPx = view.categoryText.y + view.categoryText.height + RECORD_GROUP_GAP_PX;
-    const hasRecord = record.kind === 'record';
-    view.recordLabel.setY(recordYPx).setVisible(hasRecord);
-    view.noRecordText.setY(recordYPx).setVisible(record.kind === 'none');
-    view.recordValue
-      .setY(recordYPx + view.recordLabel.height + RECORD_LABEL_GAP_PX)
-      .setText(hasRecord ? `${formatScore(record.score)}   ${formatAccuracy(record.accuracy)}` : '')
-      .setVisible(hasRecord);
-    view.recordGrade.render(hasRecord ? record.grade : null);
-    // 글자 크기가 달라 기준선을 맞춰야 한 줄로 읽힌다.
-    view.recordGrade.place(
-      view.recordValue.x + view.recordValue.width + RECORD_GRADE_GAP_PX,
-      view.recordValue.y +
-        view.recordValue.getTextMetrics().ascent -
-        view.recordGrade.getAscentPx(),
-    );
-    view.recordsFailure.render(
-      record.kind === 'failed'
-        ? {
-            title: this.i18n.t('songSelect.recordsFailed'),
-            body: this.i18n.t('loadFailure.body'),
-          }
-        : null,
-    );
-    const recordBottom = hasRecord ? view.recordValue : view.noRecordText;
-    // 별자리는 기록 아래부터 RANDOM, PLAY 위까지 남는 하늘에 그린다.
-    renderZodiacFigure(
-      view.zodiacStars,
-      view.zodiacLines,
-      song.constellation,
-      {
-        leftXPx: ZODIAC_AREA_LEFT_X_PX,
-        rightXPx: DETAIL_RIGHT_X_PX,
-        topYPx: recordBottom.y + recordBottom.height + ZODIAC_AREA_GAP_PX,
-        bottomYPx: view.actions.random.text.y - ZODIAC_AREA_GAP_PX,
-      },
-      ZODIAC_MAX_SPAN_PX,
-    );
-  }
-
-  private renderNoSongInfo(view: SongSelectWidgets): void {
-    view.titleText.setText('');
-    view.categoryText.setText('');
-    renderLaneMarks(view.laneMarks, view.categoryText, null);
-    view.levelDivider.setVisible(false);
-    view.levelLabel.setVisible(false);
-    view.levelValue.setVisible(false);
-    view.recordLabel.setVisible(false);
-    view.recordValue.setVisible(false);
-    view.recordGrade.render(null);
-    view.noRecordText.setVisible(false);
-    view.recordsFailure.render(null);
-    view.zodiacStars.setVisible(false);
-    view.zodiacLines.setVisible(false);
-  }
-
-  private renderAction(
-    view: SongSelectWidgets,
-    state: SongSelectState,
-    action: SongSelectAction,
-  ): void {
-    const { text, underline, hitArea } = view.actions[action];
-    const { idleColor, hoverColor } = ACTION_STYLES[action];
-    switch (getActionAppearance(state, action)) {
-      case 'disabled':
-        hitArea.disableInteractive(true);
-        setTextColor(text, COLORS.textDisabled);
-        underline.setVisible(false);
-        return;
-      case 'hovered':
-        hitArea.setInteractive();
-        setTextColor(text, hoverColor);
-        underline.setTint(hoverColor).setVisible(true);
-        return;
-      case 'idle':
-        hitArea.setInteractive();
-        setTextColor(text, idleColor);
-        underline.setTint(idleColor).setVisible(false);
-        return;
-    }
-  }
-
-  private shiftRow(row: SongRow, rowView: SongRowView): void {
-    slideSelectedRowContent(
-      this,
-      row.content,
-      0,
-      rowView.kind === 'song' && rowView.appearance === 'selected',
-    );
-  }
 }
 
 function getRowCenterYPx(slot: number): number {
   return ROW_Y_PX + ROW_HEIGHT_PX * slot + ROW_HEIGHT_PX / 2;
-}
-
-function getSongRow(view: SongSelectWidgets, slot: number): SongRow {
-  return requireDefined(view.rows[slot], 'Invalid song row slot', slot);
 }
 
 function getShownSongIds(view: SongSelectWidgets): string[] {

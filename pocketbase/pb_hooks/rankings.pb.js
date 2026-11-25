@@ -9,7 +9,7 @@ routerAdd(
     const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
 
     // superuser 의 e.auth 는 users 레코드가 아니라 순위에 오를 수 없다.
-    const userId = e.auth !== null && !e.requestInfo().hasSuperuserAuth() ? e.auth.id : null;
+    const userId = e.auth !== null && !e.hasSuperuserAuth() ? e.auth.id : null;
     const load = loadLeaderboard(
       { DynamicModel, arrayOf, dbx: $dbx },
       e.app,
@@ -25,48 +25,24 @@ routerAdd(
   $apis.bodyLimit(4096),
 );
 
+// 로그인 판은 순위표 기록으로 세므로, 이 라우트는 로그인하지 않은 플레이어만 받는다.
 routerAdd(
-  'GET',
-  '/api/dazbeat/profile/rankings',
+  'POST',
+  '/api/dazbeat/charts/{chartId}/guest',
   (e) => {
-    const {
-      InvalidRankingRequestError,
-      RANKING_REJECTIONS,
-      parseRankedChartCursor,
-      parseRankedChartDifficulty,
-      parseRankedChartLaneCount,
-      parseRankedChartSort,
-    } = require(`${__hooks}/lib/ranking/dto.cjs`);
-    const { loadMyRankings } = require(`${__hooks}/lib/ranking/service.cjs`);
+    const { InvalidRankingRequestError, RANKING_REJECTIONS, parseGuestPlayerRevision } = require(
+      `${__hooks}/lib/ranking/dto.cjs`,
+    );
+    const { recordGuestPlayer } = require(`${__hooks}/lib/ranking/service.cjs`);
     const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
 
-    const {
-      sort: rawSort,
-      laneCount,
-      difficulty,
-      afterValue,
-      afterChartId,
-    } = e.requestInfo().query;
+    if (e.auth !== null) {
+      const { status, message } = RANKING_REJECTIONS.signed_in_player;
+      return e.json(status, { status, code: 'signed_in_player', message });
+    }
+    let chartRevision;
     try {
-      const sort = parseRankedChartSort(rawSort);
-      const { items, next } = loadMyRankings(
-        { DynamicModel, arrayOf, dbx: $dbx },
-        e.app,
-        e.auth.id,
-        {
-          sort,
-          laneCount: parseRankedChartLaneCount(laneCount),
-          difficulty: parseRankedChartDifficulty(difficulty),
-          cursor: parseRankedChartCursor(sort, afterValue, afterChartId),
-        },
-      );
-      return e.json(HTTP_STATUS.ok, {
-        items: items.map(({ achievedAtMs, ...chart }) => ({
-          ...chart,
-          achievedAt: new Date(achievedAtMs).toISOString(),
-        })),
-        next,
-      });
+      chartRevision = parseGuestPlayerRevision(e.requestInfo().body);
     } catch (error) {
       if (error instanceof InvalidRankingRequestError) {
         const { status } = RANKING_REJECTIONS[error.code];
@@ -74,38 +50,12 @@ routerAdd(
       }
       throw error;
     }
-  },
-  $apis.requireAuth('users'),
-  $apis.bodyLimit(4096),
-);
-
-routerAdd(
-  'GET',
-  '/api/dazbeat/profile/top-ranks',
-  (e) => {
-    const { loadMyTopRanks } = require(`${__hooks}/lib/ranking/service.cjs`);
-    const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
-
-    return e.json(HTTP_STATUS.ok, {
-      items: loadMyTopRanks({ DynamicModel, arrayOf, dbx: $dbx }, e.app, e.auth.id),
+    recordGuestPlayer({ Record, DynamicModel, arrayOf, dbx: $dbx }, e.app, {
+      chart: e.request.pathValue('chartId'),
+      chartRevision,
     });
+    return e.noContent(HTTP_STATUS.noContent);
   },
-  $apis.requireAuth('users'),
-  $apis.bodyLimit(4096),
-);
-
-routerAdd(
-  'GET',
-  '/api/dazbeat/profile/records',
-  (e) => {
-    const { readUserBestRecords } = require(`${__hooks}/lib/ranking/repository.cjs`);
-    const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
-
-    return e.json(HTTP_STATUS.ok, {
-      items: readUserBestRecords({ DynamicModel, arrayOf, dbx: $dbx }, e.app, e.auth.id),
-    });
-  },
-  $apis.requireAuth('users'),
   $apis.bodyLimit(4096),
 );
 

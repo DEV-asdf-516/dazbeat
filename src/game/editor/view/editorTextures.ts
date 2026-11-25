@@ -65,7 +65,7 @@ export function ensureLaneLinesTexture(
     },
     (texture) => {
       const brush = scene.make.graphics(undefined, false);
-      [...getLanes(laneCount), laneCount].forEach((boundary) => {
+      for (const boundary of [...getLanes(laneCount), laneCount]) {
         const isEdge = boundary === 0 || boundary === laneCount;
         brush
           .fillStyle(CELESTIAL_COLORS.border, isEdge ? LANE_EDGE_ALPHA : LANE_LINE_ALPHA)
@@ -75,7 +75,7 @@ export function ensureLaneLinesTexture(
             lineWidthPx,
             heightPx,
           );
-      });
+      }
       texture.draw(brush, 0, 0);
       return [brush];
     },

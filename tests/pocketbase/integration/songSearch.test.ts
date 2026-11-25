@@ -5,8 +5,7 @@ import type PocketBase from 'pocketbase';
 import { ClientResponseError } from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseSongSearchInput } from '../../../pocketbase/lib/song/dto.js';
-import { buildSongSearchQuery } from '../../../pocketbase/lib/song/repository.js';
+import type { parseSongSearchInput } from '../../../pocketbase/lib/song/dto.js';
 import {
   REPO_HOOKS_DIR,
   REPO_MIGRATIONS_DIR,
@@ -28,7 +27,8 @@ import {
 const SEARCH_MIGRATION = '1792641600_add_song_title_search.js';
 const SEARCH_ROUTE = '/api/dazbeat/songs/search';
 const SQL_ROUTE = '/api/test/sql';
-// Only the copied hooks directory gets this route, so the repository hooks never expose raw SQL.
+const PLANS_ROUTE = '/api/test/song-search-plans';
+// Only the copied hooks directory gets these routes, so the repository hooks never expose raw SQL.
 const SQL_ROUTE_HOOK = `/// <reference path="../pb_data/types.d.ts" />
 routerAdd(
   'POST',
@@ -42,6 +42,33 @@ routerAdd(
     const rows = arrayOf(new DynamicModel(row));
     $app.db().newQuery(sql).bind(params).all(rows);
     return e.json(200, rows);
+  },
+  $apis.requireSuperuserAuth(),
+);
+
+routerAdd(
+  'POST',
+  '${PLANS_ROUTE}',
+  (e) => {
+    const { parseSongSearchInput } = require(\`\${__hooks}/lib/song/dto.cjs\`);
+    const { buildSongSearchQuery } = require(\`\${__hooks}/lib/song/repository.cjs\`);
+    const search = buildSongSearchQuery($dbx, parseSongSearchInput(e.requestInfo().body));
+    const matches = (columns) => {
+      const query = $app.db().select(columns).from('songs');
+      const joined =
+        search.join === null ? query : query.innerJoin(search.join.table, $dbx.exp(search.join.on));
+      return search.condition === null ? joined : joined.andWhere(search.condition);
+    };
+    const explain = (query) => {
+      const built = query.build();
+      const rows = arrayOf(new DynamicModel({ detail: '' }));
+      $app.db().newQuery('EXPLAIN QUERY PLAN ' + built.sql()).bind(built.params()).all(rows);
+      return rows.map((row) => row.detail);
+    };
+    return e.json(200, {
+      list: explain(matches('songs.*').orderBy(...search.orderBy).limit(search.limit)),
+      count: search.isCountNeeded ? explain(matches('COUNT(*) AS total')) : null,
+    });
   },
   $apis.requireSuperuserAuth(),
 );
@@ -337,28 +364,15 @@ async function expectInvalidRequest(request: Promise<unknown>): Promise<void> {
   });
 }
 
-async function explain(
+/** The hook builds the list and count queries from the same search parts and returns their plans. */
+function searchPlans(
   superuser: PocketBase,
-  sql: string,
-  bindings: Readonly<Record<string, FilterValue>>,
-): Promise<string[]> {
-  const rows = await querySql(superuser, `EXPLAIN QUERY PLAN ${sql}`, { ...bindings }, ['detail']);
-  return rows.map((row) => row['detail'] ?? '');
-}
-
-/** The hook hands these parts to a songs record query and a count query, which build these statements. */
-function searchStatements(search: ReturnType<typeof buildSongSearchQuery>): {
-  list: string;
-  count: string | null;
-} {
-  const matches =
-    'FROM songs' +
-    (search.join === null ? '' : ` INNER JOIN ${search.join.table} ON ${search.join.on}`) +
-    (search.condition === null ? '' : ` WHERE ${search.condition}`);
-  return {
-    list: `SELECT songs.* ${matches} ORDER BY ${search.orderBy.join(', ')} LIMIT ${search.limit}`,
-    count: search.shouldCount ? `SELECT COUNT(*) AS total ${matches}` : null,
-  };
+  input: Parameters<typeof parseSongSearchInput>[0],
+): Promise<{ list: string[]; count: string[] | null }> {
+  return superuser.send(PLANS_ROUTE, {
+    method: 'POST',
+    body: input,
+  });
 }
 
 describe('song title search API', () => {
@@ -736,22 +750,18 @@ describe('song title search API', () => {
       for (const [params, scope] of searches.flatMap((params) =>
         [undefined, 'all'].map((scope) => [params, scope] as const),
       )) {
-        const search = buildSongSearchQuery(
-          parseSongSearchInput({
-            title: params['title'],
-            category: params['category'],
-            afterReleasedOn: params['afterReleasedOn'],
-            afterId: params['afterId'],
-            scope,
-            laneCount: undefined,
-            minLevel: undefined,
-            maxLevel: undefined,
-            canListUnpublished: true,
-          }),
-        );
-        const { list, count } = searchStatements(search);
-        for (const sql of [list, ...(count === null ? [] : [count])]) {
-          const plan = await explain(superuser, sql, search.params);
+        const plans = await searchPlans(superuser, {
+          title: params['title'],
+          category: params['category'],
+          afterReleasedOn: params['afterReleasedOn'],
+          afterId: params['afterId'],
+          scope,
+          laneCount: undefined,
+          minLevel: undefined,
+          maxLevel: undefined,
+          canListUnpublished: true,
+        });
+        for (const plan of [plans.list, ...(plans.count === null ? [] : [plans.count])]) {
           expect(
             plan.some((detail) => detail.includes(expected)),
             plan.join('\n'),
@@ -781,28 +791,25 @@ describe('song title search API', () => {
       ],
     ] as const) {
       for (const scope of [undefined, 'all']) {
-        const search = buildSongSearchQuery(
-          parseSongSearchInput({
-            title: undefined,
-            category: 'category' in params ? params.category : undefined,
-            afterReleasedOn: 'afterReleasedOn' in params ? params.afterReleasedOn : undefined,
-            afterId: 'afterId' in params ? params.afterId : undefined,
-            scope,
-            laneCount: undefined,
-            minLevel: undefined,
-            maxLevel: undefined,
-            canListUnpublished: true,
-          }),
-        );
-        const { list, count } = searchStatements(search);
-        const listPlan = await explain(superuser, list, search.params);
+        const plans = await searchPlans(superuser, {
+          title: undefined,
+          category: 'category' in params ? params.category : undefined,
+          afterReleasedOn: 'afterReleasedOn' in params ? params.afterReleasedOn : undefined,
+          afterId: 'afterId' in params ? params.afterId : undefined,
+          scope,
+          laneCount: undefined,
+          minLevel: undefined,
+          maxLevel: undefined,
+          canListUnpublished: true,
+        });
+        const listPlan = plans.list;
         expect(
           listPlan.some((detail) => detail.includes(expected)),
           listPlan.join('\n'),
         ).toBe(true);
         expect(listPlan.join('\n')).not.toContain('TEMP B-TREE');
-        if (count !== null && 'category' in params) {
-          const countPlan = await explain(superuser, count, search.params);
+        const countPlan = plans.count;
+        if (countPlan !== null && 'category' in params) {
           expect(
             countPlan.some((detail) => detail.includes(expected)),
             countPlan.join('\n'),
@@ -1045,28 +1052,23 @@ describe('song level search API', () => {
       ],
     ] as const) {
       for (const scope of [undefined, 'all']) {
-        const search = buildSongSearchQuery(
-          parseSongSearchInput({
-            title: undefined,
-            category: 'category' in params ? params.category : undefined,
-            afterReleasedOn: 'afterReleasedOn' in params ? params.afterReleasedOn : undefined,
-            afterId: 'afterId' in params ? params.afterId : undefined,
-            scope,
-            laneCount: '4',
-            minLevel: '2',
-            maxLevel: '3.5',
-            canListUnpublished: true,
-          }),
-        );
-        const { list, count } = searchStatements(search);
-        const listPlan = (await explain(superuser, list, search.params)).join('\n');
+        const plans = await searchPlans(superuser, {
+          title: undefined,
+          category: 'category' in params ? params.category : undefined,
+          afterReleasedOn: 'afterReleasedOn' in params ? params.afterReleasedOn : undefined,
+          afterId: 'afterId' in params ? params.afterId : undefined,
+          scope,
+          laneCount: '4',
+          minLevel: '2',
+          maxLevel: '3.5',
+          canListUnpublished: true,
+        });
+        const listPlan = plans.list.join('\n');
         expect(listPlan).toContain(expected);
         expect(listPlan).toContain('COVERING INDEX idx_charts_song_lane_count_level');
         expect(listPlan).not.toContain('TEMP B-TREE');
-        if (count !== null) {
-          expect((await explain(superuser, count, search.params)).join('\n')).toContain(
-            'idx_charts_song_lane_count_level',
-          );
+        if (plans.count !== null) {
+          expect(plans.count.join('\n')).toContain('idx_charts_song_lane_count_level');
         }
       }
     }

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { AuthUser } from '../../../src/data/account.js';
+import { parseNickname } from '../../../src/data/nickname.js';
 import { RankingRequestError } from '../../../src/data/ranking.js';
 import type { Leaderboard, LeaderboardEntry } from '../../../src/data/ranking.js';
 import type { ChartRef, Song } from '../../../src/data/songs.js';
@@ -77,12 +79,25 @@ interface PendingRequest {
   reject(error: unknown): void;
 }
 
-function createHarness(isSignedIn = true, notices = new Map<string, string>()) {
+const USER: AuthUser = {
+  id: 'user1',
+  email: 'player@example.com',
+  nickname: requireDefined(parseNickname('Star'), 'Invalid test nickname', 'Star'),
+  isEditor: false,
+  featuredAchievement: null,
+};
+
+function createHarness(
+  isSignedIn = true,
+  notices = new Map<string, string>(),
+  signIn: () => Promise<AuthUser | null> = () => Promise.resolve(null),
+) {
   const requests: PendingRequest[] = [];
   const renders: RankingState[] = [];
   const sounds: SoundEffect[] = [];
   let backCount = 0;
   let profileOpenCount = 0;
+  let accountRenderCount = 0;
   const controller = new RankingController(
     {
       loadLeaderboard: (chartId) =>
@@ -98,6 +113,7 @@ function createHarness(isSignedIn = true, notices = new Map<string, string>()) {
       saveRevisionNotice: (chartId, chartRevision) => {
         notices.set(chartId, chartRevision);
       },
+      signIn,
     },
     {
       render: (_previous, next) => renders.push(next),
@@ -108,10 +124,14 @@ function createHarness(isSignedIn = true, notices = new Map<string, string>()) {
       openProfile: () => {
         profileOpenCount += 1;
       },
+      renderAccount: () => {
+        accountRenderCount += 1;
+      },
     },
     EASY,
     WHEEL_STEP_PX,
   );
+  controller.start();
   return {
     controller,
     notices,
@@ -120,6 +140,7 @@ function createHarness(isSignedIn = true, notices = new Map<string, string>()) {
     sounds,
     backCount: () => backCount,
     profileOpenCount: () => profileOpenCount,
+    accountRenderCount: () => accountRenderCount,
     last: () => requireDefined(renders.at(-1), 'Missing render', renders.length),
     request: (index: number) => requireDefined(requests[index], 'Missing request', index),
   };
@@ -483,7 +504,7 @@ describe('RankingController', () => {
   });
 
   describe('controls guide and dialog', () => {
-    const H_KEY = {
+    const hKey = {
       code: 'KeyH',
       repeat: false,
     };
@@ -495,10 +516,7 @@ describe('RankingController', () => {
       const rendered = harness.renders.length;
       const sounds = harness.sounds.length;
 
-      harness.controller.handleControlsKey(H_KEY);
-      harness.controller.pointerOver('controlsEntry');
-      harness.controller.pointerDown('controlsEntry');
-      harness.controller.pointerUp('controlsEntry');
+      harness.controller.handleControlsKey(hKey);
 
       expect(harness.last().controls).toBe('closed');
       expect(harness.last().dialog).toBe('failed');
@@ -515,7 +533,7 @@ describe('RankingController', () => {
           totalPlayers: 20,
         }),
       );
-      harness.controller.handleControlsKey(H_KEY);
+      harness.controller.handleControlsKey(hKey);
 
       harness.controller.scrollByWheel(WHEEL_STEP_PX, 0);
 
@@ -524,7 +542,7 @@ describe('RankingController', () => {
 
     it('closes the controls guide when a response opens a dialog', async () => {
       const harness = createHarness();
-      harness.controller.handleControlsKey(H_KEY);
+      harness.controller.handleControlsKey(hKey);
       expect(harness.last().controls).toBe('open');
 
       harness.request(0).reject(new RankingRequestError('failed', undefined));
@@ -554,5 +572,37 @@ describe('RankingController', () => {
 
     expect(harness.backCount()).toBe(0);
     expect(harness.sounds).toEqual(['click']);
+  });
+
+  it('signs in from the guest account button and reloads the board as the account', async () => {
+    const harness = createHarness(false, new Map(), () => Promise.resolve(USER));
+    harness.request(0).resolve(boardOf('easy-4'));
+    await flush();
+
+    harness.controller.pointerOver('accountSignIn');
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    expect(harness.sounds).toEqual(['click']);
+    await flush();
+
+    expect(harness.accountRenderCount()).toBe(1);
+    expect(harness.last()).toMatchObject({
+      isSignedIn: true,
+      load: { kind: 'loading' },
+      hover: null,
+    });
+    expect(harness.request(1).chartId).toBe('easy-4');
+  });
+
+  it('keeps the guest board when sign-in is cancelled', async () => {
+    const harness = await loaded(boardOf('easy-4'), false);
+
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    await flush();
+
+    expect(harness.accountRenderCount()).toBe(0);
+    expect(harness.last().isSignedIn).toBe(false);
+    expect(harness.requests).toHaveLength(1);
   });
 });

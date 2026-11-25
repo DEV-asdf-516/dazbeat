@@ -4,7 +4,7 @@ import { DIFFICULTIES } from '../../../src/data/songs.js';
 import { HTTP_STATUS } from '../../../src/httpStatus.js';
 import { LANE_COUNTS } from '../../../src/rhythm/lanes.js';
 import type { Difficulty, LaneCount } from '../../../src/rhythm/types.js';
-import { isOneOf, isString } from '../../../src/typeGuards.js';
+import { isOneOf, isRecord, isString } from '../../../src/typeGuards.js';
 
 const MAX_CURSOR_CHART_ID_LENGTH = 64;
 
@@ -17,7 +17,9 @@ type RankingRejectionCode =
   | 'invalid_cursor'
   | 'invalid_sort'
   | 'invalid_lane_count'
-  | 'invalid_difficulty';
+  | 'invalid_difficulty'
+  | 'invalid_chart_revision'
+  | 'signed_in_player';
 
 export const RANKING_REJECTIONS: Record<RankingRejectionCode, { status: number; message: string }> =
   {
@@ -41,6 +43,14 @@ export const RANKING_REJECTIONS: Record<RankingRejectionCode, { status: number; 
     invalid_difficulty: {
       status: HTTP_STATUS.badRequest,
       message: 'difficulty must be easy, normal, hard or expert.',
+    },
+    invalid_chart_revision: {
+      status: HTTP_STATUS.badRequest,
+      message: 'chartRevision must be a string.',
+    },
+    signed_in_player: {
+      status: HTTP_STATUS.forbidden,
+      message: 'A signed-in player is counted by its ranked play.',
     },
   };
 
@@ -107,4 +117,11 @@ export function parseRankedChartCursor(
     value: parsedValue,
     chartId,
   };
+}
+
+export function parseGuestPlayerRevision(body: unknown): string {
+  if (!isRecord(body) || !isString(body['chartRevision'])) {
+    throw new InvalidRankingRequestError('invalid_chart_revision');
+  }
+  return body['chartRevision'];
 }

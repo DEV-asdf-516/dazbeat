@@ -266,7 +266,7 @@ describe('selectRandomSong', () => {
   });
 
   it('picks only songs with charts of the state lane count', () => {
-    const FIVE_LANE_SONG = makeSong('five-lane', 'original', {
+    const fiveLaneSong = makeSong('five-lane', 'original', {
       5: {
         easy: {
           id: 'easy-5k.json',
@@ -274,11 +274,11 @@ describe('selectRandomSong', () => {
         },
       },
     });
-    const state = createSongSelectState([FULL_SONG, FIVE_LANE_SONG, COVER_SONG], 'all', 4);
+    const state = createSongSelectState([FULL_SONG, fiveLaneSong, COVER_SONG], 'all', 4);
 
     expect(songOf(selectRandomSong(state, () => 0))).toBe(COVER_SONG);
     expect(songOf(selectRandomSong(state, () => 0.99))).toBe(COVER_SONG);
-    expect(canSelectRandomSong(createSongSelectState([FULL_SONG, FIVE_LANE_SONG], 'all', 4))).toBe(
+    expect(canSelectRandomSong(createSongSelectState([FULL_SONG, fiveLaneSong], 'all', 4))).toBe(
       false,
     );
   });
@@ -689,7 +689,7 @@ describe('getSongRows', () => {
 });
 
 describe('chart levels', () => {
-  const LEVELED_SONG = makeSong('leveled', 'original', {
+  const leveledSong = makeSong('leveled', 'original', {
     4: {
       easy: {
         id: 'leveled-easy',
@@ -711,7 +711,7 @@ describe('chart levels', () => {
       },
     },
   });
-  const OTHER_LEVELED_SONG = makeSong('other-leveled', 'cover', {
+  const otherLeveledSong = makeSong('other-leveled', 'cover', {
     4: {
       hard: {
         id: 'other-hard',
@@ -723,20 +723,20 @@ describe('chart levels', () => {
     getSongRows(state, 3).map((row) => (row.kind === 'song' ? row.level : undefined));
 
   it('is the level of the lane count and selected difficulty chart in each row and the detail', () => {
-    const state = createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 4);
+    const state = createSongSelectState([leveledSong, otherLeveledSong], 'all', 4);
 
     expect(levels(state)).toEqual([2, null, undefined]);
     expect(getSelectedLevel(state)).toBe(2);
-    expect(levels(createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 5))).toEqual([
+    expect(levels(createSongSelectState([leveledSong, otherLeveledSong], 'all', 5))).toEqual([
       1.5,
       null,
       undefined,
     ]);
-    expect(getSelectedLevel(createSongSelectState([LEVELED_SONG], 'all', 5))).toBe(1.5);
+    expect(getSelectedLevel(createSongSelectState([leveledSong], 'all', 5))).toBe(1.5);
   });
 
   it('follows the difficulty and the song the selection moves to', () => {
-    const state = createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 4);
+    const state = createSongSelectState([leveledSong, otherLeveledSong], 'all', 4);
     const onHard = selectDifficulty(state, 'hard');
 
     expect(levels(onHard)).toEqual([4.5, 3, undefined]);
@@ -751,7 +751,7 @@ describe('chart levels', () => {
   });
 
   it('redraws the song info when only the selected level changes', () => {
-    const state = createSongSelectState([LEVELED_SONG, OTHER_LEVELED_SONG], 'all', 4);
+    const state = createSongSelectState([leveledSong, otherLeveledSong], 'all', 4);
 
     expect(getChangedRegions(viewOf(state), viewOf(selectDifficulty(state, 'hard')), 3)).toContain(
       'songInfo',
@@ -1008,7 +1008,7 @@ describe('getSongSelectNotice', () => {
 });
 
 describe('lane count', () => {
-  const MIXED_SONG = makeSong('mixed', 'original', {
+  const mixedSong = makeSong('mixed', 'original', {
     4: {
       easy: {
         id: 'easy-4k.json',
@@ -1032,17 +1032,17 @@ describe('lane count', () => {
   });
 
   it('selects, steps and offers only the charts of the state lane count', () => {
-    const state = createSongSelectState([MIXED_SONG], 'all', 5);
+    const state = createSongSelectState([mixedSong], 'all', 5);
 
     expect(getPlayableSelection(state)).toEqual({
-      song: MIXED_SONG,
+      song: mixedSong,
       laneCount: 5,
       difficulty: 'normal',
       chartId: 'normal-5k.json',
       level: 1,
     });
     expect(getPlayableSelection(moveDifficulty(state, 'next'))).toEqual({
-      song: MIXED_SONG,
+      song: mixedSong,
       laneCount: 5,
       difficulty: 'expert',
       chartId: 'expert-5k.json',
@@ -1054,10 +1054,10 @@ describe('lane count', () => {
   });
 
   it('keeps a song without charts of the lane count in the list but not playable', () => {
-    const state = createSongSelectState([MIXED_SONG, FULL_SONG], 'all', 6);
+    const state = createSongSelectState([mixedSong, FULL_SONG], 'all', 6);
 
-    expect(state.songs).toEqual([MIXED_SONG, FULL_SONG]);
-    expect(songOf(state)).toBe(MIXED_SONG);
+    expect(state.songs).toEqual([mixedSong, FULL_SONG]);
+    expect(songOf(state)).toBe(mixedSong);
     expect(getPlayableSelection(state)).toBeNull();
     expect(getPlayableSelection(moveSong(state, 1))).toBeNull();
   });
@@ -1065,19 +1065,19 @@ describe('lane count', () => {
   it('restores the same difficulty only when the lane count has it', () => {
     const target = {
       index: 0,
-      songId: MIXED_SONG.id,
+      songId: mixedSong.id,
       difficulty: 'hard',
     } as const;
 
-    expect(difficultyOf(createSongSelectState([MIXED_SONG], 'all', 4, target))).toBe('hard');
-    expect(difficultyOf(createSongSelectState([MIXED_SONG], 'all', 5, target))).toBe('normal');
+    expect(difficultyOf(createSongSelectState([mixedSong], 'all', 4, target))).toBe('hard');
+    expect(difficultyOf(createSongSelectState([mixedSong], 'all', 5, target))).toBe('normal');
   });
 
   it('keeps the lane count through filter and song list changes', () => {
-    const state = createSongSelectState([MIXED_SONG], 'all', 5);
+    const state = createSongSelectState([mixedSong], 'all', 5);
 
-    expect(withFilter(state, 'original', [FULL_SONG, MIXED_SONG]).laneCount).toBe(5);
-    expect(getPlayableSelection(withSongs(state, [FULL_SONG, MIXED_SONG]))).toBeNull();
+    expect(withFilter(state, 'original', [FULL_SONG, mixedSong]).laneCount).toBe(5);
+    expect(getPlayableSelection(withSongs(state, [FULL_SONG, mixedSong]))).toBeNull();
   });
 
   it('reads the record of the state lane count in each row', () => {
@@ -1089,7 +1089,7 @@ describe('lane count', () => {
     expect(
       nodeIds(
         getSongRows(
-          withLocalRecords(createSongSelectState([MIXED_SONG, FULL_SONG], 'all', 4), records),
+          withLocalRecords(createSongSelectState([mixedSong, FULL_SONG], 'all', 4), records),
           2,
         ),
       ),
@@ -1097,7 +1097,7 @@ describe('lane count', () => {
     expect(
       nodeIds(
         getSongRows(
-          withLocalRecords(createSongSelectState([MIXED_SONG, FULL_SONG], 'all', 5), records),
+          withLocalRecords(createSongSelectState([mixedSong, FULL_SONG], 'all', 5), records),
           2,
         ),
       ),
@@ -1372,9 +1372,9 @@ describe('getShiftedRowSlots', () => {
 });
 
 describe('readSongSelectShortcut', () => {
-  const key = (code: string, repeat = false) => ({
+  const key = (code: string, isRepeat = false) => ({
     code,
-    repeat,
+    repeat: isRepeat,
   });
 
   it('selects a random song on R but not on a repeat', () => {

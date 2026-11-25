@@ -373,7 +373,7 @@ function fillVerticalProfile(
   color: number,
   sideAlphas: { readonly left: number; readonly right: number },
 ): void {
-  profile.slice(1).forEach(([bottomRatio, bottomAlpha], index) => {
+  for (const [index, [bottomRatio, bottomAlpha]] of profile.slice(1).entries()) {
     const [topRatio, topAlpha] = requireDefined(profile[index], 'Missing profile stop', index);
     fillTrapezoid(graphics, getBand(topRatio * GAME_HEIGHT, bottomRatio * GAME_HEIGHT), color, {
       topLeft: topAlpha * sideAlphas.left,
@@ -381,7 +381,7 @@ function fillVerticalProfile(
       bottomLeft: bottomAlpha * sideAlphas.left,
       bottomRight: bottomAlpha * sideAlphas.right,
     });
-  });
+  }
 }
 
 // 선은 레인 폭에 비례해 가늘어지지 않고 높이와 무관하게 같은 화면 폭으로 그린다.

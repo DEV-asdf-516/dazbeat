@@ -192,8 +192,8 @@ curl -i -X OPTIONS '<인스턴스 URL>/api/collections/songs/records' \
 | PocketBase `*:create`                         | 레코드 생성                     | 20 요청 / 5초       |
 | PocketBase `/api/batch`                       | 배치 요청                       | 3 요청 / 1초        |
 | PocketBase `/api/`                            | 일반 API                        | 300 요청 / 10초     |
-| PocketBase `POST /api/dazbeat/play-sessions`  | 랭킹 세션 발급                  | 30 요청 / 60초      |
-| PocketBase `POST /api/dazbeat/play-sessions/` | 결과 제출(접두 일치)            | 30 요청 / 60초      |
+| PocketBase `POST /api/dazbeat/play`  | 랭킹 세션 발급                  | 30 요청 / 60초      |
+| PocketBase `POST /api/dazbeat/play/` | 결과 제출(접두 일치)            | 30 요청 / 60초      |
 | PocketBase 발급 hook                          | 사용자당 세션 발급              | 20 발급 / 60초      |
 
 - PocketBase 내장 limiter 의 규칙은 마이그레이션 `1791532400_enable_dazbeat_rate_limits.js` 가 관리한다. 같은 label 의 규칙은 값을 덮고 다른 label 은 보존한다. down 은 두 dazbeat 규칙을 지우고 limiter 를 끈다. 두 dazbeat 규칙의 값은 이어지는 완화 마이그레이션 `1792121900_relax_play_session_ip_rate_limits.js` 가 10 요청에서 30 요청 / 60초로 바꾼다. 이 마이그레이션은 두 dazbeat label 만 바꾸고 다른 규칙과 limiter 켜짐 여부·제외 IP 는 그대로 두며, down 은 두 label 을 10 요청 / 60초로 되돌린다.
@@ -277,7 +277,7 @@ IP 규칙은 같은 IP 에서 테스트 계정을 바꿔 가며 실제 채보의
 ```sh
 for i in $(seq 1 31); do
   if [ "$i" -le 20 ]; then token='<테스트 계정 1 토큰>'; else token='<테스트 계정 2 토큰>'; fi
-  curl -s -w " %{http_code}\n" -X POST '<인스턴스 URL>/api/dazbeat/play-sessions' \
+  curl -s -w " %{http_code}\n" -X POST '<인스턴스 URL>/api/dazbeat/play' \
     -H "Authorization: $token" \
     -H 'Content-Type: application/json' \
     -d '{"chartId":"<채보 id>","chartRevision":"<채보 revision>"}'
@@ -311,9 +311,9 @@ done
 
 | 경로 | 동작 |
 |---|---|
-| `POST /api/dazbeat/play-sessions/{sessionId}/result` | 기존 결과 제출. 최고 점수 트랜잭션 안에서 판, 증거, 업적을 함께 기록하고 응답에 `newAchievements` 를 더한다 |
-| `GET /api/dazbeat/profile` | 본인 스냅샷으로 평가해 새 업적을 지급한 뒤 닉네임, 통계, 활성 업적 진행 상태를 돌려준다 |
-| `GET /api/dazbeat/profile/nickname/available?nickname=…` | 입력 중 닉네임 사용 가능 여부 안내(`{ available }`). 저장은 유일 인덱스가 판정한다. `400 invalid_nickname`, `400 invalid_request` |
+| `POST /api/dazbeat/play/{sessionId}/result` | 기존 결과 제출. 최고 점수 트랜잭션 안에서 판, 증거, 업적을 함께 기록하고 응답에 `newAchievements` 를 더한다 |
+| `GET /api/dazbeat/me/profile` | 본인 스냅샷으로 평가해 새 업적을 지급한 뒤 닉네임, 통계, 활성 업적 진행 상태를 돌려준다 |
+| `GET /api/dazbeat/me/nickname/available?nickname=…` | 입력 중 닉네임 사용 가능 여부 안내(`{ available }`). 저장은 유일 인덱스가 판정한다. `400 invalid_nickname`, `400 invalid_request` |
 | `PATCH /api/collections/users/records/{id}`(본인) | 닉네임과 대표 컬렉션 변경(`featuredAchievement` 빈 값은 해제). `400 data.nickname.code = invalid_nickname \| validation_not_unique`, `400 data.featuredAchievement.code = achievement_not_earned`, 본인이 아니면 `404` |
 
 두 프로필 경로는 로그인이 필요하다(비로그인 `401`). 다른 사용자의 프로필을 보는 경로는 없다.
@@ -445,7 +445,7 @@ done
 
 - `play_results.reviewStatus`: `approved`(순위와 업적에 반영됨), `pending`(검토 대기), `rejected`(반려). 제출 때 `clear`·`unjudged` 는 바로 승인, `suspicious` 는 대기다.
 - `play_results.achievedAt` 은 달성 시각, `play_results.reviewNote` 는 운영자가 적는 결정 사유다.
-- `scores` 는 승인된 최고 점수만 담고 API 규칙이 모두 `null` 이다. 랭킹은 `GET /api/dazbeat/leaderboards/{chartId}`, 내 플레이 곡 순위는 `GET /api/dazbeat/profile/rankings` 로만 본다.
+- `scores` 는 승인된 최고 점수만 담고 API 규칙이 모두 `null` 이다. 랭킹은 `GET /api/dazbeat/leaderboards/{chartId}`, 내 플레이 곡 순위는 `GET /api/dazbeat/me/rankings` 로만 본다.
 - `play_reviews` 는 관리자 결정 한 건마다 한 행(결정, 심사자 id 와 이메일, 사유, 시각)인 서버 전용 감사 이력이다. 한 플레이에 결정은 하나다.
 
 ### 배포 순서
@@ -555,4 +555,5 @@ PocketBase 가 주기적으로 돌리는 `PRAGMA optimize` 는 그 연결에서 
 - [ ] rate limit 마이그레이션 배포 후 운영 429 측정(사용자 단위 `session_rate_limited` 포함, 또는 내장 limiter "적용 안 됨" 보고)
 - [ ] 운영 PocketHost 에서 요청 수·`X-PocketHost-RateLimit-*` 실측("요청 수와 채보 캐시" 실측 절차)
 - [ ] 자동 백업 설정(cron·보존·S3)과 복구 검증
+- [ ] 백업으로 복구한 뒤 백업 시점 이후 탈퇴한 계정을 다시 지우는 절차(되살아난 `users`·기록과 빠진 `deleted_account_identities` 행), 백업 보존 기간을 처리방침에 적을지
 - [ ] 로컬 실제 데이터를 `pocketbase/seed/data/` 로 옮기고 옛 경로의 Git 추적 해제

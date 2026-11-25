@@ -27,6 +27,7 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
   let search;
   try {
     search = buildSongSearchQuery(
+      $dbx,
       parseSongSearchInput({
         title,
         category,
@@ -60,9 +61,9 @@ routerAdd('GET', '/api/dazbeat/songs/search', (e) => {
   const items = songs.map((song) => {
     const exported = song.publicExport();
     const item = {};
-    SONG_LIST_FIELDS.forEach((field) => {
+    for (const field of SONG_LIST_FIELDS) {
       item[field] = exported[field];
-    });
+    }
     const songCharts = chartsBySong.get(song.id);
     if (songCharts !== undefined) {
       item['expand'] = { charts_via_song: songCharts };

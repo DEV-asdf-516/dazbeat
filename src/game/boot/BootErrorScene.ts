@@ -10,7 +10,6 @@ import { SCENE_KEYS } from '../app/sceneRoutes.js';
 import { readMenuAction } from '../ui/state/menuAction.js';
 import { MOTION } from '../ui/state/motion.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
-import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { handleEachEventOnce, requireKeyboard } from '../ui/view/input/menuInput.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { Button } from '../ui/view/widgets/Button.js';
@@ -23,7 +22,6 @@ import { COLORS, SCREEN_LAYOUT, textStyle } from '../ui/view/theme.js';
 import { BootErrorController } from './BootErrorController.js';
 import type { BootErrorPorts } from './BootErrorController.js';
 import { getChangedRegions, getRetryButtonView } from './state/bootErrorState.js';
-import type { BootErrorButton } from './state/bootErrorState.js';
 
 const TITLE_Y_PX = 572;
 const MESSAGE_Y_PX = 648;
@@ -51,12 +49,13 @@ export class BootErrorScene extends Phaser.Scene {
   }
 
   create(): void {
-    const pointer: ButtonPointer<BootErrorButton> = {
-      pointerOver: (button) => controller.pointerOver(button),
-      pointerOut: (button) => controller.pointerOut(button),
-      pointerDown: (button) => controller.pointerDown(button),
-      pointerUp: (button) => controller.pointerUp(button),
-    };
+    const controller = new BootErrorController(this.ports, {
+      render: (previous, next) => {
+        if (getChangedRegions(previous, next).includes('retryButton')) {
+          retryButton.render(getRetryButtonView(next));
+        }
+      },
+    });
     addCelestialAtmosphere(this, this.celestial, 'main');
     this.cameras.main.fadeIn(MOTION.mediumMs);
     addTitleBackdrop(this, this.celestial);
@@ -83,14 +82,7 @@ export class BootErrorScene extends Phaser.Scene {
       label: 'RETRY',
       widthPx: RETRY_WIDTH_PX,
       heightPx: RETRY_HEIGHT_PX,
-      pointer: pointButton(pointer, 'retry'),
-    });
-    const controller = new BootErrorController(this.ports, {
-      render: (previous, next) => {
-        if (getChangedRegions(previous, next).includes('retryButton')) {
-          retryButton.render(getRetryButtonView(next));
-        }
-      },
+      pointer: pointButton(controller, 'retry'),
     });
     requireKeyboard(this).on(
       'keydown',
@@ -101,5 +93,6 @@ export class BootErrorScene extends Phaser.Scene {
       }),
     );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
+    controller.start();
   }
 }

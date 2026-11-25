@@ -91,21 +91,18 @@ async function play(
   chart: TestChart,
   inputs: readonly InputEvent[],
 ): Promise<string> {
-  const { sessionId } = await player.client.send<{ sessionId: string }>(
-    '/api/dazbeat/play-sessions',
-    {
-      method: 'POST',
-      body: {
-        chartId: chart.record.id,
-        chartRevision: String(chart.record['revision']),
-      },
+  const { sessionId } = await player.client.send<{ sessionId: string }>('/api/dazbeat/play', {
+    method: 'POST',
+    body: {
+      chartId: chart.record.id,
+      chartRevision: String(chart.record['revision']),
     },
-  );
+  });
   // Moves issuedAt into the past so a submission is not rejected as too short without waiting.
   await server.superuser
     .collection('play_sessions')
     .update(sessionId, { issuedAt: new Date(Date.now() - ELAPSED_PLAY_MS).toISOString() });
-  await player.client.send(`/api/dazbeat/play-sessions/${sessionId}/result`, {
+  await player.client.send(`/api/dazbeat/play/${sessionId}/result`, {
     method: 'POST',
     body: {
       inputOffsetMs: 0,
@@ -149,7 +146,7 @@ const findReviews = (playId: string) =>
 
 async function readPlayCount(player: TestUser): Promise<number> {
   const profile = await player.client.send<{ stats: { playCount: number } }>(
-    '/api/dazbeat/profile',
+    '/api/dazbeat/me/profile',
     { method: 'GET' },
   );
   return profile.stats.playCount;
@@ -179,7 +176,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 

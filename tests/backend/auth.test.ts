@@ -456,12 +456,12 @@ describe('cancelSignInWithGoogle', () => {
 });
 
 describe('deleteAccount', () => {
-  const OTHER_KEY = 'dazbeat-local-save';
+  const otherKey = 'dazbeat-local-save';
   let storage: Map<string, string>;
 
   // The SDK keeps the session in window.localStorage, where local saves also live.
   function signedInClient(): PocketBase {
-    storage = new Map([[OTHER_KEY, '{"bestScores":{}}']]);
+    storage = new Map([[otherKey, '{"bestScores":{}}']]);
     vi.stubGlobal('window', {
       localStorage: {
         getItem: (key: string) => storage.get(key) ?? null,
@@ -506,7 +506,7 @@ describe('deleteAccount', () => {
     expect(init?.method).toBe('DELETE');
     expect(pb.authStore.token).toBe('');
     expect(pb.authStore.record).toBeNull();
-    expect(storage.get(OTHER_KEY)).toBe('{"bestScores":{}}');
+    expect(storage.get(otherKey)).toBe('{"bestScores":{}}');
   });
 
   it.each([

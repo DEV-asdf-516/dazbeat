@@ -1,12 +1,7 @@
 import { getLanes } from '../../../rhythm/lanes.js';
-import type { Lane, LaneCount } from '../../../rhythm/types.js';
-import { requireDefined } from '../../../invariant.js';
+import type { LaneCount } from '../../../rhythm/types.js';
 import { getFraction, lerp } from '../../../range.js';
-import {
-  HOLD_RIBBON_WIDTH_RATIO,
-  NOTE_PLATE_WIDTH_RATIO,
-  PLAYFIELD_JUDGE_LINE_WIDTH_PX,
-} from '../../ui/state/noteLook.js';
+import { PLAYFIELD_JUDGE_LINE_WIDTH_PX } from '../../ui/state/noteLook.js';
 
 const JUDGE_LINE_Y_PX = 920;
 // 레인은 화면 위끝에서 판정선 폭의 이 비율까지 좁아지는 사다리꼴이다.
@@ -34,6 +29,12 @@ export interface Trapezoid {
   readonly bottomRightXPx: number;
 }
 
+export interface LaneBand {
+  readonly centerXPx: number;
+  readonly leftXPx: number;
+  readonly rightXPx: number;
+}
+
 export function getPlayfieldLayout(screenWidthPx: number, laneCount: LaneCount): PlayfieldLayout {
   const widthPx = PLAYFIELD_JUDGE_LINE_WIDTH_PX[laneCount];
   const laneWidthPx = widthPx / laneCount;
@@ -57,8 +58,19 @@ export function getPerspectiveYPx(layout: PlayfieldLayout, flatYPx: number): num
   return lerp(VANISHING_Y_PX, layout.judgeLineYPx, TOP_WIDTH_RATIO ** remainingRatio);
 }
 
+// 폭 비율은 판정선 아래에서 1 을 넘는 배율이라 0~1 로 자르지 않는다.
 export function getPlayfieldXAtY(layout: PlayfieldLayout, xPx: number, yPx: number): number {
-  return lerp(layout.centerXPx, xPx, getWidthRatio(yPx));
+  return lerp(layout.centerXPx, xPx, getFraction(yPx, VANISHING_Y_PX, JUDGE_LINE_Y_PX));
+}
+
+// 레인 가운데 기준으로 laneWidthPx 의 widthRatio 만큼 차지하는 판정선 위 가로 범위. 레인마다 한 번만 구한다.
+export function getLaneBands(layout: PlayfieldLayout, widthRatio: number): readonly LaneBand[] {
+  const halfWidthPx = (layout.laneWidthPx * widthRatio) / 2;
+  return layout.laneCenterXPx.map((centerXPx) => ({
+    centerXPx,
+    leftXPx: centerXPx - halfWidthPx,
+    rightXPx: centerXPx + halfWidthPx,
+  }));
 }
 
 export function getPlayfieldTrapezoid(
@@ -68,54 +80,26 @@ export function getPlayfieldTrapezoid(
   topYPx: number,
   bottomYPx: number,
 ): Trapezoid {
+  const { centerXPx } = layout;
+  const topWidthRatio = getFraction(topYPx, VANISHING_Y_PX, JUDGE_LINE_Y_PX);
+  const bottomWidthRatio = getFraction(bottomYPx, VANISHING_Y_PX, JUDGE_LINE_Y_PX);
   return {
     topYPx,
     bottomYPx,
-    topLeftXPx: getPlayfieldXAtY(layout, leftXPx, topYPx),
-    topRightXPx: getPlayfieldXAtY(layout, rightXPx, topYPx),
-    bottomLeftXPx: getPlayfieldXAtY(layout, leftXPx, bottomYPx),
-    bottomRightXPx: getPlayfieldXAtY(layout, rightXPx, bottomYPx),
+    topLeftXPx: lerp(centerXPx, leftXPx, topWidthRatio),
+    topRightXPx: lerp(centerXPx, rightXPx, topWidthRatio),
+    bottomLeftXPx: lerp(centerXPx, leftXPx, bottomWidthRatio),
+    bottomRightXPx: lerp(centerXPx, rightXPx, bottomWidthRatio),
   };
 }
 
 // 플레이어는 판정선에 먼저 닿는 아랫면을 보고 누르므로 판의 아랫면을 노트 시각 위치에 둔다.
 // 프레임당 이동량이 폭 비율에 비례하므로 두께도 같은 비율로 줄여야 위쪽에서 노트가 두 개로 끊겨 보이지 않는다.
-export function getNotePlate(layout: PlayfieldLayout, lane: Lane, bottomYPx: number): Trapezoid {
-  const thicknessPx = Math.max(
-    NOTE_PLATE_MIN_THICKNESS_PX,
-    NOTE_PLATE_JUDGE_THICKNESS_PX * getWidthRatio(bottomYPx),
-  );
-  return getLaneBand(layout, lane, NOTE_PLATE_WIDTH_RATIO, bottomYPx - thicknessPx, bottomYPx);
-}
-
-export function getHoldRibbonTrapezoid(
-  layout: PlayfieldLayout,
-  lane: Lane,
-  topYPx: number,
-  bottomYPx: number,
-): Trapezoid {
-  return getLaneBand(layout, lane, HOLD_RIBBON_WIDTH_RATIO, topYPx, bottomYPx);
-}
-
-// 판정선 아래에서는 1 을 넘는 배율이라 0~1 로 자르지 않는다.
-function getWidthRatio(yPx: number): number {
-  return getFraction(yPx, VANISHING_Y_PX, JUDGE_LINE_Y_PX);
-}
-
-function getLaneBand(
-  layout: PlayfieldLayout,
-  lane: Lane,
-  widthRatio: number,
-  topYPx: number,
-  bottomYPx: number,
-): Trapezoid {
-  const centerXPx = requireDefined(layout.laneCenterXPx[lane], 'Unknown lane', lane);
-  const halfWidthPx = (layout.laneWidthPx * widthRatio) / 2;
-  return getPlayfieldTrapezoid(
-    layout,
-    centerXPx - halfWidthPx,
-    centerXPx + halfWidthPx,
-    topYPx,
-    bottomYPx,
+// 노트마다 매 프레임 부르므로 사다리꼴 객체 대신 윗변 y 만 돌려주고 모서리는 getPlayfieldXAtY 로 구한다.
+export function getNotePlateTopYPx(bottomYPx: number): number {
+  const bottomWidthRatio = getFraction(bottomYPx, VANISHING_Y_PX, JUDGE_LINE_Y_PX);
+  return (
+    bottomYPx -
+    Math.max(NOTE_PLATE_MIN_THICKNESS_PX, NOTE_PLATE_JUDGE_THICKNESS_PX * bottomWidthRatio)
   );
 }

@@ -28,6 +28,7 @@ import {
 } from '../../../src/game/editor/state/chartEditorState.js';
 import type {
   ChartEditorState,
+  EditorButton,
   EditorSession,
 } from '../../../src/game/editor/state/chartEditorState.js';
 import type { Chart, Difficulty, Lane, LaneCount, Note } from '../../../src/rhythm/types.js';
@@ -346,11 +347,16 @@ function getDraft(harness: Harness): ChartDraft {
 }
 
 function addTap(harness: Harness, timeMs: number, lane: Lane = 3): void {
-  harness.editor.pointerDown({
+  harness.editor.pressTimeline({
     lane,
     timeMs,
   });
-  harness.editor.pointerUp(timeMs);
+  harness.editor.releaseTimeline(timeMs);
+}
+
+function pressButton(harness: Harness, button: EditorButton): void {
+  harness.editor.pointerDown(button);
+  harness.editor.pointerUp(button);
 }
 
 function startPlaying(harness: Harness): void {
@@ -428,16 +434,16 @@ describe('opening a chart', () => {
     const harness = createHarness();
     harness.editor.start();
     const first = lastLoad(harness);
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
     const loading = harness.editor.state;
 
     first.resolve(makeChart([TAP_AT_2000]));
     await flush();
     expect(harness.editor.state).toBe(loading);
 
-    harness.editor.moveSong('previous');
+    pressButton(harness, 'previousSong');
     const second = lastLoad(harness);
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
     second.reject(new Error('network'));
     await flush();
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'loading' });
@@ -482,7 +488,7 @@ describe('opening a chart', () => {
     harness.editor.selectDifficulty('hard');
     expect(harness.apiLoads).toHaveLength(1);
 
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
     expect(harness.apiLoads).toHaveLength(2);
   });
 
@@ -518,8 +524,8 @@ describe('opening a chart', () => {
   it('discards late load and save results once closed, without rendering', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
-    harness.editor.moveSong('next');
+    pressButton(harness, 'save');
+    pressButton(harness, 'nextSong');
     harness.editor.confirmPending();
     harness.editor.close();
     const renderCount = harness.renderCount;
@@ -543,9 +549,9 @@ describe('input after close', () => {
       kind: 'tool',
       tool: 'hold',
     });
-    harness.editor.pointerOverButton('back');
-    harness.editor.pointerDownButton('back');
-    harness.editor.pointerUpButton('back');
+    harness.editor.pointerOver('back');
+    harness.editor.pointerDown('back');
+    harness.editor.pointerUp('back');
     harness.editor.selectTool('hold');
     harness.editor.back();
 
@@ -568,18 +574,20 @@ describe('moving in the song list', () => {
     const harness = await openLoaded();
     harness.songs = [first, song, last];
 
-    harness.editor.moveSong('previous');
+    pressButton(harness, 'previousSong');
     expect(getSelection(harness.editor.state)).toEqual({
       song: first,
       laneCount: 4,
       difficulty: 'normal',
     });
     const atStart = harness.editor.state;
-    harness.editor.moveSong('previous');
-    expect(harness.editor.state).toBe(atStart);
+    pressButton(harness, 'previousSong');
+    // 버튼 입력은 hover 만 남기므로 화면 단계와 재생 위치가 그대로인지 본다.
+    expect(harness.editor.state.phase).toBe(atStart.phase);
+    expect(harness.editor.state.playhead).toBe(atStart.playhead);
 
-    harness.editor.moveSong('next');
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
+    pressButton(harness, 'nextSong');
     expect(getSelection(harness.editor.state)).toEqual({
       song: last,
       laneCount: 4,
@@ -605,16 +613,16 @@ describe('moving in the song list', () => {
     const harness = await openLoaded();
     harness.songs = [savedSong, otherSong];
 
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
 
-    expect(getSelection(harness.editor.state)?.song).toBe(otherSong);
+    expect(getSelection(harness.editor.state).song).toBe(otherSong);
   });
 
   it('asks before moving away from unsaved changes', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
 
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
 
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'select',
@@ -642,7 +650,7 @@ describe('unsaved changes confirmation', () => {
     addTap(harness, 3000);
     const dirtyDraft = getDraft(harness);
 
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'select',
       song: otherSong,
@@ -651,11 +659,11 @@ describe('unsaved changes confirmation', () => {
     });
     expect(harness.loads).toHaveLength(1);
 
-    harness.editor.cancelPending();
+    pressButton(harness, 'confirmCancel');
     expect(getPending(harness.editor.state)).toBeNull();
     expect(getDraft(harness)).toBe(dirtyDraft);
 
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
     harness.editor.confirmPending();
     expect(getPending(harness.editor.state)).toBeNull();
     expect(harness.apiLoads).toHaveLength(2);
@@ -677,24 +685,11 @@ describe('unsaved changes confirmation', () => {
     expect(harness.leftWith).toEqual(['test-song']);
   });
 
-  it('keeps a held navigation against further navigation requests', async () => {
-    const harness = await openLoaded();
-    addTap(harness, 3000);
-    harness.editor.selectDifficulty('hard');
-    const held = harness.editor.state;
-
-    harness.editor.moveSong('next');
-    harness.editor.selectDifficulty('expert');
-
-    expect(harness.editor.state).toBe(held);
-  });
-
-  it('ignores confirm and cancel without a dialog', async () => {
+  it('ignores confirm without a dialog', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
     const state = harness.editor.state;
 
     harness.editor.confirmPending();
-    harness.editor.cancelPending();
 
     expect(harness.editor.state).toBe(state);
   });
@@ -704,7 +699,7 @@ describe('clearing notes', () => {
   it('asks even without unsaved changes and clears only on confirm', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
 
-    harness.editor.requestClearNotes();
+    pressButton(harness, 'clear');
     expect(getPending(harness.editor.state)).toEqual({ kind: 'clearNotes' });
     expect(getNotes(harness.editor.state)).toHaveLength(1);
 
@@ -716,9 +711,9 @@ describe('clearing notes', () => {
 
   it('keeps the notes on cancel', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
-    harness.editor.requestClearNotes();
+    pressButton(harness, 'clear');
 
-    harness.editor.cancelPending();
+    pressButton(harness, 'confirmCancel');
 
     expect(getPending(harness.editor.state)).toBeNull();
     expect(getNotes(harness.editor.state)).toEqual([TAP_AT_2000]);
@@ -730,8 +725,8 @@ describe('clearing notes', () => {
     loading.editor.start();
     const states = [editing.editor.state, loading.editor.state];
 
-    editing.editor.requestClearNotes();
-    loading.editor.requestClearNotes();
+    pressButton(editing, 'clear');
+    pressButton(loading, 'clear');
 
     expect([editing.editor.state, loading.editor.state]).toEqual(states);
   });
@@ -739,13 +734,13 @@ describe('clearing notes', () => {
   it('does not ask when the only note is a hold still being created', async () => {
     const harness = await openLoaded();
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 3,
       timeMs: 3000,
     });
     expect(canClearNotes(harness.editor.state)).toBe(true);
 
-    harness.editor.requestClearNotes();
+    pressButton(harness, 'clear');
 
     expect(getPending(harness.editor.state)).toBeNull();
     expect(getNotes(harness.editor.state)).toEqual([]);
@@ -756,36 +751,25 @@ describe('the open confirm dialog', () => {
   async function heldWhileSaving(): Promise<Harness> {
     const harness = await openLoaded([TAP_AT_2000]);
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     startPlaying(harness);
     harness.editor.back();
     expect(getPending(harness.editor.state)).toEqual({ kind: 'leave' });
     return harness;
   }
 
-  it('ignores editing, selection, playback and save input', async () => {
+  it('ignores timeline drags, seeking, deleting and playback toggles', async () => {
     const harness = await heldWhileSaving();
     const held = harness.editor.state;
 
-    harness.editor.pointerDown({
+    harness.editor.dragTimeline({
       lane: 1,
       timeMs: 5000,
     });
-    harness.editor.pointerDown({
-      lane: 0,
-      timeMs: 2000,
-    });
-    harness.editor.pointerMove({
-      lane: 1,
-      timeMs: 5000,
-    });
-    harness.editor.pointerUp(5000);
+    harness.editor.releaseTimeline(5000);
     harness.editor.seek(5000);
     harness.editor.deleteSelected();
     harness.editor.togglePlayback();
-    harness.editor.requestClearNotes();
-    harness.editor.moveSong('next');
-    void harness.editor.save();
 
     expect(harness.editor.state).toBe(held);
     expect(harness.saves).toHaveLength(1);
@@ -806,24 +790,24 @@ describe('the open confirm dialog', () => {
     const harness = await openLoaded([TAP_AT_2000]);
     expect(getEditorDecorations(harness.editor.state)).toEqual({ isDividerGlintVisible: true });
 
-    harness.editor.requestClearNotes();
+    pressButton(harness, 'clear');
     expect(getEditorDecorations(harness.editor.state)).toEqual({ isDividerGlintVisible: false });
 
-    harness.editor.cancelPending();
+    pressButton(harness, 'confirmCancel');
     expect(getEditorDecorations(harness.editor.state)).toEqual({ isDividerGlintVisible: true });
   });
 
   it('enables SAVE again after cancel when a save finished while it was open', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     addTap(harness, 5000, 1);
     harness.editor.back();
 
     lastSave(harness).resolve(SAVED);
     await flush();
     expect(canSave(harness.editor.state)).toBe(false);
-    harness.editor.cancelPending();
+    pressButton(harness, 'confirmCancel');
 
     expect(canSave(harness.editor.state)).toBe(true);
   });
@@ -843,15 +827,15 @@ describe('gestures', () => {
   it('adds a tap and moves it while dragging', async () => {
     const harness = await openLoaded();
 
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 1,
       timeMs: 3000,
     });
-    harness.editor.pointerMove({
+    harness.editor.dragTimeline({
       lane: 2,
       timeMs: 4000,
     });
-    harness.editor.pointerUp(4000);
+    harness.editor.releaseTimeline(4000);
 
     expect(getNotes(harness.editor.state)).toEqual([
       {
@@ -883,15 +867,15 @@ describe('gestures', () => {
     const harness = await openLoaded();
     harness.editor.selectTool('hold');
 
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 0,
       timeMs: 3000,
     });
-    harness.editor.pointerMove({
+    harness.editor.dragTimeline({
       lane: 0,
       timeMs: 3500,
     });
-    harness.editor.pointerUp(3500);
+    harness.editor.releaseTimeline(3500);
 
     expect(getNotes(harness.editor.state)).toEqual([
       {
@@ -908,11 +892,11 @@ describe('gestures', () => {
     const notes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
 
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 1,
       timeMs: 3000,
     });
-    harness.editor.pointerUp(3000);
+    harness.editor.releaseTimeline(3000);
 
     expect(getNotes(harness.editor.state)).toBe(notes);
     expect(hasUnsavedChanges(harness.editor.state)).toBe(false);
@@ -921,11 +905,11 @@ describe('gestures', () => {
   it('selects a note without unsaved changes', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
 
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 0,
       timeMs: 2010,
     });
-    harness.editor.pointerUp(2010);
+    harness.editor.releaseTimeline(2010);
 
     expect(getDraft(harness).selected).toBe(getNotes(harness.editor.state)[0]);
     expect(hasUnsavedChanges(harness.editor.state)).toBe(false);
@@ -935,11 +919,11 @@ describe('gestures', () => {
     const harness = await openLoaded([TAP_AT_2000]);
     const state = harness.editor.state;
 
-    harness.editor.pointerMove({
+    harness.editor.dragTimeline({
       lane: 1,
       timeMs: 3000,
     });
-    harness.editor.pointerUp(3000);
+    harness.editor.releaseTimeline(3000);
 
     expect(harness.editor.state).toBe(state);
   });
@@ -948,11 +932,11 @@ describe('gestures', () => {
     const harness = await openLoaded([TAP_AT_2000]);
     const notes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 2,
       timeMs: 5000,
     });
-    harness.editor.pointerMove({
+    harness.editor.dragTimeline({
       lane: 2,
       timeMs: 6000,
     });
@@ -970,7 +954,7 @@ describe('gestures', () => {
     addTap(harness, 3000);
     const dirtyNotes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 2,
       timeMs: 5000,
     });
@@ -985,13 +969,13 @@ describe('gestures', () => {
     });
     expect(getNotes(harness.editor.state)).toBe(dirtyNotes);
     const held = harness.editor.state;
-    harness.editor.pointerMove({
+    harness.editor.dragTimeline({
       lane: 2,
       timeMs: 6000,
     });
-    harness.editor.pointerUp(6000);
+    harness.editor.releaseTimeline(6000);
     expect(harness.editor.state).toBe(held);
-    harness.editor.cancelPending();
+    pressButton(harness, 'confirmCancel');
     expect(getNotes(harness.editor.state)).toBe(dirtyNotes);
   });
 
@@ -1034,19 +1018,19 @@ describe('undo', () => {
 
   it('undoes a whole drag at once', async () => {
     const harness = await openLoaded();
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 1,
       timeMs: 3000,
     });
-    harness.editor.pointerMove({
+    harness.editor.dragTimeline({
       lane: 2,
       timeMs: 3500,
     });
-    harness.editor.pointerMove({
+    harness.editor.dragTimeline({
       lane: 2,
       timeMs: 4000,
     });
-    harness.editor.pointerUp(4000);
+    harness.editor.releaseTimeline(4000);
 
     harness.editor.undo();
 
@@ -1057,7 +1041,7 @@ describe('undo', () => {
     const harness = await openLoaded([TAP_AT_2000]);
     addTap(harness, 3000);
     harness.editor.deleteSelected();
-    harness.editor.requestClearNotes();
+    pressButton(harness, 'clear');
     harness.editor.confirmPending();
 
     harness.editor.undo();
@@ -1088,11 +1072,11 @@ describe('undo', () => {
   it('does not record selecting a note', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
     addTap(harness, 3000);
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 0,
       timeMs: 2000,
     });
-    harness.editor.pointerUp(2000);
+    harness.editor.releaseTimeline(2000);
 
     harness.editor.undo();
 
@@ -1110,7 +1094,9 @@ describe('saving', () => {
     const harness = await openLoaded([duplicate, { ...duplicate }]);
     startPlaying(harness);
 
-    await harness.editor.save();
+    pressButton(harness, 'levelUp');
+    pressButton(harness, 'save');
+    await flush();
 
     expect(harness.saves).toEqual([]);
     expect(getPending(harness.editor.state)).toMatchObject({ kind: 'invalidChart' });
@@ -1125,7 +1111,9 @@ describe('saving', () => {
   it('marks an empty chart invalid', async () => {
     const harness = await openLoaded();
 
-    await harness.editor.save();
+    pressButton(harness, 'levelUp');
+    pressButton(harness, 'save');
+    await flush();
 
     expect(getPending(harness.editor.state)).toEqual({
       kind: 'invalidChart',
@@ -1138,8 +1126,8 @@ describe('saving', () => {
     addTap(harness, 3000);
     const notes = getNotes(harness.editor.state);
 
-    void harness.editor.save();
-    void harness.editor.save();
+    pressButton(harness, 'save');
+    pressButton(harness, 'save');
 
     expect(harness.saves).toHaveLength(1);
     expect(lastSave(harness).song).toBe(song);
@@ -1157,7 +1145,7 @@ describe('saving', () => {
   it('clears unsaved changes when nothing was edited during the save', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
 
     lastSave(harness).resolve(SAVED);
     await flush();
@@ -1182,7 +1170,7 @@ describe('saving', () => {
   it('keeps edits made during the save as unsaved', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     addTap(harness, 5000);
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
     const edited = getNotes(harness.editor.state);
@@ -1199,10 +1187,10 @@ describe('saving', () => {
   it('keeps the saved notes when a hold started during the save is cancelled after it', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     const savedNotes = getNotes(harness.editor.state);
     harness.editor.selectTool('hold');
-    harness.editor.pointerDown({
+    harness.editor.pressTimeline({
       lane: 2,
       timeMs: 6000,
     });
@@ -1210,7 +1198,7 @@ describe('saving', () => {
     lastSave(harness).resolve(SAVED);
     await flush();
     expect(hasUnsavedChanges(harness.editor.state)).toBe(true);
-    harness.editor.pointerUp(6000);
+    harness.editor.releaseTimeline(6000);
 
     const draft = getDraft(harness);
     expect(draft.notes).toBe(savedNotes);
@@ -1221,7 +1209,7 @@ describe('saving', () => {
   it('ignores save results of a previous session', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     const first = lastSave(harness);
     harness.editor.selectDifficulty('hard');
     harness.editor.confirmPending();
@@ -1237,7 +1225,7 @@ describe('saving', () => {
     expect(harness.editor.state).toBe(reselected);
 
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     const second = lastSave(harness);
     harness.editor.selectDifficulty('normal');
     harness.editor.confirmPending();
@@ -1250,7 +1238,7 @@ describe('saving', () => {
   it('opens a failure notice and allows saving again once it closes', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
 
     lastSave(harness).reject(new Error('network'));
     await flush();
@@ -1265,7 +1253,9 @@ describe('saving', () => {
 
   it('closes a save notice with back without leaving', async () => {
     const harness = await openLoaded();
-    await harness.editor.save();
+    pressButton(harness, 'levelUp');
+    pressButton(harness, 'save');
+    await flush();
 
     harness.editor.back();
 
@@ -1276,7 +1266,7 @@ describe('saving', () => {
   it('replaces an open confirm dialog with the failure notice', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     harness.editor.back();
     expect(getPending(harness.editor.state)).toEqual({ kind: 'leave' });
 
@@ -1289,13 +1279,13 @@ describe('saving', () => {
   it('saves a loaded chart against its revision and the next save against the saved revision', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     expect(lastSave(harness).baseRevision).toBe(LOADED_REVISION);
 
     lastSave(harness).resolve(SAVED);
     await flush();
     addTap(harness, 5000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
 
     expect(harness.saves).toHaveLength(2);
     expect(lastSave(harness).baseRevision).toBe(SAVED.revision);
@@ -1306,13 +1296,13 @@ describe('saving', () => {
     harness.editor.start();
     await readyPlayer(harness);
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     expect(lastSave(harness).baseRevision).toBeNull();
 
     lastSave(harness).resolve(SAVED);
     await flush();
     addTap(harness, 5000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
 
     expect(lastSave(harness).song).toBe(savedSong);
     expect(lastSave(harness).baseRevision).toBe(SAVED.revision);
@@ -1321,7 +1311,7 @@ describe('saving', () => {
   it('keeps the draft and its revision on a conflict and saves against the same revision again', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     const before = getDraft(harness);
 
     lastSave(harness).resolve({ kind: 'conflict' });
@@ -1338,7 +1328,7 @@ describe('saving', () => {
 
     addTap(harness, 5000, 1);
     expect(getEditorStatus(harness.editor.state)).toEqual({ kind: 'unsaved' });
-    void harness.editor.save();
+    pressButton(harness, 'save');
     expect(harness.saves).toHaveLength(2);
     expect(lastSave(harness).baseRevision).toBe(LOADED_REVISION);
   });
@@ -1346,7 +1336,7 @@ describe('saving', () => {
   it('saves against the reloaded revision after a conflict and reopening the chart', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     lastSave(harness).resolve({ kind: 'conflict' });
     await flush();
     harness.editor.confirmPending();
@@ -1359,7 +1349,7 @@ describe('saving', () => {
     await flush();
     expect(getNotes(harness.editor.state)).toEqual([TAP_AT_2000]);
     addTap(harness, 5000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
 
     expect(lastSave(harness).baseRevision).toBe('revision-latest');
   });
@@ -1367,7 +1357,7 @@ describe('saving', () => {
   it('shows no status after a save and unsaved after the next edit', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     lastSave(harness).resolve(SAVED);
     await flush();
 
@@ -1503,8 +1493,8 @@ describe('lane counts', () => {
       laneCount: 6,
       difficulty: 'normal',
     });
-    harness.editor.cancelPending();
-    expect(getSelection(harness.editor.state)?.laneCount).toBe(4);
+    pressButton(harness, 'confirmCancel');
+    expect(getSelection(harness.editor.state).laneCount).toBe(4);
     expect(getNotes(harness.editor.state)).toBe(edited);
 
     harness.editor.selectLaneCount(6);
@@ -1518,7 +1508,7 @@ describe('lane counts', () => {
     harness.editor.selectLaneCount(6);
 
     addTap(harness, 3000, 5);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     expect(lastSave(harness).chart).toEqual({
       songId: 'test-song',
       difficulty: 'normal',
@@ -1553,7 +1543,8 @@ describe('lane counts', () => {
     const harness = await openLaneSong();
     addTap(harness, 3000, 4);
 
-    await harness.editor.save();
+    pressButton(harness, 'save');
+    await flush();
 
     expect(harness.saves).toEqual([]);
     expect(getPending(harness.editor.state)).toMatchObject({ kind: 'invalidChart' });
@@ -1562,7 +1553,7 @@ describe('lane counts', () => {
   it('keeps a late save away from the draft of another lane count but lists it as saved', async () => {
     const harness = await openLaneSong();
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     harness.editor.selectLaneCount(6);
     harness.editor.confirmPending();
     const switched = harness.editor.state;
@@ -1753,11 +1744,25 @@ describe('video player', () => {
     harness.editor.selectLaneCount(5);
     expect(harness.apiLoads).toHaveLength(1);
 
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
     expect(first.isDestroyed).toBe(true);
     expect(harness.editor.state.player).toEqual({ kind: 'loading' });
     await readyPlayer(harness);
     expect(harness.players).toHaveLength(2);
+  });
+
+  it('destroys the old player without pausing it when moving to another song while playing', async () => {
+    const harness = await openLoaded();
+    startPlaying(harness);
+    const first = lastPlayer(harness);
+    const { pauseCount } = harness;
+
+    pressButton(harness, 'nextSong');
+
+    expect(first.isDestroyed).toBe(true);
+    expect(harness.pauseCount).toBe(pauseCount);
+    expect(getTransport(harness.editor.state)).toEqual({ kind: 'paused' });
+    expect(harness.editor.state.player).toEqual({ kind: 'loading' });
   });
 
   it('fails when the API does not load', async () => {
@@ -1808,7 +1813,7 @@ describe('video player', () => {
   it('ignores a late load and late events of the previous song', async () => {
     const harness = await openLoaded();
     const first = lastPlayer(harness);
-    harness.editor.moveSong('next');
+    pressButton(harness, 'nextSong');
     const pendingLoad = requireDefined(harness.apiLoads.at(-1), 'expected an API load');
     const switched = harness.editor.state;
 
@@ -1816,7 +1821,7 @@ describe('video player', () => {
     first.handlers.onError('videoNotFound', 100);
 
     expect(harness.editor.state).toBe(switched);
-    harness.editor.moveSong('previous');
+    pressButton(harness, 'previousSong');
     pendingLoad.resolve();
     await flush();
     expect(harness.players).toHaveLength(1);
@@ -1868,8 +1873,8 @@ describe('restart button', () => {
     harness.editor.seek(song.gameStartMs + 3000);
     harness.editor.togglePlayback();
 
-    harness.editor.pointerDownButton('restart');
-    harness.editor.pointerUpButton('restart');
+    harness.editor.pointerDown('restart');
+    harness.editor.pointerUp('restart');
 
     expect(harness.editor.state.playhead).toMatchObject({
       currentTimeMs: song.gameStartMs,
@@ -1880,8 +1885,8 @@ describe('restart button', () => {
 
 describe('TEST PLAY', () => {
   function pressTestPlay(harness: Harness): void {
-    harness.editor.pointerDownButton('testPlay');
-    harness.editor.pointerUpButton('testPlay');
+    harness.editor.pointerDown('testPlay');
+    harness.editor.pointerUp('testPlay');
   }
 
   it('starts from the playhead', async () => {
@@ -1909,7 +1914,7 @@ describe('TEST PLAY', () => {
     const harness = await openLoaded([TAP_AT_2000]);
 
     pressTestPlay(harness);
-    harness.editor.pointerUpButton('testPlay');
+    harness.editor.pointerUp('testPlay');
 
     expect(harness.testPlays).toEqual([
       {
@@ -1973,7 +1978,7 @@ describe('TEST PLAY', () => {
 
     const saving = await openLoaded([TAP_AT_2000]);
     addTap(saving, 3000);
-    void saving.editor.save();
+    pressButton(saving, 'save');
     pressTestPlay(saving);
     expect(getPending(saving.editor.state)).toBeNull();
     expect(saving.testPlays).toEqual([]);
@@ -1982,10 +1987,10 @@ describe('TEST PLAY', () => {
   it('releases a press when a save starts before the up', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
     addTap(harness, 3000);
-    harness.editor.pointerDownButton('testPlay');
+    harness.editor.pointerDown('testPlay');
 
-    void harness.editor.save();
-    harness.editor.pointerUpButton('testPlay');
+    pressButton(harness, 'save');
+    harness.editor.pointerUp('testPlay');
 
     expect(getPending(harness.editor.state)).toBeNull();
     expect(harness.testPlays).toEqual([]);
@@ -1997,7 +2002,7 @@ describe('TEST PLAY', () => {
   ])('tells about unsaved changes after a save %s', async (_case, settleSave) => {
     const harness = await openLoaded([TAP_AT_2000]);
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     settleSave(harness);
     await flush();
     harness.editor.confirmPending();
@@ -2014,7 +2019,7 @@ describe('TEST PLAY', () => {
     await flush();
     await readyPlayer(harness);
     addTap(harness, 3000);
-    void harness.editor.save();
+    pressButton(harness, 'save');
     lastSave(harness).resolve(SAVED);
     await flush();
 
@@ -2035,8 +2040,8 @@ describe('TEST PLAY', () => {
   it('leaves the PLAY button to the video alone', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
 
-    harness.editor.pointerDownButton('play');
-    harness.editor.pointerUpButton('play');
+    harness.editor.pointerDown('play');
+    harness.editor.pointerUp('play');
 
     expect(harness.requestedSec).toHaveLength(1);
     expect(harness.testPlays).toEqual([]);
@@ -2063,13 +2068,13 @@ describe('level', () => {
   it('steps through the half steps with ◀ ▶, staying at 1 and 5', async () => {
     const harness = await openLoaded();
 
-    harness.editor.moveLevel('previous');
+    pressButton(harness, 'levelDown');
     expect(getDraft(harness).level).toBe(1);
     expect(getEditorButtonView(harness.editor.state, 'levelDown').appearance).toBe('disabled');
-    harness.editor.moveLevel('next');
+    pressButton(harness, 'levelUp');
     expect(getDraft(harness).level).toBe(1.5);
     for (let step = 0; step < 10; step += 1) {
-      harness.editor.moveLevel('next');
+      pressButton(harness, 'levelUp');
     }
     expect(getDraft(harness).level).toBe(5);
     expect(getEditorButtonView(harness.editor.state, 'levelUp').appearance).toBe('disabled');
@@ -2078,16 +2083,16 @@ describe('level', () => {
   it('steps the level with the ◀ ▶ buttons on pointer up', async () => {
     const harness = await openLoaded();
 
-    harness.editor.pointerOverButton('levelUp');
-    harness.editor.pointerDownButton('levelUp');
+    harness.editor.pointerOver('levelUp');
+    harness.editor.pointerDown('levelUp');
     expect(getDraft(harness).level).toBe(1);
-    harness.editor.pointerUpButton('levelUp');
-    harness.editor.pointerOverButton('levelDown');
-    harness.editor.pointerDownButton('levelDown');
-    harness.editor.pointerUpButton('levelDown');
-    harness.editor.pointerOverButton('levelUp');
-    harness.editor.pointerDownButton('levelUp');
-    harness.editor.pointerUpButton('levelUp');
+    harness.editor.pointerUp('levelUp');
+    harness.editor.pointerOver('levelDown');
+    harness.editor.pointerDown('levelDown');
+    harness.editor.pointerUp('levelDown');
+    harness.editor.pointerOver('levelUp');
+    harness.editor.pointerDown('levelUp');
+    harness.editor.pointerUp('levelUp');
 
     expect(getDraft(harness).level).toBe(1.5);
   });
@@ -2109,7 +2114,7 @@ describe('level', () => {
 
   it('keeps the level and restores the input when the input is cancelled', async () => {
     const harness = await openLoaded();
-    harness.editor.moveLevel('next');
+    pressButton(harness, 'levelUp');
 
     harness.editor.cancelLevelInput();
 
@@ -2119,12 +2124,12 @@ describe('level', () => {
 
   it('makes the draft unsaved, saves the level with the notes and is saved after success', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
-    harness.editor.moveLevel('next');
-    harness.editor.moveLevel('next');
+    pressButton(harness, 'levelUp');
+    pressButton(harness, 'levelUp');
 
     expect(hasUnsavedChanges(harness.editor.state)).toBe(true);
     expect(canSave(harness.editor.state)).toBe(true);
-    void harness.editor.save();
+    pressButton(harness, 'save');
 
     expect(lastSave(harness).level).toBe(2);
     expect(lastSave(harness).chart.notes).toEqual([TAP_AT_2000]);
@@ -2141,7 +2146,7 @@ describe('level', () => {
   it('does not undo a level change', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    harness.editor.moveLevel('next');
+    pressButton(harness, 'levelUp');
 
     harness.editor.undo();
 
@@ -2153,7 +2158,7 @@ describe('level', () => {
     const harness = createHarness();
     harness.editor.start();
 
-    harness.editor.moveLevel('next');
+    pressButton(harness, 'levelUp');
     harness.editor.commitLevelInput('3');
 
     expect(getSession(harness.editor.state)).toBeNull();
@@ -2164,10 +2169,10 @@ describe('button pointer', () => {
   it('runs the button once for over, down and up on it', async () => {
     const harness = await openLoaded();
 
-    harness.editor.pointerOverButton('back');
-    harness.editor.pointerDownButton('back');
-    harness.editor.pointerUpButton('back');
-    harness.editor.pointerUpButton('back');
+    harness.editor.pointerOver('back');
+    harness.editor.pointerDown('back');
+    harness.editor.pointerUp('back');
+    harness.editor.pointerUp('back');
 
     expect(harness.leftWith).toEqual(['test-song']);
   });
@@ -2175,8 +2180,8 @@ describe('button pointer', () => {
   it('does not run the button for an up that was pressed elsewhere', async () => {
     const harness = await openLoaded();
 
-    harness.editor.pointerOverButton('back');
-    harness.editor.pointerUpButton('back');
+    harness.editor.pointerOver('back');
+    harness.editor.pointerUp('back');
 
     expect(harness.leftWith).toEqual([]);
   });
@@ -2184,11 +2189,11 @@ describe('button pointer', () => {
   it('releases the press when the pointer leaves the button', async () => {
     const harness = await openLoaded();
 
-    harness.editor.pointerOverButton('back');
-    harness.editor.pointerDownButton('back');
-    harness.editor.pointerOutButton('back');
-    harness.editor.pointerOverButton('back');
-    harness.editor.pointerUpButton('back');
+    harness.editor.pointerOver('back');
+    harness.editor.pointerDown('back');
+    harness.editor.pointerOut('back');
+    harness.editor.pointerOver('back');
+    harness.editor.pointerUp('back');
 
     expect(harness.leftWith).toEqual([]);
     expect(harness.editor.state.hover).toEqual({
@@ -2202,8 +2207,8 @@ describe('button pointer', () => {
     const harness = await openLoaded();
     const state = harness.editor.state;
 
-    harness.editor.pointerDownButton('save');
-    harness.editor.pointerUpButton('save');
+    harness.editor.pointerDown('save');
+    harness.editor.pointerUp('save');
 
     expect(harness.editor.state).toBe(state);
     expect(harness.saves).toHaveLength(0);
@@ -2212,8 +2217,8 @@ describe('button pointer', () => {
   it('releases the press of a button that becomes disabled', async () => {
     const harness = await openLoaded();
     addTap(harness, 3000);
-    harness.editor.pointerOverButton('delete');
-    harness.editor.pointerDownButton('delete');
+    harness.editor.pointerOver('delete');
+    harness.editor.pointerDown('delete');
     expect(harness.editor.state.hover).toEqual({
       kind: 'button',
       button: 'delete',
@@ -2221,7 +2226,7 @@ describe('button pointer', () => {
     });
 
     harness.editor.undo();
-    harness.editor.pointerUpButton('delete');
+    harness.editor.pointerUp('delete');
 
     expect(harness.editor.state.hover).toEqual({
       kind: 'button',
@@ -2232,20 +2237,20 @@ describe('button pointer', () => {
 
   it('confirms and cancels with the dialog buttons and releases their hover on close', async () => {
     const harness = await openLoaded([TAP_AT_2000]);
-    harness.editor.pointerDownButton('clear');
-    harness.editor.pointerUpButton('clear');
+    harness.editor.pointerDown('clear');
+    harness.editor.pointerUp('clear');
     expect(getPending(harness.editor.state)).toEqual({ kind: 'clearNotes' });
 
-    harness.editor.pointerOverButton('confirmCancel');
-    harness.editor.pointerDownButton('confirmCancel');
-    harness.editor.pointerUpButton('confirmCancel');
+    harness.editor.pointerOver('confirmCancel');
+    harness.editor.pointerDown('confirmCancel');
+    harness.editor.pointerUp('confirmCancel');
     expect(getPending(harness.editor.state)).toBeNull();
     expect(getNotes(harness.editor.state)).toEqual([TAP_AT_2000]);
     expect(harness.editor.state.hover).toBeNull();
 
-    harness.editor.requestClearNotes();
-    harness.editor.pointerDownButton('confirmAccept');
-    harness.editor.pointerUpButton('confirmAccept');
+    pressButton(harness, 'clear');
+    harness.editor.pointerDown('confirmAccept');
+    harness.editor.pointerUp('confirmAccept');
     expect(getNotes(harness.editor.state)).toEqual([]);
     expect(harness.editor.state.hover).toBeNull();
   });

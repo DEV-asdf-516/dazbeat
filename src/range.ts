@@ -35,10 +35,10 @@ export function cycleItem<T>(items: readonly T[], current: T, direction: ListDir
   return cycleItemBy(items, current, DIRECTION_STEPS[direction]);
 }
 
-export function cycleItemBy<T>(items: readonly T[], current: T, offset: number): T {
+export function cycleItemBy<T>(items: readonly T[], current: T, steps: number): T {
   const count = items.length;
   return requireDefined(
-    items[(((indexOfItem(items, current) + offset) % count) + count) % count],
+    items[(((indexOfItem(items, current) + steps) % count) + count) % count],
     'Cannot cycle an empty list',
   );
 }

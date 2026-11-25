@@ -79,17 +79,51 @@ export class TextTabs<T extends string> {
     if (layout.align === 'right') {
       // 굵은 폭으로 잰 전체 폭이 나와야 오른쪽 끝을 맞출 수 있어, 다 놓은 뒤 한꺼번에 옮긴다.
       const shiftPx = layout.xPx - (xPx - style.gapPx);
-      tabs.forEach(({ text, underline }) => {
+      for (const { text, underline } of tabs) {
         text.x += shiftPx;
         underline.x += shiftPx;
-      });
+      }
     }
     this.tabs = tabs;
   }
 
   /** 화면 상태가 바뀐 뒤 화면이 탭별 외형과 밑줄 색을 넘긴다. */
   render(appearanceOf: (key: T) => TabAppearance, underlineColor: number): void {
-    this.tabs.forEach((tab) => this.renderTab(tab, appearanceOf(tab.key), underlineColor));
+    const { type, selectedWeight, normalColor } = this.style;
+    for (const { key, text, underline } of this.tabs) {
+      const appearance = appearanceOf(key);
+      underline.setTint(underlineColor).setVisible(appearance === 'selected');
+      let weight: number;
+      let color: number;
+      let cursor: string;
+      switch (appearance) {
+        case 'disabled':
+          weight = type.weight;
+          color = COLORS.textDisabled;
+          cursor = DISABLED_CURSOR;
+          break;
+        case 'selected':
+          weight = selectedWeight;
+          color = COLORS.textPrimary;
+          cursor = DEFAULT_CURSOR;
+          break;
+        case 'emphasized':
+          weight = type.weight;
+          color = COLORS.textPrimary;
+          cursor = HOVER_CURSOR;
+          break;
+        case 'normal':
+          weight = type.weight;
+          color = normalColor;
+          cursor = HOVER_CURSOR;
+          break;
+      }
+      setTextWeight(text, weight);
+      setTextColor(text, color);
+      if (text.input !== null) {
+        text.input.cursor = cursor;
+      }
+    }
   }
 
   getBounds(key: T): Phaser.Geom.Rectangle {
@@ -111,38 +145,5 @@ export class TextTabs<T extends string> {
       'Unknown tab',
       key,
     ).text;
-  }
-
-  private renderTab(tab: Tab<T>, appearance: TabAppearance, underlineColor: number): void {
-    const { text, underline } = tab;
-    underline.setTint(underlineColor).setVisible(appearance === 'selected');
-    const { type, selectedWeight, normalColor } = this.style;
-    switch (appearance) {
-      case 'disabled':
-        this.applyAppearance(text, type.weight, COLORS.textDisabled, DISABLED_CURSOR);
-        return;
-      case 'selected':
-        this.applyAppearance(text, selectedWeight, COLORS.textPrimary, DEFAULT_CURSOR);
-        return;
-      case 'emphasized':
-        this.applyAppearance(text, type.weight, COLORS.textPrimary, HOVER_CURSOR);
-        return;
-      case 'normal':
-        this.applyAppearance(text, type.weight, normalColor, HOVER_CURSOR);
-        return;
-    }
-  }
-
-  private applyAppearance(
-    text: Phaser.GameObjects.Text,
-    weight: number,
-    color: number,
-    cursor: string,
-  ): void {
-    setTextWeight(text, weight);
-    setTextColor(text, color);
-    if (text.input !== null) {
-      text.input.cursor = cursor;
-    }
   }
 }

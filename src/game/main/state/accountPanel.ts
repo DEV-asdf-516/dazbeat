@@ -1,6 +1,6 @@
 import type { AchievementCatalog } from '../../../data/achievements.js';
 import type { AccountState, SignInFailure } from '../../app/accountState.js';
-import { getAccountIdentity } from '../../ui/state/accountIdentity.js';
+import { GOOGLE_SIGN_IN_LABEL, getAccountIdentity } from '../../ui/state/accountIdentity.js';
 import type { AccountIdentity } from '../../ui/state/accountIdentity.js';
 
 export type AccountPanel = UserPanel | CornerPanel;
@@ -17,7 +17,7 @@ export interface CornerPanel {
 }
 
 const CORNER_LABELS = {
-  guest: 'SIGN IN WITH GOOGLE',
+  guest: GOOGLE_SIGN_IN_LABEL,
   signingIn: 'CANCEL',
 } as const;
 

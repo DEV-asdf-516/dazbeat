@@ -105,7 +105,7 @@ type ArgumentName<C extends ArgumentCommand> = (typeof ARGUMENTS)[C][number];
 type PointCommand = 'ARC' | 'FILL_RECT' | 'LINE_TO' | 'MOVE_TO' | 'TRANSLATE';
 type TriangleCommand = 'FILL_TRIANGLE' | 'STROKE_TRIANGLE';
 
-function readArgument<C extends ArgumentCommand>(
+function readBufferArgument<C extends ArgumentCommand>(
   buffer: readonly unknown[],
   index: number,
   command: C,
@@ -115,51 +115,51 @@ function readArgument<C extends ArgumentCommand>(
   return buffer[index + COMMAND_ID_LENGTH + names.indexOf(name)];
 }
 
-function readNumber<C extends ArgumentCommand>(
+function readBufferNumber<C extends ArgumentCommand>(
   buffer: readonly unknown[],
   index: number,
   command: C,
   name: ArgumentName<C>,
 ): number {
-  const value = readArgument(buffer, index, command, name);
+  const value = readBufferArgument(buffer, index, command, name);
   if (!isFiniteNumber(value)) {
     throw new Error(`Graphics ${command} ${name} is not a number at ${index}`);
   }
   return value;
 }
 
-function readPoint(buffer: readonly unknown[], index: number, command: PointCommand): Point {
+function readBufferPoint(buffer: readonly unknown[], index: number, command: PointCommand): Point {
   return {
-    xPx: readNumber(buffer, index, command, 'xPx'),
-    yPx: readNumber(buffer, index, command, 'yPx'),
+    xPx: readBufferNumber(buffer, index, command, 'xPx'),
+    yPx: readBufferNumber(buffer, index, command, 'yPx'),
   };
 }
 
-function readRect(buffer: readonly unknown[], index: number): Rect {
+function readBufferRect(buffer: readonly unknown[], index: number): Rect {
   return {
-    ...readPoint(buffer, index, 'FILL_RECT'),
-    widthPx: readNumber(buffer, index, 'FILL_RECT', 'widthPx'),
-    heightPx: readNumber(buffer, index, 'FILL_RECT', 'heightPx'),
+    ...readBufferPoint(buffer, index, 'FILL_RECT'),
+    widthPx: readBufferNumber(buffer, index, 'FILL_RECT', 'widthPx'),
+    heightPx: readBufferNumber(buffer, index, 'FILL_RECT', 'heightPx'),
   };
 }
 
-function readTriangle(
+function readBufferTriangle(
   buffer: readonly unknown[],
   index: number,
   command: TriangleCommand,
 ): Triangle {
   return [
     {
-      xPx: readNumber(buffer, index, command, 'x0Px'),
-      yPx: readNumber(buffer, index, command, 'y0Px'),
+      xPx: readBufferNumber(buffer, index, command, 'x0Px'),
+      yPx: readBufferNumber(buffer, index, command, 'y0Px'),
     },
     {
-      xPx: readNumber(buffer, index, command, 'x1Px'),
-      yPx: readNumber(buffer, index, command, 'y1Px'),
+      xPx: readBufferNumber(buffer, index, command, 'x1Px'),
+      yPx: readBufferNumber(buffer, index, command, 'y1Px'),
     },
     {
-      xPx: readNumber(buffer, index, command, 'x2Px'),
-      yPx: readNumber(buffer, index, command, 'y2Px'),
+      xPx: readBufferNumber(buffer, index, command, 'x2Px'),
+      yPx: readBufferNumber(buffer, index, command, 'y2Px'),
     },
   ];
 }
@@ -173,14 +173,14 @@ function traceTriangle(ctx: CanvasRenderingContext2D, [p0, p1, p2]: Triangle): v
 }
 
 // 그라데이션을 쓰는 곳(trapezoidFill, titleBackdrop)은 네 모서리를 같은 색으로 두고 alpha 만 바꾸므로 왼쪽 위 색 하나만 읽는다.
-function readGradient(buffer: readonly unknown[], index: number): GradientFill {
+function readBufferGradient(buffer: readonly unknown[], index: number): GradientFill {
   const command = 'GRADIENT_FILL_STYLE';
   return {
-    alphaTopLeft: readNumber(buffer, index, command, 'alphaTopLeft'),
-    alphaTopRight: readNumber(buffer, index, command, 'alphaTopRight'),
-    alphaBottomLeft: readNumber(buffer, index, command, 'alphaBottomLeft'),
-    alphaBottomRight: readNumber(buffer, index, command, 'alphaBottomRight'),
-    color: readNumber(buffer, index, command, 'colorTopLeft'),
+    alphaTopLeft: readBufferNumber(buffer, index, command, 'alphaTopLeft'),
+    alphaTopRight: readBufferNumber(buffer, index, command, 'alphaTopRight'),
+    alphaBottomLeft: readBufferNumber(buffer, index, command, 'alphaBottomLeft'),
+    alphaBottomRight: readBufferNumber(buffer, index, command, 'alphaBottomRight'),
+    color: readBufferNumber(buffer, index, command, 'colorTopLeft'),
   };
 }
 
@@ -293,16 +293,16 @@ function fillGradientSlice(
   ) {
     return false;
   }
-  const { color, alphaTopLeft, alphaTopRight, alphaBottomLeft } = readGradient(buffer, index);
-  if (readGradient(buffer, index + SLICE.secondStyle).color !== color) {
+  const { color, alphaTopLeft, alphaTopRight, alphaBottomLeft } = readBufferGradient(buffer, index);
+  if (readBufferGradient(buffer, index + SLICE.secondStyle).color !== color) {
     return false;
   }
-  const [topLeft, topRight, bottomLeft] = readTriangle(
+  const [topLeft, topRight, bottomLeft] = readBufferTriangle(
     buffer,
     index + SLICE.firstTriangle,
     'FILL_TRIANGLE',
   );
-  const [secondTopRight, bottomRight, secondBottomLeft] = readTriangle(
+  const [secondTopRight, bottomRight, secondBottomLeft] = readBufferTriangle(
     buffer,
     index + SLICE.secondTriangle,
     'FILL_TRIANGLE',
@@ -361,7 +361,7 @@ export function renderGraphicsCanvas(
   camera: Phaser.Cameras.Scene2D.Camera,
   parentMatrix?: Phaser.GameObjects.Components.TransformMatrix,
   renderTargetCtx?: CanvasRenderingContext2D,
-  allowClip?: boolean,
+  isClipAllowed?: boolean,
 ): void {
   const buffer: readonly unknown[] = src.commandBuffer;
   const ctx = renderTargetCtx ?? renderer.currentContext;
@@ -372,18 +372,18 @@ export function renderGraphicsCanvas(
     return;
   }
   camera.addToRenderList(src);
-  const canFill = allowClip !== true;
+  const canFill = isClipAllowed !== true;
   let gradient: GradientFill | null = null;
   ctx.beginPath();
   for (let index = 0; index < buffer.length; index++) {
     switch (buffer[index]) {
       case COMMANDS.ARC: {
         const command = 'ARC';
-        const { xPx, yPx } = readPoint(buffer, index, command);
-        const radiusPx = readNumber(buffer, index, command, 'radiusPx');
-        const startAngle = readNumber(buffer, index, command, 'startAngle');
-        const endAngle = readNumber(buffer, index, command, 'endAngle');
-        const anticlockwise = readArgument(buffer, index, command, 'anticlockwise');
+        const { xPx, yPx } = readBufferPoint(buffer, index, command);
+        const radiusPx = readBufferNumber(buffer, index, command, 'radiusPx');
+        const startAngle = readBufferNumber(buffer, index, command, 'startAngle');
+        const endAngle = readBufferNumber(buffer, index, command, 'endAngle');
+        const anticlockwise = readBufferArgument(buffer, index, command, 'anticlockwise');
         // overshoot 는 Canvas 에서 쓰지 않는다.
         ctx.arc(
           xPx,
@@ -398,9 +398,9 @@ export function renderGraphicsCanvas(
       }
       case COMMANDS.LINE_STYLE: {
         const command = 'LINE_STYLE';
-        const lineWidthPx = readNumber(buffer, index, command, 'lineWidthPx');
-        const color = readNumber(buffer, index, command, 'color');
-        const alpha = readNumber(buffer, index, command, 'alpha');
+        const lineWidthPx = readBufferNumber(buffer, index, command, 'lineWidthPx');
+        const color = readBufferNumber(buffer, index, command, 'color');
+        const alpha = readBufferNumber(buffer, index, command, 'alpha');
         ctx.strokeStyle = rgba(color, alpha);
         ctx.lineWidth = lineWidthPx;
         index += ARGUMENTS.LINE_STYLE.length;
@@ -408,8 +408,8 @@ export function renderGraphicsCanvas(
       }
       case COMMANDS.FILL_STYLE: {
         const command = 'FILL_STYLE';
-        const color = readNumber(buffer, index, command, 'color');
-        const alpha = readNumber(buffer, index, command, 'alpha');
+        const color = readBufferNumber(buffer, index, command, 'color');
+        const alpha = readBufferNumber(buffer, index, command, 'alpha');
         gradient = null;
         ctx.fillStyle = rgba(color, alpha);
         index += ARGUMENTS.FILL_STYLE.length;
@@ -417,11 +417,11 @@ export function renderGraphicsCanvas(
       }
       case COMMANDS.GRADIENT_FILL_STYLE:
         if (canFill && fillGradientSlice(ctx, buffer, index)) {
-          gradient = readGradient(buffer, index + SLICE.secondStyle);
+          gradient = readBufferGradient(buffer, index + SLICE.secondStyle);
           index += SLICE.length - 1;
           break;
         }
-        gradient = readGradient(buffer, index);
+        gradient = readBufferGradient(buffer, index);
         index += ARGUMENTS.GRADIENT_FILL_STYLE.length;
         break;
       case COMMANDS.GRADIENT_LINE_STYLE:
@@ -447,7 +447,7 @@ export function renderGraphicsCanvas(
         }
         break;
       case COMMANDS.FILL_RECT: {
-        const rect = readRect(buffer, index);
+        const rect = readBufferRect(buffer, index);
         if (!canFill) {
           ctx.rect(rect.xPx, rect.yPx, rect.widthPx, rect.heightPx);
         } else if (gradient === null) {
@@ -459,7 +459,7 @@ export function renderGraphicsCanvas(
         break;
       }
       case COMMANDS.FILL_TRIANGLE: {
-        const triangle = readTriangle(buffer, index, 'FILL_TRIANGLE');
+        const triangle = readBufferTriangle(buffer, index, 'FILL_TRIANGLE');
         if (canFill && gradient !== null) {
           const [p0, p1, p2] = triangle;
           fillGradientTriangle(ctx, gradient.color, [
@@ -486,20 +486,20 @@ export function renderGraphicsCanvas(
         break;
       }
       case COMMANDS.STROKE_TRIANGLE:
-        traceTriangle(ctx, readTriangle(buffer, index, 'STROKE_TRIANGLE'));
+        traceTriangle(ctx, readBufferTriangle(buffer, index, 'STROKE_TRIANGLE'));
         if (canFill) {
           ctx.stroke();
         }
         index += ARGUMENTS.STROKE_TRIANGLE.length;
         break;
       case COMMANDS.LINE_TO: {
-        const { xPx, yPx } = readPoint(buffer, index, 'LINE_TO');
+        const { xPx, yPx } = readBufferPoint(buffer, index, 'LINE_TO');
         ctx.lineTo(xPx, yPx);
         index += ARGUMENTS.LINE_TO.length;
         break;
       }
       case COMMANDS.MOVE_TO: {
-        const { xPx, yPx } = readPoint(buffer, index, 'MOVE_TO');
+        const { xPx, yPx } = readBufferPoint(buffer, index, 'MOVE_TO');
         ctx.moveTo(xPx, yPx);
         index += ARGUMENTS.MOVE_TO.length;
         break;
@@ -511,17 +511,20 @@ export function renderGraphicsCanvas(
         ctx.restore();
         break;
       case COMMANDS.TRANSLATE: {
-        const { xPx, yPx } = readPoint(buffer, index, 'TRANSLATE');
+        const { xPx, yPx } = readBufferPoint(buffer, index, 'TRANSLATE');
         ctx.translate(xPx, yPx);
         index += ARGUMENTS.TRANSLATE.length;
         break;
       }
       case COMMANDS.SCALE:
-        ctx.scale(readNumber(buffer, index, 'SCALE', 'x'), readNumber(buffer, index, 'SCALE', 'y'));
+        ctx.scale(
+          readBufferNumber(buffer, index, 'SCALE', 'x'),
+          readBufferNumber(buffer, index, 'SCALE', 'y'),
+        );
         index += ARGUMENTS.SCALE.length;
         break;
       case COMMANDS.ROTATE:
-        ctx.rotate(readNumber(buffer, index, 'ROTATE', 'radians'));
+        ctx.rotate(readBufferNumber(buffer, index, 'ROTATE', 'radians'));
         index += ARGUMENTS.ROTATE.length;
         break;
     }

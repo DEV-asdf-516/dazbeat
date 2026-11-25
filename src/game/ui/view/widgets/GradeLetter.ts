@@ -163,7 +163,7 @@ export class GradeLetter {
         }
       },
     });
-    this.glints.forEach(({ sprite, delayMs }) => {
+    for (const { sprite, delayMs } of this.glints) {
       this.scene.tweens.add({
         targets: sprite,
         alpha: {
@@ -181,7 +181,7 @@ export class GradeLetter {
         repeatDelay: SWEEP_MS + REST_MS - GLINT_TWINKLE_MS * 2,
         ease: 'Sine.easeInOut',
       });
-    });
+    }
   }
 
   /** null 이면 숨긴다. 글자 크기가 바뀌므로 그린 뒤에 place 를 부른다. */
@@ -236,12 +236,12 @@ export class GradeLetter {
       centerXPx: glyphXPx,
       centerYPx: glyphYPx,
     } = getGlyphAxis(this.sheen, 0);
-    this.glints.forEach(({ sprite, offsetX, offsetY }) => {
+    for (const { sprite, offsetX, offsetY } of this.glints) {
       sprite.setPosition(
         leftXPx + glyphXPx + widthPx * offsetX,
         topYPx + glyphYPx + heightPx * offsetY,
       );
-    });
+    }
   }
 
   getBounds(): Phaser.Geom.Rectangle {

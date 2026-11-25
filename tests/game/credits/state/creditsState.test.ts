@@ -188,11 +188,19 @@ describe('getChangedRegions', () => {
       'scrollBar',
       'controls',
       'backButton',
+      'contactButton',
+      'privacyButton',
       'controlsEntry',
       'accountButton',
       'controlsClose',
       'controlsHelpCard',
       'controlsHelpButton',
+    ]);
+  });
+
+  it('redraws only the contact button when the pointer moves onto it', () => {
+    expect(getChangedRegions(state, hoverCreditsButton(state, 'contact'))).toEqual([
+      'contactButton',
     ]);
   });
 

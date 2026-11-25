@@ -19,9 +19,7 @@ import {
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
-  getControlsCloseView,
   getControlsHelpButtonView,
-  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
   leaveControlsButton,
@@ -44,9 +42,14 @@ import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 
 export type ResultMenuItem = 'retry' | 'songSelect';
 
-export type ResultButton = ResultMenuItem | ControlsButton | AccountPanelButton | 'noticeClose';
+export type ResultButton =
+  ResultMenuItem | ControlsButton | AccountPanelButton | 'noticeClose' | GuestNoticeButton;
+
+export type GuestNoticeButton = 'guestNoticeLater' | 'guestNoticeSignIn';
 
 export type RankingNotice = 'issueFailed' | 'rejected' | 'unknown';
+
+export type RecordStatus = 'checking' | 'none';
 
 export type ResultHover =
   | { readonly kind: 'difficulty'; readonly difficulty: Difficulty }
@@ -78,6 +81,8 @@ export interface ResultState {
   readonly toasts: ToastQueue;
   readonly controls: ControlsPanel;
   readonly rankingNotice: RankingNotice | null;
+  readonly isGuestNoticeOpen: boolean;
+  readonly recordStatus: RecordStatus;
   readonly isRetryChartFixed: boolean;
 }
 
@@ -87,6 +92,7 @@ const MAX_VISIBLE_TOASTS = 3;
 export function createResultState(
   retryChart: ChartRef,
   ranking: ResultRanking,
+  isGuestNoticeShown: boolean,
   report: ResultReport = { kind: 'graded' },
 ): ResultState {
   return {
@@ -95,6 +101,9 @@ export function createResultState(
     focus: 'retry',
     controls: 'closed',
     rankingNotice: ranking.kind === 'issueFailed' ? 'issueFailed' : null,
+    // 게스트 기록이 이 브라우저에 처음 저장된 판에서 한 번만 로그인을 권한다.
+    isGuestNoticeOpen: ranking.kind === 'local' && !isGuestNoticeShown,
+    recordStatus: getInitialRecordStatus(ranking),
     isRetryChartFixed: report.kind === 'section',
     toasts: {
       shown: [],
@@ -102,6 +111,30 @@ export function createResultState(
       nextId: 0,
     },
   };
+}
+
+function getInitialRecordStatus(ranking: ResultRanking): RecordStatus {
+  switch (ranking.kind) {
+    case 'submitted':
+      return 'checking';
+    case 'local':
+    case 'none':
+    case 'issueFailed':
+      return 'none';
+  }
+}
+
+// 이미 보여 준 알림과 토스트는 다시 띄우지 않으므로 응답을 받은 제출은 none 으로 넘긴다.
+export function getProfileReturnRanking(state: ResultState, ranking: ResultRanking): ResultRanking {
+  switch (ranking.kind) {
+    case 'local':
+      return ranking;
+    case 'submitted':
+      return state.recordStatus === 'checking' ? ranking : { kind: 'none' };
+    case 'none':
+    case 'issueFailed':
+      return { kind: 'none' };
+  }
 }
 
 export function selectRetryDifficulty(state: ResultState, difficulty: Difficulty): ResultState {
@@ -198,12 +231,16 @@ export function isResultFocused(state: ResultState, item: ResultMenuItem): boole
   return state.focus === item;
 }
 
+function isNoticeOpen(state: ResultState): boolean {
+  return state.rankingNotice !== null || state.isGuestNoticeOpen;
+}
+
 // 알림이 떠 있는 동안 뒤 화면의 메뉴·난이도·조작 안내 입력은 받지 않는다.
 export function applyMenuInput(
   state: ResultState,
   transition: (state: ResultState) => ResultState,
 ): ResultState {
-  return state.rankingNotice === null ? transition(state) : state;
+  return isNoticeOpen(state) ? state : transition(state);
 }
 
 // 알림 중에는 Enter·Esc 가 메뉴 키로 넘어가 알림을 닫아야 하므로 조작 안내 키로 소비하지 않는다.
@@ -211,7 +248,7 @@ export function readResultControlsKey(
   state: ResultState,
   event: Pick<KeyboardEvent, 'code' | 'repeat'>,
 ): ControlsKeyAction {
-  return state.rankingNotice === null ? readControlsKey(isControlsPanelOpen(state), event) : 'pass';
+  return isNoticeOpen(state) ? 'pass' : readControlsKey(isControlsPanelOpen(state), event);
 }
 
 export type ResultMenuOutcome =
@@ -229,6 +266,17 @@ export function pressResultMenu(state: ResultState, item: ResultMenuItem): Resul
         kind: 'stay',
         state: closeRankingNotice(state),
       };
+}
+
+// 로그인 권유가 떠 있으면 Enter 는 로그인, Esc 는 나중에로 받는다.
+export function readGuestNoticeKey(
+  state: ResultState,
+  key: 'confirm' | 'back',
+): GuestNoticeButton | null {
+  if (!state.isGuestNoticeOpen) {
+    return null;
+  }
+  return key === 'confirm' ? 'guestNoticeSignIn' : 'guestNoticeLater';
 }
 
 function withHover(state: ResultState, hover: ResultState['hover']): ResultState {
@@ -264,12 +312,12 @@ export function getRankingNoticeCloseView(state: ResultState): ButtonView {
   return getButtonView(state.hover, 'noticeClose', true, false);
 }
 
-export function getResultControlsCloseView(state: ResultState): ButtonView {
-  return getControlsCloseView(state.hover);
-}
-
-export function isResultControlsEntryHovered(state: ResultState): boolean {
-  return isControlsEntryHovered(state.hover);
+// 로그인 버튼에 포커스를 두어 Enter 가 로그인, Esc 가 나중에로 이어진다.
+export function getGuestNoticeButtonView(
+  state: ResultState,
+  button: GuestNoticeButton,
+): ButtonView {
+  return getButtonView(state.hover, button, true, button === 'guestNoticeSignIn');
 }
 
 export function getResultExitRequest(
@@ -279,6 +327,7 @@ export function getResultExitRequest(
   played: ChartRef,
 ): SceneRequest {
   const { retryChart } = state;
+  // eslint-disable-next-line dazbeat/two-way-switch -- 결과 메뉴 항목은 늘어난다.
   switch (item) {
     case 'retry':
       return {
@@ -305,6 +354,7 @@ export function queueToasts(state: ResultState, contents: readonly ToastContent[
 
 /** 이번 판으로 최고 기록이 바뀌어 TOP 안에 들었을 때만 순위를 알린다. */
 function getReviewToast(review: PlayReview): ToastContent | null {
+  // eslint-disable-next-line dazbeat/two-way-switch -- 심사 결과는 거절 등으로 늘어난다.
   switch (review.kind) {
     case 'pending':
       return { kind: 'rankingPending' };
@@ -324,6 +374,10 @@ export function applyRankingSubmission(
   state: ResultState,
   submission: RankingSubmission,
 ): ResultState {
+  const answered: ResultState = {
+    ...state,
+    recordStatus: 'none',
+  };
   switch (submission.kind) {
     case 'saved': {
       const reviewToast = getReviewToast(submission.play.review);
@@ -334,15 +388,24 @@ export function applyRankingSubmission(
           achievement,
         })),
       ];
-      return contents.length === 0 ? state : queueToasts(state, contents);
+      return contents.length === 0 ? answered : queueToasts(answered, contents);
     }
     case 'rejected':
     case 'unknown':
       return {
-        ...withControlsOpen(state, false),
+        ...withControlsOpen(answered, false),
         rankingNotice: submission.kind,
       };
   }
+}
+
+export function closeGuestNotice(state: ResultState): ResultState {
+  return {
+    ...state,
+    isGuestNoticeOpen: false,
+    // Phaser 는 숨긴 버튼에 POINTER_OUT 을 보내지 않으므로 닫을 때 그 hover 를 푼다.
+    hover: unhoverButton(unhoverButton(state.hover, 'guestNoticeLater'), 'guestNoticeSignIn'),
+  };
 }
 
 export function closeRankingNotice(state: ResultState): ResultState {
@@ -456,6 +519,9 @@ export type ResultRegion =
   | 'controlsHelpButton'
   | 'rankingNotice'
   | 'rankingNoticeButtons'
+  | 'guestNotice'
+  | 'guestNoticeButtons'
+  | 'recordStatus'
   | 'menuFocusMotion';
 
 type ResultReader = StateReader<ResultState>;
@@ -494,6 +560,12 @@ const REGION_SOURCES: Readonly<
   // 열림이 바뀔 때만 골라져야 알림 창 페이드가 열고 닫을 때만 돈다.
   rankingNotice: [readRankingNotice],
   rankingNoticeButtons: [readNoticeCloseHovered, readNoticeClosePressed],
+  guestNotice: [(state) => state.isGuestNoticeOpen],
+  guestNoticeButtons: [
+    (state) => getGuestNoticeButtonView(state, 'guestNoticeLater').appearance,
+    (state) => getGuestNoticeButtonView(state, 'guestNoticeSignIn').appearance,
+  ],
+  recordStatus: [(state) => state.recordStatus],
 };
 
 export function getChangedRegions(

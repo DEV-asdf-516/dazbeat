@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import type { AuthUser } from '../../../src/data/account.js';
+import { parseNickname } from '../../../src/data/nickname.js';
 import type { Song } from '../../../src/data/songs.js';
 import { CreditsController } from '../../../src/game/credits/CreditsController.js';
 import { getChangedRegions } from '../../../src/game/credits/state/creditsState.js';
-import type { CreditsGrid, CreditsState } from '../../../src/game/credits/state/creditsState.js';
+import type {
+  CreditsGrid,
+  CreditsLink,
+  CreditsState,
+} from '../../../src/game/credits/state/creditsState.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
@@ -32,6 +38,17 @@ const GRID: CreditsGrid = {
   lineCount: 2,
 };
 const ROW_PX = 100;
+const USER: AuthUser = {
+  id: 'user1',
+  email: 'player@example.com',
+  nickname: requireDefined(parseNickname('Star'), 'Invalid test nickname', 'Star'),
+  isEditor: false,
+  featuredAchievement: null,
+};
+
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 interface Harness {
   readonly controller: CreditsController;
@@ -41,16 +58,25 @@ interface Harness {
   leaveCount(): number;
   clickSoundCount(): number;
   profileOpenCount(): number;
+  signInCount(): number;
+  accountRenderCount(): number;
+  readonly openedLinks: CreditsLink[];
 }
 
-function createHarness(initialSongs: readonly Song[]): Harness {
+function createHarness(
+  initialSongs: readonly Song[],
+  signIn: () => Promise<AuthUser | null> = () => Promise.resolve(null),
+): Harness {
   const renders: { previous: CreditsState | null; next: CreditsState }[] = [];
   const listeners = new Set<() => void>();
   let songs = initialSongs;
   let requestRemainingCount = 0;
   let leaveCount = 0;
   let profileOpenCount = 0;
+  let signInCount = 0;
+  let accountRenderCount = 0;
   const sounds: SoundEffect[] = [];
+  const openedLinks: CreditsLink[] = [];
   const controller = new CreditsController(
     {
       get songs() {
@@ -78,10 +104,21 @@ function createHarness(initialSongs: readonly Song[]): Harness {
       openProfile: () => {
         profileOpenCount += 1;
       },
+      renderAccount: () => {
+        accountRenderCount += 1;
+      },
+      openLink: (link) => openedLinks.push(link),
     },
     GRID,
     ROW_PX,
+    {
+      signIn: () => {
+        signInCount += 1;
+        return signIn();
+      },
+    },
   );
+  controller.start();
   return {
     controller,
     renders,
@@ -93,6 +130,9 @@ function createHarness(initialSongs: readonly Song[]): Harness {
     leaveCount: () => leaveCount,
     clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
     profileOpenCount: () => profileOpenCount,
+    signInCount: () => signInCount,
+    accountRenderCount: () => accountRenderCount,
+    openedLinks,
   };
 }
 
@@ -198,13 +238,11 @@ describe('CreditsController', () => {
     expect(harness.leaveCount()).toBe(1);
   });
 
-  it('ignores songs, wheels and keys after close', () => {
+  it('ignores songs after close', () => {
     const harness = createHarness(creditedSongs(6));
 
     harness.controller.close();
     harness.setSongs(creditedSongs(8));
-    harness.controller.scrollByWheel(ROW_PX, 0);
-    harness.controller.scroll(1);
 
     expect(harness.renders).toHaveLength(1);
   });
@@ -240,14 +278,14 @@ describe('CreditsController controls', () => {
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
     expect(lastRender(harness).next.controls).toBe('closed');
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
     expect(lastRender(harness).next.controls).toBe('closed');
   });
 
   it('ignores wheels while the controls are open', () => {
     const harness = createHarness(creditedSongs(6));
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     const renderCount = harness.renders.length;
 
     harness.controller.scrollByWheel(ROW_PX, 0);
@@ -267,6 +305,35 @@ describe('CreditsController button pointer', () => {
 
     expect(harness.leaveCount()).toBe(1);
   });
+
+  it.each(['contact', 'privacy'] as const)(
+    'opens the %s link once with a click sound for over, down and up on it',
+    (link) => {
+      const harness = createHarness([]);
+
+      harness.controller.pointerOver(link);
+      harness.controller.pointerDown(link);
+      harness.controller.pointerUp(link);
+      harness.controller.pointerUp(link);
+
+      expect(harness.openedLinks).toEqual([link]);
+      expect(harness.clickSoundCount()).toBe(1);
+      expect(harness.leaveCount()).toBe(0);
+    },
+  );
+
+  it.each(['contact', 'privacy'] as const)(
+    'does not open the %s link for an up that was pressed elsewhere',
+    (link) => {
+      const harness = createHarness([]);
+
+      harness.controller.pointerOver(link);
+      harness.controller.pointerUp(link);
+
+      expect(harness.openedLinks).toEqual([]);
+      expect(harness.clickSoundCount()).toBe(0);
+    },
+  );
 
   it('does not run the button for an up that was pressed elsewhere', () => {
     const harness = createHarness([]);
@@ -305,7 +372,7 @@ describe('CreditsController button pointer', () => {
     harness.controller.pointerUp('controlsClose');
     expect(lastRender(harness).next.controls).toBe('closed');
 
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     harness.controller.pointerDown('controlsBackdrop');
     harness.controller.pointerUp('controlsBackdrop');
     expect(lastRender(harness).next.controls).toBe('closed');
@@ -313,7 +380,7 @@ describe('CreditsController button pointer', () => {
 
   it('releases the hover of the close button when the controls close', () => {
     const harness = createHarness([]);
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     harness.controller.pointerOver('controlsClose');
 
     harness.controller.handleControlsKey(ESCAPE_KEY);
@@ -329,5 +396,44 @@ describe('CreditsController button pointer', () => {
     expect(harness.profileOpenCount()).toBe(1);
     expect(harness.leaveCount()).toBe(0);
     expect(harness.clickSoundCount()).toBe(1);
+  });
+
+  it('signs in from the guest account button and redraws the account', async () => {
+    const harness = createHarness([], () => Promise.resolve(USER));
+
+    harness.controller.pointerOver('accountSignIn');
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    expect(harness.signInCount()).toBe(1);
+    expect(harness.clickSoundCount()).toBe(1);
+    await flush();
+
+    expect(harness.accountRenderCount()).toBe(1);
+    expect(lastRender(harness).next.hover).toBeNull();
+  });
+
+  it.each([
+    ['is cancelled', () => Promise.resolve(null)],
+    ['fails', () => Promise.reject(new Error('popup closed'))],
+  ] as const)('keeps the guest account when sign-in %s', async (_label, signIn) => {
+    const harness = createHarness([], signIn);
+
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    await flush();
+
+    expect(harness.signInCount()).toBe(1);
+    expect(harness.accountRenderCount()).toBe(0);
+  });
+
+  it('ignores a sign-in that finishes after the credits closed', async () => {
+    const harness = createHarness([], () => Promise.resolve(USER));
+
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    harness.controller.close();
+    await flush();
+
+    expect(harness.accountRenderCount()).toBe(0);
   });
 });

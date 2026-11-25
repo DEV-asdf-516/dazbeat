@@ -14,6 +14,16 @@ interface FakeExpression {
 }
 
 const fake = (expression: FakeExpression) => expression as unknown as DbxExpression;
+const mergeParams = (expressions: DbxExpression[]) =>
+  fake({
+    params: expressions.reduce<Record<string, unknown>>(
+      (all, expression) => ({
+        ...all,
+        ...(expression as unknown as FakeExpression).params,
+      }),
+      {},
+    ),
+  });
 
 const runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'> = {
   // 대역 쿼리가 행을 직접 넣으므로 모델 모양은 쓰지 않는다.
@@ -23,7 +33,10 @@ const runtime: Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'> = {
     exp: (_sql, params) => fake({ params }),
     hashExp: (params) => fake({ params }),
     not: (expression) => expression,
+    and: (...expressions) => mergeParams(expressions),
+    or: (...expressions) => mergeParams(expressions),
     in: () => fake({}),
+    between: () => fake({}),
   },
 };
 

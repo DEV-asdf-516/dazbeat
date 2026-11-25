@@ -54,7 +54,8 @@ interface Harness {
   readonly refreshes: Pending<AuthUser | null>[];
   readonly focuses: MainFocus[];
   readonly controlsOpen: boolean[];
-  readonly activated: (MainFocus | 'account')[];
+  readonly activated: MainFocus[];
+  leave(): void;
   readonly hovers: MainState['hover'][];
   readonly states: MainState[];
   focusSoundCount(): number;
@@ -83,7 +84,8 @@ function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {
   const refreshes: Pending<AuthUser | null>[] = [];
   const focuses: MainFocus[] = [];
   const controlsOpen: boolean[] = [];
-  const activated: (MainFocus | 'account')[] = [];
+  const activated: MainFocus[] = [];
+  let isLeaving = false;
   const hovers: MainState['hover'][] = [];
   const states: MainState[] = [];
   const sounds: SoundEffect[] = [];
@@ -119,7 +121,8 @@ function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {
         states.push(next);
       },
       playSound: (sound) => sounds.push(sound),
-      activate: (button) => activated.push(button),
+      activate: (item) => activated.push(item),
+      isLeaving: () => isLeaving,
     },
     {
       takeBootSoftwareRendering: () => notice.isSoftwareRendering ?? false,
@@ -131,8 +134,12 @@ function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {
       browser: notice.browser ?? UNKNOWN_BROWSER,
     },
   );
+  controller.start();
   return {
     controller,
+    leave: () => {
+      isLeaving = true;
+    },
     shown,
     signIns,
     refreshes,
@@ -155,6 +162,11 @@ function signedIn(user: AuthUser): AccountState {
     kind: 'signedIn',
     user,
   };
+}
+
+function clickAccount(harness: Harness): void {
+  harness.controller.pointerDown('account');
+  harness.controller.pointerUp('account');
 }
 
 const GUEST: AccountState = {
@@ -231,15 +243,6 @@ describe('MainController', () => {
       error.mockRestore();
     });
 
-    it('stays signed in when the account action runs while signed in', () => {
-      const harness = createHarness(() => USER);
-
-      harness.controller.activateAccount();
-
-      expect(harness.signOutCount()).toBe(0);
-      expect(harness.shown).toEqual([signedIn(USER)]);
-    });
-
     it('does not draw a late refresh result after closing', async () => {
       const harness = createHarness(() => USER);
       harness.controller.close();
@@ -254,9 +257,9 @@ describe('MainController', () => {
   describe('sign-in flow', () => {
     it('shows the signed-in user after a successful sign-in', async () => {
       const harness = createHarness(() => null);
-      harness.controller.activateAccount();
+      clickAccount(harness);
 
-      expect(harness.shown).toEqual([GUEST, { kind: 'signingIn' }]);
+      expect(harness.shown).toEqual([GUEST, GUEST, { kind: 'signingIn' }]);
 
       requireDefined(harness.signIns[0], 'Missing sign-in', 0).resolve(USER);
       await flush();
@@ -266,18 +269,18 @@ describe('MainController', () => {
 
     it('returns to a guest without a failure notice when the sign-in is cancelled', async () => {
       const harness = createHarness(() => null);
-      harness.controller.activateAccount();
+      clickAccount(harness);
 
       requireDefined(harness.signIns[0], 'Missing sign-in', 0).resolve(null);
       await flush();
 
-      expect(harness.shown).toEqual([GUEST, { kind: 'signingIn' }, GUEST]);
+      expect(harness.shown).toEqual([GUEST, GUEST, { kind: 'signingIn' }, GUEST]);
     });
 
     it('shows a failure notice when the sign-in fails', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       const harness = createHarness(() => null);
-      harness.controller.activateAccount();
+      clickAccount(harness);
 
       requireDefined(harness.signIns[0], 'Missing sign-in', 0).reject(new Error('popup closed'));
       await flush();
@@ -292,7 +295,7 @@ describe('MainController', () => {
     it('shows the rejoin notice when the deleted Google account is rejected', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       const harness = createHarness(() => null);
-      harness.controller.activateAccount();
+      clickAccount(harness);
 
       requireDefined(harness.signIns[0], 'Missing sign-in', 0).reject(
         new AccountRejoinBlockedError(new Error('account_rejoin_blocked')),
@@ -308,21 +311,33 @@ describe('MainController', () => {
 
     it('cancels the sign-in when activated again while signing in', async () => {
       const harness = createHarness(() => null);
-      harness.controller.activateAccount();
-      harness.controller.activateAccount();
+      clickAccount(harness);
+      clickAccount(harness);
 
       expect(harness.cancelSignInCount()).toBe(1);
-      expect(harness.shown).toEqual([GUEST, { kind: 'signingIn' }, GUEST]);
+      expect(harness.shown).toEqual([
+        GUEST,
+        GUEST,
+        { kind: 'signingIn' },
+        { kind: 'signingIn' },
+        GUEST,
+      ]);
 
       requireDefined(harness.signIns[0], 'Missing sign-in', 0).resolve(USER);
       await flush();
 
-      expect(harness.shown).toEqual([GUEST, { kind: 'signingIn' }, GUEST]);
+      expect(harness.shown).toEqual([
+        GUEST,
+        GUEST,
+        { kind: 'signingIn' },
+        { kind: 'signingIn' },
+        GUEST,
+      ]);
     });
 
     it('cancels the sign-in on close and ignores its late result', async () => {
       const harness = createHarness(() => null);
-      harness.controller.activateAccount();
+      clickAccount(harness);
       harness.controller.close();
 
       expect(harness.cancelSignInCount()).toBe(1);
@@ -330,7 +345,7 @@ describe('MainController', () => {
       requireDefined(harness.signIns[0], 'Missing sign-in', 0).resolve(USER);
       await flush();
 
-      expect(harness.shown).toEqual([GUEST, { kind: 'signingIn' }]);
+      expect(harness.shown).toEqual([GUEST, GUEST, { kind: 'signingIn' }]);
     });
   });
 
@@ -456,7 +471,7 @@ describe('MainController controls', () => {
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
     expect(harness.controlsOpen.at(-1)).toBe(false);
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
     expect(harness.controlsOpen.at(-1)).toBe(false);
   });
@@ -475,7 +490,7 @@ describe('MainController controls help', () => {
   it('shows the card on (?) hover, pins it on click and hides it on the next click until the pointer comes back', async () => {
     const harness = createHarness(() => null);
     await flush();
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
 
     harness.controller.pointerOver('controlsHelp');
     expect(isHelpShown(harness)).toBe(true);
@@ -496,15 +511,15 @@ describe('MainController controls help', () => {
   it('drops the pin and the card on close and opens unpinned next time', async () => {
     const harness = createHarness(() => null);
     await flush();
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     harness.controller.pointerOver('controlsHelp');
     clickHelp(harness);
 
-    harness.controller.closeControls();
+    harness.controller.handleControlsKey(ESCAPE_KEY);
 
     expect(harness.states.at(-1)?.controls).toBe('closed');
     expect(isHelpShown(harness)).toBe(false);
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     expect(harness.states.at(-1)?.controls).toBe('open');
     expect(isHelpShown(harness)).toBe(false);
   });
@@ -543,14 +558,33 @@ describe('MainController button pointer', () => {
     expect(harness.activated).toEqual([]);
   });
 
-  it('releases the account press and asks the screen to run the account button', () => {
+  it('releases the account press and starts the sign-in', () => {
     const harness = createHarness(() => null);
 
     harness.controller.pointerOver('account');
     harness.controller.pointerDown('account');
     harness.controller.pointerUp('account');
 
-    expect(harness.activated).toEqual(['account']);
+    expect(harness.signIns).toHaveLength(1);
+    expect(harness.activated).toEqual([]);
+    expect(harness.clickSoundCount()).toBe(1);
+    expect(harness.hovers.at(-1)).toEqual({
+      kind: 'button',
+      button: 'account',
+      isPressed: false,
+    });
+  });
+
+  it('only releases the account press without signing in while leaving', () => {
+    const harness = createHarness(() => null);
+    harness.leave();
+
+    harness.controller.pointerOver('account');
+    harness.controller.pointerDown('account');
+    harness.controller.pointerUp('account');
+
+    expect(harness.signIns).toHaveLength(0);
+    expect(harness.shown.at(-1)).toEqual(GUEST);
     expect(harness.hovers.at(-1)).toEqual({
       kind: 'button',
       button: 'account',

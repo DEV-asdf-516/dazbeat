@@ -6,21 +6,51 @@ import type {
   RankedChartQuery,
 } from '../../../src/data/ranking.js';
 import { requireDefined } from '../../../src/invariant.js';
-import type { DbApp, JsvmRecord, JsvmRuntime } from '../jsvm.js';
+import type { DbApp, JsvmRecord, JsvmRuntime, TransactionalApp } from '../jsvm.js';
 import {
+  findGuestPlayerCountRecord,
   hasOtherRevisionScore,
+  parseGuestPlayerCountRecord,
   readPartitionSize,
-  readPublishedChartRevision,
+  readPublishedChart,
   readScoreChartFields,
   readTopScores,
   readUserRank,
   readUserRankedChartPage,
   readUserTopRanks,
+  saveGuestPlayerCount,
 } from './repository.js';
+import type { ScorePartition } from './repository.js';
 
 type QueryRuntime = Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'>;
 
 const MY_RANKINGS_PAGE_SIZE = 20;
+
+/**
+ * 서버 기록이 없는 플레이어 하나를 지금 revision 의 순위표 플레이어 수에 더한다. 로그인 없이 부르는
+ * 라우트라 공개 곡 채보의 지금 revision 만 세고, 다른 경우도 알리지 않는다.
+ */
+export function recordGuestPlayer(
+  runtime: Pick<JsvmRuntime, 'Record' | 'DynamicModel' | 'arrayOf' | 'dbx'>,
+  app: TransactionalApp,
+  partition: ScorePartition,
+): void {
+  app.runInTransaction((tx) => {
+    if (readPublishedChart(runtime, tx, partition.chart)?.revision !== partition.chartRevision) {
+      return;
+    }
+    const record = findGuestPlayerCountRecord(tx, partition);
+    saveGuestPlayerCount(
+      runtime,
+      tx,
+      {
+        partition,
+        record,
+      },
+      record === undefined ? 1 : parseGuestPlayerCountRecord(record) + 1,
+    );
+  });
+}
 
 export type LeaderboardLoad =
   { readonly kind: 'loaded'; readonly leaderboard: Leaderboard } | { readonly kind: 'notFound' };
@@ -31,10 +61,11 @@ export function loadLeaderboard(
   chartId: string,
   userId: string | null,
 ): LeaderboardLoad {
-  const chartRevision = readPublishedChartRevision(runtime, app, chartId);
-  if (chartRevision === undefined) {
+  const chart = readPublishedChart(runtime, app, chartId);
+  if (chart === undefined) {
     return { kind: 'notFound' };
   }
+  const { revision: chartRevision, guestPlayers } = chart;
   const partition = {
     chart: chartId,
     chartRevision,
@@ -47,7 +78,7 @@ export function loadLeaderboard(
     accuracy: row.accuracy,
     isMe: row.user === userId,
   }));
-  const totalPlayers = readPartitionSize(runtime, app, partition);
+  const totalPlayers = readPartitionSize(runtime, app, partition) + guestPlayers;
   const myRank = userId === null ? undefined : readUserRank(runtime, app, partition, userId);
   const me =
     myRank === undefined

@@ -18,10 +18,18 @@ import {
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import { readMenuAction } from '../../ui/state/menuAction.js';
-import { isDraftDirty, restoreNotes } from './chartDraft.js';
+import {
+  clearNotes,
+  createEmptyDraft,
+  deleteSelectedNote,
+  isDraftDirty,
+  restoreNotes,
+  setDraftLevel,
+} from './chartDraft.js';
 import type { ChartDraft } from './chartDraft.js';
 import { cancelGesture, NO_GESTURE } from './chartGesture.js';
 import type { EditTool, PointerGesture } from './chartGesture.js';
+import { createPlayhead, pausePlayback, seekPlayback } from './chartPlayback.js';
 import type { Playhead, Transport } from './chartPlayback.js';
 
 export interface Selection {
@@ -133,11 +141,30 @@ export type EditorStatus =
 
 export type NavigationDecision =
   | { readonly kind: 'ignore' }
-  | { readonly kind: 'cancelPending' }
+  | { readonly kind: 'cancelPending'; readonly session: EditorSession }
   | { readonly kind: 'proceed' }
   | { readonly kind: 'settle'; readonly session: EditorSession }
   | { readonly kind: 'settleAndProceed'; readonly session: EditorSession }
   | { readonly kind: 'confirm'; readonly session: EditorSession };
+
+/** 내비게이션 전이 뒤 Controller 가 이어서 할 일. */
+export type NavigationFollow =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'leave'; readonly songId: string }
+  | {
+      readonly kind: 'loadChart';
+      readonly chart: ChartRef;
+      readonly loading: Extract<EditPhase, { readonly kind: 'loading' }>;
+      /** 있으면 그 위치에서 이어 편집하고, null 이면 채보를 읽은 뒤 첫 노트 앞으로 간다. */
+      readonly keptTimeMs: number | null;
+    };
+
+export interface NavigationStep {
+  readonly state: ChartEditorState;
+  readonly follow: NavigationFollow;
+}
+
+const NO_FOLLOW: NavigationFollow = { kind: 'none' };
 
 export interface EditorDecorations {
   readonly isDividerGlintVisible: boolean;
@@ -287,13 +314,14 @@ export function settleGesture(session: EditorSession): EditorSession {
   );
 }
 
-export function decideNavigation(
-  state: ChartEditorState,
-  navigation: Navigation,
-): NavigationDecision {
+function decideNavigation(state: ChartEditorState, navigation: Navigation): NavigationDecision {
   const { phase } = state;
+  // 확인 팝업이 열린 동안 닿는 이동 요청은 뒤로(leave)뿐이고, 다시 누르면 팝업을 닫는다.
   if (phase.kind === 'confirming') {
-    return { kind: navigation.kind === 'leave' ? 'cancelPending' : 'ignore' };
+    return {
+      kind: 'cancelPending',
+      session: phase.session,
+    };
   }
   const isCurrent = isSelected(getSelection(state), navigation);
   if (phase.kind !== 'editing') {
@@ -314,6 +342,232 @@ export function decideNavigation(
     : {
         kind: 'settleAndProceed',
         session,
+      };
+}
+
+/** 확인 팝업을 띄우기 전에 진행 중인 drag 를 거두므로, 취소 뒤에 만들다 만 Hold 가 남지 않는다. */
+export function requestNavigation(state: ChartEditorState, navigation: Navigation): NavigationStep {
+  const decision = decideNavigation(state, navigation);
+  switch (decision.kind) {
+    case 'ignore':
+      return {
+        state,
+        follow: NO_FOLLOW,
+      };
+    case 'cancelPending':
+      return {
+        state: withEditing(state, decision.session),
+        follow: NO_FOLLOW,
+      };
+    case 'proceed':
+      return proceed(state, navigation);
+    case 'settle':
+      return {
+        state: withSession(state, decision.session),
+        follow: NO_FOLLOW,
+      };
+    case 'settleAndProceed':
+      return proceed(withSession(state, decision.session), navigation);
+    case 'confirm':
+      return {
+        state: withPending(state, decision.session, navigation),
+        follow: NO_FOLLOW,
+      };
+  }
+}
+
+export function acceptPending(state: ChartEditorState): NavigationStep {
+  const { phase } = state;
+  if (phase.kind !== 'confirming') {
+    return {
+      state,
+      follow: NO_FOLLOW,
+    };
+  }
+  const { session, pending } = phase;
+  switch (pending.kind) {
+    case 'clearNotes':
+      return {
+        state: withEditing(
+          state,
+          recordEdit(withDraft(session, clearNotes(session.draft)), session.draft),
+        ),
+        follow: NO_FOLLOW,
+      };
+    case 'select':
+    case 'leave':
+      return proceed(withEditing(state, session), pending);
+    case 'saveFailed':
+    case 'saveConflict':
+    case 'invalidChart':
+    case 'testPlayUnsaved':
+    case 'testPlayNoChart':
+      return {
+        state: withEditing(state, session),
+        follow: NO_FOLLOW,
+      };
+  }
+}
+
+function proceed(state: ChartEditorState, navigation: Navigation): NavigationStep {
+  const { song } = getSelection(state);
+  if (navigation.kind === 'leave') {
+    return {
+      state,
+      follow: {
+        kind: 'leave',
+        songId: song.id,
+      },
+    };
+  }
+  // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지하고, 보던 위치에서 이어 편집한다.
+  const isSameSong = song.id === navigation.song.id;
+  return openSelection(
+    isSameSong
+      ? state
+      : {
+          ...state,
+          player: { kind: 'loading' },
+        },
+    {
+      song: navigation.song,
+      laneCount: navigation.laneCount,
+      difficulty: navigation.difficulty,
+    },
+    isSameSong ? state.playhead.currentTimeMs : null,
+  );
+}
+
+export function openSelection(
+  state: ChartEditorState,
+  selection: Selection,
+  keptTimeMs: number | null,
+): NavigationStep {
+  const { song, laneCount, difficulty } = selection;
+  const playhead = createPlayhead(keptTimeMs ?? song.gameStartMs);
+  // 에디터는 채보가 없는 레인 수·난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
+  const listed = song.charts[laneCount]?.[difficulty];
+  if (listed === undefined) {
+    return {
+      state: {
+        ...state,
+        phase: startEditing(createEmptyDraft(song, laneCount, difficulty)),
+        playhead,
+      },
+      follow: NO_FOLLOW,
+    };
+  }
+  const loading = {
+    kind: 'loading',
+    selection,
+  } as const;
+  return {
+    state: {
+      ...state,
+      phase: loading,
+      playhead,
+    },
+    follow: {
+      kind: 'loadChart',
+      chart: {
+        song,
+        laneCount,
+        difficulty,
+        chartId: listed.id,
+        level: listed.level,
+      },
+      loading,
+      keptTimeMs,
+    },
+  };
+}
+
+export function startEditing(draft: ChartDraft): EditPhase {
+  return {
+    kind: 'editing',
+    session: {
+      id: {},
+      draft,
+      gesture: NO_GESTURE,
+      saveProgress: { kind: 'idle' },
+      undoStack: [],
+    },
+  };
+}
+
+function withEditing(state: ChartEditorState, session: EditorSession): ChartEditorState {
+  return {
+    ...state,
+    phase: {
+      kind: 'editing',
+      session,
+    },
+  };
+}
+
+/** 확인 팝업이 떠 있는 동안 끝난 저장도 세션에 반영하되 팝업은 그대로 둔다. */
+export function withSession(state: ChartEditorState, session: EditorSession): ChartEditorState {
+  const { phase } = state;
+  if (phase.kind !== 'editing' && phase.kind !== 'confirming') {
+    throw new Error(`Editor session cannot change in phase: ${phase.kind}`);
+  }
+  if (phase.session === session) {
+    return state;
+  }
+  return {
+    ...state,
+    phase: {
+      ...phase,
+      session,
+    },
+  };
+}
+
+export function withPending(
+  state: ChartEditorState,
+  session: EditorSession,
+  pending: PendingAction,
+): ChartEditorState {
+  return {
+    ...state,
+    phase: {
+      kind: 'confirming',
+      session,
+      pending,
+    },
+    playhead: pausePlayback(state.playhead),
+  };
+}
+
+/** 레벨 변경은 Ctrl+Z 되돌리기 기록에 넣지 않는다. 되돌리기는 노트 편집만 되돌린다. */
+export function withLevel(state: ChartEditorState, level: ChartLevel): ChartEditorState {
+  const session = getEditableSession(state);
+  return session === null
+    ? state
+    : withSession(state, withDraft(session, setDraftLevel(session.draft, level)));
+}
+
+export function removeSelectedNote(state: ChartEditorState): ChartEditorState {
+  const session = getEditableSession(state);
+  return session === null
+    ? state
+    : withSession(
+        state,
+        recordEdit(withDraft(session, deleteSelectedNote(session.draft)), session.draft),
+      );
+}
+
+export function seekTo(state: ChartEditorState, targetMs: number): ChartEditorState {
+  const selection = getActiveSelection(state);
+  if (selection === null) {
+    return state;
+  }
+  const playhead = seekPlayback(state.playhead, selection.song, targetMs);
+  return playhead === state.playhead
+    ? state
+    : {
+        ...state,
+        playhead,
       };
 }
 
@@ -381,7 +635,8 @@ export function canDeleteSelected(state: ChartEditorState): boolean {
 }
 
 export function canClearNotes(state: ChartEditorState): boolean {
-  return getNotes(state).length > 0;
+  const session = getSession(state);
+  return session !== null && session.draft.notes.length > 0;
 }
 
 export function canTestPlay(state: ChartEditorState): boolean {

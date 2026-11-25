@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import { getBrushRectTexture } from '../textures/brushRect.js';
 import type { AchievementCatalog } from '../../../../data/achievements.js';
+import { GOOGLE_SIGN_IN_LABEL } from '../../state/accountIdentity.js';
 import type { AccountIdentity, AccountPanelButton } from '../../state/accountIdentity.js';
 import type { ButtonAppearance, ButtonView } from '../../state/buttonPointer.js';
 import { pointButton } from '../input/hoverTarget.js';
@@ -58,6 +59,11 @@ const UNDERLINE_LOOK = {
   headAlpha: 1,
 } as const;
 const CARD_ICON_SIZE_PX = 32;
+export const GOOGLE_ICON_IMAGE = {
+  key: 'ui:google-g',
+  url: '/assets/ui/google-g.svg',
+} as const;
+export const GOOGLE_ICON_SIZE_PX = 48;
 const CARD_ICON_GAP_PX = 20;
 const CARD_DIVIDER_HEIGHT_PX = 36;
 const CARD_NAME_EMAIL_GAP_PX = 2;
@@ -182,7 +188,7 @@ class AccountIdentityLine {
 export class AccountCard {
   private readonly line: AccountIdentityLine;
   private readonly divider: Phaser.GameObjects.Image;
-  private readonly signOutButton: Button;
+  readonly signOutButton: Button;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -207,15 +213,15 @@ export class AccountCard {
     }
     divider.setVisible(true);
     signOutButton
-      .setIcon(getSignOutIconTexture(this.scene, CARD_ICON_SIZE_PX), CARD_ICON_SIZE_PX)
+      .setContent({
+        kind: 'icon',
+        textureKey: getSignOutIconTexture(this.scene, CARD_ICON_SIZE_PX),
+        sizePx: CARD_ICON_SIZE_PX,
+      })
       .alignX(ACCOUNT_BUTTON_RIGHT_X_PX, 1)
       .setVisible(true);
     signOutButton.setY(IDENTITY_CENTER_Y_PX - signOutButton.height / 2);
     line.render(identity, IDENTITY_RIGHT_X_PX - CARD_ICON_SIZE_PX - CARD_ICON_GAP_PX * 2);
-  }
-
-  renderButton(view: ButtonView): void {
-    this.signOutButton.render(view);
   }
 }
 
@@ -248,7 +254,19 @@ export class AccountNameplate {
     }
     const leftXPx = line.render(identity, IDENTITY_RIGHT_X_PX);
     const widthPx = IDENTITY_RIGHT_X_PX - leftXPx;
-    button.setFixedSize(widthPx, IDENTITY_EMBLEM_SIZE_PX).setX(leftXPx).setVisible(true);
+    button
+      .setContent(
+        {
+          kind: 'label',
+          label: '',
+        },
+        {
+          widthPx,
+          heightPx: IDENTITY_EMBLEM_SIZE_PX,
+        },
+      )
+      .setX(leftXPx)
+      .setVisible(true);
     underline
       .setPosition(UNDERLINE_INSET_PX, IDENTITY_EMBLEM_SIZE_PX + UNDERLINE_GAP_PX)
       .setDisplaySize(widthPx + UNDERLINE_OVERHANG_PX - UNDERLINE_INSET_PX, underline.height);
@@ -260,9 +278,49 @@ export class AccountNameplate {
   }
 }
 
+/** 로그인하면 이름표를, 로그인 전에는 같은 자리에 Google 로그인 버튼을 둔다. */
+export class AccountCorner {
+  readonly nameplate: AccountNameplate;
+  readonly signInButton: Button;
+
+  constructor(
+    private readonly scene: Phaser.Scene,
+    catalog: AchievementCatalog,
+    pointer: ButtonPointer<AccountPanelButton>,
+  ) {
+    this.nameplate = new AccountNameplate(scene, catalog, pointButton(pointer, 'accountProfile'));
+    this.signInButton = addAccountActionButton(scene, pointButton(pointer, 'accountSignIn'));
+  }
+
+  renderSignIn(identity: AccountIdentity | null): void {
+    const { signInButton } = this;
+    if (identity !== null) {
+      signInButton.setVisible(false);
+      return;
+    }
+    // 아이콘은 메인 화면이 불러오며, 불러오지 못했으면 메인과 같이 글자로 대신한다.
+    if (this.scene.textures.exists(GOOGLE_ICON_IMAGE.key)) {
+      signInButton.setContent({
+        kind: 'icon',
+        textureKey: GOOGLE_ICON_IMAGE.key,
+        sizePx: GOOGLE_ICON_SIZE_PX,
+      });
+    } else {
+      signInButton.setContent({
+        kind: 'label',
+        label: GOOGLE_SIGN_IN_LABEL,
+      });
+    }
+    signInButton
+      .alignX(ACCOUNT_BUTTON_RIGHT_X_PX, 1)
+      .setY(IDENTITY_CENTER_Y_PX - signInButton.height / 2)
+      .setVisible(true);
+  }
+}
+
 export type AccountPanelOptions =
   | {
-      readonly kind: 'nameplate';
+      readonly kind: 'corner';
       readonly catalog: AchievementCatalog;
       readonly pointer: ButtonPointer<AccountPanelButton>;
     }
@@ -271,23 +329,3 @@ export type AccountPanelOptions =
       readonly catalog: AchievementCatalog;
       readonly pointer: ButtonPointer<'accountSignOut'>;
     };
-
-export function addAccountPanel(
-  scene: Phaser.Scene,
-  options: AccountPanelOptions,
-): AccountNameplate | AccountCard {
-  switch (options.kind) {
-    case 'nameplate':
-      return new AccountNameplate(
-        scene,
-        options.catalog,
-        pointButton(options.pointer, 'accountProfile'),
-      );
-    case 'card':
-      return new AccountCard(
-        scene,
-        options.catalog,
-        pointButton(options.pointer, 'accountSignOut'),
-      );
-  }
-}

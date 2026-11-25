@@ -8,8 +8,8 @@ import type {
   RankedChartSort,
 } from '../../../src/data/ranking.js';
 import { DIFFICULTIES, ZODIACS } from '../../../src/data/songs.js';
-import { CHARTS, SCORES, SONGS, USERS } from '../../../src/pbCollections.js';
-import { asc, desc } from '../../../src/pbQuery.js';
+import { CHARTS, GUEST_PLAYER_COUNTS, SCORES, SONGS, USERS } from '../../../src/pbCollections.js';
+import { asc, desc, where } from '../../../src/pbQuery.js';
 import type { FilterValue } from '../../../src/pbQuery.js';
 import {
   aliasColumn,
@@ -24,7 +24,7 @@ import {
 import { LANE_COUNTS } from '../../../src/rhythm/lanes.js';
 import { isShallowEqual } from '../../../src/shallowEqual.js';
 import { parseOneOf, selectRow, selectRows } from '../jsvm.js';
-import type { DbApp, JsvmRecord, JsvmRuntime, RowOf, SelectQuery } from '../jsvm.js';
+import type { DbApp, JsvmApp, JsvmRecord, JsvmRuntime, RowOf, SelectQuery } from '../jsvm.js';
 
 type QueryRuntime = Pick<JsvmRuntime, 'DynamicModel' | 'arrayOf' | 'dbx'>;
 
@@ -110,20 +110,33 @@ export function readUserRank(
       };
 }
 
-export function readPublishedChartRevision(
+export function readPublishedChart(
   runtime: QueryRuntime,
   app: DbApp,
   chartId: string,
-): string | undefined {
+): { readonly revision: string; readonly guestPlayers: number } | undefined {
   const { dbx } = runtime;
   const [chart] = selectRows(
     runtime,
-    { revision: 'text' },
+    {
+      revision: 'text',
+      guestPlayers: 'int',
+    },
     app
       .db()
-      .select(column(CHARTS, 'revision'))
+      .select(
+        column(CHARTS, 'revision'),
+        `COALESCE(${column(GUEST_PLAYER_COUNTS, 'playerCount')}, 0) AS guestPlayers`,
+      )
       .from(CHARTS.name)
       .innerJoin(SONGS.name, dbx.exp(joinOn(SONGS, 'id', CHARTS, 'song')))
+      .leftJoin(
+        GUEST_PLAYER_COUNTS.name,
+        dbx.and(
+          dbx.exp(joinOn(GUEST_PLAYER_COUNTS, 'chart', CHARTS, 'id')),
+          dbx.exp(joinOn(GUEST_PLAYER_COUNTS, 'chartRevision', CHARTS, 'revision')),
+        ),
+      )
       .where(
         dbx.hashExp({
           [column(CHARTS, 'id')]: chartId,
@@ -132,7 +145,47 @@ export function readPublishedChartRevision(
       )
       .limit(1),
   );
-  return chart?.revision;
+  return chart;
+}
+
+export function findGuestPlayerCountRecord(
+  tx: JsvmApp,
+  partition: ScorePartition,
+): JsvmRecord | undefined {
+  const countFilter = where(GUEST_PLAYER_COUNTS, [
+    {
+      chart: partition.chart,
+      chartRevision: partition.chartRevision,
+    },
+  ]);
+  return tx.findRecordsByFilter(
+    GUEST_PLAYER_COUNTS.name,
+    countFilter.expression,
+    '',
+    1,
+    0,
+    countFilter.params,
+  )[0];
+}
+
+export function parseGuestPlayerCountRecord(record: JsvmRecord): number {
+  return record.getInt('playerCount');
+}
+
+export function saveGuestPlayerCount(
+  runtime: Pick<JsvmRuntime, 'Record'>,
+  tx: JsvmApp,
+  target: { readonly partition: ScorePartition; readonly record: JsvmRecord | undefined },
+  playerCount: number,
+): void {
+  let { record } = target;
+  if (record === undefined) {
+    record = new runtime.Record(tx.findCachedCollectionByNameOrId(GUEST_PLAYER_COUNTS.name));
+    record.set('chart', target.partition.chart);
+    record.set('chartRevision', target.partition.chartRevision);
+  }
+  record.set('playerCount', playerCount);
+  tx.save(record);
 }
 
 function wherePartition(runtime: Pick<JsvmRuntime, 'dbx'>, partition: ScorePartition) {
@@ -256,8 +309,9 @@ function selectUserCharts(
       .join(
         'CROSS JOIN',
         CHARTS.name,
-        dbx.exp(
-          `${aliasJoinOn(CHARTS, 'id', RANKED, SCORES, 'chart')} AND ${aliasJoinOn(CHARTS, 'revision', RANKED, SCORES, 'chartRevision')}`,
+        dbx.and(
+          dbx.exp(aliasJoinOn(CHARTS, 'id', RANKED, SCORES, 'chart')),
+          dbx.exp(aliasJoinOn(CHARTS, 'revision', RANKED, SCORES, 'chartRevision')),
         ),
       )
       .join('CROSS JOIN', SONGS.name, dbx.exp(joinOn(SONGS, 'id', CHARTS, 'song')))
@@ -348,13 +402,15 @@ export function readUserRankedChartPage(
       ? filtered
       : filtered.andWhere(
           // 경계를 OR 밖에 따로 두어야 인덱스에서 커서 뒤부터 읽는다.
-          dbx.exp(
-            `${sortColumn} <= {:afterValue} AND (${sortColumn} < {:afterValue}
-              OR (${sortColumn} = {:afterValue} AND ${chart} > {:afterChartId}))`,
-            {
-              afterValue: toBound(cursor.value),
-              afterChartId: cursor.chartId,
-            },
+          dbx.and(
+            dbx.exp(`${sortColumn} <= {:afterValue}`, { afterValue: toBound(cursor.value) }),
+            dbx.or(
+              dbx.exp(`${sortColumn} < {:afterValue}`),
+              dbx.and(
+                dbx.exp(`${sortColumn} = {:afterValue}`),
+                dbx.exp(`${chart} > {:afterChartId}`, { afterChartId: cursor.chartId }),
+              ),
+            ),
           ),
         )
     )

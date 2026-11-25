@@ -79,7 +79,12 @@ export function emitTrail(
 }
 
 export function advanceTrail(puffs: readonly TrailPuff[], elapsedMs: number): readonly TrailPuff[] {
+  if (elapsedMs === 0) {
+    return puffs;
+  }
   const decay = Math.exp(-elapsedMs / DRIFT_DECAY_MS);
+  // 감쇠하는 속도를 적분한 거리로 옮겨야 경과를 어떻게 나눠 진행해도 같은 자리에 온다.
+  const travelMs = DRIFT_DECAY_MS * (1 - decay);
   const next: TrailPuff[] = [];
   for (const puff of puffs) {
     const ageMs = puff.ageMs + elapsedMs;
@@ -89,8 +94,8 @@ export function advanceTrail(puffs: readonly TrailPuff[], elapsedMs: number): re
     next.push({
       ...puff,
       ageMs,
-      xPx: puff.xPx + puff.driftXPxPerMs * elapsedMs,
-      yPx: puff.yPx + puff.driftYPxPerMs * elapsedMs,
+      xPx: puff.xPx + puff.driftXPxPerMs * travelMs,
+      yPx: puff.yPx + puff.driftYPxPerMs * travelMs,
       driftXPxPerMs: puff.driftXPxPerMs * decay,
       driftYPxPerMs: puff.driftYPxPerMs * decay,
     });

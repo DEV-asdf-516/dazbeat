@@ -1,4 +1,3 @@
-import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import type { GameplaySession } from '../../../rhythm/GameplaySession.js';
 import type { GameplayState, Note } from '../../../rhythm/types.js';
@@ -10,7 +9,7 @@ export interface GameplayFrame {
   readonly songTimeMs: number;
   readonly state: GameplayState;
   readonly progress: number;
-  readonly activation: { readonly level: number; readonly reachedFull: boolean };
+  readonly activation: { readonly level: number; readonly hasReachedFull: boolean };
   readonly enteredNoteCount: number;
 }
 
@@ -44,7 +43,7 @@ const readGood: HudReader = (frame) => frame.state.counts.good;
 const readBad: HudReader = (frame) => frame.state.counts.bad;
 const readMiss: HudReader = (frame) => frame.state.counts.miss;
 
-const REGION_SOURCES: Readonly<
+export const HUD_REGION_SOURCES: Readonly<
   Record<Exclude<HudRegion, 'comboPop' | 'gaugeGlint'>, readonly HudReader[]>
 > = {
   combo: [readCombo],
@@ -61,25 +60,15 @@ const REGION_SOURCES: Readonly<
   accuracy: [readPerfect, readGreat, readGood, readBad, readMiss],
 };
 
-export function getChangedHudRegions(
-  previous: GameplayFrame | null,
-  next: GameplayFrame,
-): readonly HudRegion[] {
-  const regions: HudRegion[] = [...filterChangedRegions(REGION_SOURCES, previous, next)];
-  if (previous === null) {
-    return regions;
-  }
-  // 콤보는 끊기면 0 으로만 돌아가므로 0 이 아닌 단계 변화는 올라간 것이다.
-  if (
-    getComboTier(previous.state.combo) !== getComboTier(next.state.combo) &&
-    next.state.combo > 0
-  ) {
-    regions.push('comboPop');
-  }
-  if (isStarlightDrop(getStarlightBand(previous.state.hp), getStarlightBand(next.state.hp))) {
-    regions.push('gaugeGlint');
-  }
-  return regions;
+// 콤보는 끊기면 0 으로만 돌아가므로 0 이 아닌 단계 변화는 올라간 것이다.
+export function isComboPopped(previous: GameplayFrame, next: GameplayFrame): boolean {
+  return (
+    getComboTier(previous.state.combo) !== getComboTier(next.state.combo) && next.state.combo > 0
+  );
+}
+
+export function isGaugeGlinted(previous: GameplayFrame, next: GameplayFrame): boolean {
+  return isStarlightDrop(getStarlightBand(previous.state.hp), getStarlightBand(next.state.hp));
 }
 
 export function getEnteredNoteRange(

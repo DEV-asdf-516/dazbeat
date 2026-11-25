@@ -217,7 +217,7 @@ function recordOf(chart: Chart): RecordModel {
 }
 
 function issueSession(client: PocketBase, body: unknown): Promise<SessionResponse> {
-  return client.send<SessionResponse>('/api/dazbeat/play-sessions', {
+  return client.send<SessionResponse>('/api/dazbeat/play', {
     method: 'POST',
     body,
   });
@@ -243,7 +243,7 @@ function submitResult(
   sessionId: string,
   body: PlayBody,
 ): Promise<ResultResponse> {
-  return client.send<ResultResponse>(`/api/dazbeat/play-sessions/${sessionId}/result`, {
+  return client.send<ResultResponse>(`/api/dazbeat/play/${sessionId}/result`, {
     method: 'POST',
     body,
   });
@@ -371,11 +371,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 
-describe('POST /api/dazbeat/play-sessions', () => {
+describe('POST /api/dazbeat/play', () => {
   it('issues a session bound to the current chart revision', async () => {
     const player = await newPlayer();
     const record = recordOf(tapChart);
@@ -463,7 +463,7 @@ describe('POST /api/dazbeat/play-sessions', () => {
   });
 });
 
-describe('POST /api/dazbeat/play-sessions/{sessionId}/result', () => {
+describe('POST /api/dazbeat/play/{sessionId}/result', () => {
   it('matches the client result for a TAP chart', async () => {
     await expectServerMatchesClient(tapChart, tapPerfectInputs);
   });

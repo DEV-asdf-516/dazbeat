@@ -1,3 +1,4 @@
+import type { AuthUser } from '../../data/account.js';
 import type { Leaderboard } from '../../data/ranking.js';
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
@@ -14,6 +15,7 @@ import type { SoundEffect } from '../ui/view/soundEffects.js';
 import {
   applyLeaderboard,
   closeRankingDialog,
+  completeRankingSignIn,
   createRankingState,
   failLeaderboard,
   hoverRankingButton,
@@ -37,6 +39,7 @@ export interface RankingPorts {
   isSignedIn(): boolean;
   loadRevisionNotices(): ReadonlyMap<string, string>;
   saveRevisionNotice(chartId: string, chartRevision: string): void;
+  signIn(): Promise<AuthUser | null>;
 }
 
 export interface RankingScreen {
@@ -44,6 +47,7 @@ export interface RankingScreen {
   playSound(sound: SoundEffect): void;
   back(): void;
   openProfile(): void;
+  renderAccount(): void;
 }
 
 // 닫힌 뒤에는 입력과 늦은 응답을 받지 않는다.
@@ -61,106 +65,260 @@ export class RankingController {
     chart: ChartRef,
     private readonly wheelStepPx: number,
   ) {
-    const first = createRankingState(chart, ports.isSignedIn(), ports.loadRevisionNotices());
-    this.state = first;
-    this.screen.render(null, first);
-    this.load(first);
+    this.state = createRankingState(chart, ports.isSignedIn(), ports.loadRevisionNotices());
+  }
+
+  // 씬의 render 가 생성자 뒤에 만드는 위젯을 그리므로 생성자가 아니라 생성 뒤에 시작한다.
+  start(): void {
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.screen.render(null, state);
+    this.load(state);
   }
 
   handleMenuKey(action: MenuAction | null): void {
-    if ('kind' in this.state) {
+    const state = this.open;
+    if (state === null) {
       return;
     }
-    const read = readRankingKey(this.state, action);
-    if (read.kind !== 'none') {
-      this.run(read);
+    const read = readRankingKey(state, action);
+    switch (read.kind) {
+      case 'none':
+        return;
+      case 'scroll':
+        this.apply(scrollRanking(state, read.rows));
+        return;
+      case 'difficulty':
+      case 'retry': {
+        const next =
+          read.kind === 'retry'
+            ? retryLeaderboard(state)
+            : stepRankingDifficulty(state, read.direction);
+        this.apply(next);
+        // 다시 불러올 상태로 바뀌었을 때만 소리를 내고 지금 채보를 요청한다.
+        if (next === state) {
+          return;
+        }
+        this.screen.playSound('click');
+        this.load(next);
+        return;
+      }
+      case 'closeDialog':
+        this.apply(closeRankingDialog(state));
+        if (state.load.kind !== 'loaded') {
+          return;
+        }
+        this.screen.playSound('click');
+        // 확인한 뒤로는 랭킹에 다시 들어와도 같은 채보 버전의 안내를 띄우지 않는다.
+        this.ports.saveRevisionNotice(state.chart.chartId, state.load.board.chartRevision);
+        return;
+      case 'back':
+        this.screen.playSound('close');
+        this.state = { kind: 'closed' };
+        this.request = null;
+        this.screen.back();
+        return;
     }
   }
 
   scrollByWheel(deltaYPx: number, atMs: number): void {
-    if ('kind' in this.state) {
+    const state = this.open;
+    if (state === null) {
       return;
     }
-    const read = readControlsWheel(isControlsPanelOpen(this.state), this.wheel, {
+    const read = readControlsWheel(isControlsPanelOpen(state), this.wheel, {
       deltaYPx,
       atMs,
       rowPx: this.wheelStepPx,
     });
     this.wheel = read.gesture;
-    this.apply((state) => scrollRanking(state, read.rows));
+    this.apply(scrollRanking(state, read.rows));
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.changeChart((state) => selectRankingDifficulty(state, difficulty));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    const next = selectRankingDifficulty(state, difficulty);
+    this.apply(next);
+    if (next === state) {
+      return;
+    }
+    this.screen.playSound('click');
+    this.load(next);
   }
 
   hoverDifficulty(difficulty: Difficulty): void {
-    this.apply((state) => hoverRankingDifficulty(state, difficulty));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(hoverRankingDifficulty(state, difficulty));
   }
 
   unhoverDifficulty(difficulty: Difficulty): void {
-    this.apply((state) => unhoverRankingDifficulty(state, difficulty));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(unhoverRankingDifficulty(state, difficulty));
   }
 
   pointerOver(button: RankingButton): void {
-    this.apply((state) => hoverRankingButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(hoverRankingButton(state, button));
   }
 
   pointerOut(button: RankingButton): void {
-    this.apply((state) => unhoverRankingButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(unhoverRankingButton(state, button));
   }
 
   pointerDown(button: RankingButton): void {
-    this.apply((state) => pressRankingButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(pressRankingButton(state, button));
   }
 
   pointerUp(button: RankingButton): void {
-    const previous = this.state;
-    this.apply((state) => releaseRankingButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    const released = releaseRankingButton(state, button);
     // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
-    if (this.state === previous || 'kind' in this.state) {
+    if (released === state) {
       return;
     }
     switch (button) {
       case 'back':
-        this.run({ kind: 'back' });
-        return;
       case 'dialogCancel':
       case 'dialogAccept': {
-        const read = readRankingDialogButton(this.state, button);
-        if (read.kind !== 'none') {
-          this.run(read);
+        const read: RankingAction | { readonly kind: 'none' } =
+          button === 'back' ? { kind: 'back' } : readRankingDialogButton(released, button);
+        switch (read.kind) {
+          case 'none':
+            this.apply(released);
+            return;
+          case 'scroll':
+            this.apply(scrollRanking(released, read.rows));
+            return;
+          case 'difficulty':
+          case 'retry': {
+            const next =
+              read.kind === 'retry'
+                ? retryLeaderboard(released)
+                : stepRankingDifficulty(released, read.direction);
+            this.apply(next);
+            // 다시 불러올 상태로 바뀌었을 때만 소리를 내고 지금 채보를 요청한다.
+            if (next === released) {
+              return;
+            }
+            this.screen.playSound('click');
+            this.load(next);
+            return;
+          }
+          case 'closeDialog':
+            this.apply(closeRankingDialog(released));
+            if (released.load.kind !== 'loaded') {
+              return;
+            }
+            this.screen.playSound('click');
+            // 확인한 뒤로는 랭킹에 다시 들어와도 같은 채보 버전의 안내를 띄우지 않는다.
+            this.ports.saveRevisionNotice(
+              released.chart.chartId,
+              released.load.board.chartRevision,
+            );
+            return;
+          case 'back':
+            this.apply(released);
+            this.screen.playSound('close');
+            this.state = { kind: 'closed' };
+            this.request = null;
+            this.screen.back();
+            return;
         }
         return;
       }
-      case 'controlsEntry':
-        this.openControls();
+      case 'controlsEntry': {
+        // 대화상자가 열려 있으면 열리지 않으므로 소리도 내지 않는다.
+        const next = openRankingControls(released);
+        this.apply(next);
+        if (next !== released) {
+          this.screen.playSound('click');
+        }
         return;
+      }
       case 'controlsClose':
       case 'controlsBackdrop':
-        this.closeControls();
+        this.apply(withControlsOpen(released, false));
+        this.screen.playSound('close');
         return;
       case 'controlsHelp':
+        this.apply(clickControlsHelp(released));
         this.screen.playSound('click');
-        this.apply(clickControlsHelp);
         return;
       case 'accountProfile':
+        this.apply(released);
         this.screen.playSound('click');
         this.screen.openProfile();
+        return;
+      case 'accountSignIn':
+        this.apply(released);
+        this.signIn();
         return;
     }
   }
 
+  /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
+  private signIn(): void {
+    this.screen.playSound('click');
+    void this.ports
+      .signIn()
+      .then((user) => {
+        const state = this.open;
+        if (user === null || state === null) {
+          return;
+        }
+        this.screen.renderAccount();
+        const next = completeRankingSignIn(state);
+        this.apply(next);
+        this.load(next);
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to sign in with Google', error);
+      });
+  }
+
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
-    if ('kind' in this.state) {
+    const state = this.open;
+    if (state === null) {
       return false;
     }
-    switch (readControlsKey(isControlsPanelOpen(this.state), event)) {
-      case 'open':
-        this.openControls();
+    switch (readControlsKey(isControlsPanelOpen(state), event)) {
+      case 'open': {
+        // 대화상자가 열려 있으면 열리지 않으므로 소리도 내지 않는다.
+        const next = openRankingControls(state);
+        this.apply(next);
+        if (next !== state) {
+          this.screen.playSound('click');
+        }
         return true;
+      }
       case 'close':
-        this.closeControls();
+        this.apply(withControlsOpen(state, false));
+        this.screen.playSound('close');
         return true;
       case 'block':
         return true;
@@ -174,85 +332,35 @@ export class RankingController {
     this.request = null;
   }
 
-  private run(action: RankingAction): void {
-    switch (action.kind) {
-      case 'scroll':
-        this.apply((state) => scrollRanking(state, action.rows));
-        return;
-      case 'difficulty':
-        this.changeChart((state) => stepRankingDifficulty(state, action.direction));
-        return;
-      case 'retry':
-        this.changeChart(retryLeaderboard);
-        return;
-      case 'closeDialog': {
-        const previous = this.state;
-        this.apply(closeRankingDialog);
-        if ('kind' in previous || previous.load.kind !== 'loaded') {
-          return;
-        }
-        this.screen.playSound('click');
-        // 확인한 뒤로는 랭킹에 다시 들어와도 같은 채보 버전의 안내를 띄우지 않는다.
-        this.ports.saveRevisionNotice(previous.chart.chartId, previous.load.board.chartRevision);
-        return;
-      }
-      case 'back':
-        this.screen.playSound('close');
-        this.close();
-        this.screen.back();
-        return;
-    }
-  }
-
-  // 대화상자가 열려 있으면 열리지 않으므로 소리도 내지 않는다.
-  private openControls(): void {
-    const previous = this.state;
-    this.apply(openRankingControls);
-    if (this.state !== previous) {
-      this.screen.playSound('click');
-    }
-  }
-
-  private closeControls(): void {
-    this.apply((state) => withControlsOpen(state, false));
-    this.screen.playSound('close');
-  }
-
-  /** 다시 불러올 상태로 바뀌었을 때만 소리를 내고 지금 채보를 요청한다. */
-  private changeChart(transition: (state: RankingState) => RankingState): void {
-    const previous = this.state;
-    this.apply(transition);
-    if (this.state === previous || 'kind' in this.state) {
-      return;
-    }
-    this.screen.playSound('click');
-    this.load(this.state);
-  }
-
   private load(state: RankingState): void {
     const request = {};
     this.request = request;
     const { chartId } = state.chart;
-    void this.ports
-      .loadLeaderboard(chartId)
-      .then(
-        (board) => (current: RankingState) => applyLeaderboard(current, board),
-        (error: unknown) => (current: RankingState) => failLeaderboard(current, error),
-      )
-      .then((transition) => {
-        if (request === this.request) {
-          this.apply(transition);
+    void this.ports.loadLeaderboard(chartId).then(
+      (board) => {
+        const current = this.open;
+        if (request !== this.request || current === null) {
+          return;
         }
-      });
+        this.apply(applyLeaderboard(current, board));
+      },
+      (error: unknown) => {
+        const current = this.open;
+        if (request !== this.request || current === null) {
+          return;
+        }
+        this.apply(failLeaderboard(current, error));
+      },
+    );
   }
 
-  private apply(transition: (state: RankingState) => RankingState): void {
-    if ('kind' in this.state) {
-      return;
-    }
-    const previous = this.state;
-    const next = transition(previous);
-    if (next === previous) {
+  private get open(): RankingState | null {
+    return 'kind' in this.state ? null : this.state;
+  }
+
+  private apply(next: RankingState): void {
+    const previous = this.open;
+    if (previous === null || next === previous) {
       return;
     }
     this.state = next;

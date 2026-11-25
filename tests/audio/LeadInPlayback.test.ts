@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { LeadInPlayback, getPreRollStartMs } from '../../src/audio/LeadInPlayback.js';
-import type { PlaybackFailure, PlaybackStatus } from '../../src/audio/LeadInPlayback.js';
+import type {
+  PlaybackChange,
+  PlaybackFailure,
+  PlaybackStatus,
+} from '../../src/audio/LeadInPlayback.js';
+import type { YouTubePlayerState } from '../../src/audio/YouTubePlayer.js';
+import { isShallowEqual } from '../../src/shallowEqual.js';
 import { requireDefined } from '../../src/invariant.js';
 import { msToSec, secToMs } from '../../src/time.js';
 
@@ -34,9 +40,20 @@ interface Fake {
   resyncFailureCount: number;
 }
 
+// 돌려받은 결과를 사건 목록에 옮겨 적는 LeadInPlayback.
+interface RecordedPlayback {
+  readonly currentTime: number;
+  readonly status: PlaybackStatus;
+  tick(): void;
+  handlePositionReport(positionSec: number): void;
+  handleStateChange(state: YouTubePlayerState): void;
+  pause(): void;
+  resume(): void;
+}
+
 interface Context {
   readonly fake: Fake;
-  readonly playback: LeadInPlayback;
+  readonly playback: RecordedPlayback;
 }
 
 function getPositionSec(video: Video, atMs: number): number {
@@ -104,17 +121,44 @@ function setup(
       preRollStartMs: plan.preRollStartMs ?? PRE_ROLL_START_MS,
       volume: plan.volume ?? VOLUME,
     },
-    {
-      onStatusChange: (status) => fake.statusChanges.push(status),
-      onFailure: (failure) => fake.failures.push(failure),
-      onResyncFailed: () => {
-        fake.resyncFailureCount += 1;
-      },
-    },
   );
+  let shownStatus = playback.status;
+  const record = (change: PlaybackChange): void => {
+    switch (change.kind) {
+      case 'none':
+        return;
+      case 'status':
+        shownStatus = change.status;
+        fake.statusChanges.push(change.status);
+        return;
+      case 'failed':
+        fake.failures.push(change.failure);
+        return;
+      case 'resyncFailed':
+        // 재동기화 실패의 상태는 이미 보인 상태와 같을 수 있다. 바뀐 상태만 상태 변화로 센다.
+        if (!isShallowEqual(change.status, shownStatus)) {
+          shownStatus = change.status;
+          fake.statusChanges.push(change.status);
+        }
+        fake.resyncFailureCount += 1;
+        return;
+    }
+  };
   return {
     fake,
-    playback,
+    playback: {
+      get currentTime() {
+        return playback.currentTime;
+      },
+      get status() {
+        return playback.status;
+      },
+      tick: () => record(playback.tick()),
+      handlePositionReport: (positionSec) => record(playback.handlePositionReport(positionSec)),
+      handleStateChange: (state) => record(playback.handleStateChange(state)),
+      pause: () => record(playback.pause()),
+      resume: () => record(playback.resume()),
+    },
   };
 }
 
@@ -910,7 +954,7 @@ describe('LeadInPlayback resuming from T − 3s', () => {
 
 describe('LeadInPlayback resuming within 3s of the video start', () => {
   // 최초 시작 보정(250ms)과 다른 지연으로 첫 0초 seek 를 재서, 이 재개에서 잰 값을 쓰는지 본다.
-  const PROBE_DELAY_MS = 320;
+  const probeDelayMs = 320;
   // 첫 0초 seek 를 기다렸다가 그 seek 의 지연을 바꾼다. 그 실측이 끝나 카운트다운이 시작된 시각을 돌려준다.
   function advanceUntilProbed(ctx: Context, probeDelayMs: number, confirmDelayMs: number): number {
     ctx.fake.seekDelayFor = () => probeDelayMs;
@@ -955,8 +999,7 @@ describe('LeadInPlayback resuming within 3s of the video start', () => {
       });
       pauseAt(ctx, heldSec);
 
-      const plannedAtMs =
-        advanceUntilProbed(ctx, PROBE_DELAY_MS, PROBE_DELAY_MS + extraDelayMs) + 3000;
+      const plannedAtMs = advanceUntilProbed(ctx, probeDelayMs, probeDelayMs + extraDelayMs) + 3000;
       advanceUntilCallCount(ctx, 5);
       const reachAtMs = getVideoReachAtMs(ctx, heldSec);
       expect(reachAtMs).toBeGreaterThan(plannedAtMs);
@@ -975,7 +1018,7 @@ describe('LeadInPlayback resuming within 3s of the video start', () => {
       });
       pauseAt(ctx, 0.1);
 
-      const plannedAtMs = advanceUntilProbed(ctx, PROBE_DELAY_MS, PROBE_DELAY_MS + offsetMs) + 3000;
+      const plannedAtMs = advanceUntilProbed(ctx, probeDelayMs, probeDelayMs + offsetMs) + 3000;
       const deltasMs = advanceUntil(ctx, () => ctx.fake.nowMs >= plannedAtMs);
       expectStopped(deltasMs.slice(0, -1));
       expect(ctx.playback.currentTime).toBeCloseTo(0.1 + msToSec(ctx.fake.nowMs - plannedAtMs), 9);
@@ -1000,7 +1043,7 @@ describe('LeadInPlayback resuming within 3s of the video start', () => {
       });
       pauseAt(ctx, 0.1);
 
-      const plannedAtMs = advanceUntilProbed(ctx, PROBE_DELAY_MS, PROBE_DELAY_MS + offsetMs) + 3000;
+      const plannedAtMs = advanceUntilProbed(ctx, probeDelayMs, probeDelayMs + offsetMs) + 3000;
       advanceUntil(ctx, () => ctx.fake.nowMs >= plannedAtMs);
       expect(ctx.fake.calls.slice(5)).toEqual(['setVolume(0.6)']);
 
@@ -1023,7 +1066,7 @@ describe('LeadInPlayback resuming within 3s of the video start', () => {
     });
     pauseAt(ctx, heldSec);
 
-    const plannedAtMs = advanceUntilProbed(ctx, PROBE_DELAY_MS, PROBE_DELAY_MS + 800) + 3000;
+    const plannedAtMs = advanceUntilProbed(ctx, probeDelayMs, probeDelayMs + 800) + 3000;
     advanceUntilCallCount(ctx, 5);
     const resumeAtMs = expected === 'planned' ? plannedAtMs : getVideoReachAtMs(ctx, heldSec);
 
@@ -1040,7 +1083,7 @@ describe('LeadInPlayback resuming within 3s of the video start', () => {
     });
     pauseAt(ctx, 0.1);
     const heldSec = ctx.playback.currentTime;
-    advanceUntilProbed(ctx, PROBE_DELAY_MS, PROBE_DELAY_MS);
+    advanceUntilProbed(ctx, probeDelayMs, probeDelayMs);
 
     const clockValues: number[] = [];
     advanceUntil(ctx, () => {
@@ -1393,13 +1436,13 @@ describe('LeadInPlayback resync deadlines within 3s of the video start', () => {
     expect(ctx.fake.failures).toEqual([]);
   }
 
-  const WAITS: [string, number, 4 | 5][] = [
+  const waits: [string, number, 4 | 5][] = [
     ['the first seek to 0', 1.5, 4],
     ['the second seek to 0', 1.5, 5],
     ['the second seek to 0 after resuming at the planned A', 0.1, 5],
   ];
 
-  it.each(WAITS)(
+  it.each(waits)(
     'fails the resync when %s has no steady progress within 10000ms',
     (_name, heldSec, seekCount) => {
       const { ctx, seekAtMs } = setupWaitingOnSeek(heldSec, seekCount);
@@ -1415,7 +1458,7 @@ describe('LeadInPlayback resync deadlines within 3s of the video start', () => {
     },
   );
 
-  it.each(WAITS)(
+  it.each(waits)(
     'accepts a steady report at 10000ms but fails on one at 10001ms while waiting for %s',
     (_name, heldSec, seekCount) => {
       const accepted = setupWaitingOnSeek(heldSec, seekCount);
@@ -1531,7 +1574,7 @@ describe('LeadInPlayback deadlines against a late steady report', () => {
 
 describe('LeadInPlayback on Safari seek reports', () => {
   // Safari 26.5 에서 0초 seek 뒤 받은 보고(seek 뒤 ms, 위치 초). 정상 속도처럼 진행하다 약 185ms 를 잃고, 그 뒤 고르게 흐른다.
-  const SAFARI_SEEK_REPORTS: readonly (readonly [number, number])[] = [
+  const safariSeekReports: readonly (readonly [number, number])[] = [
     [0, 0],
     [46, 0],
     [236, 0.18682516666558513],
@@ -1548,21 +1591,21 @@ describe('LeadInPlayback on Safari seek reports', () => {
     [2747, 2.506700308666689],
     [2998, 2.756898920999329],
   ];
-  const SAFARI_REPORT_INTERVAL_MS = 250;
+  const safariReportIntervalMs = 250;
   // 잃은 뒤의 정상 구간이 가리키는 seek 뒤 진행 시작(약 233.5ms).
-  const SAFARI_SEEK_LEAD_MS = 234;
+  const safariSeekLeadMs = 234;
 
   // 실측이 끝난 뒤로는 250ms 마다 1배속 보고를 잇는다.
   function getSafariReport(index: number): readonly [number, number] {
-    const recorded = SAFARI_SEEK_REPORTS[index];
+    const recorded = safariSeekReports[index];
     if (recorded !== undefined) {
       return recorded;
     }
     const [lastOffsetMs, lastPositionSec] = requireDefined(
-      SAFARI_SEEK_REPORTS.at(-1),
+      safariSeekReports.at(-1),
       'no Safari report was recorded',
     );
-    const extraMs = (index - SAFARI_SEEK_REPORTS.length + 1) * SAFARI_REPORT_INTERVAL_MS;
+    const extraMs = (index - safariSeekReports.length + 1) * safariReportIntervalMs;
     return [lastOffsetMs + extraMs, lastPositionSec + msToSec(extraMs)];
   }
 
@@ -1605,8 +1648,8 @@ describe('LeadInPlayback on Safari seek reports', () => {
     const seekLeadMs = secToMs(
       START_SEC - requireDefined(ctx.fake.seekClocks[0], 'no seek was requested'),
     );
-    expect(seekLeadMs).toBeGreaterThan(SAFARI_SEEK_LEAD_MS - FRAME_MS);
-    expect(seekLeadMs).toBeLessThanOrEqual(SAFARI_SEEK_LEAD_MS);
+    expect(seekLeadMs).toBeGreaterThan(safariSeekLeadMs - FRAME_MS);
+    expect(seekLeadMs).toBeLessThanOrEqual(safariSeekLeadMs);
     expect(ctx.fake.statusChanges).toEqual([
       countdown(3),
       countdown(2),

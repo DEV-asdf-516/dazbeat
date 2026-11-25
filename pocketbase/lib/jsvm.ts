@@ -47,8 +47,11 @@ export interface DbxExpression {
 export interface Dbx {
   exp(sql: string, params?: QueryParams): DbxExpression;
   hashExp(values: QueryParams): DbxExpression;
+  and(...expressions: DbxExpression[]): DbxExpression;
+  or(...expressions: DbxExpression[]): DbxExpression;
   not(expression: DbxExpression): DbxExpression;
   in(column: string, ...values: string[]): DbxExpression;
+  between(column: string, from: FilterValue, to: FilterValue): DbxExpression;
 }
 
 export interface RowQuery {
@@ -59,9 +62,11 @@ export interface RowQuery {
 export interface SelectQuery extends RowQuery {
   from(...tables: string[]): SelectQuery;
   distinct(isDistinct: boolean): SelectQuery;
-  join(type: string, table: string, on: DbxExpression): SelectQuery;
+  /** dbx 에 crossJoin 메서드가 없어 join 으로 붙인다. 다른 조인은 이름 있는 메서드로 쓴다. */
+  join(type: 'CROSS JOIN', table: string, on?: DbxExpression): SelectQuery;
   innerJoin(table: string, on: DbxExpression): SelectQuery;
   leftJoin(table: string, on: DbxExpression): SelectQuery;
+  rightJoin(table: string, on: DbxExpression): SelectQuery;
   where(condition: DbxExpression): SelectQuery;
   andWhere(condition: DbxExpression): SelectQuery;
   orderBy(...columns: string[]): SelectQuery;

@@ -322,7 +322,7 @@ const READ_RULES_AFTER_CLOSING_SONG_LISTS = {
     viewRule: READ_RULES_AFTER_PUBLISH.charts,
   },
 };
-const DAZBEAT_LABELS = ['POST /api/dazbeat/play-sessions', 'POST /api/dazbeat/play-sessions/'];
+const DAZBEAT_LABELS = ['POST /api/dazbeat/play', 'POST /api/dazbeat/play/'];
 
 const tempDirs: string[] = [];
 const servers: PocketBaseServer[] = [];
@@ -581,6 +581,34 @@ describe('migrations', () => {
       updateRule: null,
       deleteRule: null,
       indexes: ['CREATE UNIQUE INDEX idx_play_session_quotas_user ON play_session_quotas (user)'],
+    });
+    const guestPlayerCounts = await collections.getOne('guest_player_counts');
+    expect(fieldSummary(guestPlayerCounts)).toEqual([
+      {
+        name: 'chart',
+        type: 'relation',
+        required: true,
+      },
+      {
+        name: 'chartRevision',
+        type: 'text',
+        required: true,
+      },
+      {
+        name: 'playerCount',
+        type: 'number',
+        required: true,
+      },
+    ]);
+    expect(guestPlayerCounts).toMatchObject({
+      listRule: null,
+      viewRule: null,
+      createRule: null,
+      updateRule: null,
+      deleteRule: null,
+      indexes: [
+        'CREATE UNIQUE INDEX idx_guest_player_counts_chart_revision ON guest_player_counts (chart, chartRevision)',
+      ],
     });
     const albums = await collections.getOne('albums');
     expect(fieldSummary(albums)).toEqual([

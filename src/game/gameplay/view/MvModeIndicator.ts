@@ -110,7 +110,7 @@ export class MvModeIndicator {
     marks: readonly { readonly mode: MvMode; readonly isSelected: boolean }[],
   ): void {
     this.value.setText(selected.toUpperCase());
-    marks.forEach(({ mode, isSelected }) => {
+    for (const { mode, isSelected } of marks) {
       const { color, alpha } = PIP_LOOKS[isSelected ? 'selected' : 'idle'];
       requireDefined(
         this.pips.find((pip) => pip.mode === mode),
@@ -119,7 +119,7 @@ export class MvModeIndicator {
       )
         .dot.setTint(color)
         .setAlpha(alpha);
-    });
+    }
     this.scene.tweens.killTweensOf(this.container);
     this.scene.tweens.add({
       targets: this.container,

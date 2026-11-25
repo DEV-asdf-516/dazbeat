@@ -5,10 +5,13 @@ import { getCurrentUser } from '../../src/backend/auth.js';
 import {
   changeNickname,
   isNicknameAvailable,
+  loadMyRankings,
+  loadMyRecords,
   loadProfile,
   setFeaturedAchievement,
-} from '../../src/backend/profile.js';
+} from '../../src/backend/me.js';
 import { ProfileRequestError } from '../../src/data/profile.js';
+import { RankingRequestError } from '../../src/data/ranking.js';
 import { parseNickname } from '../../src/data/nickname.js';
 import type { Nickname } from '../../src/data/nickname.js';
 import { requireDefined } from '../../src/invariant.js';
@@ -52,7 +55,7 @@ const stats = {
   allPerfectChartCount: 3,
 };
 
-function servedOf(id: string, set: string, retired = false) {
+function servedOf(id: string, set: string, isRetired = false) {
   return {
     key: id,
     achievementSet: set,
@@ -63,7 +66,7 @@ function servedOf(id: string, set: string, retired = false) {
     difficulty: '',
     zodiac: '',
     album: '',
-    retired,
+    retired: isRetired,
     names: {
       ko: id,
       ja: id,
@@ -131,12 +134,14 @@ function profileResponse(overrides: Record<string, unknown> = {}) {
 
 type FetchCall = [input: string, init?: RequestInit];
 
-function respondWith(status: number, body: unknown) {
-  const fetchMock = vi.fn<(...args: FetchCall) => Promise<Response>>(() =>
-    Promise.resolve(new Response(JSON.stringify(body), { status })),
-  );
+function stubFetch(response: (...args: FetchCall) => Promise<Response>) {
+  const fetchMock = vi.fn<(...args: FetchCall) => Promise<Response>>(response);
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
+}
+
+function respondWith(status: number, body: unknown) {
+  return stubFetch(() => Promise.resolve(new Response(JSON.stringify(body), { status })));
 }
 
 function getRequest(fetchMock: ReturnType<typeof respondWith>) {
@@ -150,10 +155,23 @@ function getRequest(fetchMock: ReturnType<typeof respondWith>) {
   };
 }
 
+function signedOutClient(): PocketBase {
+  return new PocketBase('http://pb.test');
+}
+
 function signedInClient(): PocketBase {
   const pb = new PocketBase('http://pb.test');
   pb.authStore.save(TOKEN, USER_RECORD);
   return pb;
+}
+
+async function rankingFailureKind(request: Promise<unknown>): Promise<unknown> {
+  const error = await request.then(
+    () => undefined,
+    (reason: unknown) => reason,
+  );
+  expect(error).toBeInstanceOf(RankingRequestError);
+  return error instanceof RankingRequestError ? error.kind : undefined;
 }
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {
@@ -206,7 +224,7 @@ describe('loadProfile', () => {
 
     const request = getRequest(fetchMock);
     expect(request.method).toBe('GET');
-    expect(request.url.pathname).toBe('/api/dazbeat/profile');
+    expect(request.url.pathname).toBe('/api/dazbeat/me/profile');
     expect(request.authorization).toBe(TOKEN);
     expect(profile.nickname).toBe('과즙이4829');
     expect(profile.featuredAchievement).toEqual(definitionOf('FIRST_CLEAR', 'rhythm'));
@@ -351,16 +369,16 @@ describe('changeNickname', () => {
 });
 
 describe('isNicknameAvailable', () => {
-  it.each([true, false])('asks with the nickname query and resolves %s', async (available) => {
-    const fetchMock = respondWith(200, { available });
+  it.each([true, false])('asks with the nickname query and resolves %s', async (isAvailable) => {
+    const fetchMock = respondWith(200, { available: isAvailable });
 
     await expect(isNicknameAvailable(signedInClient(), nickname('별빛_01'))).resolves.toBe(
-      available,
+      isAvailable,
     );
 
     const request = getRequest(fetchMock);
     expect(request.method).toBe('GET');
-    expect(request.url.pathname).toBe('/api/dazbeat/profile/nickname/available');
+    expect(request.url.pathname).toBe('/api/dazbeat/me/nickname/available');
     expect(request.url.searchParams.get('nickname')).toBe('별빛_01');
   });
 
@@ -405,5 +423,157 @@ describe('setFeaturedAchievement', () => {
     const error = await captureError(setFeaturedAchievement(signedInClient(), 'PLAY_3'));
 
     expect(error).toMatchObject({ kind: 'notEarned' });
+  });
+});
+
+describe('loadMyRankings', () => {
+  const firstPage = {
+    sort: 'score',
+    laneCount: null,
+    difficulty: null,
+    cursor: null,
+  } as const;
+  const achievedAt = '2026-10-21T09:12:33.000Z';
+  const item = {
+    chartId: 'chart-1',
+    songId: 'song-1',
+    songTitle: '鳥',
+    constellation: 'gemini',
+    laneCount: 4,
+    difficulty: 'easy',
+    rank: 3,
+    score: 309850,
+    achievedAt,
+  };
+
+  it('gets my top records and reads their achievement time', async () => {
+    const fetchMock = respondWith(200, {
+      items: [item],
+      next: null,
+    });
+
+    const { items, next } = await loadMyRankings(signedOutClient(), firstPage);
+
+    expect(next).toBeNull();
+    expect(items).toEqual([
+      {
+        chartId: 'chart-1',
+        songId: 'song-1',
+        songTitle: '鳥',
+        constellation: 'gemini',
+        laneCount: 4,
+        difficulty: 'easy',
+        rank: 3,
+        score: 309850,
+        achievedAtMs: Date.parse(achievedAt),
+      },
+    ]);
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new URL(String(input)).pathname).toBe('/api/dazbeat/me/rankings');
+    expect(init?.method).toBe('GET');
+  });
+
+  it('sends the cursor and reads the next one', async () => {
+    const next = {
+      value: 1000,
+      chartId: 'chart-1',
+    };
+    const fetchMock = respondWith(200, {
+      items: [item],
+      next,
+    });
+
+    const page = await loadMyRankings(signedOutClient(), {
+      sort: 'achieved',
+      laneCount: 4,
+      difficulty: 'hard',
+      cursor: {
+        value: 500,
+        chartId: 'chart-0',
+      },
+    });
+
+    expect(page.next).toEqual(next);
+    const { searchParams } = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(Object.fromEntries(searchParams)).toEqual({
+      sort: 'achieved',
+      laneCount: '4',
+      difficulty: 'hard',
+      afterValue: '500',
+      afterChartId: 'chart-0',
+    });
+  });
+
+  it('rejects a signed-out request as unauthorized', async () => {
+    respondWith(401, {
+      status: 401,
+      message: 'The request requires valid record authorization token.',
+    });
+
+    expect(await rankingFailureKind(loadMyRankings(signedOutClient(), firstPage))).toBe(
+      'unauthorized',
+    );
+  });
+
+  it.each([
+    [
+      'a server error',
+      () =>
+        respondWith(500, {
+          status: 500,
+          message: 'Something went wrong.',
+        }),
+    ],
+    ['a network failure', () => stubFetch(() => Promise.reject(new TypeError('fetch failed')))],
+  ])('rejects %s as failed', async (_case, respond) => {
+    respond();
+
+    expect(await rankingFailureKind(loadMyRankings(signedOutClient(), firstPage))).toBe('failed');
+  });
+});
+
+describe('loadMyRecords', () => {
+  const record = {
+    songId: 'song-1',
+    laneCount: 4,
+    difficulty: 'easy',
+    score: 309850,
+    accuracy: 0.97,
+    maxCombo: 120,
+  };
+
+  it('gets my best records', async () => {
+    const fetchMock = respondWith(200, { items: [record] });
+
+    expect(await loadMyRecords(signedOutClient())).toEqual([record]);
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new URL(String(input)).pathname).toBe('/api/dazbeat/me/records');
+    expect(init?.method).toBe('GET');
+  });
+
+  it.each([
+    ['an unknown lane count', { laneCount: 3 }],
+    ['an unknown difficulty', { difficulty: 'impossible' }],
+  ])('rejects a response with %s', async (_case, fields) => {
+    // JSON 으로 보낼 때 undefined 필드는 빠진다.
+    respondWith(200, {
+      items: [
+        {
+          ...record,
+          ...fields,
+        },
+      ],
+    });
+
+    await expect(loadMyRecords(signedOutClient())).rejects.toThrow();
+  });
+
+  it('rejects a signed-out request as unauthorized', async () => {
+    respondWith(401, {
+      status: 401,
+      message: 'The request requires valid record authorization token.',
+    });
+
+    expect(await rankingFailureKind(loadMyRecords(signedOutClient()))).toBe('unauthorized');
   });
 });

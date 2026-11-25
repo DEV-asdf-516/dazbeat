@@ -64,9 +64,9 @@ export class OrbitTrace {
         return [anchor];
       },
     );
-    [leftXPx, leftXPx + widthPx].forEach((xPx) => {
+    for (const xPx of [leftXPx, leftXPx + widthPx]) {
       scene.add.image(xPx, yPx, ANCHOR_TEXTURE_KEY).setAlpha(ANCHOR_ALPHA).setDepth(depth);
-    });
+    }
     this.passedGlow = scene.add
       .rectangle(leftXPx, yPx, 0, PASSED_GLOW_HEIGHT_PX, COLORS.note)
       .setOrigin(0, 0.5)

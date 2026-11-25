@@ -35,7 +35,7 @@ const RECORD = {
   accuracy: 100,
   maxCombo: 1,
 };
-const RECORDS_PATH = '/api/dazbeat/profile/records';
+const RECORDS_PATH = '/api/dazbeat/me/records';
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status });
@@ -59,7 +59,7 @@ function stubServer() {
       fetchMock.mock.calls.some(([input]) => new URL(input).pathname === RECORDS_PATH),
     answerSubmission: (sessionId: string, response: Response) =>
       requireDefined(
-        submissions.get(`/api/dazbeat/play-sessions/${sessionId}/result`),
+        submissions.get(`/api/dazbeat/play/${sessionId}/result`),
         'Submission not requested',
         sessionId,
       )(response),

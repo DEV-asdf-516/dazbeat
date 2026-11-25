@@ -46,7 +46,7 @@ let issuedCount = 0;
 
 function issueSession(client: PocketBase): Promise<{ sessionId: string }> {
   issuedCount += 1;
-  return client.send<{ sessionId: string }>('/api/dazbeat/play-sessions', {
+  return client.send<{ sessionId: string }>('/api/dazbeat/play', {
     method: 'POST',
     body: {
       chartId: chartRecord.id,
@@ -66,7 +66,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 
@@ -102,15 +102,21 @@ describe('built-in rate limits', () => {
           duration: 10,
         },
         {
-          label: 'POST /api/dazbeat/play-sessions',
+          label: 'POST /api/dazbeat/play',
           audience: '',
           maxRequests: 30,
           duration: 60,
         },
         {
-          label: 'POST /api/dazbeat/play-sessions/',
+          label: 'POST /api/dazbeat/play/',
           audience: '',
           maxRequests: 30,
+          duration: 60,
+        },
+        {
+          label: 'POST /api/dazbeat/charts/',
+          audience: '',
+          maxRequests: 10,
           duration: 60,
         },
       ]),
@@ -143,7 +149,7 @@ describe('built-in rate limits', () => {
       .update(sessionId, { issuedAt: new Date(Date.now() - ELAPSED_PLAY_MS).toISOString() });
 
     const response = await player.client.send<{ score: number }>(
-      `/api/dazbeat/play-sessions/${sessionId}/result`,
+      `/api/dazbeat/play/${sessionId}/result`,
       {
         method: 'POST',
         body: {

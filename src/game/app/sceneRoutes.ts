@@ -82,7 +82,8 @@ export interface GameplaySceneData extends ChartRef {
 
 /** submitted 의 submission 은 거절되지 않는다. 제출이 예외로 끝나면 unknown 이 된다. */
 export type ResultRanking =
-  | { readonly kind: 'none' }
+  | { readonly kind: 'none' } // 기록하지 않는 판: 연습 판, 실패 판
+  | { readonly kind: 'local' } // 게스트 완주 판: 기록이 이 브라우저에만 남는 판
   | { readonly kind: 'issueFailed' }
   | { readonly kind: 'submitted'; readonly submission: Promise<RankingSubmission> };
 
@@ -155,6 +156,7 @@ export function getPlayOriginRequest(
   selected: ChartRef,
   stoppedTimeMs = 0,
 ): SceneRequest {
+  // eslint-disable-next-line dazbeat/two-way-switch -- 플레이를 여는 화면이 늘면 함께 는다.
   switch (origin.kind) {
     case 'songSelect':
       return {

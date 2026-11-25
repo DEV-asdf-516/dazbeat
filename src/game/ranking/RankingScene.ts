@@ -4,12 +4,14 @@ import { findAchievement } from '../../data/achievements.js';
 import type { AchievementCatalog } from '../../data/achievements.js';
 import { getAvailableDifficulties } from '../../data/songs.js';
 import type { Song } from '../../data/songs.js';
-import type { Difficulty, LaneCount } from '../../rhythm/types.js';
+import type { Difficulty } from '../../rhythm/types.js';
 import { requireDefined } from '../../invariant.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import {
+  getControlsCloseView,
   getControlsGuide,
   getControlsHelpButtonView,
+  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
 } from '../app/controlsGuide.js';
@@ -24,7 +26,6 @@ import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
 import { formatAccuracy, formatScore } from '../ui/state/format.js';
 import { MOTION } from '../ui/state/motion.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
-import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import {
   DETAIL_RIGHT_X_PX,
   DETAIL_X_PX,
@@ -80,28 +81,20 @@ import type { Button } from '../ui/view/widgets/Button.js';
 import { JacketView, queueJacketLoads } from '../ui/view/widgets/jacket.js';
 import { LOADING_STAR_ID } from '../ui/view/widgets/LoadingStar.js';
 import { RankingController } from './RankingController.js';
-import type { RankingPorts } from './RankingController.js';
+import type { RankingPorts, RankingScreen } from './RankingController.js';
 import {
   RANKING_VISIBLE_ROWS,
   getChangedRegions,
   getMyRankView,
   getRankingBackView,
-  getRankingControlsCloseView,
   getRankingDialogButtonViews,
   getRankingDifficultyAppearance,
   getRankingNotice,
   getRankingRowIndicator,
   getRankingRows,
   getRankingTotal,
-  isRankingControlsEntryHovered,
 } from './state/rankingState.js';
-import type {
-  RankingButton,
-  RankingDialog,
-  RankingRegion,
-  RankingRow,
-  RankingState,
-} from './state/rankingState.js';
+import type { RankingDialog } from './state/rankingState.js';
 
 const PANEL_RIGHT_X_PX = LIST_PANEL.xPx + LIST_PANEL.widthPx;
 const TOTAL_LABEL_GAP_PX = 10;
@@ -220,21 +213,272 @@ export class RankingScene extends Phaser.Scene {
 
   create(data: RankingSceneData): void {
     this.exit = STAYING;
-    const pointer: ButtonPointer<RankingButton> = {
-      pointerOver: (button) => controller.pointerOver(button),
-      pointerOut: (button) => controller.pointerOut(button),
-      pointerDown: (button) => controller.pointerDown(button),
-      pointerUp: (button) => controller.pointerUp(button),
+    const screen: RankingScreen = {
+      render: (previous, next) => {
+        for (const region of getChangedRegions(previous, next)) {
+          switch (region) {
+            case 'songInfo': {
+              // 곡은 화면에 머무는 동안 바뀌지 않으므로 처음 한 번 그리고, MY RANK 와 별자리 자리도 여기서 정한다.
+              const { song, laneCount } = next.chart;
+              view.jacket.setSong(song);
+              fitSongTitle(view.titleText, song.title);
+              setTextColor(view.categoryText, CATEGORY_COLORS[song.category]);
+              view.categoryText
+                .setText(song.category.toUpperCase())
+                .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
+              renderLaneMarks(view.laneMarks, view.categoryText, laneCount);
+              const myRankYPx = view.categoryText.y + view.categoryText.height + MY_RANK_GAP_PX;
+              const valueXPx = INFO_X_PX + view.myRankLabel.width + MY_RANK_VALUE_GAP_PX;
+              const lineCenterYPx = myRankYPx + view.myRankValue.height / 2;
+              view.myRankLabel.setY(lineCenterYPx).setOrigin(0, 0.5);
+              view.myRankValue.setPosition(valueXPx, lineCenterYPx).setOrigin(0, 0.5);
+              view.myRankInfo.setPosition(valueXPx, lineCenterYPx).setOrigin(0, 0.5);
+              view.myRankDetail.setY(myRankYPx + view.myRankValue.height + MY_RANK_DETAIL_GAP_PX);
+              view.myRankSignIn.setY(view.myRankDetail.y);
+              renderZodiacFigure(
+                view.zodiacStars,
+                view.zodiacLines,
+                song.constellation,
+                {
+                  leftXPx: ZODIAC_AREA_LEFT_X_PX,
+                  rightXPx: DETAIL_RIGHT_X_PX,
+                  topYPx: view.myRankDetail.y + view.myRankDetail.height + ZODIAC_AREA_GAP_PX,
+                  bottomYPx: ZODIAC_BOTTOM_Y_PX,
+                },
+                ZODIAC_MAX_SPAN_PX,
+              );
+              break;
+            }
+            case 'rows': {
+              const rows = getRankingRows(next);
+              for (const [index, row] of view.rows.entries()) {
+                const entry = rows[index] ?? null;
+                if (entry === null) {
+                  row.fill.setVisible(false);
+                  row.rank.setVisible(false);
+                  row.nickname.setVisible(false);
+                  row.emblem.setVisible(false);
+                  row.score.setVisible(false);
+                  row.accuracy.setVisible(false);
+                  row.badge.render(null);
+                  continue;
+                }
+                if (entry.outsideTopRank === null) {
+                  row.badge.render(entry.hasTopBadge ? entry.rank : null);
+                } else {
+                  row.badge.renderOutsideTop(entry.outsideTopRank);
+                }
+                row.fill.setVisible(entry.isMe);
+                setTextColor(
+                  row.rank,
+                  entry.isMe ? CELESTIAL_COLORS.selected : CELESTIAL_COLORS.textNeutral,
+                );
+                row.rank.setText(String(entry.rank)).setVisible(!entry.hasTopBadge);
+                setTextColor(
+                  row.nickname,
+                  entry.isMe ? CELESTIAL_COLORS.selected : COLORS.textPrimary,
+                );
+                // 내 줄의 TOP 표시는 글자가 길어 닉네임 칸을 넘을 수 있으니 그만큼 민다.
+                const emblemXPx = entry.isMe
+                  ? Math.max(EMBLEM_X_PX, row.badge.getRightXPx() + MY_ROW_BADGE_GAP_PX)
+                  : EMBLEM_X_PX;
+                row.emblem.setX(emblemXPx);
+                const featured =
+                  entry.featuredAchievement === null
+                    ? undefined
+                    : findAchievement(this.catalog, entry.featuredAchievement);
+                let nicknameXPx = emblemXPx;
+                if (featured === undefined) {
+                  row.emblem.setVisible(false);
+                } else {
+                  row.emblem
+                    .setTexture(
+                      getAchievementEmblemTexture(this, this.catalog, featured, EMBLEM_SIZE_PX),
+                    )
+                    .setVisible(true);
+                  nicknameXPx += NICKNAME_AFTER_EMBLEM_X_PX - EMBLEM_X_PX;
+                }
+                setFittedText(
+                  row.nickname.setX(nicknameXPx),
+                  entry.nickname,
+                  NICKNAME_RIGHT_X_PX - nicknameXPx,
+                ).setVisible(true);
+                row.score.setText(formatScore(entry.score)).setVisible(true);
+                row.accuracy.setText(formatAccuracy(entry.accuracy)).setVisible(true);
+              }
+              const indicator = getRankingRowIndicator(next);
+              view.rowIndicator
+                .setText(indicator.kind === 'text' ? indicator.text : '')
+                .setVisible(indicator.kind === 'text');
+              break;
+            }
+            case 'total': {
+              const total = getRankingTotal(next);
+              view.totalValue
+                .setText(total.kind === 'count' ? String(total.count) : '')
+                .setVisible(total.kind === 'count');
+              view.totalLabel
+                .setX(PANEL_RIGHT_X_PX - view.totalValue.width - TOTAL_LABEL_GAP_PX)
+                .setVisible(total.kind === 'count');
+              break;
+            }
+            case 'myRank': {
+              const myRank = getMyRankView(next);
+              view.myRankLabel.setVisible(myRank.kind !== 'hidden');
+              view.myRankValue.setVisible(myRank.kind === 'ranked');
+              view.myRankDetail.setVisible(myRank.kind === 'ranked');
+              view.myRankInfo.setVisible(myRank.kind === 'none');
+              view.myRankSignIn.setVisible(myRank.kind === 'guest');
+              switch (myRank.kind) {
+                case 'none':
+                  view.myRankInfo.setText('-');
+                  break;
+                case 'ranked':
+                  view.myRankValue.setText(myRank.rank);
+                  view.myRankDetail.setText(
+                    `${formatScore(myRank.score)}   ${formatAccuracy(myRank.accuracy)}`,
+                  );
+                  break;
+                case 'guest':
+                case 'hidden':
+                  break;
+              }
+              break;
+            }
+            case 'notice':
+              switch (getRankingNotice(next)) {
+                case 'loading':
+                  view.notice.show({
+                    kind: 'loading',
+                    text: this.i18n.t('ranking.loading'),
+                  });
+                  break;
+                case 'empty':
+                  view.notice.show({
+                    kind: 'text',
+                    text: this.i18n.t('ranking.empty'),
+                  });
+                  break;
+                case 'none':
+                  view.notice.show({ kind: 'none' });
+                  break;
+              }
+              break;
+            case 'difficultyTabs':
+              view.difficultyTabs.render(
+                (difficulty) => getRankingDifficultyAppearance(next, difficulty),
+                next.chart.song.accentColor,
+              );
+              break;
+            case 'dialog': {
+              const getDialogContent = (dialog: RankingDialog): ConfirmDialogContent => {
+                switch (dialog) {
+                  case 'failed':
+                    return {
+                      title: this.i18n.t('ranking.failedTitle'),
+                      body: this.i18n.t('loadFailure.body'),
+                      cancelLabel: 'BACK',
+                      acceptLabel: 'RETRY',
+                      acceptTone: 'default',
+                    };
+                  case 'unavailable':
+                    return {
+                      title: this.i18n.t('ranking.unavailableTitle'),
+                      body: this.i18n.t('ranking.unavailableBody'),
+                      cancelLabel: null,
+                      acceptLabel: 'BACK',
+                      acceptTone: 'default',
+                    };
+                  case 'revised':
+                    return {
+                      title: this.i18n.t('ranking.revisedTitle'),
+                      body: this.i18n.t('ranking.revisedBody'),
+                      cancelLabel: null,
+                      acceptLabel: this.i18n.t('rankingNotice.close'),
+                      acceptTone: 'default',
+                    };
+                }
+              };
+              view.dialog.render(next.dialog === 'none' ? null : getDialogContent(next.dialog));
+              break;
+            }
+            case 'dialogButtons': {
+              const { cancel, accept } = getRankingDialogButtonViews(next);
+              view.dialog.renderButtons(cancel, accept);
+              break;
+            }
+            case 'backButton':
+              view.backButton.render(getRankingBackView(next));
+              break;
+            case 'controls':
+              view.chrome.controls.render(
+                isControlsPanelOpen(next)
+                  ? getControlsGuide(
+                      this.i18n.t('controls', { returnObjects: true }),
+                      this.save.loadSettings(),
+                    )
+                  : null,
+              );
+              break;
+            case 'controlsEntry':
+              view.chrome.renderControlsEntry(isControlsEntryHovered(next.hover));
+              break;
+            case 'controlsClose':
+              view.chrome.controls.closeButton.render(getControlsCloseView(next.hover));
+              break;
+            case 'controlsHelpCard':
+              view.chrome.controls.helpCard.render(isControlsHelpShown(next));
+              break;
+            case 'controlsHelpButton':
+              view.chrome.controls.renderHelpButton(getControlsHelpButtonView(next));
+              break;
+            case 'accountButton': {
+              const views = getAccountPanelButtonView(next.hover);
+              view.chrome.accountCorner.nameplate.renderButton(views.accountProfile);
+              view.chrome.accountCorner.signInButton.render(views.accountSignIn);
+              break;
+            }
+          }
+        }
+      },
+      playSound: (sound) => soundEffects.play(sound),
+      renderAccount: () => {
+        const identity = this.account.getIdentity();
+        view.chrome.accountCorner.nameplate.render(identity);
+        view.chrome.accountCorner.renderSignIn(identity);
+      },
+      openProfile: () => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'profile',
+          data: {
+            returnTo: {
+              key: 'ranking',
+              data,
+            },
+          },
+        });
+      },
+      back: () => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'songSelect',
+          data: {
+            mode: data.mode,
+            restore: data.restore,
+          },
+        });
+      },
     };
+    const chart = data.chart;
+    const controller = new RankingController(this.ports, screen, chart, WHEEL_STEP_PX);
     const chrome = new MenuSceneChrome(
       this,
       {
         celestial: this.celestial,
         screen: 'songSelect',
         account: {
-          kind: 'nameplate',
+          kind: 'corner',
           catalog: this.account.catalog,
-          pointer,
+          pointer: controller,
         },
       },
       {
@@ -242,9 +486,11 @@ export class RankingScene extends Phaser.Scene {
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => controller.handleMenuKey(action),
       },
-      pointer,
+      controller,
     );
-    chrome.renderAccount(this.account.getIdentity());
+    const identity = this.account.getIdentity();
+    chrome.accountCorner.nameplate.render(identity);
+    chrome.accountCorner.renderSignIn(identity);
     addGlassPanel(this, LIST_PANEL, RADIUS.smallPx);
     this.cameras.main.fadeIn(MOTION.mediumMs);
     const title = this.add.text(
@@ -257,7 +503,7 @@ export class RankingScene extends Phaser.Scene {
     const [backButton] = createFooterAuxiliaryButtons(this, [
       {
         label: 'BACK',
-        pointer: pointButton(pointer, 'back'),
+        pointer: pointButton(controller, 'back'),
       },
     ]);
     const totalLabel = this.add
@@ -269,7 +515,6 @@ export class RankingScene extends Phaser.Scene {
     // 글자 크기가 달라 RANKING 과 기준선을 맞춰야 한 줄로 읽힌다.
     totalLabel.setY(titleBaselineYPx - totalLabel.getTextMetrics().ascent);
     totalValue.setY(titleBaselineYPx - totalValue.getTextMetrics().ascent);
-    const chart = data.chart;
     const view: RankingView = {
       chrome,
       backButton: requireDefined(backButton, 'Missing ranking header button', 'BACK'),
@@ -343,54 +588,21 @@ export class RankingScene extends Phaser.Scene {
         DIFFICULTY_TABS_LAYOUT,
         DIFFICULTY_TABS_STYLE,
         {
-          onSelect: (difficulty) => controller.selectDifficulty(difficulty),
-          onHover: (difficulty) => controller.hoverDifficulty(difficulty),
-          onUnhover: (difficulty) => controller.unhoverDifficulty(difficulty),
+          onSelect: controller.selectDifficulty.bind(controller),
+          onHover: controller.hoverDifficulty.bind(controller),
+          onUnhover: controller.unhoverDifficulty.bind(controller),
         },
       ),
       zodiacStars: this.add.image(0, 0, '__DEFAULT').setBlendMode(Phaser.BlendModes.SCREEN),
       zodiacLines: this.add.image(0, 0, '__DEFAULT'),
       // 버튼마다 눌렀을 때의 뜻은 상태가 대화상자 종류로 정한다.
       dialog: new ConfirmDialog(this, {
-        cancel: pointButton(pointer, 'dialogCancel'),
-        accept: pointButton(pointer, 'dialogAccept'),
+        cancel: pointButton(controller, 'dialogCancel'),
+        accept: pointButton(controller, 'dialogAccept'),
       }),
     };
     chrome.start(title.getBounds());
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
-    const controller = new RankingController(
-      this.ports,
-      {
-        render: (previous, next) => {
-          for (const region of getChangedRegions(previous, next)) {
-            this.renderRegion(view, next, region);
-          }
-        },
-        playSound: (sound) => soundEffects.play(sound),
-        openProfile: () => {
-          this.exit = exitScene(this, this.exit, {
-            key: 'profile',
-            data: {
-              returnTo: {
-                key: 'ranking',
-                data,
-              },
-            },
-          });
-        },
-        back: () => {
-          this.exit = exitScene(this, this.exit, {
-            key: 'songSelect',
-            data: {
-              mode: data.mode,
-              restore: data.restore,
-            },
-          });
-        },
-      },
-      chart,
-      WHEEL_STEP_PX,
-    );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
     const panel = new Phaser.Geom.Rectangle(
       LIST_PANEL.xPx,
@@ -406,223 +618,7 @@ export class RankingScene extends Phaser.Scene {
         }
       },
     );
-  }
-
-  private renderRegion(view: RankingView, state: RankingState, region: RankingRegion): void {
-    switch (region) {
-      case 'songInfo':
-        this.renderSongInfo(view, state.chart.song, state.chart.laneCount);
-        return;
-      case 'rows': {
-        const rows = getRankingRows(state);
-        view.rows.forEach((row, index) => this.renderRow(row, rows[index] ?? null));
-        const indicator = getRankingRowIndicator(state);
-        view.rowIndicator
-          .setText(indicator.kind === 'text' ? indicator.text : '')
-          .setVisible(indicator.kind === 'text');
-        return;
-      }
-      case 'total': {
-        const total = getRankingTotal(state);
-        view.totalValue
-          .setText(total.kind === 'count' ? String(total.count) : '')
-          .setVisible(total.kind === 'count');
-        view.totalLabel
-          .setX(PANEL_RIGHT_X_PX - view.totalValue.width - TOTAL_LABEL_GAP_PX)
-          .setVisible(total.kind === 'count');
-        return;
-      }
-      case 'myRank':
-        this.renderMyRank(view, state);
-        return;
-      case 'notice':
-        switch (getRankingNotice(state)) {
-          case 'loading':
-            view.notice.show({
-              kind: 'loading',
-              text: this.i18n.t('ranking.loading'),
-            });
-            return;
-          case 'empty':
-            view.notice.show({
-              kind: 'text',
-              text: this.i18n.t('ranking.empty'),
-            });
-            return;
-          case 'none':
-            view.notice.show({ kind: 'none' });
-            return;
-        }
-        return;
-      case 'difficultyTabs':
-        view.difficultyTabs.render(
-          (difficulty) => getRankingDifficultyAppearance(state, difficulty),
-          state.chart.song.accentColor,
-        );
-        return;
-      case 'dialog':
-        view.dialog.render(state.dialog === 'none' ? null : this.getDialogContent(state.dialog));
-        return;
-      case 'dialogButtons': {
-        const { cancel, accept } = getRankingDialogButtonViews(state);
-        view.dialog.renderButtons(cancel, accept);
-        return;
-      }
-      case 'backButton':
-        view.backButton.render(getRankingBackView(state));
-        return;
-      case 'controls':
-        view.chrome.renderControls(
-          isControlsPanelOpen(state)
-            ? getControlsGuide(
-                this.i18n.t('controls', { returnObjects: true }),
-                this.save.loadSettings(),
-              )
-            : null,
-        );
-        return;
-      case 'controlsEntry':
-        view.chrome.renderControlsEntry(isRankingControlsEntryHovered(state));
-        return;
-      case 'controlsClose':
-        view.chrome.renderControlsClose(getRankingControlsCloseView(state));
-        return;
-      case 'controlsHelpCard':
-        view.chrome.renderControlsHelpCard(isControlsHelpShown(state));
-        return;
-      case 'controlsHelpButton':
-        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(state));
-        return;
-      case 'accountButton':
-        view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));
-        return;
-    }
-  }
-
-  private getDialogContent(dialog: RankingDialog): ConfirmDialogContent {
-    switch (dialog) {
-      case 'failed':
-        return {
-          title: this.i18n.t('ranking.failedTitle'),
-          body: this.i18n.t('loadFailure.body'),
-          cancelLabel: 'BACK',
-          acceptLabel: 'RETRY',
-          acceptTone: 'default',
-        };
-      case 'unavailable':
-        return {
-          title: this.i18n.t('ranking.unavailableTitle'),
-          body: this.i18n.t('ranking.unavailableBody'),
-          cancelLabel: null,
-          acceptLabel: 'BACK',
-          acceptTone: 'default',
-        };
-      case 'revised':
-        return {
-          title: this.i18n.t('ranking.revisedTitle'),
-          body: this.i18n.t('ranking.revisedBody'),
-          cancelLabel: null,
-          acceptLabel: this.i18n.t('rankingNotice.close'),
-          acceptTone: 'default',
-        };
-    }
-  }
-
-  /** 곡은 화면에 머무는 동안 바뀌지 않으므로 처음 한 번 그리고, MY RANK 와 별자리 자리도 여기서 정한다. */
-  private renderSongInfo(view: RankingView, song: Song, laneCount: LaneCount): void {
-    view.jacket.setSong(song);
-    fitSongTitle(view.titleText, song.title);
-    setTextColor(view.categoryText, CATEGORY_COLORS[song.category]);
-    view.categoryText
-      .setText(song.category.toUpperCase())
-      .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
-    renderLaneMarks(view.laneMarks, view.categoryText, laneCount);
-    const myRankYPx = view.categoryText.y + view.categoryText.height + MY_RANK_GAP_PX;
-    const valueXPx = INFO_X_PX + view.myRankLabel.width + MY_RANK_VALUE_GAP_PX;
-    const lineCenterYPx = myRankYPx + view.myRankValue.height / 2;
-    view.myRankLabel.setY(lineCenterYPx).setOrigin(0, 0.5);
-    view.myRankValue.setPosition(valueXPx, lineCenterYPx).setOrigin(0, 0.5);
-    view.myRankInfo.setPosition(valueXPx, lineCenterYPx).setOrigin(0, 0.5);
-    view.myRankDetail.setY(myRankYPx + view.myRankValue.height + MY_RANK_DETAIL_GAP_PX);
-    view.myRankSignIn.setY(view.myRankDetail.y);
-    renderZodiacFigure(
-      view.zodiacStars,
-      view.zodiacLines,
-      song.constellation,
-      {
-        leftXPx: ZODIAC_AREA_LEFT_X_PX,
-        rightXPx: DETAIL_RIGHT_X_PX,
-        topYPx: view.myRankDetail.y + view.myRankDetail.height + ZODIAC_AREA_GAP_PX,
-        bottomYPx: ZODIAC_BOTTOM_Y_PX,
-      },
-      ZODIAC_MAX_SPAN_PX,
-    );
-  }
-
-  private renderMyRank(view: RankingView, state: RankingState): void {
-    const myRank = getMyRankView(state);
-    view.myRankLabel.setVisible(myRank.kind !== 'hidden');
-    view.myRankValue.setVisible(myRank.kind === 'ranked');
-    view.myRankDetail.setVisible(myRank.kind === 'ranked');
-    view.myRankInfo.setVisible(myRank.kind === 'none');
-    view.myRankSignIn.setVisible(myRank.kind === 'guest');
-    switch (myRank.kind) {
-      case 'none':
-        view.myRankInfo.setText('-');
-        return;
-      case 'ranked':
-        view.myRankValue.setText(myRank.rank);
-        view.myRankDetail.setText(
-          `${formatScore(myRank.score)}   ${formatAccuracy(myRank.accuracy)}`,
-        );
-        return;
-      case 'guest':
-      case 'hidden':
-        return;
-    }
-  }
-
-  private renderRow(row: RowView, entry: RankingRow | null): void {
-    const objects = [row.fill, row.rank, row.nickname, row.emblem, row.score, row.accuracy];
-    if (entry === null) {
-      objects.forEach((object) => object.setVisible(false));
-      row.badge.render(null);
-      return;
-    }
-    if (entry.outsideTopRank === null) {
-      row.badge.render(entry.hasTopBadge ? entry.rank : null);
-    } else {
-      row.badge.renderOutsideTop(entry.outsideTopRank);
-    }
-    row.fill.setVisible(entry.isMe);
-    setTextColor(row.rank, entry.isMe ? CELESTIAL_COLORS.selected : CELESTIAL_COLORS.textNeutral);
-    row.rank.setText(String(entry.rank)).setVisible(!entry.hasTopBadge);
-    setTextColor(row.nickname, entry.isMe ? CELESTIAL_COLORS.selected : COLORS.textPrimary);
-    // 내 줄의 TOP 표시는 글자가 길어 닉네임 칸을 넘을 수 있으니 그만큼 민다.
-    const emblemXPx = entry.isMe
-      ? Math.max(EMBLEM_X_PX, row.badge.getRightXPx() + MY_ROW_BADGE_GAP_PX)
-      : EMBLEM_X_PX;
-    row.emblem.setX(emblemXPx);
-    const featured =
-      entry.featuredAchievement === null
-        ? undefined
-        : findAchievement(this.catalog, entry.featuredAchievement);
-    if (featured === undefined) {
-      row.emblem.setVisible(false);
-    } else {
-      row.emblem
-        .setTexture(getAchievementEmblemTexture(this, this.catalog, featured, EMBLEM_SIZE_PX))
-        .setVisible(true);
-    }
-    const nicknameXPx =
-      featured === undefined ? emblemXPx : emblemXPx + NICKNAME_AFTER_EMBLEM_X_PX - EMBLEM_X_PX;
-    setFittedText(
-      row.nickname.setX(nicknameXPx),
-      entry.nickname,
-      NICKNAME_RIGHT_X_PX - nicknameXPx,
-    ).setVisible(true);
-    row.score.setText(formatScore(entry.score)).setVisible(true);
-    row.accuracy.setText(formatAccuracy(entry.accuracy)).setVisible(true);
+    controller.start();
   }
 
   private createRow(index: number): RowView {

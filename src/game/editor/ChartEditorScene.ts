@@ -34,11 +34,8 @@ import {
   readEditorKey,
 } from './state/chartEditorState.js';
 import type {
-  ChartEditorState,
   DifficultyLook,
-  EditorButton,
   EditorPlayerStatus,
-  EditorRegion,
   EditorStatus,
   PendingAction,
 } from './state/chartEditorState.js';
@@ -69,7 +66,7 @@ import {
 } from '../celestial/view/celestialSprites.js';
 import { createAuxiliaryButton } from '../ui/view/widgets/auxiliaryButton.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
-import type { ButtonPointer, PointerActions } from '../ui/view/input/hoverTarget.js';
+import type { PointerActions } from '../ui/view/input/hoverTarget.js';
 import { createCenteredEditorButton, createEditorButton } from './view/editorButton.js';
 import { EDITOR_ICON_HIT_SIZE_PX, EditorIconButton } from './view/EditorIconButton.js';
 import { EditorNoteLayer } from './view/EditorNoteLayer.js';
@@ -252,9 +249,28 @@ export class ChartEditorScene extends Phaser.Scene {
     const keyboard = requireKeyboard(this);
     const settings = this.save.loadSettings();
     this.mvLayer.dataset.mvMode = 'normal';
-    const onResize = (): void => this.placeVideoPreview();
-    onResize();
-    this.scale.on(Phaser.Scale.Events.RESIZE, onResize);
+    const placeVideoPreview = (): void => {
+      const bounds = this.game.canvas.getBoundingClientRect();
+      const rect = toViewportRect(
+        LAYOUT.video,
+        {
+          leftPx: bounds.left,
+          topPx: bounds.top,
+          widthPx: bounds.width,
+          heightPx: bounds.height,
+        },
+        GAME_WIDTH,
+        GAME_HEIGHT,
+      );
+      const { style } = this.mvLayer;
+      style.setProperty(MV_FRAME_PROPERTIES.leftPx, `${rect.leftPx}px`);
+      style.setProperty(MV_FRAME_PROPERTIES.topPx, `${rect.topPx}px`);
+      style.setProperty(MV_FRAME_PROPERTIES.widthPx, `${rect.widthPx}px`);
+      style.setProperty(MV_FRAME_PROPERTIES.heightPx, `${rect.heightPx}px`);
+      this.mvLayer.dataset.mvFrame = 'preview';
+    };
+    placeVideoPreview();
+    this.scale.on(Phaser.Scale.Events.RESIZE, placeVideoPreview);
     // 곡 목록 화면이 같은 편집 목록에서 고른 곡이므로 없으면 진입 경로의 오류다.
     const song = requireDefined(
       data.list.songs.find((listed) => listed.id === data.songId),
@@ -281,7 +297,316 @@ export class ChartEditorScene extends Phaser.Scene {
             list: data.list,
             focusedSongId,
           }),
-        render: (previous, next) => this.renderChanges(view, previous, next),
+        render: (previous, state) => {
+          for (const region of getChangedRegions(previous, state)) {
+            switch (region) {
+              case 'selection':
+                setFittedText(
+                  view.songTitle,
+                  getSelection(state).song.title,
+                  LAYOUT.title.maxWidthPx,
+                );
+                for (const { difficulty, text, underline } of view.difficulties) {
+                  const { color, isUnderlined } =
+                    DIFFICULTY_LOOKS[getDifficultyLook(state, difficulty)];
+                  setTextColor(text, color);
+                  underline.setVisible(isUnderlined);
+                }
+                break;
+              case 'laneCountIndicator':
+                view.laneCountSwitch.renderIndicator(
+                  getSelection(state).laneCount,
+                  getLaneCountMotion(previous),
+                );
+                break;
+              case 'laneCountSegments': {
+                const selection = getSelection(state);
+                const hovered = getHoveredLaneCount(state);
+                view.laneCountSwitch.renderSegments((laneCount) =>
+                  getSegmentAppearance(laneCount, selection.laneCount, hovered),
+                );
+                break;
+              }
+              case 'toolIndicator':
+                view.toolSwitch.renderIndicator(state.tool, getToolMotion(previous, state));
+                break;
+              case 'toolSegments': {
+                const hovered = getHoveredTool(state);
+                view.toolSwitch.renderSegments((tool) =>
+                  getSegmentAppearance(tool, state.tool, hovered),
+                );
+                break;
+              }
+              case 'laneLines': {
+                const { lanes } = LAYOUT;
+                const { laneCount } = getSelection(state);
+                view.laneLines.setTexture(
+                  ensureLaneLinesTexture(this, laneCount, {
+                    widthPx: lanes.widthPx + (lanes.leftPx - LANE_LINES_LEFT_PX) * 2,
+                    heightPx: TIMELINE_HEIGHT_PX,
+                    firstLineXPx: lanes.leftPx - LANE_LINES_LEFT_PX,
+                    laneWidthPx: getLaneWidthPx(LAYOUT, laneCount),
+                    lineWidthPx: LANE_LINE_WIDTH_PX,
+                  }),
+                );
+                break;
+              }
+              case 'status': {
+                const getStatusMessage = (status: EditorStatus): Notice => {
+                  switch (status.kind) {
+                    case 'loading':
+                      // 채보 로딩은 문구 없이 별만 돈다.
+                      return {
+                        kind: 'loading',
+                        text: '',
+                      };
+                    case 'loadFailed':
+                      return {
+                        kind: 'text',
+                        text: this.i18n.t('chartEditor.chartLoadFailed'),
+                      };
+                    // 미저장은 문장 대신 SAVE 의 점으로 알린다.
+                    case 'unsaved':
+                    case 'none':
+                      return { kind: 'none' };
+                  }
+                };
+                view.status.show(getStatusMessage(getEditorStatus(state)));
+                view.unsavedDot.setVisible(hasUnsavedChanges(state));
+                break;
+              }
+              case 'confirm': {
+                const pending = getPending(state);
+                const getConfirmContent = (
+                  pending: PendingAction,
+                  noteCount: number,
+                ): ConfirmDialogContent => {
+                  switch (pending.kind) {
+                    case 'select':
+                    case 'leave':
+                      return {
+                        title: this.i18n.t('chartEditor.discardTitle'),
+                        body: this.i18n.t('chartEditor.discardConfirm'),
+                        cancelLabel: 'CANCEL',
+                        acceptLabel: 'DISCARD',
+                        acceptTone: 'default',
+                      };
+                    case 'clearNotes':
+                      return {
+                        title: this.i18n.t('chartEditor.clearTitle'),
+                        body: this.i18n.t('chartEditor.clearConfirm', { noteCount }),
+                        cancelLabel: 'CANCEL',
+                        acceptLabel: 'CLEAR',
+                        acceptTone: 'danger',
+                      };
+                    case 'saveFailed':
+                      return {
+                        title: this.i18n.t('chartEditor.saveFailedTitle'),
+                        body: this.i18n.t('chartEditor.saveFailedBody'),
+                        cancelLabel: null,
+                        acceptLabel: 'OK',
+                        acceptTone: 'default',
+                      };
+                    case 'saveConflict':
+                      return {
+                        title: this.i18n.t('chartEditor.saveFailedTitle'),
+                        body: this.i18n.t('chartEditor.saveConflictBody'),
+                        cancelLabel: null,
+                        acceptLabel: 'OK',
+                        acceptTone: 'default',
+                      };
+                    case 'invalidChart':
+                      return {
+                        title: this.i18n.t('chartEditor.saveFailedTitle'),
+                        body: this.i18n.t('chartEditor.invalidChartBody', {
+                          reason: pending.reason,
+                        }),
+                        cancelLabel: null,
+                        acceptLabel: 'OK',
+                        acceptTone: 'default',
+                      };
+                    case 'testPlayUnsaved':
+                      return {
+                        title: this.i18n.t('chartEditor.testPlayBlockedTitle'),
+                        body: this.i18n.t('chartEditor.testPlayUnsavedBody'),
+                        cancelLabel: null,
+                        acceptLabel: 'OK',
+                        acceptTone: 'default',
+                      };
+                    case 'testPlayNoChart':
+                      return {
+                        title: this.i18n.t('chartEditor.testPlayBlockedTitle'),
+                        body: this.i18n.t('chartEditor.testPlayNoChartBody'),
+                        cancelLabel: null,
+                        acceptLabel: 'OK',
+                        acceptTone: 'default',
+                      };
+                  }
+                };
+                view.confirm.render(
+                  pending === null ? null : getConfirmContent(pending, getNotes(state).length),
+                );
+                break;
+              }
+              case 'panel': {
+                const { titleKey, noteCount } = getSelectionPanel(state);
+                view.selectionTitle.setText(this.i18n.t(titleKey));
+                describeSelection(getSession(state)?.draft.selected ?? null).forEach(
+                  ({ value }, index) =>
+                    requireDefined(
+                      view.selectionValues[index],
+                      'Missing selection value text for row',
+                      index,
+                    ).setText(value),
+                );
+                view.noteCountText.setText(
+                  noteCount === null
+                    ? ''
+                    : this.i18n.t('chartEditor.noteCount', { count: noteCount }),
+                );
+                break;
+              }
+              case 'restartButton':
+                view.restartButton.render(getEditorButtonView(state, 'restart'), 'restart');
+                break;
+              case 'playButton':
+                view.playButton.render(
+                  getEditorButtonView(state, 'play'),
+                  getPlayButtonIcon(state),
+                );
+                break;
+              case 'playhead': {
+                const { currentTimeMs } = state.playhead;
+                const selection = getSelection(state);
+                view.timeText.setText(
+                  `${formatEditorTime(currentTimeMs)} / ${formatEditorTime(selection.song.gameEndMs)}`,
+                );
+                const thumbXPx = getSeekXPx(LAYOUT, currentTimeMs, selection.song);
+                view.seekFill.setSize(thumbXPx - LAYOUT.seek.leftPx, SEEK_TRACK_HEIGHT_PX);
+                view.seekThumb.setX(thumbXPx).setVisible(true);
+                const { timeline } = LAYOUT;
+                const toY = (timeMs: number): number =>
+                  getNoteY(timeMs, currentTimeMs, timeline.playheadYPx, PX_PER_SECOND);
+                const fromMs = getNoteTimeAtY(
+                  timeline.bottomYPx,
+                  currentTimeMs,
+                  timeline.playheadYPx,
+                  PX_PER_SECOND,
+                );
+                const toMs = getNoteTimeAtY(
+                  timeline.topYPx,
+                  currentTimeMs,
+                  timeline.playheadYPx,
+                  PX_PER_SECOND,
+                );
+                // 0초는 굵은 선이므로 그 선이 타일의 굵은 선 줄에 오도록 타일을 민다.
+                view.grid.setTilePosition(
+                  0,
+                  Phaser.Math.Wrap(
+                    GRID_TILE_LINE_OFFSET_PX - (toY(0) - timeline.topYPx),
+                    0,
+                    GRID_TILE_HEIGHT_PX,
+                  ),
+                );
+                const majorTimesMs = getGridTimesMs(fromMs, toMs, GRID_MAJOR_STEP_MS);
+                for (const [index, label] of view.gridLabels.entries()) {
+                  const timeMs = majorTimesMs[index];
+                  if (timeMs === undefined) {
+                    label.setVisible(false);
+                    continue;
+                  }
+                  label
+                    .setText(`${msToSec(timeMs)}s`)
+                    .setPosition(GRID_LABEL_RIGHT_X_PX, toY(timeMs))
+                    .setVisible(true);
+                }
+                break;
+              }
+              case 'seekMarks': {
+                // 노트가 바뀔 때만 불리므로 그때 텍스처를 비우고 다시 굽는다.
+                const { song } = getSelection(state);
+                view.seekMarks.render(
+                  getNotes(state).map((note) => getSeekXPx(LAYOUT, note.timeMs, song)),
+                );
+                break;
+              }
+              case 'notes': {
+                // 노트는 playhead 기준 위치에 그리므로 시각이 바뀌어도 다시 그린다.
+                const { song, laneCount } = getSelection(state);
+                view.noteLayer.render({
+                  notes: getNotes(state),
+                  selected: getSession(state)?.draft.selected ?? null,
+                  currentTimeMs: state.playhead.currentTimeMs,
+                  laneCenterXPx: getLanes(laneCount).map((lane) =>
+                    getLaneCenterXPx(LAYOUT, laneCount, lane),
+                  ),
+                  accentColor: song.accentColor,
+                });
+                break;
+              }
+              case 'decorations':
+                view.dividerGlint.setVisible(getEditorDecorations(state).isDividerGlintVisible);
+                break;
+              case 'playerStatus': {
+                const translatePlayerFailure = (
+                  failure: Extract<EditorPlayerStatus, { kind: 'failed' }>['failure'],
+                ): string => {
+                  // eslint-disable-next-line dazbeat/two-way-switch -- 재생 실패 종류는 늘어난다.
+                  switch (failure.kind) {
+                    case 'loadFailed':
+                      return this.i18n.t('gameplay.playerLoadFailed');
+                    case 'videoError':
+                      return this.i18n.t('youtubeError.withCode', {
+                        message: this.i18n.t(`youtubeError.${failure.errorKind}`),
+                        code: failure.code,
+                      });
+                  }
+                };
+                view.playerText.setText(
+                  state.player.kind === 'failed'
+                    ? translatePlayerFailure(state.player.failure)
+                    : '',
+                );
+                break;
+              }
+              case 'backButton':
+                view.backButton.render(getEditorButtonView(state, 'back'));
+                break;
+              case 'previousSongButton':
+                view.previousSongButton.render(
+                  getEditorButtonView(state, 'previousSong'),
+                  'previous',
+                );
+                break;
+              case 'nextSongButton':
+                view.nextSongButton.render(getEditorButtonView(state, 'nextSong'), 'next');
+                break;
+              case 'saveButton':
+                view.saveButton.render(getEditorButtonView(state, 'save'));
+                break;
+              case 'testPlayButton':
+                view.testPlayButton.render(getEditorButtonView(state, 'testPlay'));
+                break;
+              case 'deleteButton':
+                view.deleteButton.render(getEditorButtonView(state, 'delete'));
+                break;
+              case 'clearButton':
+                view.clearButton.render(getEditorButtonView(state, 'clear'));
+                break;
+              case 'confirmButtons':
+                view.confirm.renderButtons(
+                  getEditorButtonView(state, 'confirmCancel'),
+                  getEditorButtonView(state, 'confirmAccept'),
+                );
+                break;
+              case 'levelControl':
+                view.levelStepper.down.render(getEditorButtonView(state, 'levelDown'), 'previous');
+                view.levelStepper.up.render(getEditorButtonView(state, 'levelUp'), 'next');
+                view.levelStepper.render(getLevelControl(state));
+                break;
+            }
+          }
+        },
         syncLevelInput: (level) => view.levelStepper.syncInput(level),
         startTestPlay: (chart, startTimeMs) =>
           startScene(this, 'gameplay', {
@@ -313,7 +638,35 @@ export class ChartEditorScene extends Phaser.Scene {
     const view = this.createView(editor);
     keyboard.on(
       'keydown',
-      handleEachEventOnce((event: KeyboardEvent) => this.handleKey(editor, view, event)),
+      handleEachEventOnce((event: KeyboardEvent) => {
+        switch (readEditorKey(event, view.levelStepper.isInputFocused)) {
+          case 'undo':
+            editor.undo();
+            return;
+          case 'confirmPending':
+            editor.confirmPending();
+            return;
+          case 'togglePlayback':
+            editor.togglePlayback();
+            return;
+          case 'deleteSelected':
+            editor.deleteSelected();
+            return;
+          case 'back':
+            editor.back();
+            return;
+          case 'blurLevelInput':
+            view.levelStepper.blur();
+            return;
+          // 글자를 먼저 되돌려야 blur 확정이 지금 레벨로 끝나 아무것도 바꾸지 않는다.
+          case 'cancelLevelInput':
+            editor.cancelLevelInput();
+            view.levelStepper.blur();
+            return;
+          case null:
+            return;
+        }
+      }),
     );
     // Phaser 가 캔버스 mousedown 의 기본 동작을 막아 브라우저가 스스로 포커스를 옮기지 않는다.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, () => view.levelStepper.blur());
@@ -329,34 +682,13 @@ export class ChartEditorScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
       this.events.off(Phaser.Scenes.Events.UPDATE, onUpdate);
-      this.scale.off(Phaser.Scale.Events.RESIZE, onResize);
+      this.scale.off(Phaser.Scale.Events.RESIZE, placeVideoPreview);
       delete this.mvLayer.dataset.mvFrame;
       Object.values(MV_FRAME_PROPERTIES).forEach((name) => this.mvLayer.style.removeProperty(name));
       editor.close();
     });
 
     editor.start();
-  }
-
-  private placeVideoPreview(): void {
-    const bounds = this.game.canvas.getBoundingClientRect();
-    const rect = toViewportRect(
-      LAYOUT.video,
-      {
-        leftPx: bounds.left,
-        topPx: bounds.top,
-        widthPx: bounds.width,
-        heightPx: bounds.height,
-      },
-      GAME_WIDTH,
-      GAME_HEIGHT,
-    );
-    const { style } = this.mvLayer;
-    style.setProperty(MV_FRAME_PROPERTIES.leftPx, `${rect.leftPx}px`);
-    style.setProperty(MV_FRAME_PROPERTIES.topPx, `${rect.topPx}px`);
-    style.setProperty(MV_FRAME_PROPERTIES.widthPx, `${rect.widthPx}px`);
-    style.setProperty(MV_FRAME_PROPERTIES.heightPx, `${rect.heightPx}px`);
-    this.mvLayer.dataset.mvFrame = 'preview';
   }
 
   private createView(editor: ChartEditorController): EditorView {
@@ -371,16 +703,10 @@ export class ChartEditorScene extends Phaser.Scene {
       fillAlpha: 1,
       border: null,
     }).setOrigin(0, 0);
-    const pointer: ButtonPointer<EditorButton> = {
-      pointerOver: (button) => editor.pointerOverButton(button),
-      pointerOut: (button) => editor.pointerOutButton(button),
-      pointerDown: (button) => editor.pointerDownButton(button),
-      pointerUp: (button) => editor.pointerUpButton(button),
-    };
     const topCenterYPx = LAYOUT.topBar.centerYPx;
     const backButton = createAuxiliaryButton(this, LAYOUT.video.leftPx, topCenterYPx, {
       label: 'BACK',
-      pointer: pointButton(pointer, 'back'),
+      pointer: pointButton(editor, 'back'),
     });
     const previousSongCenterXPx =
       backButton.x + backButton.width + BUTTON_GAP_PX + EDITOR_ICON_HIT_SIZE_PX / 2;
@@ -389,19 +715,19 @@ export class ChartEditorScene extends Phaser.Scene {
       previousSongCenterXPx,
       topCenterYPx,
       'previous',
-      pointButton(pointer, 'previousSong'),
+      pointButton(editor, 'previousSong'),
     );
     const nextSongButton = new EditorIconButton(
       this,
       previousSongCenterXPx + EDITOR_ICON_HIT_SIZE_PX + BUTTON_GAP_PX,
       topCenterYPx,
       'next',
-      pointButton(pointer, 'nextSong'),
+      pointButton(editor, 'nextSong'),
     );
     const saveButton = createCenteredEditorButton(this, 0, topCenterYPx, {
       variant: 'secondary',
       label: 'SAVE',
-      pointer: pointButton(pointer, 'save'),
+      pointer: pointButton(editor, 'save'),
       widthPx: SAVE_WIDTH_PX,
       heightPx: SAVE_HEIGHT_PX,
     }).alignX(LAYOUT.tools.leftPx + LAYOUT.tools.widthPx, 1);
@@ -487,7 +813,7 @@ export class ChartEditorScene extends Phaser.Scene {
         {
           variant: 'secondary',
           label: 'TEST PLAY',
-          pointer: pointButton(pointer, 'testPlay'),
+          pointer: pointButton(editor, 'testPlay'),
           widthPx: LAYOUT.tools.widthPx,
           heightPx: TEST_PLAY_HEIGHT_PX,
         },
@@ -497,14 +823,14 @@ export class ChartEditorScene extends Phaser.Scene {
         LAYOUT.restartCenterXPx,
         transportYPx,
         'restart',
-        pointButton(pointer, 'restart'),
+        pointButton(editor, 'restart'),
       ),
       playButton: new EditorIconButton(
         this,
         LAYOUT.playCenterXPx,
         transportYPx,
         'play',
-        pointButton(pointer, 'play'),
+        pointButton(editor, 'play'),
       ),
       playerText: this.add.text(LAYOUT.playerText.leftPx, LAYOUT.playerText.topYPx, '', {
         ...typeStyle(EDITOR_TYPE_SCALE.meta, CELESTIAL_COLORS.textSecondary),
@@ -559,16 +885,16 @@ export class ChartEditorScene extends Phaser.Scene {
             }),
         },
         level: {
-          down: pointButton(pointer, 'levelDown'),
-          up: pointButton(pointer, 'levelUp'),
+          down: pointButton(editor, 'levelDown'),
+          up: pointButton(editor, 'levelUp'),
           onCommit: (text) => editor.commitLevelInput(text),
         },
-        deletePointer: pointButton(pointer, 'delete'),
-        clearPointer: pointButton(pointer, 'clear'),
+        deletePointer: pointButton(editor, 'delete'),
+        clearPointer: pointButton(editor, 'clear'),
       }),
       confirm: new ConfirmDialog(this, {
-        cancel: pointButton(pointer, 'confirmCancel'),
-        accept: pointButton(pointer, 'confirmAccept'),
+        cancel: pointButton(editor, 'confirmCancel'),
+        accept: pointButton(editor, 'confirmAccept'),
       }),
     };
     this.createTimeline(editor);
@@ -600,9 +926,9 @@ export class ChartEditorScene extends Phaser.Scene {
       [0, video.topPx, video.leftPx, video.heightPx],
       [videoRightXPx, video.topPx, GAME_WIDTH - videoRightXPx, video.heightPx],
     ];
-    rects.forEach(([xPx, yPx, widthPx, heightPx]) => {
+    for (const [xPx, yPx, widthPx, heightPx] of rects) {
       this.add.rectangle(xPx, yPx, widthPx, heightPx, CELESTIAL_COLORS.background).setOrigin(0, 0);
-    });
+    }
   }
 
   private addSectionLabel(label: string, yPx: number): Phaser.GameObjects.Text {
@@ -834,14 +1160,14 @@ export class ChartEditorScene extends Phaser.Scene {
         },
       )
       .on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-        editor.pointerDown(this.getTimelinePointer(editor, pointer));
+        editor.pressTimeline(this.getTimelinePointer(editor, pointer));
       });
     // drag 중에는 pointer 가 timeline 밖으로 나가도 따라간다. lane·시각은 변환 함수가 제한한다.
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      editor.pointerMove(this.getTimelinePointer(editor, pointer));
+      editor.dragTimeline(this.getTimelinePointer(editor, pointer));
     });
     this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
-      editor.pointerUp(this.getTimelinePointer(editor, pointer).timeMs);
+      editor.releaseTimeline(this.getTimelinePointer(editor, pointer).timeMs);
     });
   }
 
@@ -859,120 +1185,6 @@ export class ChartEditorScene extends Phaser.Scene {
         PX_PER_SECOND,
       ),
     };
-  }
-
-  private renderChanges(
-    view: EditorView,
-    previous: ChartEditorState | null,
-    next: ChartEditorState,
-  ): void {
-    for (const region of getChangedRegions(previous, next)) {
-      this.renderRegion(view, previous, next, region);
-    }
-  }
-
-  private renderRegion(
-    view: EditorView,
-    previous: ChartEditorState | null,
-    state: ChartEditorState,
-    region: EditorRegion,
-  ): void {
-    switch (region) {
-      case 'selection': {
-        this.renderSongTitle(view, getSelection(state).song.title);
-        view.difficulties.forEach((item) => this.renderDifficulty(item, state));
-        return;
-      }
-      case 'laneCountIndicator':
-        view.laneCountSwitch.renderIndicator(
-          getSelection(state).laneCount,
-          getLaneCountMotion(previous),
-        );
-        return;
-      case 'laneCountSegments': {
-        const selection = getSelection(state);
-        const hovered = getHoveredLaneCount(state);
-        view.laneCountSwitch.renderSegments((laneCount) =>
-          getSegmentAppearance(laneCount, selection.laneCount, hovered),
-        );
-        return;
-      }
-      case 'toolIndicator':
-        view.toolSwitch.renderIndicator(state.tool, getToolMotion(previous, state));
-        return;
-      case 'toolSegments': {
-        const hovered = getHoveredTool(state);
-        view.toolSwitch.renderSegments((tool) => getSegmentAppearance(tool, state.tool, hovered));
-        return;
-      }
-      case 'laneLines':
-        this.renderLaneLines(view, getSelection(state).laneCount);
-        return;
-      case 'status':
-        this.renderStatus(view, state);
-        return;
-      case 'confirm':
-        this.renderConfirm(view, state);
-        return;
-      case 'panel':
-        this.renderPanel(view, state);
-        return;
-      case 'restartButton':
-        view.restartButton.render(getEditorButtonView(state, 'restart'), 'restart');
-        return;
-      case 'playButton':
-        view.playButton.render(getEditorButtonView(state, 'play'), getPlayButtonIcon(state));
-        return;
-      case 'playhead':
-        this.renderPlayhead(view, state);
-        return;
-      case 'seekMarks':
-        this.renderSeekMarks(view, state);
-        return;
-      case 'notes':
-        this.renderNotes(view, state);
-        return;
-      case 'decorations':
-        this.renderDecorations(view, state);
-        return;
-      case 'playerStatus':
-        this.renderPlayerStatus(view, state.player);
-        return;
-      case 'backButton':
-        view.backButton.render(getEditorButtonView(state, 'back'));
-        return;
-      case 'previousSongButton':
-        view.previousSongButton.render(getEditorButtonView(state, 'previousSong'), 'previous');
-        return;
-      case 'nextSongButton':
-        view.nextSongButton.render(getEditorButtonView(state, 'nextSong'), 'next');
-        return;
-      case 'saveButton':
-        view.saveButton.render(getEditorButtonView(state, 'save'));
-        return;
-      case 'testPlayButton':
-        view.testPlayButton.render(getEditorButtonView(state, 'testPlay'));
-        return;
-      case 'deleteButton':
-        view.deleteButton.render(getEditorButtonView(state, 'delete'));
-        return;
-      case 'clearButton':
-        view.clearButton.render(getEditorButtonView(state, 'clear'));
-        return;
-      case 'confirmButtons':
-        view.confirm.renderButtons(
-          getEditorButtonView(state, 'confirmCancel'),
-          getEditorButtonView(state, 'confirmAccept'),
-        );
-        return;
-      case 'levelControl':
-        view.levelStepper.render({
-          ...getLevelControl(state),
-          down: getEditorButtonView(state, 'levelDown'),
-          up: getEditorButtonView(state, 'levelUp'),
-        });
-        return;
-    }
   }
 
   private createSeekBar(editor: ChartEditorController): void {
@@ -999,245 +1211,6 @@ export class ChartEditorScene extends Phaser.Scene {
     zone.on(Phaser.Input.Events.GAMEOBJECT_DRAG, seekToPointer);
   }
 
-  private renderPlayerStatus(view: EditorView, player: EditorPlayerStatus): void {
-    switch (player.kind) {
-      case 'loading':
-      case 'ready':
-        view.playerText.setText('');
-        return;
-      case 'failed':
-        view.playerText.setText(this.translatePlayerFailure(player.failure));
-        return;
-    }
-  }
-
-  private translatePlayerFailure(
-    failure: Extract<EditorPlayerStatus, { kind: 'failed' }>['failure'],
-  ): string {
-    switch (failure.kind) {
-      case 'loadFailed':
-        return this.i18n.t('gameplay.playerLoadFailed');
-      case 'videoError':
-        return this.i18n.t('youtubeError.withCode', {
-          message: this.i18n.t(`youtubeError.${failure.errorKind}`),
-          code: failure.code,
-        });
-    }
-  }
-
-  private renderSongTitle(view: EditorView, title: string): void {
-    setFittedText(view.songTitle, title, LAYOUT.title.maxWidthPx);
-  }
-
-  private renderStatus(view: EditorView, state: ChartEditorState): void {
-    const status = getEditorStatus(state);
-    view.status.show(this.getStatusMessage(status));
-    view.unsavedDot.setVisible(hasUnsavedChanges(state));
-  }
-
-  private renderDecorations(view: EditorView, state: ChartEditorState): void {
-    view.dividerGlint.setVisible(getEditorDecorations(state).isDividerGlintVisible);
-  }
-
-  private renderConfirm(view: EditorView, state: ChartEditorState): void {
-    const pending = getPending(state);
-    if (pending === null) {
-      view.confirm.render(null);
-      return;
-    }
-    view.confirm.render(this.getConfirmContent(pending, getNotes(state).length));
-  }
-
-  private getConfirmContent(pending: PendingAction, noteCount: number): ConfirmDialogContent {
-    switch (pending.kind) {
-      case 'select':
-      case 'leave':
-        return {
-          title: this.i18n.t('chartEditor.discardTitle'),
-          body: this.i18n.t('chartEditor.discardConfirm'),
-          cancelLabel: 'CANCEL',
-          acceptLabel: 'DISCARD',
-          acceptTone: 'default',
-        };
-      case 'clearNotes':
-        return {
-          title: this.i18n.t('chartEditor.clearTitle'),
-          body: this.i18n.t('chartEditor.clearConfirm', { noteCount }),
-          cancelLabel: 'CANCEL',
-          acceptLabel: 'CLEAR',
-          acceptTone: 'danger',
-        };
-      case 'saveFailed':
-        return {
-          title: this.i18n.t('chartEditor.saveFailedTitle'),
-          body: this.i18n.t('chartEditor.saveFailedBody'),
-          cancelLabel: null,
-          acceptLabel: 'OK',
-          acceptTone: 'default',
-        };
-      case 'saveConflict':
-        return {
-          title: this.i18n.t('chartEditor.saveFailedTitle'),
-          body: this.i18n.t('chartEditor.saveConflictBody'),
-          cancelLabel: null,
-          acceptLabel: 'OK',
-          acceptTone: 'default',
-        };
-      case 'invalidChart':
-        return {
-          title: this.i18n.t('chartEditor.saveFailedTitle'),
-          body: this.i18n.t('chartEditor.invalidChartBody', { reason: pending.reason }),
-          cancelLabel: null,
-          acceptLabel: 'OK',
-          acceptTone: 'default',
-        };
-      case 'testPlayUnsaved':
-        return {
-          title: this.i18n.t('chartEditor.testPlayBlockedTitle'),
-          body: this.i18n.t('chartEditor.testPlayUnsavedBody'),
-          cancelLabel: null,
-          acceptLabel: 'OK',
-          acceptTone: 'default',
-        };
-      case 'testPlayNoChart':
-        return {
-          title: this.i18n.t('chartEditor.testPlayBlockedTitle'),
-          body: this.i18n.t('chartEditor.testPlayNoChartBody'),
-          cancelLabel: null,
-          acceptLabel: 'OK',
-          acceptTone: 'default',
-        };
-    }
-  }
-
-  private renderPanel(view: EditorView, state: ChartEditorState): void {
-    const { titleKey, noteCount } = getSelectionPanel(state);
-    view.selectionTitle.setText(this.i18n.t(titleKey));
-    describeSelection(getSession(state)?.draft.selected ?? null).forEach(({ value }, index) => {
-      requireDefined(
-        view.selectionValues[index],
-        'Missing selection value text for row',
-        index,
-      ).setText(value);
-    });
-    view.noteCountText.setText(
-      noteCount === null ? '' : this.i18n.t('chartEditor.noteCount', { count: noteCount }),
-    );
-  }
-
-  private renderDifficulty(
-    { difficulty, text, underline }: DifficultyItem,
-    state: ChartEditorState,
-  ): void {
-    const { color, isUnderlined } = DIFFICULTY_LOOKS[getDifficultyLook(state, difficulty)];
-    setTextColor(text, color);
-    underline.setVisible(isUnderlined);
-  }
-
-  private getStatusMessage(status: EditorStatus): Notice {
-    switch (status.kind) {
-      case 'loading':
-        // 채보 로딩은 문구 없이 별만 돈다.
-        return {
-          kind: 'loading',
-          text: '',
-        };
-      case 'loadFailed':
-        return {
-          kind: 'text',
-          text: this.i18n.t('chartEditor.chartLoadFailed'),
-        };
-      // 미저장은 문장 대신 SAVE 의 점으로 알린다.
-      case 'unsaved':
-      case 'none':
-        return { kind: 'none' };
-    }
-  }
-
-  private renderPlayhead(view: EditorView, state: ChartEditorState): void {
-    const { currentTimeMs } = state.playhead;
-    const selection = getSelection(state);
-    view.timeText.setText(
-      `${formatEditorTime(currentTimeMs)} / ${formatEditorTime(selection.song.gameEndMs)}`,
-    );
-    const thumbXPx = getSeekXPx(LAYOUT, currentTimeMs, selection.song);
-    view.seekFill.setSize(thumbXPx - LAYOUT.seek.leftPx, SEEK_TRACK_HEIGHT_PX);
-    view.seekThumb.setX(thumbXPx).setVisible(true);
-    this.renderGrid(view, currentTimeMs);
-  }
-
-  /** 노트는 playhead 기준 위치에 그리므로 시각이 바뀌어도 다시 그린다. */
-  private renderNotes(view: EditorView, state: ChartEditorState): void {
-    const { song, laneCount } = getSelection(state);
-    view.noteLayer.render({
-      notes: getNotes(state),
-      selected: getSession(state)?.draft.selected ?? null,
-      currentTimeMs: state.playhead.currentTimeMs,
-      laneCenterXPx: getLanes(laneCount).map((lane) => getLaneCenterXPx(LAYOUT, laneCount, lane)),
-      accentColor: song.accentColor,
-    });
-  }
-
-  // 노트가 바뀔 때만 불리므로 그때 텍스처를 비우고 다시 굽는다.
-  private renderSeekMarks(view: EditorView, state: ChartEditorState): void {
-    const selection = getSelection(state);
-    view.seekMarks.render(
-      getNotes(state).map((note) => getSeekXPx(LAYOUT, note.timeMs, selection.song)),
-    );
-  }
-
-  private renderGrid(view: EditorView, currentTimeMs: number): void {
-    const { timeline } = LAYOUT;
-    const toY = (timeMs: number): number =>
-      getNoteY(timeMs, currentTimeMs, timeline.playheadYPx, PX_PER_SECOND);
-    const fromMs = getNoteTimeAtY(
-      timeline.bottomYPx,
-      currentTimeMs,
-      timeline.playheadYPx,
-      PX_PER_SECOND,
-    );
-    const toMs = getNoteTimeAtY(
-      timeline.topYPx,
-      currentTimeMs,
-      timeline.playheadYPx,
-      PX_PER_SECOND,
-    );
-    // 0초는 굵은 선이므로 그 선이 타일의 굵은 선 줄에 오도록 타일을 민다.
-    view.grid.setTilePosition(
-      0,
-      Phaser.Math.Wrap(
-        GRID_TILE_LINE_OFFSET_PX - (toY(0) - timeline.topYPx),
-        0,
-        GRID_TILE_HEIGHT_PX,
-      ),
-    );
-    const majorTimesMs = getGridTimesMs(fromMs, toMs, GRID_MAJOR_STEP_MS);
-    view.gridLabels.forEach((label, index) => {
-      const timeMs = majorTimesMs[index];
-      if (timeMs === undefined) {
-        label.setVisible(false);
-        return;
-      }
-      label
-        .setText(`${msToSec(timeMs)}s`)
-        .setPosition(GRID_LABEL_RIGHT_X_PX, toY(timeMs))
-        .setVisible(true);
-    });
-  }
-
-  private renderLaneLines(view: EditorView, laneCount: LaneCount): void {
-    const { lanes } = LAYOUT;
-    view.laneLines.setTexture(
-      ensureLaneLinesTexture(this, laneCount, {
-        widthPx: lanes.widthPx + (lanes.leftPx - LANE_LINES_LEFT_PX) * 2,
-        heightPx: TIMELINE_HEIGHT_PX,
-        firstLineXPx: lanes.leftPx - LANE_LINES_LEFT_PX,
-        laneWidthPx: getLaneWidthPx(LAYOUT, laneCount),
-        lineWidthPx: LANE_LINE_WIDTH_PX,
-      }),
-    );
-  }
-
   private addGrid(): Phaser.GameObjects.TileSprite {
     const { lanes, timeline } = LAYOUT;
     const key = ensureGridTileTexture(this, {
@@ -1250,35 +1223,5 @@ export class ChartEditorScene extends Phaser.Scene {
       .tileSprite(lanes.leftPx, timeline.topYPx, lanes.widthPx, TIMELINE_HEIGHT_PX, key)
       .setOrigin(0, 0)
       .setDepth(GAMEPLAY_DEPTH.laneDivider);
-  }
-
-  private handleKey(editor: ChartEditorController, view: EditorView, event: KeyboardEvent): void {
-    switch (readEditorKey(event, view.levelStepper.isInputFocused)) {
-      case 'undo':
-        editor.undo();
-        return;
-      case 'confirmPending':
-        editor.confirmPending();
-        return;
-      case 'togglePlayback':
-        editor.togglePlayback();
-        return;
-      case 'deleteSelected':
-        editor.deleteSelected();
-        return;
-      case 'back':
-        editor.back();
-        return;
-      case 'blurLevelInput':
-        view.levelStepper.blur();
-        return;
-      // 글자를 먼저 되돌려야 blur 확정이 지금 레벨로 끝나 아무것도 바꾸지 않는다.
-      case 'cancelLevelInput':
-        editor.cancelLevelInput();
-        view.levelStepper.blur();
-        return;
-      case null:
-        return;
-    }
   }
 }

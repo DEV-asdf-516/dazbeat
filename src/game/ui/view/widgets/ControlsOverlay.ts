@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import type { ButtonAppearance, ButtonView } from '../../state/buttonPointer.js';
-import type { ControlsButton, ControlsGroup, ControlsGuide } from '../../../app/controlsGuide.js';
+import type { ButtonView } from '../../state/buttonPointer.js';
+import type { ControlsButton, ControlsGuide } from '../../../app/controlsGuide.js';
 import { createAuxiliaryButton } from './auxiliaryButton.js';
 import { getCloseIconTexture } from './closeIcon.js';
 import { QUIET_PADDING_PX } from './Button.js';
@@ -11,24 +11,16 @@ import {
   MENU_KEY_HINT_STYLE,
   createKeyCap,
   getKeyCapObjects,
+  getKeyCapLook,
   placeKeyCap,
-  setKeyCapWidth,
 } from './keyHintView.js';
 import type { KeyCap, KeyHintStyle } from './keyHintView.js';
 import { ControlsHelpCard } from './ControlsHelpCard.js';
+import { HELP_BUTTON, HELP_BUTTON_ALPHAS, ensureHelpButtonTexture } from './HelpTip.js';
 import { ModalFrame } from './ModalFrame.js';
 import { getBrushRectTexture } from '../textures/brushRect.js';
-import { createCanvasTexture } from '../textures/canvasTexture.js';
-import { rgba } from '../textures/lightTextures.js';
 import { HOVER_CURSOR } from '../input/cursor.js';
-import {
-  CELESTIAL_COLORS,
-  COLORS,
-  FONT_FAMILY,
-  TYPE_SCALE,
-  cssColor,
-  typeStyle,
-} from '../theme.js';
+import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from '../theme.js';
 
 // 확인 팝업(ConfirmDialog)과 같은 여백·글자 크기로 맞춘다.
 const PADDING_PX = 32;
@@ -75,22 +67,7 @@ const ROW_HEIGHT_PX = PANEL_KEY_CAP_STYLE.capHeightPx;
 const ENTRY_ROW_HEIGHT_PX = MENU_KEY_HINT_STYLE.capHeightPx;
 // 도움말 카드는 CONTROLS 판 오른쪽에 이만큼 띄워 위끝을 맞춘다.
 const HELP_CARD_GAP_PX = 20;
-const HELP_BUTTON = {
-  textureKey: 'controls:helpButton',
-  radiusPx: 10,
-  ringWidthPx: 2,
-  fillAlpha: 0.16,
-  glyphSizePx: 13,
-  glyphWeight: 800,
-  titleGapPx: 12,
-} as const;
-const HELP_BUTTON_ALPHAS: Readonly<Record<ButtonAppearance, number>> = {
-  disabled: 0.4,
-  pressed: 0.85,
-  hovered: 1,
-  focused: 1,
-  idle: 0.7,
-};
+const HELP_BUTTON_TITLE_GAP_PX = 12;
 const ENTRY_KEY = 'H';
 const ENTRY_LABEL = 'CONTROLS';
 
@@ -109,9 +86,9 @@ export class ControlsOverlay {
   private readonly scene: Phaser.Scene;
   private readonly frame: ModalFrame;
   private readonly title: Phaser.GameObjects.Text;
-  private readonly closeButton: Button;
+  readonly closeButton: Button;
   private readonly helpButton: Phaser.GameObjects.Image;
-  private readonly helpCard: ControlsHelpCard;
+  readonly helpCard: ControlsHelpCard;
   private groups: readonly GroupView[] = [];
 
   constructor(scene: Phaser.Scene, pointer: ButtonPointer<ControlsButton>) {
@@ -124,11 +101,15 @@ export class ControlsOverlay {
     this.closeButton = createAuxiliaryButton(scene, 0, this.title.y + this.title.height / 2, {
       label: '',
       pointer: pointButton(pointer, 'controlsClose'),
-    }).setIcon(getCloseIconTexture(scene, CLOSE_ICON_SIZE_PX), CLOSE_ICON_SIZE_PX);
+    }).setContent({
+      kind: 'icon',
+      textureKey: getCloseIconTexture(scene, CLOSE_ICON_SIZE_PX),
+      sizePx: CLOSE_ICON_SIZE_PX,
+    });
     const titleCenterYPx = this.title.y + this.title.height / 2;
     this.helpButton = scene.add
       .image(
-        this.title.x + this.title.width + HELP_BUTTON.titleGapPx + HELP_BUTTON.radiusPx,
+        this.title.x + this.title.width + HELP_BUTTON_TITLE_GAP_PX + HELP_BUTTON.radiusPx,
         titleCenterYPx,
         ensureHelpButtonTexture(scene),
       )
@@ -143,35 +124,16 @@ export class ControlsOverlay {
     ]);
   }
 
+  // 열 때마다 언어·레인 키가 바뀌었을 수 있으므로 글자와 키캡을 새로 만든다.
   render(guide: ControlsGuide | null): void {
     if (guide === null) {
-      this.helpCard.render(false);
+      this.helpCard.hide();
       this.frame.render(false);
       return;
     }
-    const panelWidthPx = this.renderGuide(guide.groups);
-    this.helpCard.setGuide(guide.helpKey);
-    this.helpCard.container.setPosition(panelWidthPx + HELP_CARD_GAP_PX, 0);
-    this.frame.render(true);
-  }
-
-  renderHelpCard(isShown: boolean): void {
-    this.helpCard.render(isShown);
-  }
-
-  renderHelpButton(button: ButtonView): void {
-    this.helpButton.setAlpha(HELP_BUTTON_ALPHAS[button.appearance]);
-  }
-
-  renderCloseButton(view: ButtonView): void {
-    this.closeButton.render(view);
-  }
-
-  // 열 때마다 언어·레인 키가 바뀌었을 수 있으므로 글자와 키캡을 새로 만든다.
-  private renderGuide(guide: readonly ControlsGroup[]): number {
     const scene = this.scene;
     this.groups.forEach((group) => getGroupObjects(group).forEach((object) => object.destroy()));
-    const groups = guide.map((group): GroupView => ({
+    const groups = guide.groups.map((group): GroupView => ({
       divider: scene.add.image(PADDING_PX, 0, '__DEFAULT').setOrigin(0, 0),
       title: scene.add.text(
         0,
@@ -191,7 +153,8 @@ export class ControlsOverlay {
     // 키캡 폭이 글자 수마다 다르면 오른쪽 열이 들쭉날쭉해 보이므로 가장 넓은 키캡에 맞춘다.
     const keyCaps = groups.flatMap(({ rows }) => rows.flatMap((row) => row.keyCaps));
     const capWidthPx = Math.max(...keyCaps.map(({ cap }) => cap.width));
-    keyCaps.forEach((keyCap) => setKeyCapWidth(keyCap, PANEL_KEY_CAP_STYLE, capWidthPx));
+    const capTexture = getBrushRectTexture(scene, getKeyCapLook(PANEL_KEY_CAP_STYLE, capWidthPx));
+    keyCaps.forEach(({ cap }) => cap.setTexture(capTexture));
     const getKeysWidthPx = (row: RowView): number =>
       (capWidthPx + KEY_CAP_GAP_PX) * row.keyCaps.length - KEY_CAP_GAP_PX;
     const contentWidthPx = Math.max(
@@ -202,7 +165,7 @@ export class ControlsOverlay {
     );
     const contentRightPx = PADDING_PX + contentWidthPx;
     let yPx = this.title.y + this.title.height + TITLE_GROUP_GAP_PX;
-    groups.forEach((group, groupIndex) => {
+    for (const [groupIndex, group] of groups.entries()) {
       if (groupIndex > 0) {
         yPx += GROUP_GAP_PX;
       }
@@ -219,54 +182,34 @@ export class ControlsOverlay {
       yPx += DIVIDER_GROUP_TITLE_GAP_PX;
       group.title.setPosition(PADDING_PX, yPx);
       yPx += group.title.height + GROUP_TITLE_ROWS_GAP_PX;
-      group.rows.forEach((row, rowIndex) => {
+      for (const [rowIndex, row] of group.rows.entries()) {
         if (rowIndex > 0) {
           yPx += ROW_GAP_PX;
         }
         const centerYPx = yPx + ROW_HEIGHT_PX / 2;
         row.label.setPosition(PADDING_PX, centerYPx);
         let capLeftPx = contentRightPx - getKeysWidthPx(row);
-        row.keyCaps.forEach((keyCap) => {
+        for (const keyCap of row.keyCaps) {
           placeKeyCap(keyCap, capLeftPx, centerYPx);
           capLeftPx += keyCap.cap.width + KEY_CAP_GAP_PX;
-        });
+        }
         yPx += ROW_HEIGHT_PX;
-      });
-    });
+      }
+    }
     this.closeButton.alignX(contentRightPx + QUIET_PADDING_PX.xPx, 1);
     const panelWidthPx = contentRightPx + PADDING_PX;
-    this.frame.setPanelSize(panelWidthPx, yPx + PADDING_PX);
-    return panelWidthPx;
+    const panelHeightPx = yPx + PADDING_PX;
+    this.frame.panel.setSize(panelWidthPx, panelHeightPx);
+    this.frame.placePanel(panelWidthPx, panelHeightPx);
+    const card = this.helpCard.setGuide(guide.helpKey);
+    this.helpCard.panel.setSize(card.widthPx, card.heightPx);
+    this.helpCard.container.setPosition(panelWidthPx + HELP_CARD_GAP_PX, 0);
+    this.frame.render(true);
   }
-}
 
-function ensureHelpButtonTexture(scene: Phaser.Scene): string {
-  const { textureKey, radiusPx, ringWidthPx } = HELP_BUTTON;
-  const sizePx = (radiusPx + ringWidthPx) * 2;
-  createCanvasTexture(
-    scene,
-    {
-      key: textureKey,
-      widthPx: sizePx,
-      heightPx: sizePx,
-    },
-    (context) => {
-      const centerPx = sizePx / 2;
-      context.beginPath();
-      context.arc(centerPx, centerPx, radiusPx, 0, Math.PI * 2);
-      context.fillStyle = rgba(CELESTIAL_COLORS.selected, HELP_BUTTON.fillAlpha);
-      context.fill();
-      context.lineWidth = ringWidthPx;
-      context.strokeStyle = cssColor(CELESTIAL_COLORS.selected);
-      context.stroke();
-      context.fillStyle = cssColor(CELESTIAL_COLORS.selected);
-      context.font = `${HELP_BUTTON.glyphWeight} ${HELP_BUTTON.glyphSizePx}px ${FONT_FAMILY}`;
-      context.textAlign = 'center';
-      context.textBaseline = 'middle';
-      context.fillText('?', centerPx, centerPx + 1);
-    },
-  );
-  return textureKey;
+  renderHelpButton(button: ButtonView): void {
+    this.helpButton.setAlpha(HELP_BUTTON_ALPHAS[button.appearance]);
+  }
 }
 
 function getGroupObjects(group: GroupView): Phaser.GameObjects.GameObject[] {

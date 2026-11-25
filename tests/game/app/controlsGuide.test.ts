@@ -30,11 +30,11 @@ describe('readControlsKey', () => {
     [true, 'KeyQ', false, 'block'],
     [true, 'KeyE', false, 'block'],
     [true, 'Tab', false, 'block'],
-  ])('isOpen %s + %s (repeat %s) → %s', (isOpen, code, repeat, expected) => {
+  ])('isOpen %s + %s (repeat %s) → %s', (isOpen, code, isRepeat, expected) => {
     expect(
       readControlsKey(isOpen, {
         code,
-        repeat,
+        repeat: isRepeat,
       }),
     ).toBe(expected);
   });

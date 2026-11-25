@@ -116,24 +116,22 @@ function ensureRailTexture(
     (context) => {
       const centerYPx = RAIL_PADDING_PX;
       context.lineCap = 'round';
-      CHART_LEVELS.slice(1).forEach((level, index) => {
+      for (const [index, level] of CHART_LEVELS.slice(1).entries()) {
         const from = requireDefined(CHART_LEVELS[index], 'Missing previous rail level', index);
         const color = getColor(level);
-        (
-          [
-            [LINE_WIDTH_PX.halo, style.line.halo],
-            [LINE_WIDTH_PX.core, style.line.core],
-          ] as const
-        ).forEach(([widthPx, alpha]) => {
+        for (const [widthPx, alpha] of [
+          [LINE_WIDTH_PX.halo, style.line.halo],
+          [LINE_WIDTH_PX.core, style.line.core],
+        ] as const) {
           context.strokeStyle = rgba(color, alpha);
           context.lineWidth = widthPx;
           context.beginPath();
           context.moveTo(getRailTextureXPx(from), centerYPx);
           context.lineTo(getRailTextureXPx(level), centerYPx);
           context.stroke();
-        });
-      });
-      CHART_LEVELS.forEach((level) => {
+        }
+      }
+      for (const level of CHART_LEVELS) {
         const { radiusPx, alpha } = Number.isInteger(level) ? style.integerDot : style.halfDot;
         const color = getColor(level);
         const xPx = getRailTextureXPx(level);
@@ -146,7 +144,7 @@ function ensureRailTexture(
         context.beginPath();
         context.arc(xPx, centerYPx, radiusPx, 0, Math.PI * 2);
         context.fill();
-      });
+      }
     },
   );
 }

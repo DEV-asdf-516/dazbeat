@@ -2,6 +2,7 @@ import { dirname, posix, relative, resolve } from 'node:path';
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
+import ts from 'typescript';
 
 const ROOT = import.meta.dirname;
 const SCREEN_FOLDERS = [
@@ -253,7 +254,229 @@ const paintOnly = {
   },
 };
 
+// conventions.md 5.4 이름 규칙과 5.5 테스트 선택 호출. 피처 러너의 빠른 검사(eslint.fast-check.config.mjs)도 같은 규칙을 쓴다.
+const BOOLEAN_NAME = /^(is|has|can)[A-Z0-9]|^(IS|HAS|CAN)_/;
+const BARE_UNIT_NAMES = new Set(['time', 'offset', 'duration', 'size']);
+// PocketBase 컬렉션과 API 응답이 이름을 정한 필드. 그 값을 받는 타입 필드도 같은 이름을 쓴다.
+const SCHEMA_BOOLEAN_FIELDS = new Set(['cleared', 'retired', 'available']);
+
+// 타입 서명의 매개변수 이름은 값을 묶지 않으므로 실제 함수만 본다.
+const FUNCTION_SELECTOR = 'FunctionDeclaration, FunctionExpression, ArrowFunctionExpression';
+
+// 이 코드가 이름을 정한 선언만 모은다. 객체 리터럴의 키와 이름을 바꾸지 않은 구조 분해는
+// 값을 받는 쪽(외부 API 옵션 등)이 이름을 정하므로 뺀다.
+function collectBindings(pattern, found = []) {
+  if (pattern === null) {
+    return found;
+  }
+  if (pattern.type === 'Identifier') {
+    found.push(pattern);
+  } else if (pattern.type === 'AssignmentPattern') {
+    collectBindings(pattern.left, found);
+  } else if (pattern.type === 'RestElement') {
+    collectBindings(pattern.argument, found);
+  } else if (pattern.type === 'TSParameterProperty') {
+    collectBindings(pattern.parameter, found);
+  } else if (pattern.type === 'ArrayPattern') {
+    pattern.elements.forEach((element) => collectBindings(element, found));
+  } else if (pattern.type === 'ObjectPattern') {
+    for (const property of pattern.properties) {
+      if (property.type === 'RestElement') {
+        collectBindings(property.argument, found);
+      } else if (!property.shorthand) {
+        collectBindings(property.value, found);
+      }
+    }
+  }
+  return found;
+}
+
+function isFunctionValue(node) {
+  return node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression';
+}
+
+function declaredNames(visit) {
+  const visitParams = (node) =>
+    node.params.forEach((param) =>
+      collectBindings(param).forEach((id) => visit(id, 'value', undefined)),
+    );
+  const visitMember = (node) => {
+    if (node.computed || node.key.type !== 'Identifier') {
+      return;
+    }
+    if (node.type === 'MethodDefinition' || node.type === 'TSMethodSignature') {
+      if (node.kind === 'method' && node.override !== true) {
+        visit(node.key, 'function', node);
+      } else if (node.kind === 'get') {
+        visit(node.key, 'getter', node);
+      }
+      return;
+    }
+    visit(node.key, isFunctionValue(node.value) ? 'function' : 'value', node);
+  };
+  return {
+    VariableDeclarator: (node) => {
+      if (node.id.type === 'Identifier' && isFunctionValue(node.init)) {
+        visit(node.id, 'function', node);
+        return;
+      }
+      collectBindings(node.id).forEach((id) => visit(id, 'value', node));
+    },
+    FunctionDeclaration: (node) => {
+      if (node.id !== null) {
+        visit(node.id, 'function', node);
+      }
+    },
+    [FUNCTION_SELECTOR]: visitParams,
+    'MethodDefinition, TSMethodSignature, PropertyDefinition, TSPropertySignature': visitMember,
+  };
+}
+
+function isBoolean(type) {
+  const members = (type.isUnion() ? type.types : [type]).filter(
+    (member) => (member.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null)) === 0,
+  );
+  return (
+    members.length > 0 && members.every((member) => (member.flags & ts.TypeFlags.BooleanLike) !== 0)
+  );
+}
+
+export const booleanName = {
+  meta: {
+    type: 'suggestion',
+    schema: [],
+    messages: {
+      value:
+        "Boolean '{{name}}' must be named isX, hasX or canX (conventions.md 5.4: 이 코드가 이름을 정하는 Boolean 값은 `isX`·`hasX`·`canX`).",
+    },
+  },
+  create(context) {
+    const services = context.sourceCode.parserServices;
+    const checker = services.program.getTypeChecker();
+    const getType = (node) => checker.getTypeAtLocation(services.esTreeNodeToTSNodeMap.get(node));
+    return declaredNames((id, kind, owner) => {
+      if (BOOLEAN_NAME.test(id.name)) {
+        return;
+      }
+      if (owner?.type === 'TSPropertySignature' && SCHEMA_BOOLEAN_FIELDS.has(id.name)) {
+        return;
+      }
+      // 함수 이름은 보지 않는다. 동작하고 결과를 알려 주는 함수(handleKey, commit)와 조회 함수를 타입으로 가를 수 없다.
+      if (isBoolean(getType(kind === 'getter' ? owner : id))) {
+        context.report({
+          node: id,
+          messageId: 'value',
+          data: { name: id.name },
+        });
+      }
+    });
+  },
+};
+
+export const bareUnitName = {
+  meta: {
+    type: 'suggestion',
+    schema: [],
+    messages: {
+      bare: "'{{name}}' alone is not allowed; put the unit or meaning in the name, as in timeoutMs, widthPx or sizeBytes (conventions.md 5.4: `time`·`offset`·`duration`·`size` 단독 금지).",
+    },
+  },
+  create(context) {
+    return declaredNames((id) => {
+      // 그라디언트 정지점 [offset, color] 같은 단위 없는 비율은 대상이 아닌데 단위 유무를 타입으로 알 수 없어, 튜플을 푼 이름은 보지 않는다.
+      if (BARE_UNIT_NAMES.has(id.name) && id.parent.type !== 'ArrayPattern') {
+        context.report({
+          node: id,
+          messageId: 'bare',
+          data: { name: id.name },
+        });
+      }
+    });
+  },
+};
+
+const LITERAL_FLAGS =
+  ts.TypeFlags.StringLiteral | ts.TypeFlags.NumberLiteral | ts.TypeFlags.BooleanLiteral;
+
+// 닫혔는지는 타입으로 알 수 없어, 늘어날 union 은 eslint-disable 에 이유를 적어 switch 로 둔다.
+export const twoWaySwitch = {
+  meta: {
+    type: 'suggestion',
+    schema: [],
+    messages: {
+      twoWay:
+        'Branch on a two-value union with if-else or a ternary (conventions.md 5.3: 뜻이 두 값으로 닫힌 union(있음과 없음, 머묾과 떠남)은 `switch` 대신 if-else나 삼항). If the union will grow, disable this line with the reason.',
+    },
+  },
+  create(context) {
+    const services = context.sourceCode.parserServices;
+    const checker = services.program.getTypeChecker();
+    return {
+      SwitchStatement(node) {
+        const type = checker.getTypeAtLocation(
+          services.esTreeNodeToTSNodeMap.get(node.discriminant),
+        );
+        if (
+          type.isUnion() &&
+          type.types.length === 2 &&
+          type.types.every((member) => (member.flags & LITERAL_FLAGS) !== 0)
+        ) {
+          context.report({
+            node: node.discriminant,
+            messageId: 'twoWay',
+          });
+        }
+      },
+    };
+  },
+};
+
+// 테스트에서 arr[i]?.resolve() 나 arr[i]?.() 처럼 결과를 버리는 선택 호출은 대상이 없어도 조용히 지나간다.
+export const requiredTestCall = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: {
+      skipped:
+        'This call is skipped silently when the element is missing; read it with requireDefined first (conventions.md 5.5: 필수 데이터 누락은 optional chaining으로 숨기지 않고 `requireDefined`).',
+    },
+  },
+  create(context) {
+    return {
+      'ExpressionStatement > ChainExpression > CallExpression, ExpressionStatement > AwaitExpression > ChainExpression > CallExpression':
+        (node) => {
+          const { callee } = node;
+          const element = node.optional ? callee : callee.optional && callee.object;
+          if (
+            callee.type === 'MemberExpression' &&
+            element.type === 'MemberExpression' &&
+            element.computed
+          ) {
+            context.report({
+              node,
+              messageId: 'skipped',
+            });
+          }
+        },
+    };
+  },
+};
+
+// dbx.exp 는 builder 로 못 만드는 조건 하나만 담는다. 묶기·IN·BETWEEN 은 dbx 함수로 쓰고,
+// COLLATE 를 붙인 IN·BETWEEN 은 dbx 가 열 이름째 인용하므로 문자열로 둔다.
+// 상관 EXISTS 서브쿼리는 builder 로 만들 수 없어 조건 하나로 친다.
+const DBX_EXP = "CallExpression[callee.property.name='exp']";
+const EXISTS_SUBQUERY = '[quasis.0.value.raw=/^EXISTS \\(/]';
+const SQL_IN_DBX_EXP =
+  '/\\bOR\\b|(?<!BETWEEN \\{:\\w+\\} )\\bAND\\b|(?<!COLLATE NOCASE )\\b(IN \\(|BETWEEN\\b)/i';
+
 // 같은 규칙 이름을 여러 블록에 두면 뒤 블록이 덮어쓰므로, 예외 파일마다 그 항목만 뺀 목록을 만든다.
+const FOR_EACH_BLOCK_RULE = {
+  selector:
+    "CallExpression[callee.property.name='forEach'] > :matches(ArrowFunctionExpression, FunctionExpression)[body.type='BlockStatement']",
+  message: 'Use for...of when the forEach callback needs a block body.',
+};
+
 const SYNTAX_RULES = [
   {
     selector: 'ExportDefaultDeclaration',
@@ -315,6 +538,16 @@ const SYNTAX_RULES = [
     message:
       'Bake Graphics and path Shapes into a texture instead of adding them to the display list.',
   },
+  {
+    selector: [
+      `${DBX_EXP} > TemplateLiteral:first-child:not(${EXISTS_SUBQUERY}) > TemplateElement[value.raw=${SQL_IN_DBX_EXP}]`,
+      `${DBX_EXP} > Literal:first-child[value=${SQL_IN_DBX_EXP}]`,
+      `${DBX_EXP} > BinaryExpression:first-child :matches(TemplateElement[value.raw=${SQL_IN_DBX_EXP}], Literal[value=${SQL_IN_DBX_EXP}])`,
+    ].join(', '),
+    message:
+      'Combine conditions with dbx.and, dbx.or, dbx.in or dbx.between; keep dbx.exp for one condition the builder cannot express.',
+  },
+  FOR_EACH_BLOCK_RULE,
 ];
 
 const NO_VI_MOCK = {
@@ -327,6 +560,126 @@ const NO_FAKE_TIMERS = {
   property: 'useFakeTimers',
   message: 'Inject time as a value instead of fake timers.',
 };
+const NO_SKIPPED_TESTS = ['describe', 'it', 'test'].flatMap((object) =>
+  ['skip', 'skipIf', 'runIf', 'only', 'todo'].map((property) => ({
+    object,
+    property,
+    message: 'Run every test; do not skip, focus or leave tests as todo.',
+  })),
+);
+
+// state/ 와 순수 모듈은 DOM·I/O·시계를 직접 쓰지 않고 Controller 가 주입한 값으로 계산한다.
+const PURE_MODULE_FILES = [
+  'src/*.ts',
+  'src/rhythm/**/*.ts',
+  'src/data/**/*.ts',
+  'src/i18n/language.ts',
+  'src/game/**/state/**/*.ts',
+];
+const PURE_MODULE_GLOBAL_MESSAGE =
+  'State and pure modules must not use DOM, I/O or the clock; receive values from the caller.';
+const PURE_MODULE_GLOBALS = [
+  'window',
+  'document',
+  'navigator',
+  'location',
+  'localStorage',
+  'sessionStorage',
+  'fetch',
+  'setTimeout',
+  'setInterval',
+  'requestAnimationFrame',
+  'performance',
+].map((name) => ({
+  name,
+  message: PURE_MODULE_GLOBAL_MESSAGE,
+}));
+
+// 서버 lib 의 export 함수 이름은 파일 종류마다 정한 동사로 시작한다.
+const LIB_FUNCTION_VERBS = {
+  service: [
+    'apply',
+    'check',
+    'consume',
+    'decide',
+    'delete',
+    'evaluate',
+    'fill',
+    'get',
+    'grant',
+    'issue',
+    'load',
+    'pick',
+    'record',
+    'verify',
+  ],
+  repository: ['build', 'delete', 'find', 'has', 'is', 'parse', 'read', 'save'],
+};
+const ROLE_SUFFIX = '(Manager|Service|Helper|Util|Utils)$';
+
+const NO_ROLE_SUFFIX_NAMES = {
+  selector: ['class', 'interface', 'typeAlias'],
+  format: null,
+  custom: {
+    regex: ROLE_SUFFIX,
+    match: false,
+  },
+};
+
+// UPPER_SNAKE_CASE 는 전역 상수만 쓴다. 이름을 바꾸지 않은 구조 분해는 값을 준 쪽이 이름을 정한다.
+// PascalCase 가 ITEM 같은 대문자 한 단어도 통과시키므로 정규식으로 따로 막는다.
+const VARIABLE_NAMES = [
+  {
+    selector: 'variable',
+    modifiers: ['global', 'const'],
+    format: null,
+  },
+  {
+    selector: 'variable',
+    modifiers: ['destructured'],
+    format: null,
+  },
+  {
+    selector: 'variable',
+    format: ['camelCase', 'PascalCase'],
+    leadingUnderscore: 'allow',
+    custom: {
+      regex: '^[A-Z][A-Z0-9]+$',
+      match: false,
+    },
+  },
+];
+
+function libVerbBlock(files, verbs) {
+  // naming-convention 은 이름마다 가장 구체적인 항목 하나만 보므로, 함수 이름의 역할 접미사 금지도 이 정규식에 넣는다.
+  const verbName = {
+    regex: `^(?!.*${ROLE_SUFFIX})(${verbs.join('|')})[A-Z]`,
+    match: true,
+  };
+  return {
+    files,
+    rules: {
+      '@typescript-eslint/naming-convention': [
+        'error',
+        NO_ROLE_SUFFIX_NAMES,
+        ...VARIABLE_NAMES,
+        {
+          selector: 'function',
+          modifiers: ['exported'],
+          format: null,
+          custom: verbName,
+        },
+        {
+          selector: 'variable',
+          types: ['function'],
+          modifiers: ['exported'],
+          format: null,
+          custom: verbName,
+        },
+      ],
+    },
+  };
+}
 
 function syntaxRuleBlocks() {
   const exemptFiles = [...new Set(SYNTAX_RULES.flatMap(({ exempt = [] }) => exempt))];
@@ -376,6 +729,10 @@ export default tseslint.config(
         rules: {
           'import-boundaries': importBoundaries,
           'paint-only': paintOnly,
+          'boolean-name': booleanName,
+          'bare-unit-name': bareUnitName,
+          'required-test-call': requiredTestCall,
+          'two-way-switch': twoWaySwitch,
         },
       },
     },
@@ -394,31 +751,54 @@ export default tseslint.config(
       ],
       'dazbeat/import-boundaries': 'error',
       'dazbeat/paint-only': 'error',
-      '@typescript-eslint/naming-convention': [
-        'error',
-        {
-          selector: ['class', 'interface', 'typeAlias'],
-          format: null,
-          custom: {
-            regex: '(Manager|Service|Helper|Util|Utils)$',
-            match: false,
-          },
-        },
-      ],
+      'dazbeat/boolean-name': 'error',
+      'dazbeat/bare-unit-name': 'error',
+      'dazbeat/two-way-switch': 'error',
+      '@typescript-eslint/naming-convention': ['error', NO_ROLE_SUFFIX_NAMES, ...VARIABLE_NAMES],
+      '@typescript-eslint/use-unknown-in-catch-callback-variable': 'error',
     },
   },
   ...syntaxRuleBlocks(),
   {
+    files: PURE_MODULE_FILES,
+    ignores: ['src/main.ts'],
+    rules: {
+      'no-restricted-globals': ['error', ...PURE_MODULE_GLOBALS],
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'Date',
+          property: 'now',
+          message: PURE_MODULE_GLOBAL_MESSAGE,
+        },
+      ],
+    },
+  },
+  libVerbBlock(
+    ['pocketbase/lib/*/service.ts', 'pocketbase/lib/*/service/*.ts'],
+    LIB_FUNCTION_VERBS.service,
+  ),
+  libVerbBlock(['pocketbase/lib/*/repository.ts'], LIB_FUNCTION_VERBS.repository),
+  {
     files: ['tests/**/*.ts'],
     rules: {
-      'no-restricted-properties': ['error', NO_VI_MOCK, NO_FAKE_TIMERS],
+      'no-restricted-properties': ['error', NO_VI_MOCK, NO_FAKE_TIMERS, ...NO_SKIPPED_TESTS],
+      'dazbeat/required-test-call': 'error',
+    },
+  },
+  {
+    // PocketBase JSVM 이 정한 이름(getBool, offset, time)을 그대로 옮긴 타입 선언이다.
+    files: ['pocketbase/lib/jsvm.ts'],
+    rules: {
+      'dazbeat/boolean-name': 'off',
+      'dazbeat/bare-unit-name': 'off',
     },
   },
   {
     // 브라우저 타이머를 직접 쓰는 I/O 경계는 시간을 주입받지 않으므로 fake timer 로 검증한다.
     files: ['tests/backend/**/*.ts', 'tests/audio/**/*.ts', 'tests/storage/**/*.ts'],
     rules: {
-      'no-restricted-properties': ['error', NO_VI_MOCK],
+      'no-restricted-properties': ['error', NO_VI_MOCK, ...NO_SKIPPED_TESTS],
     },
   },
   {
@@ -442,6 +822,14 @@ export default tseslint.config(
           selector: "Program > VariableDeclaration CallExpression[callee.name='require']",
           message: 'JSVM handlers cannot see the outer scope; require inside the handler.',
         },
+        {
+          selector: [
+            "CallExpression[callee.name='routerAdd'][arguments.1.type='Literal']:not([arguments.1.value=/^\\/api\\/dazbeat\\//])",
+            "CallExpression[callee.name='routerAdd'][arguments.1.type='TemplateLiteral']:not([arguments.1.quasis.0.value.raw=/^\\/api\\/dazbeat\\//])",
+          ].join(', '),
+          message: 'Add custom routes under /api/dazbeat/.',
+        },
+        FOR_EACH_BLOCK_RULE,
       ],
     },
   },

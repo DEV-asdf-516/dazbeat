@@ -18,15 +18,16 @@ import {
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
-  getControlsCloseView,
   getControlsHelpButtonView,
-  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
   leaveControlsButton,
   withControlsOpen,
 } from '../../app/controlsGuide.js';
-import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
+import {
+  completeAccountSignIn,
+  getAccountPanelPointerKey,
+} from '../../ui/state/accountIdentity.js';
 import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
 import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
@@ -230,6 +231,15 @@ export function closeRankingDialog(state: RankingState): RankingState {
     ...state,
     dialog: 'none',
     hover: unhoverButton(unhoverButton(state.hover, 'dialogCancel'), 'dialogAccept'),
+  };
+}
+
+/** 내 순위 줄은 로그인한 계정의 순위표로 정해지므로 다시 받는다. */
+export function completeRankingSignIn(state: RankingState): RankingState {
+  return {
+    ...completeAccountSignIn(state),
+    isSignedIn: true,
+    load: LOADING,
   };
 }
 
@@ -463,14 +473,6 @@ export function getRankingDialogButtonViews(state: RankingState): {
     cancel: getButtonView(state.hover, 'dialogCancel', true, false),
     accept: getButtonView(state.hover, 'dialogAccept', true, false),
   };
-}
-
-export function getRankingControlsCloseView(state: RankingState): ButtonView {
-  return getControlsCloseView(state.hover);
-}
-
-export function isRankingControlsEntryHovered(state: RankingState): boolean {
-  return isControlsEntryHovered(state.hover);
 }
 
 export type RankingRegion =

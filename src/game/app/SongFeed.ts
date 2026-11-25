@@ -139,9 +139,9 @@ export class SongFeed {
   }
 
   private notify(): void {
-    this.listeners.forEach((listener) => {
+    for (const listener of this.listeners) {
       listener();
-    });
+    }
   }
 }
 
@@ -191,8 +191,8 @@ export class SharedSongFeeds implements SongFeeds {
     difficulty: Difficulty,
     chart: SongChart,
   ): void {
-    [this.catalog, ...this.categories.values()].forEach((feed) => {
+    for (const feed of [this.catalog, ...this.categories.values()]) {
       feed.applySavedChart(songId, laneCount, difficulty, chart);
-    });
+    }
   }
 }

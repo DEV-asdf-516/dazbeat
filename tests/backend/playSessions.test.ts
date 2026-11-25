@@ -143,6 +143,14 @@ function getRequest(fetchMock: ReturnType<typeof stubFetch>, index = 0) {
   };
 }
 
+function pendingUntilAbortFetch(_input: string, init?: RequestInit): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    });
+  });
+}
+
 function signedInClient(): PocketBase {
   const pb = new PocketBase('http://pb.test');
   pb.authStore.save(TOKEN, USER_RECORD);
@@ -158,6 +166,7 @@ async function submitSaved(): Promise<VerifiedPlay> {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -176,7 +185,7 @@ describe('submitPlay', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = getRequest(fetchMock);
     expect(request.method).toBe('POST');
-    expect(request.url.pathname).toBe('/api/dazbeat/play-sessions/session1/result');
+    expect(request.url.pathname).toBe('/api/dazbeat/play/session1/result');
     expect(request.authorization).toBe(TOKEN);
     expect(request.body).toEqual({
       inputOffsetMs: submission.inputOffsetMs,
@@ -354,12 +363,42 @@ describe('submitPlay', () => {
       ],
     ]);
   });
+
+  it('gives up as unknown after 15 seconds without a response and aborts the request', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetchMock = stubFetch(pendingUntilAbortFetch);
+    let isSettled = false;
+    const result = submitPlay(signedInClient(), CATALOG, 'session1', submission).finally(() => {
+      isSettled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(isSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(result).resolves.toEqual({ kind: 'unknown' });
+    const [, init] = requireDefined(fetchMock.mock.calls[0], 'missing request', 0);
+    expect(init?.signal?.aborted).toBe(true);
+  });
+
+  it('keeps a response that arrives within 15 seconds without aborting the request', async () => {
+    vi.useFakeTimers();
+    const fetchMock = respondWith(200, verifiedResponse);
+
+    const result = await submitPlay(signedInClient(), CATALOG, 'session1', submission);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(result.kind).toBe('saved');
+    const [, init] = requireDefined(fetchMock.mock.calls[0], 'missing request', 0);
+    expect(init?.signal?.aborted).toBe(false);
+  });
 });
 
 describe('preparePlay', () => {
-  const CHART_PATH = '/api/collections/charts/records/chart_normal';
-  const SESSIONS_PATH = '/api/dazbeat/play-sessions';
-  const REVISION_B = 'b'.repeat(64);
+  const chartPath = '/api/collections/charts/records/chart_normal';
+  const sessionsPath = '/api/dazbeat/play';
+  const revisionB = 'b'.repeat(64);
 
   function chartData(timeMs: number) {
     return {
@@ -419,14 +458,14 @@ describe('preparePlay', () => {
 
   it('requests the chart only for the first of two plays and issues each with its revision', async () => {
     const fetchMock = stubRoutes({
-      [CHART_PATH]: [
+      [chartPath]: [
         json(200, {
           data: chartData(1000),
           revision: REVISION,
           level: 1,
         }),
       ],
-      [SESSIONS_PATH]: [json(200, { sessionId: 'session1' }), json(200, { sessionId: 'session2' })],
+      [sessionsPath]: [json(200, { sessionId: 'session1' }), json(200, { sessionId: 'session2' })],
     });
     const { pb, charts } = setUp(signedInClient());
 
@@ -450,15 +489,15 @@ describe('preparePlay', () => {
     };
     expect(requests(fetchMock)).toEqual([
       {
-        path: CHART_PATH,
+        path: chartPath,
         body: undefined,
       },
       {
-        path: SESSIONS_PATH,
+        path: sessionsPath,
         body: issueBody,
       },
       {
-        path: SESSIONS_PATH,
+        path: sessionsPath,
         body: issueBody,
       },
     ]);
@@ -466,14 +505,14 @@ describe('preparePlay', () => {
 
   it('posts the chart id and revision with the auth token and resolves the session id', async () => {
     const fetchMock = stubRoutes({
-      [CHART_PATH]: [
+      [chartPath]: [
         json(200, {
           data: chartData(1000),
           revision: REVISION,
           level: 1,
         }),
       ],
-      [SESSIONS_PATH]: [
+      [sessionsPath]: [
         json(200, {
           sessionId: 'session1',
           expiresAt: '2026-10-09T00:00:00.000Z',
@@ -492,7 +531,7 @@ describe('preparePlay', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const request = getRequest(fetchMock, 1);
     expect(request.method).toBe('POST');
-    expect(request.url.pathname).toBe('/api/dazbeat/play-sessions');
+    expect(request.url.pathname).toBe('/api/dazbeat/play');
     expect(request.authorization).toBe(TOKEN);
     expect(request.body).toEqual({
       chartId: 'chart_normal',
@@ -502,26 +541,29 @@ describe('preparePlay', () => {
 
   it('resolves a failed issue when the response has no string sessionId', async () => {
     stubRoutes({
-      [CHART_PATH]: [
+      [chartPath]: [
         json(200, {
           data: chartData(1000),
           revision: REVISION,
           level: 1,
         }),
       ],
-      [SESSIONS_PATH]: [json(200, { sessionId: 1 })],
+      [sessionsPath]: [json(200, { sessionId: 1 })],
     });
     const { pb, charts } = setUp(signedInClient());
 
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(1000),
-      ranking: { kind: 'issueFailed' },
+      ranking: {
+        kind: 'issueFailed',
+        chartRevision: REVISION,
+      },
     });
   });
 
   it('requests only the chart and resolves a signed-out ranking when signed out', async () => {
     const fetchMock = stubRoutes({
-      [CHART_PATH]: [
+      [chartPath]: [
         json(200, {
           data: chartData(1000),
           revision: REVISION,
@@ -533,14 +575,17 @@ describe('preparePlay', () => {
 
     await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
       chart: chartData(1000),
-      ranking: { kind: 'signedOut' },
+      ranking: {
+        kind: 'signedOut',
+        chartRevision: REVISION,
+      },
     });
-    expect(requests(fetchMock).map((request) => request.path)).toEqual([CHART_PATH]);
+    expect(requests(fetchMock).map((request) => request.path)).toEqual([chartPath]);
   });
 
   it('reloads the chart once and reissues with the new revision after chart_changed', async () => {
     const fetchMock = stubRoutes({
-      [CHART_PATH]: [
+      [chartPath]: [
         json(200, {
           data: chartData(1000),
           revision: REVISION,
@@ -548,11 +593,11 @@ describe('preparePlay', () => {
         }),
         json(200, {
           data: chartData(2000),
-          revision: REVISION_B,
+          revision: revisionB,
           level: 1,
         }),
       ],
-      [SESSIONS_PATH]: [
+      [sessionsPath]: [
         chartChanged(),
         json(200, { sessionId: 'session1' }),
         json(200, { sessionId: 'session2' }),
@@ -576,32 +621,32 @@ describe('preparePlay', () => {
     });
     expect(requests(fetchMock)).toEqual([
       {
-        path: CHART_PATH,
+        path: chartPath,
         body: undefined,
       },
       {
-        path: SESSIONS_PATH,
+        path: sessionsPath,
         body: {
           chartId: 'chart_normal',
           chartRevision: REVISION,
         },
       },
       {
-        path: CHART_PATH,
+        path: chartPath,
         body: undefined,
       },
       {
-        path: SESSIONS_PATH,
+        path: sessionsPath,
         body: {
           chartId: 'chart_normal',
-          chartRevision: REVISION_B,
+          chartRevision: revisionB,
         },
       },
       {
-        path: SESSIONS_PATH,
+        path: sessionsPath,
         body: {
           chartId: 'chart_normal',
-          chartRevision: REVISION_B,
+          chartRevision: revisionB,
         },
       },
     ]);
@@ -623,7 +668,7 @@ describe('preparePlay', () => {
     'resolves the new chart with a failed issue when the reissue fails with %s',
     async (_, failure) => {
       const fetchMock = stubRoutes({
-        [CHART_PATH]: [
+        [chartPath]: [
           json(200, {
             data: chartData(1000),
             revision: REVISION,
@@ -631,30 +676,33 @@ describe('preparePlay', () => {
           }),
           json(200, {
             data: chartData(2000),
-            revision: REVISION_B,
+            revision: revisionB,
             level: 1,
           }),
         ],
-        [SESSIONS_PATH]: [chartChanged(), failure()],
+        [sessionsPath]: [chartChanged(), failure()],
       });
       const { pb, charts } = setUp(signedInClient());
 
       await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
         chart: chartData(2000),
-        ranking: { kind: 'issueFailed' },
+        ranking: {
+          kind: 'issueFailed',
+          chartRevision: revisionB,
+        },
       });
       expect(requests(fetchMock).map((request) => request.path)).toEqual([
-        CHART_PATH,
-        SESSIONS_PATH,
-        CHART_PATH,
-        SESSIONS_PATH,
+        chartPath,
+        sessionsPath,
+        chartPath,
+        sessionsPath,
       ]);
     },
   );
 
   it('rejects when the chart reload after chart_changed fails', async () => {
     const fetchMock = stubRoutes({
-      [CHART_PATH]: [
+      [chartPath]: [
         json(200, {
           data: chartData(1000),
           revision: REVISION,
@@ -666,15 +714,15 @@ describe('preparePlay', () => {
           data: {},
         }),
       ],
-      [SESSIONS_PATH]: [chartChanged()],
+      [sessionsPath]: [chartChanged()],
     });
     const { pb, charts } = setUp(signedInClient());
 
     await expect(preparePlay(pb, charts, normalChart)).rejects.toThrow();
     expect(requests(fetchMock).map((request) => request.path)).toEqual([
-      CHART_PATH,
-      SESSIONS_PATH,
-      CHART_PATH,
+      chartPath,
+      sessionsPath,
+      chartPath,
     ]);
   });
 
@@ -693,25 +741,25 @@ describe('preparePlay', () => {
     'resolves the first chart with a failed issue and no reload when issuing fails with %s',
     async (_, failure) => {
       const fetchMock = stubRoutes({
-        [CHART_PATH]: [
+        [chartPath]: [
           json(200, {
             data: chartData(1000),
             revision: REVISION,
             level: 1,
           }),
         ],
-        [SESSIONS_PATH]: [failure()],
+        [sessionsPath]: [failure()],
       });
       const { pb, charts } = setUp(signedInClient());
 
       await expect(preparePlay(pb, charts, normalChart)).resolves.toEqual({
         chart: chartData(1000),
-        ranking: { kind: 'issueFailed' },
+        ranking: {
+          kind: 'issueFailed',
+          chartRevision: REVISION,
+        },
       });
-      expect(requests(fetchMock).map((request) => request.path)).toEqual([
-        CHART_PATH,
-        SESSIONS_PATH,
-      ]);
+      expect(requests(fetchMock).map((request) => request.path)).toEqual([chartPath, sessionsPath]);
     },
   );
 });

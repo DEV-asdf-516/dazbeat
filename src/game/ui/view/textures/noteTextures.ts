@@ -107,9 +107,40 @@ const NOTE_CAP_PLATE: NotePlate = {
   heightPx: 34,
 };
 
+// 순서가 그리는 순서라 앞 겹이 아래에 그려진다.
+const NOTE_TRAIL_LAYERS = [
+  {
+    trailRatio: 1 / 3,
+    alpha: 0.4,
+  },
+  {
+    trailRatio: 2 / 3,
+    alpha: 0.25,
+  },
+  {
+    trailRatio: 1,
+    alpha: 0.12,
+  },
+] as const;
+// 선형 보간으로 이웃 칸의 색이 번져 들어오지 않게 칸 사이를 비운다.
+const NOTE_CAP_ATLAS_GAP_PX = 2;
+
+export interface NoteCapPart {
+  readonly fromU: number;
+  readonly toU: number;
+}
+
+export interface NoteTrailPart extends NoteCapPart {
+  readonly trailRatio: number;
+}
+
 export interface StarButtonTextures {
   readonly key: string;
-  readonly drainedKey: string;
+  // 잔상은 머리와 한 메시에 그리므로 겹마다 alpha 를 구운 칸을 머리 칸과 한 텍스처에 나란히 둔다.
+  readonly atlasKey: string;
+  readonly drainedAtlasKey: string;
+  readonly head: NoteCapPart;
+  readonly trails: readonly NoteTrailPart[];
   readonly widthScale: number;
   readonly heightScale: number;
   /** 판 높이 / 판 폭. */
@@ -124,9 +155,12 @@ interface NotePlate {
 export function ensureStarButtonTextures(scene: Phaser.Scene): StarButtonTextures {
   const plate = NOTE_CAP_PLATE;
   const key = 'light:starButton';
-  const drainedKey = 'light:starButton:drained';
+  const atlasKey = 'light:starButton:atlas';
+  const drainedAtlasKey = 'light:starButton:drainedAtlas';
   const textureWidthPx = plate.widthPx + STAR_BUTTON_PADDING_PX * 2;
   const textureHeightPx = plate.heightPx + STAR_BUTTON_PADDING_PX * 2;
+  const cellStridePx = textureWidthPx + NOTE_CAP_ATLAS_GAP_PX;
+  const atlasWidthPx = cellStridePx * (NOTE_TRAIL_LAYERS.length + 1) - NOTE_CAP_ATLAS_GAP_PX;
   createCanvasTexture(
     scene,
     {
@@ -136,16 +170,52 @@ export function ensureStarButtonTextures(scene: Phaser.Scene): StarButtonTexture
     },
     (context) => paintStarButton(context, plate),
   );
-  // Mesh2D 는 타입 선언에 setTint 가 없어 miss drain 색을 nightTrace 를 곱한 텍스처로 바꿔 낸다.
+  // halo blur 가 단독 텍스처에서처럼 칸 끝에서 잘리고 옆 칸으로 번지지 않게 머리 칸에만 그린다.
+  const paintHeadCell = (context: CanvasRenderingContext2D): void => {
+    context.save();
+    context.beginPath();
+    context.rect(0, 0, textureWidthPx, textureHeightPx);
+    context.clip();
+    paintStarButton(context, plate);
+    context.restore();
+  };
   createCanvasTexture(
     scene,
     {
-      key: drainedKey,
-      widthPx: textureWidthPx,
+      key: atlasKey,
+      widthPx: atlasWidthPx,
       heightPx: textureHeightPx,
     },
     (context) => {
-      paintStarButton(context, plate);
+      paintHeadCell(context);
+      for (const [index, { alpha }] of NOTE_TRAIL_LAYERS.entries()) {
+        context.globalAlpha = alpha;
+        context.drawImage(
+          context.canvas,
+          0,
+          0,
+          textureWidthPx,
+          textureHeightPx,
+          (index + 1) * cellStridePx,
+          0,
+          textureWidthPx,
+          textureHeightPx,
+        );
+      }
+      context.globalAlpha = 1;
+    },
+  );
+  // Mesh2D 는 타입 선언에 setTint 가 없어 miss drain 색을 nightTrace 를 곱한 텍스처로 바꿔 낸다.
+  // miss 때는 잔상 띠를 접으므로 머리 칸만 그리고, 칸 위치는 uv 를 함께 쓰도록 atlas 와 같게 둔다.
+  createCanvasTexture(
+    scene,
+    {
+      key: drainedAtlasKey,
+      widthPx: atlasWidthPx,
+      heightPx: textureHeightPx,
+    },
+    (context) => {
+      paintHeadCell(context);
       const image = context.getImageData(0, 0, textureWidthPx, textureHeightPx);
       const { data } = image;
       for (let pixel = 0; pixel < data.length; pixel += PIXEL_BYTES) {
@@ -162,9 +232,19 @@ export function ensureStarButtonTextures(scene: Phaser.Scene): StarButtonTexture
       context.putImageData(image, 0, 0);
     },
   );
+  const toPart = (cell: number): NoteCapPart => ({
+    fromU: (cell * cellStridePx) / atlasWidthPx,
+    toU: (cell * cellStridePx + textureWidthPx) / atlasWidthPx,
+  });
   return {
     key,
-    drainedKey,
+    atlasKey,
+    drainedAtlasKey,
+    head: toPart(0),
+    trails: NOTE_TRAIL_LAYERS.map(({ trailRatio }, index) => ({
+      trailRatio,
+      ...toPart(index + 1),
+    })),
     widthScale: textureWidthPx / plate.widthPx,
     heightScale: textureHeightPx / plate.heightPx,
     plateAspect: plate.heightPx / plate.widthPx,

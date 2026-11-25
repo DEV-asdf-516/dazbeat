@@ -82,7 +82,7 @@ export function getZodiacSign(scene: Phaser.Scene, zodiac: Zodiac, spanPx: numbe
       heightPx,
     },
     (context) => {
-      points.forEach(([x, y], index) => {
+      for (const [index, [x, y]] of points.entries()) {
         const magnitude = requireDefined(
           figure.magnitudes[index],
           'Zodiac star without magnitude',
@@ -118,7 +118,7 @@ export function getZodiacSign(scene: Phaser.Scene, zodiac: Zodiac, spanPx: numbe
           context.fillStyle = rgba(color, alpha * SPARKLE_ALPHA_SCALE);
           fillFourPointStar(context, x, y, sizePx * SPARKLE_RADIUS_SCALE, SPARKLE_WAIST);
         }
-      });
+      }
     },
   );
   return {

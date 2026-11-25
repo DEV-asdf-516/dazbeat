@@ -73,20 +73,20 @@ export class EditorNoteLayer {
   render(view: EditorNotesView): void {
     const { notes, currentTimeMs } = view;
     const present = new Set(notes);
-    this.views.forEach((noteView, note) => {
+    for (const note of this.views.keys()) {
       if (!present.has(note)) {
-        this.destroyView(noteView);
+        this.destroyView(requireDefined(this.views.get(note), 'Unknown note view'));
         this.views.delete(note);
       }
-    });
+    }
     this.views.forEach((noteView, note) => this.place(note, noteView, currentTimeMs));
-    notes.forEach((note) => {
+    for (const note of notes) {
       if (!this.views.has(note)) {
         const noteView = this.createView(note, view);
         this.place(note, noteView, currentTimeMs);
         this.views.set(note, noteView);
       }
-    });
+    }
     this.highlight(view);
   }
 

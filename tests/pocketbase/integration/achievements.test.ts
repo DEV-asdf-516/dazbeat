@@ -110,16 +110,13 @@ async function newPlayer(): Promise<TestUser> {
 }
 
 async function startRankedPlay(player: TestUser, chart: RecordModel): Promise<string> {
-  const { sessionId } = await player.client.send<{ sessionId: string }>(
-    '/api/dazbeat/play-sessions',
-    {
-      method: 'POST',
-      body: {
-        chartId: chart.id,
-        chartRevision: String(chart['revision']),
-      },
+  const { sessionId } = await player.client.send<{ sessionId: string }>('/api/dazbeat/play', {
+    method: 'POST',
+    body: {
+      chartId: chart.id,
+      chartRevision: String(chart['revision']),
     },
-  );
+  });
   // Moves issuedAt into the past so a submission is not rejected as too short without waiting.
   await server.superuser
     .collection('play_sessions')
@@ -132,7 +129,7 @@ function submitResult(
   sessionId: string,
   inputs: readonly InputEvent[],
 ): Promise<ResultResponse> {
-  return client.send<ResultResponse>(`/api/dazbeat/play-sessions/${sessionId}/result`, {
+  return client.send<ResultResponse>(`/api/dazbeat/play/${sessionId}/result`, {
     method: 'POST',
     body: {
       inputOffsetMs: 0,
@@ -186,7 +183,7 @@ const findSongMarks = async (userId: string) =>
     }),
   );
 function getProfile(client: PocketBase): Promise<ProfileResponse> {
-  return client.send<ProfileResponse>('/api/dazbeat/profile', { method: 'GET' });
+  return client.send<ProfileResponse>('/api/dazbeat/me/profile', { method: 'GET' });
 }
 
 const findEarned = async (userId: string): Promise<string[]> =>
@@ -210,11 +207,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 
-describe('POST /api/dazbeat/play-sessions/{sessionId}/result achievements', () => {
+describe('POST /api/dazbeat/play/{sessionId}/result achievements', () => {
   it('records the play, its marks and the new achievements and answers them', async () => {
     const player = await newPlayer();
     const play = simulateClientPlay(leoChart, perfectInputs, FRAME_TIMES_MS);
@@ -370,7 +367,7 @@ describe('POST /api/dazbeat/play-sessions/{sessionId}/result achievements', () =
   });
 });
 
-describe('GET /api/dazbeat/profile achievements', () => {
+describe('GET /api/dazbeat/me/profile achievements', () => {
   let albumCharts: RecordModel[];
 
   beforeAll(async () => {

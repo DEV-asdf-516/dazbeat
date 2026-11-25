@@ -11,8 +11,6 @@ import {
   createProfileScreen,
   getAchievementCondition,
   getChangedRegions,
-  getEarnedProgress,
-  getEarnedSummary,
   getFeaturedAction,
   getFeaturedIdentity,
   getFocusedEarning,
@@ -250,16 +248,14 @@ describe('getChangedRegions for the buttons', () => {
   });
 });
 
-describe('getEarnedProgress', () => {
-  it('counts the earned achievements among the given ones', () => {
-    expect(getEarnedProgress(SUMMARY, [FIRST_FINISH, PLAY_3])).toEqual({
+describe('loadedState earned counts', () => {
+  it('counts the earned achievements of each collection row', () => {
+    expect(SUMMARY.earned.rows.get(FIRST_FINISH.id)).toEqual({
       earned: 1,
       total: 2,
     });
   });
-});
 
-describe('getEarnedSummary', () => {
   it('counts the earned achievements in all and in each set', () => {
     const zodiacStep: NamedAchievementDefinition = {
       ...playsOf('ZODIAC_STEP', 1),
@@ -279,7 +275,10 @@ describe('getEarnedSummary', () => {
       }),
     );
 
-    expect(getEarnedSummary(state)).toEqual({
+    expect({
+      all: state.earned.all,
+      bySet: state.earned.bySet,
+    }).toEqual({
       all: {
         earned: 2,
         total: 3,
