@@ -1,8 +1,7 @@
 import Phaser from 'phaser';
 import type { ButtonView } from '../../state/buttonPointer.js';
 import type { ControlsButton, ControlsGuide } from '../../../app/controlsGuide.js';
-import { createAuxiliaryButton } from './auxiliaryButton.js';
-import { getCloseIconTexture } from './closeIcon.js';
+import { createCloseIconButton } from './closeIcon.js';
 import { QUIET_PADDING_PX } from './Button.js';
 import type { Button } from './Button.js';
 import { bindPointer, pointButton, setContainerHitArea } from '../input/hoverTarget.js';
@@ -26,7 +25,6 @@ import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from '../theme.js';
 const PADDING_PX = 32;
 const MIN_CONTENT_WIDTH_PX = 416;
 const TITLE_LETTER_SPACING_PX = 3;
-const CLOSE_ICON_SIZE_PX = 24;
 const TITLE_GROUP_GAP_PX = 20;
 const DIVIDER_GROUP_TITLE_GAP_PX = 20;
 const GROUP_GAP_PX = 24;
@@ -98,14 +96,11 @@ export class ControlsOverlay {
       ...typeStyle(TITLE_TYPE, CELESTIAL_COLORS.textPrimary),
       letterSpacing: TITLE_LETTER_SPACING_PX,
     });
-    this.closeButton = createAuxiliaryButton(scene, 0, this.title.y + this.title.height / 2, {
-      label: '',
-      pointer: pointButton(pointer, 'controlsClose'),
-    }).setContent({
-      kind: 'icon',
-      textureKey: getCloseIconTexture(scene, CLOSE_ICON_SIZE_PX),
-      sizePx: CLOSE_ICON_SIZE_PX,
-    });
+    this.closeButton = createCloseIconButton(
+      scene,
+      this.title.y + this.title.height / 2,
+      pointButton(pointer, 'controlsClose'),
+    );
     const titleCenterYPx = this.title.y + this.title.height / 2;
     this.helpButton = scene.add
       .image(
