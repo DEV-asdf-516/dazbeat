@@ -1,5 +1,5 @@
 import type { AchievementCatalog } from '../../../data/achievements.js';
-import type { AccountState, SignInFailure } from '../../app/accountState.js';
+import type { AccountState } from '../../app/accountState.js';
 import { GOOGLE_SIGN_IN_LABEL, getAccountIdentity } from '../../ui/state/accountIdentity.js';
 import type { AccountIdentity } from '../../ui/state/accountIdentity.js';
 
@@ -12,7 +12,6 @@ export interface UserPanel extends AccountIdentity {
 export interface CornerPanel {
   readonly kind: 'corner';
   readonly content: { readonly kind: 'icon' } | { readonly kind: 'label'; readonly text: string };
-  readonly failureNotice: SignInFailure | 'none';
   readonly isSigningIn: boolean;
 }
 
@@ -40,7 +39,6 @@ export function getAccountPanel(
           kind: 'label',
           text: CORNER_LABELS[account.kind],
         },
-    failureNotice: account.kind === 'guest' ? account.signInFailure : 'none',
     // 진행 중 안내 문구는 따로 띄우지 않고 버튼 글자 옆에서 별만 돌린다.
     isSigningIn: account.kind === 'signingIn',
   };

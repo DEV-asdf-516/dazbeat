@@ -3,11 +3,16 @@ import { AccountRejoinBlockedError } from '../../../src/data/account.js';
 import type { AuthUser } from '../../../src/data/account.js';
 import { parseNickname } from '../../../src/data/nickname.js';
 import type { Nickname } from '../../../src/data/nickname.js';
+import type { Notice } from '../../../src/data/notices.js';
 import type { AccountState } from '../../../src/game/app/accountState.js';
 import { isControlsHelpShown } from '../../../src/game/app/controlsGuide.js';
 import { MainController } from '../../../src/game/main/MainController.js';
 import type { MainFocus, MainState } from '../../../src/game/main/state/mainMenu.js';
 import type { BrowserIdentity } from '../../../src/game/main/state/accelerationNotice.js';
+import {
+  NOTICE_SCROLL_STEP_PX,
+  NOTICE_VIEWPORT_HEIGHT_PX,
+} from '../../../src/game/main/state/noticeBoard.js';
 import { requireDefined } from '../../../src/invariant.js';
 import type { SoundEffect } from '../../../src/game/ui/view/soundEffects.js';
 
@@ -64,6 +69,9 @@ interface Harness {
   dismissCount(): number;
   cancelSignInCount(): number;
   signOutCount(): number;
+  readonly published: Pending<readonly Notice[]>;
+  readonly dismissedNoticeIds: (readonly string[])[];
+  takeAutoOpenCount(): number;
 }
 
 interface NoticeOptions {
@@ -73,12 +81,25 @@ interface NoticeOptions {
   readonly dismiss?: () => void;
 }
 
+interface NoticeBoardOptions {
+  readonly dismissedIds?: ReadonlySet<string>;
+  readonly isAutoOpenAvailable?: boolean;
+  readonly contentHeightPx?: number;
+  readonly dismiss?: () => void;
+}
+
+const NOTICE_CONTENT_HEIGHT_PX = 1000;
+
 const UNKNOWN_BROWSER: BrowserIdentity = {
   userAgentData: { brands: [] },
   userAgent: 'TestAgent/1.0',
 };
 
-function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {}): Harness {
+function createHarness(
+  restore: () => AuthUser | null,
+  notice: NoticeOptions = {},
+  board: NoticeBoardOptions = {},
+): Harness {
   const shown: AccountState[] = [];
   const signIns: Pending<AuthUser | null>[] = [];
   const refreshes: Pending<AuthUser | null>[] = [];
@@ -92,6 +113,9 @@ function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {
   let cancelSignInCount = 0;
   let signOutCount = 0;
   let dismissCount = 0;
+  const published = pending<readonly Notice[]>();
+  const dismissedNoticeIds: (readonly string[])[] = [];
+  let takeAutoOpenCount = 0;
   const controller = new MainController(
     {
       getCurrentUser: restore,
@@ -123,6 +147,7 @@ function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {
       playSound: (sound) => sounds.push(sound),
       activate: (item) => activated.push(item),
       isLeaving: () => isLeaving,
+      layoutNotices: () => board.contentHeightPx ?? NOTICE_CONTENT_HEIGHT_PX,
     },
     {
       takeBootSoftwareRendering: () => notice.isSoftwareRendering ?? false,
@@ -132,6 +157,18 @@ function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {
         notice.dismiss?.();
       },
       browser: notice.browser ?? UNKNOWN_BROWSER,
+    },
+    {
+      published: published.promise,
+      takeAutoOpen: () => {
+        takeAutoOpenCount += 1;
+        return board.isAutoOpenAvailable ?? true;
+      },
+      loadDismissedIds: () => board.dismissedIds ?? new Set(),
+      dismiss: (ids) => {
+        dismissedNoticeIds.push(ids);
+        board.dismiss?.();
+      },
     },
   );
   controller.start();
@@ -154,6 +191,9 @@ function createHarness(restore: () => AuthUser | null, notice: NoticeOptions = {
     dismissCount: () => dismissCount,
     cancelSignInCount: () => cancelSignInCount,
     signOutCount: () => signOutCount,
+    published,
+    dismissedNoticeIds,
+    takeAutoOpenCount: () => takeAutoOpenCount,
   };
 }
 
@@ -690,19 +730,19 @@ describe('MainController acceleration notice', () => {
   ] as const)('closes with %s without saving and passes keys afterwards', (_name, key) => {
     const harness = openHarness();
 
-    expect(harness.controller.handleAccelerationNoticeKey(key)).toBe(true);
+    expect(harness.controller.captureKey(key)).toBe(true);
     expect(lastState(harness).accelerationNotice).toEqual({ kind: 'closed' });
     expect(harness.closeSoundCount()).toBe(1);
     expect(harness.dismissCount()).toBe(0);
-    expect(harness.controller.handleAccelerationNoticeKey(key)).toBe(false);
+    expect(harness.controller.captureKey(key)).toBe(false);
   });
 
   it('blocks other keys while open without changing the focus or the controls', () => {
     const harness = openHarness();
     const first = lastState(harness);
 
-    expect(harness.controller.handleAccelerationNoticeKey(H_KEY)).toBe(true);
-    expect(harness.controller.handleAccelerationNoticeKey(DOWN_KEY)).toBe(true);
+    expect(harness.controller.captureKey(H_KEY)).toBe(true);
+    expect(harness.controller.captureKey(DOWN_KEY)).toBe(true);
     expect(lastState(harness)).toBe(first);
     expect(harness.states).toHaveLength(1);
   });
@@ -746,5 +786,330 @@ describe('MainController acceleration notice', () => {
     expect(lastState(harness).accelerationNotice).toEqual({ kind: 'closed' });
     expect(error).toHaveBeenCalledOnce();
     error.mockRestore();
+  });
+});
+
+const UP_KEY = {
+  code: 'ArrowUp',
+  repeat: false,
+};
+
+function latest(harness: Harness): MainState {
+  return requireDefined(harness.states.at(-1), 'Missing render', harness.states.length);
+}
+
+function makeNotice(id: string): Notice {
+  return {
+    id,
+    createdAtMs: 0,
+    title: {
+      ko: `${id} 제목`,
+      ja: `${id} タイトル`,
+      en: `${id} title`,
+    },
+    body: {
+      ko: `${id} 본문`,
+      ja: `${id} 本文`,
+      en: `${id} body`,
+    },
+  };
+}
+
+const NOTICES = [makeNotice('notice-b'), makeNotice('notice-a')];
+
+async function arrive(harness: Harness, items: readonly Notice[] = NOTICES): Promise<void> {
+  harness.published.resolve(items);
+  await flush();
+}
+
+function click(harness: Harness, button: Parameters<MainController['pointerUp']>[0]): void {
+  harness.controller.pointerOver(button);
+  harness.controller.pointerDown(button);
+  harness.controller.pointerUp(button);
+}
+
+async function failSignIn(harness: Harness): Promise<void> {
+  clickAccount(harness);
+  requireDefined(harness.signIns.at(-1), 'Missing sign-in', harness.signIns.length).reject(
+    new Error('popup closed'),
+  );
+  await flush();
+}
+
+describe('MainController sign-in failure popup', () => {
+  it('closes with its button, releases its hover and plays the close sound', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = createHarness(() => null);
+    await failSignIn(harness);
+    const closeSounds = harness.closeSoundCount();
+
+    click(harness, 'signInFailureClose');
+
+    expect(latest(harness).account).toEqual(GUEST);
+    expect(latest(harness).hover).toBeNull();
+    expect(harness.closeSoundCount()).toBe(closeSounds + 1);
+    error.mockRestore();
+  });
+
+  it.each([
+    ['Enter', ENTER_KEY],
+    ['Esc', ESCAPE_KEY],
+  ] as const)('closes with %s', async (_name, key) => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = createHarness(() => null);
+    await failSignIn(harness);
+
+    expect(harness.controller.captureKey(key)).toBe(true);
+    expect(latest(harness).account).toEqual(GUEST);
+    expect(harness.controller.captureKey(key)).toBe(false);
+    error.mockRestore();
+  });
+
+  it('blocks other keys without changing the state', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = createHarness(() => null);
+    await failSignIn(harness);
+    const failed = latest(harness);
+
+    expect(harness.controller.captureKey(DOWN_KEY)).toBe(true);
+    expect(harness.controller.captureKey(H_KEY)).toBe(true);
+    expect(latest(harness)).toBe(failed);
+    error.mockRestore();
+  });
+
+  it('keeps the notice board still while it is over the board', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = createHarness(() => null);
+    clickAccount(harness);
+    await arrive(harness);
+    requireDefined(harness.signIns[0], 'Missing sign-in', 0).reject(new Error('popup closed'));
+    await flush();
+    const failed = latest(harness);
+    expect(failed.noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: 0,
+    });
+
+    expect(harness.controller.captureKey(DOWN_KEY)).toBe(true);
+    harness.controller.scrollNoticeBoard(NOTICE_SCROLL_STEP_PX);
+
+    expect(latest(harness)).toBe(failed);
+    error.mockRestore();
+  });
+});
+
+describe('MainController notices', () => {
+  it('opens the board on arrival when a notice has not been dismissed', async () => {
+    const harness = createHarness(() => null, {}, { dismissedIds: new Set(['notice-a']) });
+
+    await arrive(harness);
+
+    expect(latest(harness).notices).toEqual({
+      kind: 'ready',
+      items: NOTICES,
+      contentHeightPx: NOTICE_CONTENT_HEIGHT_PX,
+    });
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: 0,
+    });
+    expect(harness.takeAutoOpenCount()).toBe(1);
+  });
+
+  it('shows only the icon when every notice has been dismissed', async () => {
+    const harness = createHarness(
+      () => null,
+      {},
+      { dismissedIds: new Set(['notice-a', 'notice-b']) },
+    );
+
+    await arrive(harness);
+
+    expect(latest(harness).notices.kind).toBe('ready');
+    expect(latest(harness).noticeBoard).toEqual({ kind: 'closed' });
+    expect(harness.takeAutoOpenCount()).toBe(0);
+  });
+
+  it('shows no icon and no board without notices', async () => {
+    const harness = createHarness(() => null);
+
+    await arrive(harness, []);
+
+    expect(harness.states).toHaveLength(1);
+    expect(latest(harness).notices).toEqual({ kind: 'none' });
+    expect(harness.takeAutoOpenCount()).toBe(0);
+  });
+
+  it('waits for the acceleration notice and opens the board when it closes', async () => {
+    const harness = createHarness(() => null, { isSoftwareRendering: true });
+
+    await arrive(harness);
+    expect(latest(harness).noticeBoard).toEqual({ kind: 'due' });
+
+    click(harness, 'accelerationNoticeAccept');
+
+    expect(latest(harness).accelerationNotice).toEqual({ kind: 'closed' });
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: 0,
+    });
+  });
+
+  it('drops notices that arrive after closing and leaves the auto open for the next main', async () => {
+    const harness = createHarness(() => null);
+    harness.controller.close();
+
+    await arrive(harness);
+
+    expect(harness.states).toHaveLength(1);
+    expect(harness.takeAutoOpenCount()).toBe(0);
+  });
+
+  it('does not open the board while leaving', async () => {
+    const harness = createHarness(() => null);
+    harness.leave();
+
+    await arrive(harness);
+
+    expect(latest(harness).notices.kind).toBe('ready');
+    expect(latest(harness).noticeBoard).toEqual({ kind: 'closed' });
+    expect(harness.takeAutoOpenCount()).toBe(0);
+  });
+
+  it('does not open the board when this boot has already opened it', async () => {
+    const harness = createHarness(() => null, {}, { isAutoOpenAvailable: false });
+
+    await arrive(harness);
+
+    expect(latest(harness).noticeBoard).toEqual({ kind: 'closed' });
+    expect(harness.takeAutoOpenCount()).toBe(1);
+  });
+
+  it('opens the board from the icon and from the focused icon with confirm', async () => {
+    const harness = createHarness(() => null, {}, { isAutoOpenAvailable: false });
+    await arrive(harness);
+    const clickSounds = harness.clickSoundCount();
+
+    click(harness, 'notice');
+
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: 0,
+    });
+    expect(harness.clickSoundCount()).toBe(clickSounds + 1);
+
+    harness.controller.captureKey(ESCAPE_KEY);
+    harness.controller.moveFocus('previous');
+    harness.controller.moveFocus('previous');
+    expect(latest(harness).focus).toBe('notice');
+    harness.controller.confirm();
+
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: 0,
+    });
+    expect(harness.activated).toEqual([]);
+  });
+
+  it('puts the icon before YouTube in the focus order once notices arrive', async () => {
+    const harness = createHarness(() => null, {}, { isAutoOpenAvailable: false });
+    await arrive(harness);
+
+    const focuses = Array.from({ length: 6 }, () => {
+      harness.controller.moveFocus('next');
+      return latest(harness).focus;
+    });
+
+    expect(focuses).toEqual(['practice', 'settings', 'credits', 'notice', 'youtube', 'play']);
+  });
+
+  it.each([
+    ['close button', (harness: Harness) => click(harness, 'noticeBoardClose')],
+    ['Enter', (harness: Harness) => harness.controller.captureKey(ENTER_KEY)],
+    ['Esc', (harness: Harness) => harness.controller.captureKey(ESCAPE_KEY)],
+  ] as const)('closes with the %s without saving', async (_name, closeBoard) => {
+    const harness = createHarness(() => null);
+    await arrive(harness);
+    const closeSounds = harness.closeSoundCount();
+
+    closeBoard(harness);
+
+    expect(latest(harness).noticeBoard).toEqual({ kind: 'closed' });
+    expect(latest(harness).hover).toBeNull();
+    expect(harness.closeSoundCount()).toBe(closeSounds + 1);
+    expect(harness.dismissedNoticeIds).toEqual([]);
+  });
+
+  it('saves every notice on the board once and closes with dismiss', async () => {
+    const harness = createHarness(() => null);
+    await arrive(harness);
+
+    click(harness, 'noticeBoardDismiss');
+
+    expect(harness.dismissedNoticeIds).toEqual([['notice-b', 'notice-a']]);
+    expect(latest(harness).noticeBoard).toEqual({ kind: 'closed' });
+    expect(latest(harness).hover).toBeNull();
+  });
+
+  it('closes even when saving the dismissal fails', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = createHarness(
+      () => null,
+      {},
+      {
+        dismiss: () => {
+          throw new Error('QuotaExceededError');
+        },
+      },
+    );
+    await arrive(harness);
+
+    click(harness, 'noticeBoardDismiss');
+
+    expect(harness.dismissedNoticeIds).toHaveLength(1);
+    expect(latest(harness).noticeBoard).toEqual({ kind: 'closed' });
+    expect(error).toHaveBeenCalledOnce();
+    error.mockRestore();
+  });
+
+  it('scrolls with the up and down keys and the wheel within the content', async () => {
+    const harness = createHarness(() => null);
+    await arrive(harness);
+    const maxScrollPx = NOTICE_CONTENT_HEIGHT_PX - NOTICE_VIEWPORT_HEIGHT_PX;
+
+    expect(harness.controller.captureKey(UP_KEY)).toBe(true);
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: 0,
+    });
+
+    expect(harness.controller.captureKey(DOWN_KEY)).toBe(true);
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: NOTICE_SCROLL_STEP_PX,
+    });
+
+    harness.controller.scrollNoticeBoard(maxScrollPx * 2);
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: maxScrollPx,
+    });
+
+    harness.controller.captureKey(UP_KEY);
+    expect(latest(harness).noticeBoard).toEqual({
+      kind: 'open',
+      scrollPx: maxScrollPx - NOTICE_SCROLL_STEP_PX,
+    });
+  });
+
+  it('does not scroll content shorter than the board', async () => {
+    const harness = createHarness(() => null, {}, { contentHeightPx: NOTICE_VIEWPORT_HEIGHT_PX });
+    await arrive(harness);
+    const opened = latest(harness);
+
+    harness.controller.captureKey(DOWN_KEY);
+    harness.controller.scrollNoticeBoard(NOTICE_SCROLL_STEP_PX);
+
+    expect(latest(harness)).toBe(opened);
   });
 });

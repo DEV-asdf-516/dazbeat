@@ -7,11 +7,17 @@ import {
 } from '../app/controlsGuide.js';
 import type { AuthUser } from '../../data/account.js';
 import type { SongFeed } from '../app/SongFeed.js';
-import { completeAccountSignIn } from '../ui/state/accountIdentity.js';
+import {
+  closeSignInFailure,
+  completeAccountSignIn,
+  failAccountSignIn,
+  readSignInFailureKey,
+} from '../ui/state/accountIdentity.js';
 import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
 import {
   INITIAL_CREDITS_STATE,
   hoverCreditsButton,
+  isCreditsWheelBlocked,
   pressCreditsButton,
   releaseCreditsButton,
   scrollCredits,
@@ -47,6 +53,8 @@ type ControllerState = CreditsState | { readonly kind: 'closed' };
 export class CreditsController {
   private state: ControllerState;
   private wheel = IDLE_WHEEL;
+  // 앞 시도의 늦은 실패가 뒤 시도 위에 팝업을 띄우지 않도록 마지막 시도만 기억한다.
+  private signInToken: object | null = null;
   private readonly unsubscribe: () => void;
 
   constructor(
@@ -82,7 +90,7 @@ export class CreditsController {
     if (state === null) {
       return;
     }
-    const read = readControlsWheel(isControlsPanelOpen(state), this.wheel, {
+    const read = readControlsWheel(isCreditsWheelBlocked(state), this.wheel, {
       deltaYPx,
       atMs,
       rowPx: this.wheelStepPx,
@@ -167,25 +175,53 @@ export class CreditsController {
         this.apply(released);
         this.signIn();
         return;
+      case 'signInFailureClose':
+        this.apply(closeSignInFailure(released));
+        this.screen.playSound('close');
+        return;
     }
   }
 
   /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
   private signIn(): void {
     this.screen.playSound('click');
-    void this.ports
-      .signIn()
-      .then((user) => {
+    const token = {};
+    this.signInToken = token;
+    void this.ports.signIn().then(
+      (user) => {
         const state = this.open;
         if (user === null || state === null) {
           return;
         }
         this.screen.renderAccount();
         this.apply(completeAccountSignIn(state));
-      })
-      .catch((error: unknown) => {
+      },
+      (error: unknown) => {
         console.error('Failed to sign in with Google', error);
-      });
+        const state = this.open;
+        if (state === null || token !== this.signInToken) {
+          return;
+        }
+        this.apply(failAccountSignIn(state, error));
+      },
+    );
+  }
+
+  captureKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    const state = this.open;
+    if (state === null) {
+      return false;
+    }
+    switch (readSignInFailureKey(state.signInFailure, event)) {
+      case 'close':
+        this.apply(closeSignInFailure(state));
+        this.screen.playSound('close');
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
+    }
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {

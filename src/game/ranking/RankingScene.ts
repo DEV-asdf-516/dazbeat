@@ -64,8 +64,15 @@ import {
   typeStyle,
 } from '../ui/view/theme.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import {
+  addSignInFailureDialog,
+  getSignInFailureDialog,
+} from '../ui/view/widgets/SignInFailureDialog.js';
 import type { ConfirmDialogContent } from '../ui/view/widgets/ConfirmDialog.js';
-import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import {
+  getAccountPanelButtonView,
+  getSignInFailureButtonView,
+} from '../ui/state/accountIdentity.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { NoticeText } from '../ui/view/widgets/NoticeText.js';
@@ -178,6 +185,7 @@ interface RankingView {
   readonly zodiacStars: Phaser.GameObjects.Image;
   readonly zodiacLines: Phaser.GameObjects.Image;
   readonly dialog: ConfirmDialog;
+  readonly signInFailure: ConfirmDialog;
 }
 
 export class RankingScene extends Phaser.Scene {
@@ -407,6 +415,19 @@ export class RankingScene extends Phaser.Scene {
               view.dialog.renderButtons(cancel, accept);
               break;
             }
+            case 'signInFailure':
+              view.signInFailure.render(
+                getSignInFailureDialog(
+                  this.i18n.t('account.signInFailure', { returnObjects: true }),
+                  next.signInFailure,
+                ),
+              );
+              break;
+            case 'signInFailureButtons': {
+              const buttonView = getSignInFailureButtonView(next.hover);
+              view.signInFailure.renderButtons(buttonView, buttonView);
+              break;
+            }
             case 'backButton':
               view.backButton.render(getRankingBackView(next));
               break;
@@ -483,6 +504,7 @@ export class RankingScene extends Phaser.Scene {
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) => controller.captureKey(event),
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => controller.handleMenuKey(action),
       },
@@ -600,6 +622,8 @@ export class RankingScene extends Phaser.Scene {
         cancel: pointButton(controller, 'dialogCancel'),
         accept: pointButton(controller, 'dialogAccept'),
       }),
+      // 불러오기 대화상자 위에 오도록 나중에 만든다.
+      signInFailure: addSignInFailureDialog(this, pointButton(controller, 'signInFailureClose')),
     };
     chrome.start(title.getBounds());
     const soundEffects = new SoundEffects(this, this.save.loadSettings());

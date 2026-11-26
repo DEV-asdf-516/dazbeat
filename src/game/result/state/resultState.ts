@@ -27,7 +27,8 @@ import {
   withControlsOpen,
 } from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
-import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton, SignInFailureButton } from '../../ui/state/accountIdentity.js';
+import type { SignInFailure } from '../../app/accountState.js';
 import type { ControlsButton, ControlsKeyAction, ControlsPanel } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
 import { getTopRankTier } from '../../ui/state/topRank.js';
@@ -43,7 +44,12 @@ import type { TabAppearance } from '../../ui/state/tabAppearance.js';
 export type ResultMenuItem = 'retry' | 'songSelect';
 
 export type ResultButton =
-  ResultMenuItem | ControlsButton | AccountPanelButton | 'noticeClose' | GuestNoticeButton;
+  | ResultMenuItem
+  | ControlsButton
+  | AccountPanelButton
+  | 'noticeClose'
+  | GuestNoticeButton
+  | SignInFailureButton;
 
 export type GuestNoticeButton = 'guestNoticeLater' | 'guestNoticeSignIn';
 
@@ -84,6 +90,8 @@ export interface ResultState {
   readonly isGuestNoticeOpen: boolean;
   readonly recordStatus: RecordStatus;
   readonly isRetryChartFixed: boolean;
+  /** 순위 알림·게스트 안내와 따로 두고, 함께 열리면 실패 팝업이 위다. */
+  readonly signInFailure: SignInFailure | 'none';
 }
 
 const MENU_ITEMS: readonly ResultMenuItem[] = ['retry', 'songSelect'];
@@ -105,6 +113,7 @@ export function createResultState(
     isGuestNoticeOpen: ranking.kind === 'local' && !isGuestNoticeShown,
     recordStatus: getInitialRecordStatus(ranking),
     isRetryChartFixed: report.kind === 'section',
+    signInFailure: 'none',
     toasts: {
       shown: [],
       waiting: [],
@@ -522,6 +531,8 @@ export type ResultRegion =
   | 'guestNotice'
   | 'guestNoticeButtons'
   | 'recordStatus'
+  | 'signInFailure'
+  | 'signInFailureButtons'
   | 'menuFocusMotion';
 
 type ResultReader = StateReader<ResultState>;
@@ -566,6 +577,11 @@ const REGION_SOURCES: Readonly<
     (state) => getGuestNoticeButtonView(state, 'guestNoticeSignIn').appearance,
   ],
   recordStatus: [(state) => state.recordStatus],
+  signInFailure: [(state) => state.signInFailure],
+  signInFailureButtons: [
+    (state) => isButtonHovered(state.hover, 'signInFailureClose'),
+    (state) => isButtonPressed(state.hover, 'signInFailureClose'),
+  ],
 };
 
 export function getChangedRegions(
@@ -573,7 +589,7 @@ export function getChangedRegions(
   next: ResultState,
 ): readonly ResultRegion[] {
   const regions = filterChangedRegions(REGION_SOURCES, previous, next);
-  const hasFocusMotion = previous === null || previous.focus !== next.focus;
+  const hasFocusMotion = previous?.focus !== next.focus;
   return hasFocusMotion ? [...regions, 'menuFocusMotion'] : regions;
 }
 

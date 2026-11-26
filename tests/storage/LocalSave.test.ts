@@ -14,6 +14,7 @@ const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
 const GUEST_PLAYER_REPORTS_KEY = 'dazbeat:guestPlayerReports:v1';
 const ACCELERATION_NOTICE_KEY = 'dazbeat:accelerationNotice:v1';
 const GUEST_NOTICE_KEY = 'dazbeat:guestNotice:v1';
+const DISMISSED_NOTICES_KEY = 'dazbeat:dismissedNotices:v1';
 const CUSTOM_KEY_BINDINGS: KeyBindings = {
   4: ['KeyQ', 'KeyW', 'KeyO', 'KeyP'],
   5: ['KeyQ', 'KeyW', 'Space', 'KeyO', 'KeyP'],
@@ -630,5 +631,49 @@ describe('LocalSave guest notice', () => {
 
     storage.setItem(GUEST_NOTICE_KEY, JSON.stringify({ isShown: 'true' }));
     expect(save.isGuestNoticeShown()).toBe(false);
+  });
+});
+
+describe('LocalSave dismissed notices', () => {
+  it('has none when nothing is saved', () => {
+    expect(save.loadDismissedNoticeIds()).toEqual(new Set());
+  });
+
+  it('reads back dismissed notices from a new save on the same storage', () => {
+    save.dismissNotices(['notice-a', 'notice-b']);
+
+    expect(new LocalSave(storage).loadDismissedNoticeIds()).toEqual(
+      new Set(['notice-a', 'notice-b']),
+    );
+  });
+
+  it('merges a later dismissal with the earlier ones without duplicates', () => {
+    save.dismissNotices(['notice-a', 'notice-b']);
+    save.dismissNotices(['notice-b', 'notice-c']);
+
+    expect(save.loadDismissedNoticeIds()).toEqual(new Set(['notice-a', 'notice-b', 'notice-c']));
+    expect(storage.getItem(DISMISSED_NOTICES_KEY)).toBe('["notice-a","notice-b","notice-c"]');
+  });
+
+  it('warns and has none when the saved value is broken or not an array', () => {
+    storage.setItem(DISMISSED_NOTICES_KEY, '[');
+    expect(save.loadDismissedNoticeIds()).toEqual(new Set());
+
+    storage.setItem(DISMISSED_NOTICES_KEY, JSON.stringify({ 'notice-a': true }));
+    expect(save.loadDismissedNoticeIds()).toEqual(new Set());
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps only the string ids', () => {
+    storage.setItem(DISMISSED_NOTICES_KEY, JSON.stringify(['notice-a', 3, null, 'notice-b']));
+
+    expect(save.loadDismissedNoticeIds()).toEqual(new Set(['notice-a', 'notice-b']));
+  });
+
+  it('propagates setItem errors', () => {
+    vi.spyOn(storage, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+    expect(() => save.dismissNotices(['notice-a'])).toThrow('quota');
   });
 });

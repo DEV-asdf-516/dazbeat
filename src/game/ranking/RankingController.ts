@@ -9,6 +9,11 @@ import {
   readControlsWheel,
   withControlsOpen,
 } from '../app/controlsGuide.js';
+import {
+  closeSignInFailure,
+  failAccountSignIn,
+  readSignInFailureKey,
+} from '../ui/state/accountIdentity.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
@@ -58,6 +63,8 @@ export class RankingController {
   private wheel = IDLE_WHEEL;
   // 응답이 지금 요청의 것인지 가리는 토큰이다. 탭을 바꾸거나 다시 시도하면 앞 요청의 응답은 버린다.
   private request: object | null = null;
+  // 앞 시도의 늦은 실패가 뒤 시도 위에 팝업을 띄우지 않도록 마지막 시도만 기억한다.
+  private signInToken: object | null = null;
 
   constructor(
     private readonly ports: RankingPorts,
@@ -68,7 +75,6 @@ export class RankingController {
     this.state = createRankingState(chart, ports.isSignedIn(), ports.loadRevisionNotices());
   }
 
-  // 씬의 render 가 생성자 뒤에 만드는 위젯을 그리므로 생성자가 아니라 생성 뒤에 시작한다.
   start(): void {
     const state = this.open;
     if (state === null) {
@@ -97,7 +103,6 @@ export class RankingController {
             ? retryLeaderboard(state)
             : stepRankingDifficulty(state, read.direction);
         this.apply(next);
-        // 다시 불러올 상태로 바뀌었을 때만 소리를 내고 지금 채보를 요청한다.
         if (next === state) {
           return;
         }
@@ -197,7 +202,6 @@ export class RankingController {
       return;
     }
     const released = releaseRankingButton(state, button);
-    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
     if (released === state) {
       return;
     }
@@ -221,7 +225,6 @@ export class RankingController {
                 ? retryLeaderboard(released)
                 : stepRankingDifficulty(released, read.direction);
             this.apply(next);
-            // 다시 불러올 상태로 바뀌었을 때만 소리를 내고 지금 채보를 요청한다.
             if (next === released) {
               return;
             }
@@ -252,7 +255,6 @@ export class RankingController {
         return;
       }
       case 'controlsEntry': {
-        // 대화상자가 열려 있으면 열리지 않으므로 소리도 내지 않는다.
         const next = openRankingControls(released);
         this.apply(next);
         if (next !== released) {
@@ -278,15 +280,20 @@ export class RankingController {
         this.apply(released);
         this.signIn();
         return;
+      case 'signInFailureClose':
+        this.apply(closeSignInFailure(released));
+        this.screen.playSound('close');
+        return;
     }
   }
 
   /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
   private signIn(): void {
     this.screen.playSound('click');
-    void this.ports
-      .signIn()
-      .then((user) => {
+    const token = {};
+    this.signInToken = token;
+    void this.ports.signIn().then(
+      (user) => {
         const state = this.open;
         if (user === null || state === null) {
           return;
@@ -295,10 +302,33 @@ export class RankingController {
         const next = completeRankingSignIn(state);
         this.apply(next);
         this.load(next);
-      })
-      .catch((error: unknown) => {
+      },
+      (error: unknown) => {
         console.error('Failed to sign in with Google', error);
-      });
+        const state = this.open;
+        if (state === null || token !== this.signInToken) {
+          return;
+        }
+        this.apply(failAccountSignIn(state, error));
+      },
+    );
+  }
+
+  captureKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    const state = this.open;
+    if (state === null) {
+      return false;
+    }
+    switch (readSignInFailureKey(state.signInFailure, event)) {
+      case 'close':
+        this.apply(closeSignInFailure(state));
+        this.screen.playSound('close');
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
+    }
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
@@ -308,7 +338,6 @@ export class RankingController {
     }
     switch (readControlsKey(isControlsPanelOpen(state), event)) {
       case 'open': {
-        // 대화상자가 열려 있으면 열리지 않으므로 소리도 내지 않는다.
         const next = openRankingControls(state);
         this.apply(next);
         if (next !== state) {

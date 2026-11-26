@@ -190,6 +190,8 @@ describe('getChangedRegions', () => {
       'guestNotice',
       'guestNoticeButtons',
       'recordStatus',
+      'signInFailure',
+      'signInFailureButtons',
       'menuFocusMotion',
     ]);
   });

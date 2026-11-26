@@ -396,7 +396,7 @@ function createHarness(
     {
       // 그린 state 에서 바뀐 부분을 화면 동작 이름으로 남긴다. 오류는 안내·확인 창 정리를 함께 그린다.
       render: (previous, next) => {
-        if (previous === null || previous.buttons !== next.buttons) {
+        if (previous?.buttons !== next.buttons) {
           harness.buttonRenders.push({
             previous: previous?.buttons ?? null,
             next: next.buttons,
@@ -414,7 +414,7 @@ function createHarness(
         if (isQuitConfirmChanged && !next.buttons.isQuitConfirmOpen) {
           record('closeQuitConfirm');
         }
-        if (previous === null || previous.status !== next.status) {
+        if (previous?.status !== next.status) {
           record('showStatus', next.status);
           harness.statuses.push({
             previous: previous?.status ?? null,

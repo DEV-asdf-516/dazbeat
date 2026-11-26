@@ -156,11 +156,9 @@ function toProfileRequestError(error: unknown): unknown {
   if (routeKind !== undefined) {
     return new ProfileRequestError(routeKind, error);
   }
-  if (!isRecord(data)) {
-    return new ProfileRequestError('failed', error);
-  }
+  const fields: Record<string, unknown> = isRecord(data) ? data : {};
   for (const [field, kinds] of Object.entries(FIELD_ERROR_KINDS)) {
-    const fieldError = data[field];
+    const fieldError = fields[field];
     const fieldKind =
       isRecord(fieldError) && isString(fieldError['code']) ? kinds[fieldError['code']] : undefined;
     if (fieldKind !== undefined) {

@@ -19,7 +19,8 @@ import {
   leaveControlsButton,
 } from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
-import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton, SignInFailureButton } from '../../ui/state/accountIdentity.js';
+import type { SignInFailure } from '../../app/accountState.js';
 import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import type { ScrollBarScroll } from '../../ui/state/scrollBarScroll.js';
 
@@ -41,7 +42,8 @@ export interface CreditCell {
 
 export type CreditsLink = 'contact' | 'privacy';
 
-export type CreditsButton = 'back' | CreditsLink | ControlsButton | AccountPanelButton;
+export type CreditsButton =
+  'back' | CreditsLink | ControlsButton | AccountPanelButton | SignInFailureButton;
 
 export interface CreditsState {
   readonly entries: readonly CreditEntry[];
@@ -49,11 +51,13 @@ export interface CreditsState {
   readonly topRow: number;
   readonly controls: ControlsPanel;
   readonly hover: ButtonHover<CreditsButton> | null;
+  readonly signInFailure: SignInFailure | 'none';
 }
 
 export const INITIAL_CREDITS_STATE: CreditsState = {
   controls: 'closed',
   hover: null,
+  signInFailure: 'none',
   entries: [],
   readSongCount: 0,
   topRow: 0,
@@ -169,7 +173,9 @@ export type CreditsRegion =
   | 'controlsClose'
   | 'controlsHelpCard'
   | 'controlsHelpButton'
-  | 'accountButton';
+  | 'accountButton'
+  | 'signInFailure'
+  | 'signInFailureButtons';
 
 type CreditsReader = StateReader<CreditsState>;
 
@@ -194,7 +200,17 @@ const REGION_SOURCES: Readonly<Record<CreditsRegion, readonly CreditsReader[]>> 
   controlsClose: [readCloseHovered, readClosePressed],
   controlsHelpCard: [isControlsHelpShown],
   controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
+  signInFailure: [(state) => state.signInFailure],
+  signInFailureButtons: [
+    (state) => isButtonHovered(state.hover, 'signInFailureClose'),
+    (state) => isButtonPressed(state.hover, 'signInFailureClose'),
+  ],
 };
+
+// 휠은 팝업 배경을 거치지 않으므로 조작 안내나 로그인 실패 팝업이 열린 동안 목록을 움직이지 않는다.
+export function isCreditsWheelBlocked(state: CreditsState): boolean {
+  return isControlsPanelOpen(state) || state.signInFailure !== 'none';
+}
 
 export function getChangedRegions(
   previous: CreditsState | null,

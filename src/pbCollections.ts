@@ -120,6 +120,16 @@ export const ACHIEVEMENTS = collectionSpec('achievements', [
   'nameJa',
   'nameEn',
 ]);
+export const NOTICES = collectionSpec('notices', [
+  'id',
+  'created',
+  'titleKo',
+  'titleEn',
+  'titleJa',
+  'bodyKo',
+  'bodyEn',
+  'bodyJa',
+]);
 export const DELETED_ACCOUNT_IDENTITIES = collectionSpec('deleted_account_identities', [
   'provider',
   'identityDigest',

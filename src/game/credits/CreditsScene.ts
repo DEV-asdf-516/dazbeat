@@ -21,7 +21,15 @@ import { queueCelestialTextures } from '../celestial/view/celestialSprites.js';
 import { requireDefined } from '../../invariant.js';
 import { setFittedText } from '../ui/view/widgets/fitText.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
-import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import {
+  getAccountPanelButtonView,
+  getSignInFailureButtonView,
+} from '../ui/state/accountIdentity.js';
+import type { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import {
+  addSignInFailureDialog,
+  getSignInFailureDialog,
+} from '../ui/view/widgets/SignInFailureDialog.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { ScrollBar } from '../ui/view/widgets/ScrollBar.js';
@@ -66,6 +74,7 @@ interface CreditsView {
   privacyButton: Button | null;
   cells: CellView[];
   scrollBar: ScrollBar;
+  signInFailure: ConfirmDialog;
 }
 
 export class CreditsScene extends Phaser.Scene {
@@ -153,6 +162,19 @@ export class CreditsScene extends Phaser.Scene {
               view.chrome.accountCorner.signInButton.render(views.accountSignIn);
               break;
             }
+            case 'signInFailure':
+              view.signInFailure.render(
+                getSignInFailureDialog(
+                  this.i18n.t('account.signInFailure', { returnObjects: true }),
+                  next.signInFailure,
+                ),
+              );
+              break;
+            case 'signInFailureButtons': {
+              const buttonView = getSignInFailureButtonView(next.hover);
+              view.signInFailure.renderButtons(buttonView, buttonView);
+              break;
+            }
             case 'scrollBar':
               view.scrollBar.render(getCreditScroll(next, GRID), {
                 topYPx: GRID_TOP_Y_PX,
@@ -206,6 +228,7 @@ export class CreditsScene extends Phaser.Scene {
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) => controller.captureKey(event),
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => {
           if (action === 'back' || action === 'confirm') {
@@ -257,6 +280,8 @@ export class CreditsScene extends Phaser.Scene {
       ),
       scrollBar: new ScrollBar(this, SCROLLBAR_X_PX),
       chrome,
+      // 조작 안내 위에 오도록 나중에 만든다.
+      signInFailure: addSignInFailureDialog(this, pointButton(controller, 'signInFailureClose')),
     };
 
     chrome.start(title.getBounds());

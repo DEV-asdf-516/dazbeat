@@ -124,9 +124,7 @@ export class SongFeed {
       if (batch.songs.length > 0) {
         this.loaded = [...this.loaded, ...batch.songs];
       }
-      if (batch.totalCount !== null) {
-        this.totalCount = batch.totalCount;
-      }
+      this.totalCount = batch.totalCount ?? this.totalCount;
       this.progress = toProgress(batch.next);
     } catch (error) {
       console.warn('Failed to load song batch', error);

@@ -1,4 +1,5 @@
 import type { AuthUser } from '../../data/account.js';
+import type { Notice } from '../../data/notices.js';
 import {
   cancelSignIn,
   completeRefresh,
@@ -14,28 +15,40 @@ import {
   readControlsKey,
   withControlsOpen,
 } from '../app/controlsGuide.js';
-import { createAccelerationNotice, readAccelerationNoticeKey } from './state/accelerationNotice.js';
+import { createAccelerationNotice } from './state/accelerationNotice.js';
 import type { BrowserIdentity } from './state/accelerationNotice.js';
 import {
   closeAccelerationNotice,
+  closeMainSignInFailure,
+  closeNoticeBoard,
   createMainState,
+  getNoticeIds,
   hoverMainButton,
   isCurrentAccountAttempt,
   moveMainFocus,
+  openNoticeBoard,
   pressMainButton,
+  readMainConfirm,
+  readMainPopupKey,
+  receiveNotices,
   releaseMainButton,
+  scrollNoticeBoard,
   unhoverMainButton,
   withAccount,
 } from './state/mainMenu.js';
 import type { MainButton, MainFocus, MainState } from './state/mainMenu.js';
+import { NOTICE_SCROLL_STEP_PX, hasUnseenNotice } from './state/noticeBoard.js';
 import type { SoundEffect } from '../ui/view/soundEffects.js';
+import { DIRECTION_STEPS } from '../../range.js';
 import type { ListDirection } from '../../range.js';
 
 export interface MainScreen {
   render(previous: MainState | null, next: MainState): void;
   playSound(sound: SoundEffect): void;
-  activate(item: MainFocus): void;
+  activate(item: Exclude<MainFocus, 'notice'>): void;
   isLeaving(): boolean;
+  /** 공지 창 안에 글을 배치하고 내용 높이를 돌려준다. */
+  layoutNotices(items: readonly Notice[]): number;
 }
 
 export interface AccelerationNoticePorts {
@@ -44,6 +57,15 @@ export interface AccelerationNoticePorts {
   isDismissed(): boolean;
   dismiss(): void;
   readonly browser: BrowserIdentity;
+}
+
+export interface NoticePorts {
+  /** 부팅 때 시작한 불러오기. 실패는 빈 목록으로 끝나 거절하지 않는다. */
+  readonly published: Promise<readonly Notice[]>;
+  /** 이번 부팅에 아직 자동으로 열지 않았으면 처음 부를 때만 true 다. */
+  takeAutoOpen(): boolean;
+  loadDismissedIds(): ReadonlySet<string>;
+  dismiss(ids: readonly string[]): void;
 }
 
 // 닫힌 뒤에는 입력과 늦은 로그인·갱신 결과를 받지 않는다.
@@ -56,6 +78,7 @@ export class MainController {
     private readonly auth: AccountAuth,
     private readonly screen: MainScreen,
     private readonly accelerationNotice: AccelerationNoticePorts,
+    private readonly notices: NoticePorts,
   ) {
     const account = this.restoreAccount();
     const notice = createAccelerationNotice({
@@ -76,6 +99,19 @@ export class MainController {
     if (state.account.kind === 'signedIn') {
       this.refresh(state.account);
     }
+    void this.notices.published.then((items) => {
+      const current = this.open;
+      if (current === null || items.length === 0) {
+        return;
+      }
+      const contentHeightPx = this.screen.layoutNotices(items);
+      // 열 수 없을 때 차례를 쓰지 않도록 takeAutoOpen 을 맨 뒤에 부른다.
+      const isAutoOpenDue =
+        !this.screen.isLeaving() &&
+        hasUnseenNotice(items, this.notices.loadDismissedIds()) &&
+        this.notices.takeAutoOpen();
+      this.apply(receiveNotices(current, items, contentHeightPx, isAutoOpenDue));
+    });
   }
 
   moveFocus(direction: ListDirection): void {
@@ -154,6 +190,28 @@ export class MainController {
         this.apply(closeAccelerationNotice(released));
         this.screen.playSound('close');
         return;
+      case 'signInFailureClose':
+        this.apply(closeMainSignInFailure(released));
+        this.screen.playSound('close');
+        return;
+      case 'notice':
+        this.apply(openNoticeBoard(released));
+        this.screen.playSound('click');
+        return;
+      case 'noticeBoardClose':
+        this.apply(closeNoticeBoard(released));
+        this.screen.playSound('close');
+        return;
+      case 'noticeBoardDismiss':
+        // 저장에 실패해도 창은 닫는다. 다음 부팅은 실제로 저장된 기록을 따른다.
+        try {
+          this.notices.dismiss(getNoticeIds(released));
+        } catch (error) {
+          console.error('Failed to save notice dismissal', error);
+        }
+        this.apply(closeNoticeBoard(released));
+        this.screen.playSound('close');
+        return;
       case 'account':
         this.screen.playSound('click');
         // 씬 전환 중에는 계정 로그인·로그아웃도 시작하지 않는다.
@@ -230,13 +288,27 @@ export class MainController {
     }
   }
 
-  handleAccelerationNoticeKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+  captureKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
     const state = this.open;
     if (state === null) {
       return false;
     }
-    switch (readAccelerationNoticeKey(state.accelerationNotice, event)) {
-      case 'close':
+    const key = readMainPopupKey(state, event);
+    switch (key.kind) {
+      case 'closeSignInFailure':
+        this.apply(closeMainSignInFailure(state));
+        this.screen.playSound('close');
+        return true;
+      case 'closeNoticeBoard':
+        this.apply(closeNoticeBoard(state));
+        this.screen.playSound('close');
+        return true;
+      case 'scrollNoticeBoard':
+        this.apply(
+          scrollNoticeBoard(state, DIRECTION_STEPS[key.direction] * NOTICE_SCROLL_STEP_PX),
+        );
+        return true;
+      case 'closeAccelerationNotice':
         this.apply(closeAccelerationNotice(state));
         this.screen.playSound('close');
         return true;
@@ -247,13 +319,27 @@ export class MainController {
     }
   }
 
+  scrollNoticeBoard(deltaYPx: number): void {
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(scrollNoticeBoard(state, deltaYPx));
+  }
+
   confirm(): void {
     const state = this.open;
     if (state === null) {
       return;
     }
-    this.screen.playSound('click');
-    this.screen.activate(state.focus);
+    const confirmed = readMainConfirm(state);
+    if (confirmed.kind === 'openNoticeBoard') {
+      this.apply(confirmed.state);
+      this.screen.playSound('click');
+    } else {
+      this.screen.playSound('click');
+      this.screen.activate(confirmed.item);
+    }
   }
 
   close(): void {

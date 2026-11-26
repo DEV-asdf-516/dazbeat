@@ -7,10 +7,6 @@ export const ja: Messages = {
     checkConnection: '接続状態を確認してから、もう一度お試しください。',
   },
   main: {
-    account: {
-      signInFailed: 'Google ログインに失敗しました。',
-      rejoinBlocked: '削除した Google アカウントは再び使用できません。',
-    },
     accelerationNotice: {
       title: 'ハードウェアアクセラレーション オフ',
       body: {
@@ -38,6 +34,18 @@ export const ja: Messages = {
       dismiss: '今後表示しない',
       accept: 'OK',
     },
+  },
+  account: {
+    signInFailure: {
+      title: 'ログイン失敗',
+      failed: 'Google ログインに失敗しました。',
+      rejoinBlocked: '削除した Google アカウントは再び使用できません。',
+      close: 'OK',
+    },
+  },
+  notice: {
+    dismiss: '今後表示しない',
+    close: '閉じる',
   },
   controls: {
     gameplay: {
@@ -95,6 +103,13 @@ export const ja: Messages = {
         meaning: 'ノーツと音楽のずれを合わせる値',
         direction: 'ノーツが音楽より遅ければ +、早ければ −',
       },
+    },
+    systemHelp: {
+      title: '推奨スペック',
+      hardwareAcceleration: 'ハードウェアアクセラレーション',
+      cpuBenchmark: 'Geekbench 6 シングルコア',
+      refreshRate: 'リフレッシュレート',
+      input: '入力',
     },
   },
   credits: {

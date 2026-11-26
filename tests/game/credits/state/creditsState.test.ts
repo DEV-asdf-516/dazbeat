@@ -195,6 +195,8 @@ describe('getChangedRegions', () => {
       'controlsClose',
       'controlsHelpCard',
       'controlsHelpButton',
+      'signInFailure',
+      'signInFailureButtons',
     ]);
   });
 

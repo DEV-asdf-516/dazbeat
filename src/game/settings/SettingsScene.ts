@@ -41,6 +41,10 @@ import type { MuteToggleTone } from './state/settingsEditorState.js';
 import { Button, SURFACE_BUTTON_COLORS } from '../ui/view/widgets/Button.js';
 import type { SecondaryButtonColors } from '../ui/view/widgets/Button.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import {
+  addSignInFailureDialog,
+  getSignInFailureDialog,
+} from '../ui/view/widgets/SignInFailureDialog.js';
 import { HOVER_CURSOR } from '../ui/view/input/cursor.js';
 import { bindHoverTarget, bindPointer, pointButton } from '../ui/view/input/hoverTarget.js';
 import {
@@ -69,7 +73,10 @@ import {
   slideSelectedRowContent,
 } from '../ui/view/widgets/listRowFocus.js';
 import { requireKeyboard } from '../ui/view/input/menuInput.js';
-import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import {
+  getAccountPanelButtonView,
+  getSignInFailureButtonView,
+} from '../ui/state/accountIdentity.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
@@ -211,6 +218,9 @@ const ROW_HELP_GAP_PX = 12;
 const ROW_HELP_OFFSET_X_PX = ROW_HELP_GAP_PX + HELP_BUTTON.radiusPx + HELP_BUTTON.ringWidthPx;
 // 도움말 판 위끝을 줄 이름 아래끝에서 이만큼 띄운다(시안 ⑦).
 const ROW_HELP_PANEL_GAP_PX = 18;
+const RECOMMENDED_CPU_SCORE = 800;
+const RECOMMENDED_RAM_GB = 8;
+const RECOMMENDED_REFRESH_RATE_HZ = 60;
 const CONTROL_INSET_RIGHT_PX = 16;
 const STEP_SIZE_PX = 48;
 const STEP_GAP_PX = 12;
@@ -276,6 +286,7 @@ interface SettingsView {
   backButton: Button;
   resetEntry: Phaser.GameObjects.Text;
   title: Phaser.GameObjects.Text;
+  systemHelp: HelpTip;
   groups: readonly { group: SettingsGroup; text: Phaser.GameObjects.Text }[];
   rows: readonly RowView[];
   waiting: {
@@ -287,6 +298,7 @@ interface SettingsView {
   controlsEntry: Phaser.GameObjects.Container;
   selectedHalo: SelectedRowHalo;
   resetDialog: ConfirmDialog;
+  signInFailure: ConfirmDialog;
 }
 
 export class SettingsScene extends Phaser.Scene {
@@ -429,6 +441,7 @@ export class SettingsScene extends Phaser.Scene {
               for (const { help } of view.rows) {
                 help?.render(
                   {
+                    kind: 'lines',
                     title: this.i18n.t('settings.rows.inputOffset'),
                     lines: [
                       this.i18n.t('settings.rowHelp.inputOffset.meaning'),
@@ -438,6 +451,42 @@ export class SettingsScene extends Phaser.Scene {
                   isButtonHovered(next.hover, 'inputOffsetHelp'),
                 );
               }
+              break;
+            case 'systemHelp':
+              view.systemHelp.render(
+                {
+                  kind: 'rows',
+                  title: this.i18n.t('settings.systemHelp.title'),
+                  rows: [
+                    {
+                      label: this.i18n.t('settings.systemHelp.hardwareAcceleration'),
+                      value: 'ON',
+                      note: null,
+                    },
+                    {
+                      label: 'CPU',
+                      value: `${RECOMMENDED_CPU_SCORE}+`,
+                      note: this.i18n.t('settings.systemHelp.cpuBenchmark'),
+                    },
+                    {
+                      label: 'RAM',
+                      value: `${RECOMMENDED_RAM_GB}GB`,
+                      note: null,
+                    },
+                    {
+                      label: this.i18n.t('settings.systemHelp.refreshRate'),
+                      value: `${RECOMMENDED_REFRESH_RATE_HZ}Hz+`,
+                      note: null,
+                    },
+                    {
+                      label: this.i18n.t('settings.systemHelp.input'),
+                      value: 'KEYBOARD',
+                      note: null,
+                    },
+                  ],
+                },
+                isButtonHovered(next.hover, 'systemHelp'),
+              );
               break;
             case 'accountButton': {
               const views = getAccountPanelButtonView(next.hover);
@@ -494,6 +543,19 @@ export class SettingsScene extends Phaser.Scene {
                   : null,
               );
               break;
+            case 'signInFailure':
+              view.signInFailure.render(
+                getSignInFailureDialog(
+                  this.i18n.t('account.signInFailure', { returnObjects: true }),
+                  next.signInFailure,
+                ),
+              );
+              break;
+            case 'signInFailureButtons': {
+              const buttonView = getSignInFailureButtonView(next.hover);
+              view.signInFailure.renderButtons(buttonView, buttonView);
+              break;
+            }
             case 'controls':
               // 조작 안내의 레인 키는 이 화면에서 바뀌므로 저장소가 아니라 지금 설정으로 그린다.
               view.chrome.controls.render(
@@ -570,7 +632,7 @@ export class SettingsScene extends Phaser.Scene {
     chrome.accountCorner.renderSignIn(identity);
     const keyboard = requireKeyboard(this);
 
-    const widgets: Omit<SettingsView, 'controlsEntry' | 'backButton'> = {
+    const widgets: Omit<SettingsView, 'controlsEntry' | 'backButton' | 'systemHelp'> = {
       chrome,
       title: this.add.text(
         SCREEN_LAYOUT.leftXPx,
@@ -594,6 +656,8 @@ export class SettingsScene extends Phaser.Scene {
         cancel: pointButton(controller, 'resetCancel'),
         accept: pointButton(controller, 'resetAccept'),
       }),
+      // 다른 팝업 위에 오도록 나중에 만든다.
+      signInFailure: addSignInFailureDialog(this, pointButton(controller, 'signInFailureClose')),
       resetEntry: this.addResetEntry(controller),
     };
     const [backButton] = createFooterAuxiliaryButtons(this, [
@@ -608,8 +672,16 @@ export class SettingsScene extends Phaser.Scene {
     );
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));
+    const systemHelp = new HelpTip(this, pointButton(controller, 'systemHelp'), {
+      panelTopOffsetPx: widgets.title.height / 2 + ROW_HELP_PANEL_GAP_PX,
+    });
+    systemHelp.container.setPosition(
+      widgets.title.x + widgets.title.width + ROW_HELP_OFFSET_X_PX,
+      widgets.title.y + widgets.title.height / 2,
+    );
     const view: SettingsView = {
       ...widgets,
+      systemHelp,
       backButton: requireDefined(backButton, 'Missing settings header button', 'BACK'),
       controlsEntry: chrome.start(widgets.title.getBounds()),
     };

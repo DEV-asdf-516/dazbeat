@@ -116,7 +116,7 @@ export class MenuSceneChrome {
         if (keys.isLeaving()) {
           return;
         }
-        if (keys.captureKey !== undefined && keys.captureKey(event)) {
+        if (keys.captureKey?.(event)) {
           return;
         }
         if (keys.handleControlsKey(event)) {

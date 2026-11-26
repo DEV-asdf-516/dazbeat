@@ -26,7 +26,8 @@ import {
   leaveControlsButton,
 } from '../../app/controlsGuide.js';
 import { getAccountPanelPointerKey } from '../../ui/state/accountIdentity.js';
-import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton, SignInFailureButton } from '../../ui/state/accountIdentity.js';
+import type { SignInFailure } from '../../app/accountState.js';
 import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import { readMenuAction } from '../../ui/state/menuAction.js';
 import { readKeyCapture } from './keyCapture.js';
@@ -44,8 +45,10 @@ export type SettingsButton =
   | 'resetCancel'
   | 'resetAccept'
   | 'inputOffsetHelp'
+  | 'systemHelp'
   | ControlsButton
   | AccountPanelButton
+  | SignInFailureButton
   | `keyBox:${number}`
   | `step:${number}:${ListDirection}`
   | `mute:${number}`;
@@ -61,6 +64,7 @@ export interface SettingsEditorState {
   readonly hover: SettingsHover | null;
   readonly displayedLanguage: Language;
   readonly controls: ControlsPanel;
+  readonly signInFailure: SignInFailure | 'none';
 }
 
 const BROWSING: SettingsMode = { kind: 'browsing' };
@@ -96,6 +100,7 @@ export function createSettingsEditorState(
     hover: null,
     displayedLanguage,
     controls: 'closed',
+    signInFailure: 'none',
   };
 }
 
@@ -563,7 +568,10 @@ export type SettingsRegion =
   | 'controlsClose'
   | 'controlsHelpCard'
   | 'controlsHelpButton'
-  | 'inputOffsetHelp';
+  | 'inputOffsetHelp'
+  | 'systemHelp'
+  | 'signInFailure'
+  | 'signInFailureButtons';
 
 type SettingsReader = StateReader<SettingsEditorState>;
 
@@ -614,6 +622,12 @@ const REGION_SOURCES: Readonly<Record<SettingsRegion, readonly SettingsReader[]>
   inputOffsetHelp: [
     (state) => isButtonHovered(state.hover, 'inputOffsetHelp'),
     readDisplayedLanguage,
+  ],
+  systemHelp: [(state) => isButtonHovered(state.hover, 'systemHelp'), readDisplayedLanguage],
+  signInFailure: [(state) => state.signInFailure],
+  signInFailureButtons: [
+    (state) => isButtonHovered(state.hover, 'signInFailureClose'),
+    (state) => isButtonPressed(state.hover, 'signInFailureClose'),
   ],
 };
 
@@ -706,12 +720,14 @@ function isSettingsButtonEnabled(state: SettingsEditorState, button: SettingsBut
     case 'resetCancel':
     case 'resetAccept':
     case 'inputOffsetHelp':
+    case 'systemHelp':
     case 'controlsEntry':
     case 'controlsClose':
     case 'controlsBackdrop':
     case 'controlsHelp':
     case 'accountProfile':
     case 'accountSignIn':
+    case 'signInFailureClose':
       return true;
   }
   const rowButton = requireDefined(findRowButton(state, button), 'Not a settings button', button);

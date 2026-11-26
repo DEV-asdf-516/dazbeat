@@ -739,6 +739,7 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/prefer-optional-chain': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
       eqeqeq: 'error',
       'prefer-const': 'error',

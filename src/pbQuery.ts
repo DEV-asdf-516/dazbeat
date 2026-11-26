@@ -123,6 +123,13 @@ export function desc<const F extends string>(field: F): SortKey<F> {
   };
 }
 
+export function sortBy<F extends string>(
+  _spec: CollectionSpec<F>,
+  keys: readonly SortKey<NoInfer<F>>[],
+): string {
+  return keys.map(({ field, direction }) => (direction === 'desc' ? `-${field}` : field)).join(',');
+}
+
 export interface Expansion<N extends string = string> {
   readonly name: N;
   readonly fields: readonly string[];

@@ -671,6 +671,63 @@ describe('GameplaySession state and result', () => {
     });
   });
 
+  it.each([
+    {
+      perfect: 4,
+      great: 1,
+      good: 0,
+      miss: 1,
+      accuracy: 0.8,
+    },
+    {
+      perfect: 7,
+      great: 1,
+      good: 1,
+      miss: 0,
+      accuracy: 0.9,
+    },
+    {
+      perfect: 31,
+      great: 6,
+      good: 1,
+      miss: 0,
+      accuracy: 0.95,
+    },
+  ])(
+    'reaches exactly $accuracy with $perfect perfect, $great great, $good good and $miss miss',
+    ({ perfect, great, good, miss, accuracy }) => {
+      const pressOffsetsMs = [
+        ...Array.from({ length: perfect }, () => 0),
+        ...Array.from({ length: great }, () => 60),
+        ...Array.from({ length: good }, () => 90),
+      ];
+      const noteCount = pressOffsetsMs.length + miss;
+      const session = makeSession(
+        Array.from({ length: noteCount }, (_, index) => ({
+          type: 'tap' as const,
+          timeMs: 1000 + index * 1000,
+          lane: 0 as const,
+        })),
+      );
+      pressOffsetsMs.forEach((pressOffsetMs, index) =>
+        session.press(0, 1000 + index * 1000 + pressOffsetMs),
+      );
+      session.update(1000 + noteCount * 1000);
+
+      expect(session.getProgress()).toMatchObject({
+        outcome: 'finished',
+        counts: {
+          perfect,
+          great,
+          good,
+          bad: 0,
+          miss,
+        },
+      });
+      expect(session.getProgress()).toHaveProperty('accuracy', accuracy);
+    },
+  );
+
   it('throws for an out-of-range note index', () => {
     const session = makeSession([
       {

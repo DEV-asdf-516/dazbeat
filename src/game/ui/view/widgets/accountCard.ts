@@ -1,5 +1,4 @@
 import type Phaser from 'phaser';
-import { getBrushRectTexture } from '../textures/brushRect.js';
 import type { AchievementCatalog } from '../../../../data/achievements.js';
 import { GOOGLE_SIGN_IN_LABEL } from '../../state/accountIdentity.js';
 import type { AccountIdentity, AccountPanelButton } from '../../state/accountIdentity.js';
@@ -8,7 +7,6 @@ import { pointButton } from '../input/hoverTarget.js';
 import type { ButtonPointer, PointerActions } from '../input/hoverTarget.js';
 import { rgba } from '../textures/lightTextures.js';
 import {
-  CARD_PANEL,
   CELESTIAL_COLORS,
   COLORS,
   RADIUS,
@@ -23,13 +21,9 @@ import { setFittedText } from './fitText.js';
 import { getSignOutIconTexture } from './signOutIcon.js';
 import { addVerticalDivider } from './verticalDivider.js';
 
-/** 로그인 상태 문구는 배경 그림 위에 그대로 두면 떠 보이므로 반투명 카드 위에 얹는다. */
-export const ACCOUNT_CARD_PADDING_X_PX = 20;
-export const ACCOUNT_CARD_PADDING_Y_PX = 10;
 // 왼쪽 내용과 좌우 여백을 맞추고, 화면 제목과 같은 줄에 둔다.
 const IDENTITY_RIGHT_X_PX = SCREEN_LAYOUT.rightXPx;
 export const IDENTITY_CENTER_Y_PX = 120;
-export const ACCOUNT_RIGHT_X_PX = IDENTITY_RIGHT_X_PX - ACCOUNT_CARD_PADDING_X_PX;
 // 버튼 안쪽 여백을 빼고 아이콘 끝이 여백에 닿게 한다.
 export const ACCOUNT_BUTTON_RIGHT_X_PX = IDENTITY_RIGHT_X_PX + QUIET_PADDING_PX.xPx;
 const IDENTITY_EMBLEM_SIZE_PX = 44;
@@ -72,35 +66,6 @@ const CARD_EMAIL_TYPE = {
   sizePx: 16,
   weight: 400,
 } as const;
-
-export function addAccountCard(scene: Phaser.Scene): Phaser.GameObjects.Image {
-  return scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0).setVisible(false);
-}
-
-export function fitAccountCard(
-  card: Phaser.GameObjects.Image,
-  cardLeftXPx: number,
-  contentTopYPx: number,
-  contentBottomYPx: number,
-): void {
-  card
-    .setPosition(cardLeftXPx, contentTopYPx - ACCOUNT_CARD_PADDING_Y_PX)
-    .setTexture(
-      getBrushRectTexture(card.scene, {
-        widthPx: ACCOUNT_RIGHT_X_PX + ACCOUNT_CARD_PADDING_X_PX - cardLeftXPx,
-        heightPx: contentBottomYPx - contentTopYPx + ACCOUNT_CARD_PADDING_Y_PX * 2,
-        radiusPx: RADIUS.mediumPx,
-        fillColor: CARD_PANEL.fillColor,
-        fillAlpha: CARD_PANEL.fillAlpha,
-        border: {
-          color: CARD_PANEL.borderColor,
-          alpha: CARD_PANEL.borderAlpha,
-          widthPx: CARD_PANEL.borderPx,
-        },
-      }),
-    )
-    .setVisible(true);
-}
 
 /** 계정 동작은 메뉴보다 한 단계 작은 글자로 두어 PLAY 등 주 메뉴와 경쟁하지 않게 한다. */
 export function addAccountActionButton(scene: Phaser.Scene, pointer: PointerActions): Button {

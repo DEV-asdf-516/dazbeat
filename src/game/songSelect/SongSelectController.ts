@@ -13,6 +13,11 @@ import type { ChartRecords } from '../../storage/chartRecords.js';
 import type { SongFeed, SongFeeds } from '../app/SongFeed.js';
 import type { SongSelectRestore } from '../app/sceneRoutes.js';
 import { IDLE_WHEEL } from '../ui/state/wheelRows.js';
+import {
+  closeSignInFailure,
+  failAccountSignIn,
+  readSignInFailureKey,
+} from '../ui/state/accountIdentity.js';
 import type { MenuAction } from '../ui/state/menuAction.js';
 import {
   clickControlsHelp,
@@ -37,6 +42,7 @@ import {
   hoverSongSelectButton,
   isLoadingMoreSongs,
   isOnLastLoadedPage,
+  isSongSelectWheelBlocked,
   isSameSongQuery,
   moveDifficulty,
   moveLevelHandle,
@@ -147,6 +153,8 @@ export class SongSelectController {
   private rankingsRequest: object | null = null;
   private recordsRequest: object | null = null;
   private wheel = IDLE_WHEEL;
+  // 앞 시도의 늦은 실패가 뒤 시도 위에 팝업을 띄우지 않도록 마지막 시도만 기억한다.
+  private signInToken: object | null = null;
   private shownView: SongSelectView | null = null;
   private levelCommitAtMs: number | null = null;
   private readonly isRestored: boolean;
@@ -220,7 +228,7 @@ export class SongSelectController {
     if (current === null) {
       return;
     }
-    const read = readControlsWheel(isControlsPanelOpen(current.state), this.wheel, {
+    const read = readControlsWheel(isSongSelectWheelBlocked(current.state), this.wheel, {
       deltaYPx,
       atMs,
       rowPx: this.wheelStepPx,
@@ -608,15 +616,20 @@ export class SongSelectController {
         this.apply(released);
         this.signIn();
         return;
+      case 'signInFailureClose':
+        this.apply(this.withState(released, closeSignInFailure(state)));
+        this.screen.playSound('close');
+        return;
     }
   }
 
   /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
   private signIn(): void {
     this.screen.playSound('click');
-    void this.ports
-      .signIn()
-      .then((user) => {
+    const token = {};
+    this.signInToken = token;
+    void this.ports.signIn().then(
+      (user) => {
         const current = this.open;
         if (user === null || current === null) {
           return;
@@ -625,10 +638,33 @@ export class SongSelectController {
         this.apply(this.withState(current, completeSongSelectSignIn(current.state)));
         this.requestTopRanks();
         this.requestRecords();
-      })
-      .catch((error: unknown) => {
+      },
+      (error: unknown) => {
         console.error('Failed to sign in with Google', error);
-      });
+        const current = this.open;
+        if (current === null || token !== this.signInToken) {
+          return;
+        }
+        this.apply(this.withState(current, failAccountSignIn(current.state, error)));
+      },
+    );
+  }
+
+  captureKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    const current = this.open;
+    if (current === null) {
+      return false;
+    }
+    switch (readSignInFailureKey(current.state.signInFailure, event)) {
+      case 'close':
+        this.apply(this.withState(current, closeSignInFailure(current.state)));
+        this.screen.playSound('close');
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
+    }
   }
 
   cycleFilter(direction: ListDirection): void {

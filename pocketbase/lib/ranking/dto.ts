@@ -62,10 +62,7 @@ export class InvalidRankingRequestError extends Error {
   }
 }
 
-export function parseRankedChartSort(sort: unknown): RankedChartSort {
-  if (sort === undefined) {
-    return DEFAULT_RANKED_CHART_SORT;
-  }
+export function parseRankedChartSort(sort: unknown = DEFAULT_RANKED_CHART_SORT): RankedChartSort {
   if (!isRankedChartSort(sort)) {
     throw new InvalidRankingRequestError('invalid_sort');
   }

@@ -104,7 +104,15 @@ import type {
   SongSelectButton,
   SongSelectNotice,
 } from './state/songSelectState.js';
-import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import {
+  getAccountPanelButtonView,
+  getSignInFailureButtonView,
+} from '../ui/state/accountIdentity.js';
+import type { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import {
+  addSignInFailureDialog,
+  getSignInFailureDialog,
+} from '../ui/view/widgets/SignInFailureDialog.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { createFooterAuxiliaryButtons } from '../ui/view/widgets/auxiliaryButton.js';
@@ -359,6 +367,7 @@ interface SongSelectWidgets {
   backButton: Button;
   rankingButton: Button;
   levelResetButton: Button;
+  signInFailure: ConfirmDialog;
 }
 
 type HoverInput = Pick<SongSelectController, 'hover' | 'unhover'>;
@@ -756,6 +765,19 @@ export class SongSelectScene extends Phaser.Scene {
               view.chrome.accountCorner.signInButton.render(views.accountSignIn);
               break;
             }
+            case 'signInFailure':
+              view.signInFailure.render(
+                getSignInFailureDialog(
+                  this.i18n.t('account.signInFailure', { returnObjects: true }),
+                  next.state.signInFailure,
+                ),
+              );
+              break;
+            case 'signInFailureButtons': {
+              const buttonView = getSignInFailureButtonView(next.state.hover);
+              view.signInFailure.renderButtons(buttonView, buttonView);
+              break;
+            }
           }
         }
       },
@@ -861,6 +883,7 @@ export class SongSelectScene extends Phaser.Scene {
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) => controller.captureKey(event),
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action, event) => {
           if (controller.handleLevelSliderKey(action)) {
@@ -987,7 +1010,7 @@ export class SongSelectScene extends Phaser.Scene {
     );
     const widgets: Omit<
       SongSelectWidgets,
-      'settingsButton' | 'backButton' | 'rankingButton' | 'levelResetButton'
+      'settingsButton' | 'backButton' | 'rankingButton' | 'levelResetButton' | 'signInFailure'
     > = {
       chrome,
       tabs,
@@ -1121,6 +1144,8 @@ export class SongSelectScene extends Phaser.Scene {
       backButton: requireDefined(backButton, 'Missing song select header button', 'BACK'),
       rankingButton: this.createRankingButton(controller),
       levelResetButton: this.createLevelResetButton(controller, levelSliderCenterYPx),
+      // 화면 위젯을 모두 만든 뒤 만들어 그 위에 오게 한다.
+      signInFailure: addSignInFailureDialog(this, pointButton(controller, 'signInFailureClose')),
     };
     keyboard.addCapture('TAB');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => keyboard.removeCapture('TAB'));

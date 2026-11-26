@@ -696,7 +696,7 @@ export function getChangedRegions(
   const before = getSession(previous);
   const after = getSession(next);
   const isSessionChanged =
-    previous.phase !== next.phase && (before === null || after === null || before.id !== after.id);
+    previous.phase !== next.phase && (before === null || before.id !== after?.id);
   const regions = filterChangedRegions(REGION_SOURCES, isSessionChanged ? null : previous, next);
   // 도구 표시기는 채보가 바뀌어도 진행 중인 이동을 끊지 않도록 도구가 바뀔 때만 칠한다.
   return regions.filter((region) => region !== 'toolIndicator' || previous.tool !== next.tool);
