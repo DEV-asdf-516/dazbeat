@@ -83,7 +83,8 @@ function parseInRange(value: unknown, { min, max }: Range): number | undefined {
 const isLaneCount = isOneOf(LANE_COUNTS);
 const isVolumeField = isOneOf(VOLUME_FIELDS);
 
-function parseMutedVolumes(value: unknown): readonly VolumeField[] | undefined {
+// 음소거가 생기기 전에 저장된 설정에는 값이 없으므로 모두 켜진 것으로 본다.
+function parseMutedVolumes(value: unknown = []): readonly VolumeField[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
@@ -132,8 +133,7 @@ export const SETTINGS_PARSERS: {
   backgroundVolume: (value) => parseInRange(value, SETTINGS_LIMITS.volume),
   musicVolume: (value) => parseInRange(value, SETTINGS_LIMITS.volume),
   effectVolume: (value) => parseInRange(value, SETTINGS_LIMITS.volume),
-  // 음소거가 생기기 전에 저장된 설정에는 값이 없으므로 모두 켜진 것으로 본다.
-  mutedVolumes: (value) => (value === undefined ? [] : parseMutedVolumes(value)),
+  mutedVolumes: parseMutedVolumes,
   inputOffsetMs: (value) => parseInRange(value, SETTINGS_LIMITS.inputOffsetMs),
   scrollSpeedPxPerSecond: (value) => parseInRange(value, SETTINGS_LIMITS.scrollSpeedPxPerSecond),
   laneMode: (value) => (isLaneCount(value) ? value : undefined),

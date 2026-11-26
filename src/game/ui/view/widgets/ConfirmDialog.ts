@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import type { ButtonView } from '../../state/buttonPointer.js';
 import { Button } from './Button.js';
-import type { QuietButtonColors, SecondaryButtonColors } from './Button.js';
+import type { ButtonOptions, QuietButtonColors, SecondaryButtonColors } from './Button.js';
 import type { PointerActions } from '../input/hoverTarget.js';
 import { ModalFrame } from './ModalFrame.js';
 import { CELESTIAL_COLORS, STATUS_COLORS, typeStyle } from '../theme.js';
@@ -76,6 +76,47 @@ const ACCEPT_TONE_FILLS: Record<ConfirmTone, { hover: number; pressed: number }>
   },
 };
 
+type ButtonStyle<V extends ButtonOptions['variant']> = Omit<
+  Extract<ButtonOptions, { variant: V }>,
+  'label' | 'pointer'
+>;
+
+function createAcceptStyle(tone: ConfirmTone): ButtonStyle<'secondary'> {
+  const toneColor = ACCEPT_TONE_COLORS[tone];
+  return {
+    variant: 'secondary',
+    heightPx: BUTTON_HEIGHT_PX,
+    paddingXPx: BUTTON_PADDING_X_PX,
+    labelType: BUTTON_LABEL_TYPE,
+    borderWidthPx: BUTTON_BORDER_PX,
+    focus: 'glow',
+    colors: {
+      ...ACCEPT_BUTTON_COLORS,
+      border: toneColor,
+      hoverBorder: toneColor,
+      label: toneColor,
+      hoverFill: ACCEPT_TONE_FILLS[tone].hover,
+      pressedFill: ACCEPT_TONE_FILLS[tone].pressed,
+    },
+  };
+}
+
+const ACCEPT_STYLES: Readonly<Record<ConfirmTone, ButtonStyle<'secondary'>>> = {
+  default: createAcceptStyle('default'),
+  danger: createAcceptStyle('danger'),
+};
+
+// 다른 창도 확인 창과 같은 버튼을 쓰도록 생성 옵션을 이곳 하나에서 정한다.
+export const CONFIRM_CANCEL_BUTTON: ButtonStyle<'quiet'> = {
+  variant: 'quiet',
+  heightPx: BUTTON_HEIGHT_PX,
+  paddingXPx: BUTTON_PADDING_X_PX,
+  focus: 'slide',
+  colors: CANCEL_BUTTON_COLORS,
+  labelType: BUTTON_LABEL_TYPE,
+};
+export const CONFIRM_ACCEPT_BUTTON: ButtonStyle<'secondary'> = ACCEPT_STYLES.default;
+
 export class ConfirmDialog {
   private readonly frame: ModalFrame;
   private readonly title: Phaser.GameObjects.Text;
@@ -112,36 +153,16 @@ export class ConfirmDialog {
       },
     });
     this.cancel = new Button(scene, 0, 0, {
-      variant: 'quiet',
+      ...CONFIRM_CANCEL_BUTTON,
       label: '',
       pointer: pointer.cancel,
-      heightPx: BUTTON_HEIGHT_PX,
-      paddingXPx: BUTTON_PADDING_X_PX,
-      focus: 'slide',
-      colors: CANCEL_BUTTON_COLORS,
-      labelType: BUTTON_LABEL_TYPE,
     });
-    const createAccept = (tone: ConfirmTone): Button => {
-      const toneColor = ACCEPT_TONE_COLORS[tone];
-      return new Button(scene, 0, 0, {
-        variant: 'secondary',
+    const createAccept = (tone: ConfirmTone): Button =>
+      new Button(scene, 0, 0, {
+        ...ACCEPT_STYLES[tone],
         label: '',
         pointer: pointer.accept,
-        heightPx: BUTTON_HEIGHT_PX,
-        paddingXPx: BUTTON_PADDING_X_PX,
-        labelType: BUTTON_LABEL_TYPE,
-        borderWidthPx: BUTTON_BORDER_PX,
-        focus: 'glow',
-        colors: {
-          ...ACCEPT_BUTTON_COLORS,
-          border: toneColor,
-          hoverBorder: toneColor,
-          label: toneColor,
-          hoverFill: ACCEPT_TONE_FILLS[tone].hover,
-          pressedFill: ACCEPT_TONE_FILLS[tone].pressed,
-        },
       });
-    };
     this.accepts = {
       default: createAccept('default'),
       danger: createAccept('danger'),

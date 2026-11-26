@@ -28,7 +28,8 @@ import {
   completeAccountSignIn,
   getAccountPanelPointerKey,
 } from '../../ui/state/accountIdentity.js';
-import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton, SignInFailureButton } from '../../ui/state/accountIdentity.js';
+import type { SignInFailure } from '../../app/accountState.js';
 import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
 import type { MenuAction } from '../../ui/state/menuAction.js';
@@ -48,7 +49,12 @@ export type BoardLoad =
 export type RankingDialog = 'failed' | 'unavailable' | 'revised';
 
 export type RankingButton =
-  'back' | 'dialogCancel' | 'dialogAccept' | ControlsButton | AccountPanelButton;
+  | 'back'
+  | 'dialogCancel'
+  | 'dialogAccept'
+  | ControlsButton
+  | AccountPanelButton
+  | SignInFailureButton;
 
 export type RankingHover =
   { readonly kind: 'difficulty'; readonly difficulty: Difficulty } | ButtonHover<RankingButton>;
@@ -62,6 +68,8 @@ interface RankingFields {
   /** 채보 수정 안내는 한 화면 방문 동안 채보 버전마다 한 번만 띄운다. */
   readonly noticedRevisions: ReadonlyMap<string, string>;
   readonly hover: RankingHover | null;
+  /** 불러오기 결과 대화상자(dialog)와 따로 두고, 둘 다 열리면 실패 팝업이 위다. */
+  readonly signInFailure: SignInFailure | 'none';
 }
 
 export type RankingState = RankingFields &
@@ -120,6 +128,7 @@ export function createRankingState(
     noticedRevisions,
     hover: null,
     controls: 'closed',
+    signInFailure: 'none',
   };
 }
 
@@ -254,8 +263,9 @@ function getTopEntries(state: RankingState): Leaderboard['top'] {
   return state.load.kind === 'loaded' ? getBoardEntries(state.load.board) : [];
 }
 
+// 휠은 팝업 배경을 거치지 않으므로 대화상자나 로그인 실패 팝업이 열린 동안 목록을 움직이지 않는다.
 export function scrollRanking(state: RankingState, rows: number): RankingState {
-  if (state.dialog !== 'none') {
+  if (state.dialog !== 'none' || state.signInFailure !== 'none') {
     return state;
   }
   const maxTopRow = Math.max(0, getTopEntries(state).length - RANKING_VISIBLE_ROWS);
@@ -490,7 +500,9 @@ export type RankingRegion =
   | 'accountButton'
   | 'controlsClose'
   | 'controlsHelpCard'
-  | 'controlsHelpButton';
+  | 'controlsHelpButton'
+  | 'signInFailure'
+  | 'signInFailureButtons';
 
 type RankingReader = StateReader<RankingState>;
 
@@ -531,6 +543,8 @@ const REGION_SOURCES: Readonly<Record<RankingRegion, readonly RankingReader[]>> 
   controlsClose: [readHovered('controlsClose'), readPressed('controlsClose')],
   controlsHelpCard: [isControlsHelpShown],
   controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
+  signInFailure: [(state) => state.signInFailure],
+  signInFailureButtons: [readHovered('signInFailureClose'), readPressed('signInFailureClose')],
 };
 
 export function getChangedRegions(

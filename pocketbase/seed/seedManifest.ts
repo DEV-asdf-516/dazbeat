@@ -174,7 +174,7 @@ function describeIssueLocation(input: unknown, path: readonly PropertyKey[]): st
 function resolveDataPath(dataDir: URL, relativePath: string, location: string): URL {
   const isRelative = !isAbsolute(relativePath) && !URL.canParse(relativePath);
   const resolved = URL.parse(relativePath, dataDir);
-  if (!isRelative || resolved === null || !resolved.href.startsWith(dataDir.href)) {
+  if (!isRelative || !resolved?.href.startsWith(dataDir.href)) {
     throw new InvalidSeedDataError(
       describeRejectedPath(resolved, relativePath),
       `${location} "${relativePath}" points outside the seed data directory`,

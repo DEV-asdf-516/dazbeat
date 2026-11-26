@@ -12,6 +12,7 @@ const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
 const ACCELERATION_NOTICE_KEY = 'dazbeat:accelerationNotice:v1';
 const GUEST_NOTICE_KEY = 'dazbeat:guestNotice:v1';
 const GUEST_PLAYER_REPORTS_KEY = 'dazbeat:guestPlayerReports:v1';
+const DISMISSED_NOTICES_KEY = 'dazbeat:dismissedNotices:v1';
 
 export class LocalSave {
   constructor(private readonly storage: Storage) {}
@@ -114,6 +115,20 @@ export class LocalSave {
     this.storage.setItem(GUEST_PLAYER_REPORTS_KEY, JSON.stringify(reports));
   }
 
+  loadDismissedNoticeIds(): ReadonlySet<string> {
+    const parsed = parseJson(this.storage.getItem(DISMISSED_NOTICES_KEY) ?? '[]');
+    if (!Array.isArray(parsed)) {
+      console.warn('Saved dismissed notices are not a JSON array; ignoring them');
+      return new Set();
+    }
+    return new Set(parsed.filter(isString));
+  }
+
+  dismissNotices(ids: readonly string[]): void {
+    const dismissed = new Set([...this.loadDismissedNoticeIds(), ...ids]);
+    this.storage.setItem(DISMISSED_NOTICES_KEY, JSON.stringify([...dismissed]));
+  }
+
   private readRevisionNotices(): Record<string, string> {
     return this.readRevisionMap(REVISION_NOTICES_KEY, 'revision notices');
   }
@@ -132,10 +147,7 @@ export class LocalSave {
   private readRecords(): Record<string, ChartRecord> {
     const records: Record<string, ChartRecord> = {};
     const saved = this.readObject(RECORDS_KEY, 'records', 'ignoring them');
-    if (saved === undefined) {
-      return records;
-    }
-    for (const [key, value] of Object.entries(saved)) {
+    for (const [key, value] of Object.entries(saved ?? {})) {
       const record = parseChartRecord(value);
       if (record !== undefined) {
         records[key] = record;

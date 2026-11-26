@@ -559,6 +559,9 @@ describe('getChangedRegions', () => {
       'controlsHelpCard',
       'controlsHelpButton',
       'inputOffsetHelp',
+      'systemHelp',
+      'signInFailure',
+      'signInFailureButtons',
     ]);
   });
 
@@ -619,6 +622,7 @@ describe('getChangedRegions', () => {
       'waitingText',
       'rowButtons',
       'inputOffsetHelp',
+      'systemHelp',
     ]);
   });
 

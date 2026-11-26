@@ -1,7 +1,12 @@
 import type { ChartRef } from '../../data/songs.js';
 import type { Difficulty } from '../../rhythm/types.js';
 import { clickControlsHelp, withControlsOpen } from '../app/controlsGuide.js';
-import { completeAccountSignIn } from '../ui/state/accountIdentity.js';
+import {
+  closeSignInFailure,
+  completeAccountSignIn,
+  failAccountSignIn,
+  readSignInFailureKey,
+} from '../ui/state/accountIdentity.js';
 import type { PlayOrigin, ResultRanking, ResultReport, SceneRequest } from '../app/sceneRoutes.js';
 import {
   applyMenuInput,
@@ -53,6 +58,8 @@ type ControllerState = ResultState | { readonly kind: 'closed' };
 
 export class ResultController {
   private state: ControllerState;
+  // 앞 시도의 늦은 실패가 뒤 시도 위에 팝업을 띄우지 않도록 마지막 시도만 기억한다.
+  private signInToken: object | null = null;
 
   constructor(
     private readonly screen: ResultScreen,
@@ -232,6 +239,27 @@ export class ResultController {
         this.signIn();
         this.apply(closeGuestNotice(released));
         return;
+      case 'signInFailureClose':
+        this.apply(closeSignInFailure(released));
+        this.screen.playSound('close');
+        return;
+    }
+  }
+
+  captureKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
+    const state = this.open;
+    if (state === null) {
+      return false;
+    }
+    switch (readSignInFailureKey(state.signInFailure, event)) {
+      case 'close':
+        this.apply(closeSignInFailure(state));
+        this.screen.playSound('close');
+        return true;
+      case 'block':
+        return true;
+      case 'pass':
+        return false;
     }
   }
 
@@ -359,19 +387,26 @@ export class ResultController {
 
   /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
   private signIn(): void {
-    void this.guestNotice
-      .signIn()
-      .then((user) => {
+    const token = {};
+    this.signInToken = token;
+    void this.guestNotice.signIn().then(
+      (user) => {
         const state = this.open;
         if (user === null || state === null) {
           return;
         }
         this.screen.renderAccount();
         this.apply(completeAccountSignIn(state));
-      })
-      .catch((error: unknown) => {
+      },
+      (error: unknown) => {
         console.error('Failed to sign in with Google', error);
-      });
+        const state = this.open;
+        if (state === null || token !== this.signInToken) {
+          return;
+        }
+        this.apply(failAccountSignIn(state, error));
+      },
+    );
   }
 
   private get open(): ResultState | null {

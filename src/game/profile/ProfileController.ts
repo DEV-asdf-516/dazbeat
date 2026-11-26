@@ -818,7 +818,7 @@ export class ProfileController {
     readonly page: LoadedProfileState;
   } | null {
     const screen = this.open;
-    return screen === null || screen.page.kind !== 'loaded'
+    return screen?.page.kind !== 'loaded'
       ? null
       : {
           screen,

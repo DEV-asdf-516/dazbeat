@@ -3,6 +3,9 @@ import type { AchievementCatalog, NamedAchievementDefinition } from '../../../da
 import type { AuthUser } from '../../../data/account.js';
 import { getButtonView, isButtonHovered, isButtonPressed, unhoverButton } from './buttonPointer.js';
 import type { ButtonView, PointerHover } from './buttonPointer.js';
+import { readMenuAction } from './menuAction.js';
+import { readSignInFailure } from '../../app/accountState.js';
+import type { SignInFailure } from '../../app/accountState.js';
 
 export type AccountPanelButton = 'accountProfile' | 'accountSignIn';
 
@@ -56,4 +59,50 @@ export function completeAccountSignIn<S extends { readonly hover: PointerHover }
     ...state,
     hover: unhoverButton(state.hover, 'accountSignIn'),
   };
+}
+
+export type SignInFailureButton = 'signInFailureClose';
+
+export interface SignInFailureFields {
+  readonly signInFailure: SignInFailure | 'none';
+  readonly hover: PointerHover;
+}
+
+export function failAccountSignIn<S extends SignInFailureFields>(state: S, error: unknown): S {
+  return {
+    ...state,
+    signInFailure: readSignInFailure(error),
+  };
+}
+
+// Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 팝업을 닫을 때 닫기 버튼의 hover 를 푼다.
+export function closeSignInFailure<S extends SignInFailureFields>(state: S): S {
+  if (state.signInFailure === 'none') {
+    return state;
+  }
+  return {
+    ...state,
+    signInFailure: 'none',
+    hover: unhoverButton(state.hover, 'signInFailureClose'),
+  };
+}
+
+export function readSignInFailureKey(
+  failure: SignInFailure | 'none',
+  event: Pick<KeyboardEvent, 'code' | 'repeat'>,
+): 'close' | 'block' | 'pass' {
+  if (failure === 'none') {
+    return 'pass';
+  }
+  switch (readMenuAction(event)) {
+    case 'confirm':
+    case 'back':
+      return 'close';
+    default:
+      return 'block';
+  }
+}
+
+export function getSignInFailureButtonView(hover: PointerHover): ButtonView {
+  return getButtonView(hover, 'signInFailureClose', true, false);
 }

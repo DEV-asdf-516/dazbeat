@@ -5,10 +5,6 @@ export const ko = {
     checkConnection: '연결 상태를 확인한 후 다시 시도해 주세요.',
   },
   main: {
-    account: {
-      signInFailed: 'Google 로그인에 실패했습니다.',
-      rejoinBlocked: '탈퇴한 Google 계정은 다시 사용할 수 없습니다.',
-    },
     accelerationNotice: {
       title: '하드웨어 가속 꺼짐',
       body: {
@@ -35,6 +31,18 @@ export const ko = {
       dismiss: '다시 보지 않기',
       accept: '확인',
     },
+  },
+  account: {
+    signInFailure: {
+      title: '로그인 실패',
+      failed: 'Google 로그인에 실패했습니다.',
+      rejoinBlocked: '탈퇴한 Google 계정은 다시 사용할 수 없습니다.',
+      close: '확인',
+    },
+  },
+  notice: {
+    dismiss: '다시 보지 않기',
+    close: '닫기',
   },
   controls: {
     gameplay: {
@@ -92,6 +100,13 @@ export const ko = {
         meaning: '노트와 음악이 어긋날 때 맞추는 값',
         direction: '노트가 음악보다 늦으면 +, 빠르면 −',
       },
+    },
+    systemHelp: {
+      title: '권장 사양',
+      hardwareAcceleration: '하드웨어 가속',
+      cpuBenchmark: 'Geekbench 6 단일 코어',
+      refreshRate: '주사율',
+      input: '입력',
     },
   },
   credits: {

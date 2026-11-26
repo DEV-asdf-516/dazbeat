@@ -3,7 +3,10 @@ import Phaser from 'phaser';
 import type { AchievementCatalog } from '../../data/achievements.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
 import type { CelestialCatalog } from '../celestial/state/celestialCatalog.js';
-import type { AccountAuth, SignInFailure } from '../app/accountState.js';
+import { parseLanguage } from '../../i18n/language.js';
+import { requireDefined } from '../../invariant.js';
+import type { AccountAuth } from '../app/accountState.js';
+import { getSignInFailureButtonView } from '../ui/state/accountIdentity.js';
 import {
   getControlsCloseView,
   getControlsGuide,
@@ -16,15 +19,18 @@ import { SCENE_KEYS, exitScene } from '../app/sceneRoutes.js';
 import type { SceneRequest } from '../app/sceneRoutes.js';
 import { getAccountPanel } from './state/accountPanel.js';
 import { MainController } from './MainController.js';
-import type { AccelerationNoticePorts, MainScreen } from './MainController.js';
+import type { AccelerationNoticePorts, MainScreen, NoticePorts } from './MainController.js';
 import type { BrowserKind } from './state/accelerationNotice.js';
 import {
   getAccelerationNoticeButtonViews,
   getChangedRegions,
   getMainButtonView,
   getMainMenuItems,
+  getMainSignInFailure,
+  getNoticeBoardButtonViews,
   isMainFocused,
 } from './state/mainMenu.js';
+import { NoticeBoard } from './view/NoticeBoard.js';
 import type { MainMenuItem } from './state/mainMenu.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
@@ -32,16 +38,11 @@ import { queueAchievementEmblemLoads } from '../ui/view/widgets/achievementEmble
 import { Button, QUIET_PADDING_PX } from '../ui/view/widgets/Button.js';
 import {
   ACCOUNT_BUTTON_RIGHT_X_PX,
-  ACCOUNT_CARD_PADDING_X_PX,
-  ACCOUNT_CARD_PADDING_Y_PX,
-  ACCOUNT_RIGHT_X_PX,
   IDENTITY_CENTER_Y_PX,
   AccountNameplate,
   addAccountActionButton,
   GOOGLE_ICON_IMAGE,
   GOOGLE_ICON_SIZE_PX,
-  addAccountCard,
-  fitAccountCard,
 } from '../ui/view/widgets/accountCard.js';
 import { MENU_KEY_HINT_STYLE } from '../ui/view/widgets/keyHintView.js';
 import { getControlsBaselineYPx } from '../ui/view/widgets/auxiliaryButton.js';
@@ -59,7 +60,11 @@ import {
 } from '../ui/view/widgets/titleBackdrop.js';
 import { LOADING_STAR_ID, LoadingStar } from '../ui/view/widgets/LoadingStar.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
-import { COLORS, LIST_ROW, SCREEN_LAYOUT, textStyle, typeStyle } from '../ui/view/theme.js';
+import {
+  addSignInFailureDialog,
+  getSignInFailureDialog,
+} from '../ui/view/widgets/SignInFailureDialog.js';
+import { COLORS, LIST_ROW, SCREEN_LAYOUT, typeStyle } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
 
 const PLAY_SPACING_AFTER_PX = 120;
@@ -128,17 +133,18 @@ const MENU_TOP_Y_PX = 560;
 const MENU_FOCUS_NODE_ID = 'R17';
 const MENU_FOCUS_HALO_ID = 'R29';
 const MENU_FOCUS_NODE_X_PX = QUIET_PADDING_PX.xPx - LIST_ROW.nodeOffsetXPx;
-const GOOGLE_STATUS_GAP_PX = 12;
-const SIGN_IN_FAILURE_KEYS = {
-  failed: 'main.account.signInFailed',
-  rejoinBlocked: 'main.account.rejoinBlocked',
-} as const satisfies Record<SignInFailure, string>;
 const YOUTUBE_URL = 'https://www.youtube.com/@dazbeeee';
 const YOUTUBE_ICON_TEXTURE_KEY = 'ui:youtube';
 const YOUTUBE_ICON_PATH = '/assets/ui/youtube.svg';
 const YOUTUBE_ICON_SIZE_PX = 54;
 // youtube.svg 는 80 칸 높이에서 빨간 몸통이 64 칸에서 끝나, 그 바닥을 CONTROLS 기준선에 맞춘다.
 const YOUTUBE_ICON_BODY_BOTTOM_RATIO = 64 / 80;
+const NOTICE_ICON_IMAGE = {
+  key: 'ui:notice',
+  url: '/assets/ui/main/notice.png',
+} as const;
+const NOTICE_ICON_SIZE_PX = 48;
+const NOTICE_YOUTUBE_GAP_PX = 4;
 const VERSION_EDGE_PX = 24;
 const VERSION_TYPE = {
   sizePx: 18,
@@ -175,6 +181,8 @@ const ACCELERATION_NOTICE_GUIDES = {
 interface MainView {
   chrome: MenuSceneChrome;
   accelerationNotice: ConfirmDialog;
+  noticeBoard: NoticeBoard;
+  signInFailure: ConfirmDialog;
   account: AccountView;
   menuButtons: Readonly<Record<MainMenuItem, MenuButtonView>>;
 }
@@ -191,8 +199,7 @@ interface AccountView {
   button: Button;
   nameplate: AccountNameplate;
   youtubeButton: Button;
-  card: Phaser.GameObjects.Image;
-  status: Phaser.GameObjects.Text;
+  noticeButton: Button;
   loadingStar: LoadingStar;
 }
 
@@ -206,6 +213,7 @@ export class MainScene extends Phaser.Scene {
     private readonly celestial: CelestialCatalog,
     private readonly catalog: AchievementCatalog,
     private readonly accelerationNotice: AccelerationNoticePorts,
+    private readonly notices: NoticePorts,
     private readonly version: string,
   ) {
     super(SCENE_KEYS.main);
@@ -222,6 +230,7 @@ export class MainScene extends Phaser.Scene {
         },
         YOUTUBE_HEART_IMAGE,
         TITLE_CHARACTER_IMAGE,
+        NOTICE_ICON_IMAGE,
       ],
       'main scene image',
     );
@@ -247,8 +256,6 @@ export class MainScene extends Phaser.Scene {
               const { account } = mainView;
               const panel = getAccountPanel(next.account, account.hasGoogleIcon, this.catalog);
               if (panel.kind === 'user') {
-                account.status.setVisible(false);
-                account.card.setVisible(false);
                 account.button.setVisible(false);
                 account.nameplate.render(panel);
                 account.loadingStar.show(null);
@@ -272,24 +279,6 @@ export class MainScene extends Phaser.Scene {
                   .setY(IDENTITY_CENTER_Y_PX - account.button.height / 2)
                   .setVisible(true);
                 account.nameplate.render(null);
-                account.status.setVisible(panel.failureNotice !== 'none');
-                if (panel.failureNotice === 'none') {
-                  account.card.setVisible(false);
-                } else {
-                  account.status.setText(this.i18n.t(SIGN_IN_FAILURE_KEYS[panel.failureNotice]));
-                  account.status.setY(
-                    account.button.y +
-                      account.button.height +
-                      GOOGLE_STATUS_GAP_PX +
-                      ACCOUNT_CARD_PADDING_Y_PX,
-                  );
-                  fitAccountCard(
-                    account.card,
-                    account.status.x - account.status.width - ACCOUNT_CARD_PADDING_X_PX,
-                    account.status.y,
-                    account.status.y + account.status.height,
-                  );
-                }
                 account.loadingStar.show(
                   panel.isSigningIn
                     ? {
@@ -350,6 +339,7 @@ export class MainScene extends Phaser.Scene {
               Object.values(mainView.menuButtons).forEach(({ item, button }) =>
                 button.playFocus(isMainFocused(next, item)),
               );
+              mainView.account.noticeButton.playFocus(isMainFocused(next, 'notice'));
               mainView.account.youtubeButton.playFocus(isMainFocused(next, 'youtube'));
               break;
             case 'menuItemsMotion':
@@ -392,6 +382,47 @@ export class MainScene extends Phaser.Scene {
               mainView.accelerationNotice.renderButtons(dismiss, accept);
               break;
             }
+            case 'signInFailure':
+              mainView.signInFailure.render(
+                getSignInFailureDialog(
+                  this.i18n.t('account.signInFailure', { returnObjects: true }),
+                  getMainSignInFailure(next),
+                ),
+              );
+              break;
+            case 'signInFailureButtons': {
+              const buttonView = getSignInFailureButtonView(next.hover);
+              mainView.signInFailure.renderButtons(buttonView, buttonView);
+              break;
+            }
+            case 'noticeButton':
+              mainView.account.noticeButton
+                .setVisible(next.notices.kind === 'ready')
+                .render(getMainButtonView(next, 'notice'));
+              break;
+            case 'noticeBoard':
+              mainView.noticeBoard.render(
+                next.noticeBoard.kind === 'open'
+                  ? {
+                      dismiss: this.i18n.t('notice.dismiss'),
+                      close: this.i18n.t('notice.close'),
+                    }
+                  : null,
+              );
+              break;
+            case 'noticeBoardScroll':
+              if (next.notices.kind === 'ready' && next.noticeBoard.kind === 'open') {
+                mainView.noticeBoard.renderScroll(
+                  next.noticeBoard.scrollPx,
+                  next.notices.contentHeightPx,
+                );
+              }
+              break;
+            case 'noticeBoardButtons': {
+              const { dismiss, close } = getNoticeBoardButtonViews(next);
+              mainView.noticeBoard.renderButtons(dismiss, close);
+              break;
+            }
           }
         }
       },
@@ -415,8 +446,29 @@ export class MainScene extends Phaser.Scene {
         }
       },
       isLeaving: () => this.exit.kind === 'leaving',
+      layoutNotices: (items) => {
+        const language = requireDefined(
+          parseLanguage(this.i18n.language),
+          'Unsupported language',
+          this.i18n.language,
+        );
+        return mainView.noticeBoard.layout(
+          items.map((notice) => {
+            const createdDate = new Date(notice.createdAtMs);
+            return {
+              title: notice.title[language],
+              dateLabel: [
+                createdDate.getFullYear(),
+                String(createdDate.getMonth() + 1).padStart(2, '0'),
+                String(createdDate.getDate()).padStart(2, '0'),
+              ].join('.'),
+              body: notice.body[language],
+            };
+          }),
+        );
+      },
     };
-    const controller = new MainController(this.auth, screen, this.accelerationNotice);
+    const controller = new MainController(this.auth, screen, this.accelerationNotice, this.notices);
     const chrome = new MenuSceneChrome(
       this,
       {
@@ -426,7 +478,7 @@ export class MainScene extends Phaser.Scene {
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
-        captureKey: (event) => controller.handleAccelerationNoticeKey(event),
+        captureKey: (event) => controller.captureKey(event),
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => {
           switch (action) {
@@ -456,8 +508,6 @@ export class MainScene extends Phaser.Scene {
         typeStyle(VERSION_TYPE, COLORS.textMuted),
       )
       .setOrigin(0, 0);
-    // 카드는 계정 버튼보다 아래에 그려지도록 먼저 만든다.
-    const card = addAccountCard(this);
     const accountButton = addAccountActionButton(this, pointButton(controller, 'account'));
     const youtubeButton = new Button(this, 0, 0, {
       variant: 'quiet',
@@ -483,15 +533,30 @@ export class MainScene extends Phaser.Scene {
       );
     }
     youtubeButton.alignX(ACCOUNT_BUTTON_RIGHT_X_PX, 1);
+    // 공지를 불러오기 전에는 숨긴다.
+    const noticeButton = new Button(this, 0, 0, {
+      variant: 'quiet',
+      focus: 'slide',
+      label: 'NOTICE',
+      pointer: pointButton(controller, 'notice'),
+    }).setVisible(false);
+    if (this.textures.exists(NOTICE_ICON_IMAGE.key)) {
+      noticeButton.setContent({
+        kind: 'icon',
+        textureKey: NOTICE_ICON_IMAGE.key,
+        sizePx: NOTICE_ICON_SIZE_PX,
+      });
+    }
+    // youtube.svg 의 빨간 몸통은 그림 높이의 가운데에 있어 두 버튼의 세로 가운데를 맞춘다.
+    noticeButton
+      .setY(youtubeButton.y + (youtubeButton.height - noticeButton.height) / 2)
+      .alignX(youtubeButton.x - NOTICE_YOUTUBE_GAP_PX, 1);
     const view: AccountView = {
       hasGoogleIcon: this.textures.exists(GOOGLE_ICON_IMAGE.key),
       button: accountButton,
       nameplate: new AccountNameplate(this, this.catalog, pointButton(controller, 'profile')),
       youtubeButton,
-      card,
-      status: this.add
-        .text(ACCOUNT_RIGHT_X_PX, 0, '', textStyle('meta', COLORS.textSecondary))
-        .setOrigin(1, 0),
+      noticeButton,
       loadingStar: new LoadingStar(this, this.celestial),
     };
     // 메뉴 항목마다 버튼을 한 번만 만들고, 계정에 따라 보일 버튼과 자리는 menu 영역이 정한다.
@@ -529,6 +594,11 @@ export class MainScene extends Phaser.Scene {
         cancel: pointButton(controller, 'accelerationNoticeDismiss'),
         accept: pointButton(controller, 'accelerationNoticeAccept'),
       }),
+      noticeBoard: new NoticeBoard(this, {
+        dismiss: pointButton(controller, 'noticeBoardDismiss'),
+        close: pointButton(controller, 'noticeBoardClose'),
+      }),
+      signInFailure: addSignInFailureDialog(this, pointButton(controller, 'signInFailureClose')),
       account: view,
       menuButtons: {
         play: createMenuButton('play'),
@@ -539,7 +609,17 @@ export class MainScene extends Phaser.Scene {
       },
     };
     chrome.start(logo.getBounds());
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
+    const scrollNoticeBoard = (
+      _pointer: Phaser.Input.Pointer,
+      _over: unknown,
+      _deltaX: number,
+      deltaY: number,
+    ): void => controller.scrollNoticeBoard(deltaY);
+    this.input.on(Phaser.Input.Events.POINTER_WHEEL, scrollNoticeBoard);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.off(Phaser.Input.Events.POINTER_WHEEL, scrollNoticeBoard);
+      controller.close();
+    });
     controller.start();
   }
 }

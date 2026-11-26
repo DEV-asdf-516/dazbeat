@@ -7,10 +7,6 @@ export const en: Messages = {
     checkConnection: 'Check your connection and try again.',
   },
   main: {
-    account: {
-      signInFailed: 'Google sign-in failed.',
-      rejoinBlocked: "A deleted Google account can't be used again.",
-    },
     accelerationNotice: {
       title: 'Hardware Acceleration Off',
       body: {
@@ -33,6 +29,18 @@ export const en: Messages = {
       dismiss: "Don't show again",
       accept: 'OK',
     },
+  },
+  account: {
+    signInFailure: {
+      title: 'Sign-in failed',
+      failed: 'Google sign-in failed.',
+      rejoinBlocked: "A deleted Google account can't be used again.",
+      close: 'OK',
+    },
+  },
+  notice: {
+    dismiss: "Don't show again",
+    close: 'Close',
   },
   controls: {
     gameplay: {
@@ -90,6 +98,13 @@ export const en: Messages = {
         meaning: 'Aligns notes with the music',
         direction: 'Notes late vs. music: +, early: −',
       },
+    },
+    systemHelp: {
+      title: 'Recommended specs',
+      hardwareAcceleration: 'Hardware acceleration',
+      cpuBenchmark: 'Geekbench 6 single-core',
+      refreshRate: 'Refresh rate',
+      input: 'Input',
     },
   },
   credits: {

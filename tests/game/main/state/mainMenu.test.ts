@@ -41,7 +41,7 @@ function signedIn(user: AuthUser): AccountState {
 
 const CLOSED_NOTICE: AccelerationNotice = { kind: 'closed' };
 
-const FOCUS_REGIONS = ['menuButtons', 'profileButton', 'youtubeButton'] as const;
+const FOCUS_REGIONS = ['menuButtons', 'profileButton', 'youtubeButton', 'noticeButton'] as const;
 
 describe('getChangedRegions', () => {
   it('draws every region and the focus motion first without hearts', () => {
@@ -59,6 +59,12 @@ describe('getChangedRegions', () => {
       'controlsHelpButton',
       'accelerationNotice',
       'accelerationNoticeButtons',
+      'signInFailure',
+      'signInFailureButtons',
+      'noticeButton',
+      'noticeBoard',
+      'noticeBoardScroll',
+      'noticeBoardButtons',
       'menuFocusMotion',
     ]);
   });

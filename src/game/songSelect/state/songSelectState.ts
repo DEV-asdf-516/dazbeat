@@ -40,7 +40,8 @@ import {
   completeAccountSignIn,
   getAccountPanelPointerKey,
 } from '../../ui/state/accountIdentity.js';
-import type { AccountPanelButton } from '../../ui/state/accountIdentity.js';
+import type { AccountPanelButton, SignInFailureButton } from '../../ui/state/accountIdentity.js';
+import type { SignInFailure } from '../../app/accountState.js';
 import type { ControlsButton, ControlsPanel } from '../../app/controlsGuide.js';
 import type { CelestialStaticId } from '../../celestial/state/celestialCatalog.js';
 import { getDifficultyAppearance } from '../../ui/state/difficultyAppearance.js';
@@ -81,7 +82,8 @@ export type SongSelectButton =
   | 'recordsRetry'
   | 'levelReset'
   | ControlsButton
-  | AccountPanelButton;
+  | AccountPanelButton
+  | SignInFailureButton;
 
 export type SongSelectHover =
   | { readonly kind: 'filter'; readonly filter: SongFilter }
@@ -120,6 +122,7 @@ export interface SongSelectState {
   /** 로그인 사용자가 20위 안인 채보의 순위. 채보 id 로 찾는다. */
   readonly topRanks: ReadonlyMap<string, number>;
   readonly records: SongRecords;
+  readonly signInFailure: SignInFailure | 'none';
 }
 
 export type SongRowAppearance = 'selected' | 'hovered' | 'idle';
@@ -171,6 +174,7 @@ export function createSongSelectState(
       controls: 'closed',
       topRanks: NO_TOP_RANKS,
       records: { kind: 'loading' },
+      signInFailure: 'none',
     };
   }
   const found = songs.findIndex((song) => song.id === target.songId);
@@ -191,6 +195,7 @@ export function createSongSelectState(
     controls: 'closed',
     topRanks: NO_TOP_RANKS,
     records: { kind: 'loading' },
+    signInFailure: 'none',
   };
 }
 
@@ -667,6 +672,7 @@ export function withFilter(
     controls: state.controls,
     topRanks: state.topRanks,
     records: state.records,
+    signInFailure: state.signInFailure,
   };
 }
 
@@ -1073,8 +1079,14 @@ function isSongSelectButtonEnabled(state: SongSelectState, button: SongSelectBut
     case 'controlsHelp':
     case 'accountProfile':
     case 'accountSignIn':
+    case 'signInFailureClose':
       return true;
   }
+}
+
+// 휠은 팝업 배경을 거치지 않으므로 조작 안내나 로그인 실패 팝업이 열린 동안 목록을 움직이지 않는다.
+export function isSongSelectWheelBlocked(state: SongSelectState): boolean {
+  return isControlsPanelOpen(state) || state.signInFailure !== 'none';
 }
 
 export function releaseSongSelectButton(
@@ -1256,6 +1268,8 @@ export type SongSelectRegion =
   | 'controlsClose'
   | 'controlsHelpCard'
   | 'controlsHelpButton'
+  | 'signInFailure'
+  | 'signInFailureButtons'
   | 'jacketGlint'
   | 'rowShift';
 
@@ -1380,6 +1394,11 @@ const REGION_SOURCES: Readonly<
   controlsClose: [readCloseHovered, readClosePressed],
   controlsHelpCard: [({ view }) => isControlsHelpShown(view.state)],
   controlsHelpButton: [({ view }) => getControlsHelpButtonView(view.state).appearance],
+  signInFailure: [({ view }) => view.state.signInFailure],
+  signInFailureButtons: [
+    ({ view }) => isButtonHovered(view.state.hover, 'signInFailureClose'),
+    ({ view }) => isButtonPressed(view.state.hover, 'signInFailureClose'),
+  ],
 };
 
 export function getChangedRegions(

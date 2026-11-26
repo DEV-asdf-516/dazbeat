@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { AccountRejoinBlockedError } from '../../../src/data/account.js';
 import type { AuthUser } from '../../../src/data/account.js';
 import { parseNickname } from '../../../src/data/nickname.js';
 import type { Song } from '../../../src/data/songs.js';
@@ -57,6 +58,7 @@ interface Harness {
   requestRemainingCount(): number;
   leaveCount(): number;
   clickSoundCount(): number;
+  closeSoundCount(): number;
   profileOpenCount(): number;
   signInCount(): number;
   accountRenderCount(): number;
@@ -129,6 +131,7 @@ function createHarness(
     requestRemainingCount: () => requestRemainingCount,
     leaveCount: () => leaveCount,
     clickSoundCount: () => sounds.filter((sound) => sound === 'click').length,
+    closeSoundCount: () => sounds.filter((sound) => sound === 'close').length,
     profileOpenCount: () => profileOpenCount,
     signInCount: () => signInCount,
     accountRenderCount: () => accountRenderCount,
@@ -412,11 +415,8 @@ describe('CreditsController button pointer', () => {
     expect(lastRender(harness).next.hover).toBeNull();
   });
 
-  it.each([
-    ['is cancelled', () => Promise.resolve(null)],
-    ['fails', () => Promise.reject(new Error('popup closed'))],
-  ] as const)('keeps the guest account when sign-in %s', async (_label, signIn) => {
-    const harness = createHarness([], signIn);
+  it('keeps the guest account without a popup when sign-in is cancelled', async () => {
+    const harness = createHarness([], () => Promise.resolve(null));
 
     harness.controller.pointerDown('accountSignIn');
     harness.controller.pointerUp('accountSignIn');
@@ -424,6 +424,7 @@ describe('CreditsController button pointer', () => {
 
     expect(harness.signInCount()).toBe(1);
     expect(harness.accountRenderCount()).toBe(0);
+    expect(lastRender(harness).next.signInFailure).toBe('none');
   });
 
   it('ignores a sign-in that finishes after the credits closed', async () => {
@@ -435,5 +436,166 @@ describe('CreditsController button pointer', () => {
     await flush();
 
     expect(harness.accountRenderCount()).toBe(0);
+  });
+});
+
+const ENTER_KEY = {
+  code: 'Enter',
+  repeat: false,
+};
+
+describe('CreditsController sign-in failure', () => {
+  interface Pending {
+    readonly promise: Promise<AuthUser | null>;
+    reject(error: unknown): void;
+  }
+
+  function pendingSignIns(): {
+    readonly responses: Pending[];
+    readonly signIn: () => Promise<AuthUser | null>;
+  } {
+    const responses: Pending[] = [];
+    return {
+      responses,
+      signIn: () => {
+        let reject: (error: unknown) => void = () => {};
+        const promise = new Promise<AuthUser | null>((_resolve, rejectPromise) => {
+          reject = rejectPromise;
+        });
+        responses.push({
+          promise,
+          reject,
+        });
+        return promise;
+      },
+    };
+  }
+
+  function response(responses: readonly Pending[], index: number): Pending {
+    return requireDefined(responses[index], 'Missing sign-in', index);
+  }
+
+  function clickSignIn(harness: Harness): void {
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+  }
+
+  async function failedHarness(songs: readonly Song[] = []): Promise<Harness> {
+    const { responses, signIn } = pendingSignIns();
+    const harness = createHarness(songs, signIn);
+    clickSignIn(harness);
+    response(responses, 0).reject(new Error('popup closed'));
+    await flush();
+    return harness;
+  }
+
+  it.each([
+    ['an error', new Error('popup closed'), 'failed'],
+    [
+      'a deleted account',
+      new AccountRejoinBlockedError(new Error('account_rejoin_blocked')),
+      'rejoinBlocked',
+    ],
+  ] as const)(
+    'opens the popup when the sign-in is rejected with %s',
+    async (_name, error, kind) => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { responses, signIn } = pendingSignIns();
+      const harness = createHarness([], signIn);
+      clickSignIn(harness);
+
+      response(responses, 0).reject(error);
+      await flush();
+
+      expect(lastRender(harness).next.signInFailure).toBe(kind);
+      expect(consoleError).toHaveBeenCalledOnce();
+      consoleError.mockRestore();
+    },
+  );
+
+  it('closes with its button, releases its hover and plays the close sound', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await failedHarness();
+
+    harness.controller.pointerOver('signInFailureClose');
+    harness.controller.pointerDown('signInFailureClose');
+    harness.controller.pointerUp('signInFailureClose');
+
+    expect(lastRender(harness).next.signInFailure).toBe('none');
+    expect(lastRender(harness).next.hover).toBeNull();
+    expect(harness.closeSoundCount()).toBe(1);
+    consoleError.mockRestore();
+  });
+
+  it.each([
+    ['Enter', ENTER_KEY],
+    ['Esc', ESCAPE_KEY],
+  ] as const)('closes with %s', async (_name, key) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await failedHarness();
+
+    expect(harness.controller.captureKey(key)).toBe(true);
+    expect(lastRender(harness).next.signInFailure).toBe('none');
+    expect(harness.controller.captureKey(key)).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('blocks other keys without changing the state', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await failedHarness();
+    const renderCount = harness.renders.length;
+
+    expect(harness.controller.captureKey(DOWN_KEY)).toBe(true);
+    expect(harness.controller.captureKey(H_KEY)).toBe(true);
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(lastRender(harness).next.signInFailure).toBe('failed');
+    consoleError.mockRestore();
+  });
+
+  it('ignores wheels while the popup is open', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await failedHarness(creditedSongs(6));
+    const renderCount = harness.renders.length;
+
+    harness.controller.scrollByWheel(ROW_PX, 0);
+
+    expect(harness.renders).toHaveLength(renderCount);
+    expect(lastRender(harness).next.topRow).toBe(0);
+    consoleError.mockRestore();
+  });
+
+  it('ignores a rejection that arrives after closing', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { responses, signIn } = pendingSignIns();
+    const harness = createHarness([], signIn);
+    clickSignIn(harness);
+    harness.controller.close();
+    const renderCount = harness.renders.length;
+
+    response(responses, 0).reject(new Error('popup closed'));
+    await flush();
+
+    expect(harness.renders).toHaveLength(renderCount);
+    consoleError.mockRestore();
+  });
+
+  it('ignores a late rejection of an earlier attempt', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { responses, signIn } = pendingSignIns();
+    const harness = createHarness([], signIn);
+    clickSignIn(harness);
+    clickSignIn(harness);
+
+    response(responses, 0).reject(new Error('popup closed'));
+    await flush();
+
+    expect(lastRender(harness).next.signInFailure).toBe('none');
+
+    response(responses, 1).reject(new Error('popup closed'));
+    await flush();
+
+    expect(lastRender(harness).next.signInFailure).toBe('failed');
+    consoleError.mockRestore();
   });
 });

@@ -149,8 +149,8 @@ export function findChart(
 export function stepChart(current: ChartRef, direction: ListDirection): ChartRef {
   const charts = getAvailableCharts(current.song, current.laneCount);
   const index = charts.findIndex((chart) => chart.difficulty === current.difficulty);
-  const next = charts[clamp(index + DIRECTION_STEPS[direction], 0, charts.length - 1)];
-  return next === undefined || next.difficulty === current.difficulty ? current : next;
+  const next = charts[clamp(index + DIRECTION_STEPS[direction], 0, charts.length - 1)] ?? current;
+  return next.difficulty === current.difficulty ? current : next;
 }
 
 export function withSavedChart(

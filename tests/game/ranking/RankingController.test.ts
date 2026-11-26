@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { AccountRejoinBlockedError } from '../../../src/data/account.js';
 import type { AuthUser } from '../../../src/data/account.js';
 import { parseNickname } from '../../../src/data/nickname.js';
 import { RankingRequestError } from '../../../src/data/ranking.js';
@@ -604,5 +605,167 @@ describe('RankingController', () => {
     expect(harness.accountRenderCount()).toBe(0);
     expect(harness.last().isSignedIn).toBe(false);
     expect(harness.requests).toHaveLength(1);
+  });
+});
+
+describe('RankingController sign-in failure', () => {
+  const enterKey = {
+    code: 'Enter',
+    repeat: false,
+  };
+  const escapeKey = {
+    code: 'Escape',
+    repeat: false,
+  };
+  const downKey = {
+    code: 'ArrowDown',
+    repeat: false,
+  };
+  const top = Array.from({ length: 20 }, (_, index) => entryOf(index + 1));
+
+  interface PendingSignIn {
+    reject(error: unknown): void;
+  }
+
+  async function signInHarness() {
+    const signIns: PendingSignIn[] = [];
+    const harness = createHarness(
+      false,
+      new Map(),
+      () =>
+        new Promise<AuthUser | null>((_resolve, reject) => {
+          signIns.push({ reject });
+        }),
+    );
+    harness.request(0).resolve(
+      boardOf('easy-4', {
+        top: top,
+        totalPlayers: 20,
+      }),
+    );
+    await flush();
+    return {
+      ...harness,
+      clickSignIn: () => {
+        harness.controller.pointerDown('accountSignIn');
+        harness.controller.pointerUp('accountSignIn');
+      },
+      signIn: (index: number) => requireDefined(signIns[index], 'Missing sign-in', index),
+    };
+  }
+
+  async function failedHarness() {
+    const harness = await signInHarness();
+    harness.clickSignIn();
+    harness.signIn(0).reject(new Error('popup closed'));
+    await flush();
+    return harness;
+  }
+
+  it.each([
+    ['an error', new Error('popup closed'), 'failed'],
+    [
+      'a deleted account',
+      new AccountRejoinBlockedError(new Error('account_rejoin_blocked')),
+      'rejoinBlocked',
+    ],
+  ] as const)(
+    'opens the popup when the sign-in is rejected with %s',
+    async (_name, error, kind) => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const harness = await signInHarness();
+      harness.clickSignIn();
+
+      harness.signIn(0).reject(error);
+      await flush();
+
+      expect(harness.last().signInFailure).toBe(kind);
+      expect(harness.last().dialog).toBe('none');
+      expect(harness.requests).toHaveLength(1);
+      expect(consoleError).toHaveBeenCalledOnce();
+      consoleError.mockRestore();
+    },
+  );
+
+  it('opens no popup when the sign-in is cancelled', async () => {
+    const harness = await loaded(boardOf('easy-4'), false);
+
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    await flush();
+
+    expect(harness.last().signInFailure).toBe('none');
+  });
+
+  it('closes with its button, releases its hover and plays the close sound', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await failedHarness();
+
+    harness.controller.pointerOver('signInFailureClose');
+    harness.controller.pointerDown('signInFailureClose');
+    harness.controller.pointerUp('signInFailureClose');
+
+    expect(harness.last().signInFailure).toBe('none');
+    expect(harness.last().hover).toBeNull();
+    expect(harness.sounds.at(-1)).toBe('close');
+    consoleError.mockRestore();
+  });
+
+  it.each([
+    ['Enter', enterKey],
+    ['Esc', escapeKey],
+  ] as const)('closes with %s', async (_name, key) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await failedHarness();
+
+    expect(harness.controller.captureKey(key)).toBe(true);
+    expect(harness.last().signInFailure).toBe('none');
+    expect(harness.controller.captureKey(key)).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('blocks other keys and wheels without changing the state', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await failedHarness();
+    const failed = harness.last();
+
+    expect(harness.controller.captureKey(downKey)).toBe(true);
+    harness.controller.scrollByWheel(WHEEL_STEP_PX * 3, 0);
+
+    expect(harness.last()).toBe(failed);
+    expect(failed.topRow).toBe(0);
+    consoleError.mockRestore();
+  });
+
+  it('ignores a rejection that arrives after closing', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await signInHarness();
+    harness.clickSignIn();
+    harness.controller.close();
+    const renderCount = harness.renders.length;
+
+    harness.signIn(0).reject(new Error('popup closed'));
+    await flush();
+
+    expect(harness.renders).toHaveLength(renderCount);
+    consoleError.mockRestore();
+  });
+
+  it('ignores a late rejection of an earlier attempt', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const harness = await signInHarness();
+    harness.clickSignIn();
+    harness.clickSignIn();
+
+    harness.signIn(0).reject(new Error('popup closed'));
+    await flush();
+
+    expect(harness.last().signInFailure).toBe('none');
+
+    harness.signIn(1).reject(new Error('popup closed'));
+    await flush();
+
+    expect(harness.last().signInFailure).toBe('failed');
+    consoleError.mockRestore();
   });
 });

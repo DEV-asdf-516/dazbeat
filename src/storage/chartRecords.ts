@@ -40,17 +40,10 @@ export function mergeBestRecord(
   existing: ChartRecord | undefined,
   result: FinishedGameplayResult,
 ): ChartRecord {
-  if (existing === undefined) {
-    const { score, accuracy, maxCombo } = result;
-    return {
-      score,
-      accuracy,
-      maxCombo,
-    };
-  }
+  const best = existing ?? result;
   return {
-    score: Math.max(existing.score, result.score),
-    accuracy: Math.max(existing.accuracy, result.accuracy),
-    maxCombo: Math.max(existing.maxCombo, result.maxCombo),
+    score: Math.max(best.score, result.score),
+    accuracy: Math.max(best.accuracy, result.accuracy),
+    maxCombo: Math.max(best.maxCombo, result.maxCombo),
   };
 }

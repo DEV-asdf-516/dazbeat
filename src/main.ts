@@ -22,8 +22,10 @@ import {
   setFeaturedAchievement,
 } from './backend/me.js';
 import { loadLeaderboard, reportGuestPlayer } from './backend/rankings.js';
+import { loadNotices } from './backend/notices.js';
 import { loadSongBatch } from './backend/songLoader.js';
 import type { AchievementCatalog } from './data/achievements.js';
+import type { Notice } from './data/notices.js';
 import type { PreparedChart } from './data/playSession.js';
 import type { ChartRef, SongScope } from './data/songs.js';
 import { getAccountIdentity } from './game/ui/state/accountIdentity.js';
@@ -41,7 +43,7 @@ import { CreditsScene } from './game/credits/CreditsScene.js';
 import { GameplayScene } from './game/gameplay/GameplayScene.js';
 import type { RankedPlay } from './game/gameplay/GameplayController.js';
 import { MainScene } from './game/main/MainScene.js';
-import type { AccelerationNoticePorts } from './game/main/MainController.js';
+import type { AccelerationNoticePorts, NoticePorts } from './game/main/MainController.js';
 import type { ProfilePorts } from './game/profile/ProfileController.js';
 import { ProfileScene } from './game/profile/ProfileScene.js';
 import type { RankingPorts } from './game/ranking/RankingController.js';
@@ -73,8 +75,8 @@ async function loadSongCatalog(): Promise<{
   loadAllBatch: SongBatchLoader;
   achievements: AchievementCatalog;
 }> {
-  const url = import.meta.env.VITE_POCKETBASE_URL;
-  if (url === undefined || url === '') {
+  const url = import.meta.env.VITE_POCKETBASE_URL ?? '';
+  if (url === '') {
     throw new Error('VITE_POCKETBASE_URL is not set');
   }
   const pb = new PocketBase(url);
@@ -94,10 +96,24 @@ async function loadSongCatalog(): Promise<{
   };
 }
 
+// 실패하면 공지 없음으로 끝내, 기다리지 않는 Promise 에 거절이 남지 않게 한다.
+async function loadPublishedNotices(pb: PocketBase): Promise<readonly Notice[]> {
+  try {
+    const notices = await loadNotices(pb);
+    await preloadCjkFonts(
+      JSON.stringify(notices.map(({ title, body }) => [Object.values(title), Object.values(body)])),
+    );
+    return notices;
+  } catch (error) {
+    console.warn('Failed to load notices', error);
+    return [];
+  }
+}
+
 // 선택 설정이라 없거나 잘못된 주소는 경고만 남기고 CREDITS 에서 PRIVACY 를 뺀다.
 function readPrivacyPolicyUrl(): string | null {
-  const url = import.meta.env.VITE_PRIVACY_POLICY_URL;
-  if (url === undefined || url === '') {
+  const url = import.meta.env.VITE_PRIVACY_POLICY_URL ?? '';
+  if (url === '') {
     return null;
   }
   try {
@@ -182,10 +198,14 @@ const celestialLoad = loadCelestialCatalog(fetchJson);
 await Promise.all([loadSongCatalog(), celestialLoad]).then(
   async ([{ pb, loadPublishedBatch, loadAllBatch, achievements }, celestial]) => {
     loading.completeStage('catalogs');
+    // 공지는 선택 리소스라 부팅을 기다리게 하지 않는다.
+    const notices = loadPublishedNotices(pb);
     await preloadCjkFonts(
       JSON.stringify([
         i18n.t('main', { returnObjects: true }),
         i18n.t('controls', { returnObjects: true }),
+        i18n.t('account', { returnObjects: true }),
+        i18n.t('notice', { returnObjects: true }),
         getCurrentUser(pb)?.nickname,
       ]),
     );
@@ -280,8 +300,29 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
         userAgent: navigator.userAgent,
       },
     };
+    // 공지 창은 부팅 직후 첫 메인 화면에서만 스스로 열리므로 한 번 넘기면 지운다.
+    let isNoticeAutoOpenDue = true;
+    const noticePorts: NoticePorts = {
+      published: notices,
+      takeAutoOpen: () => {
+        const isDue = isNoticeAutoOpenDue;
+        isNoticeAutoOpenDue = false;
+        return isDue;
+      },
+      loadDismissedIds: () => save.loadDismissedNoticeIds(),
+      dismiss: (ids) => save.dismissNotices(ids),
+    };
     const scenes = [
-      new MainScene(save, i18n, auth, celestial, achievements, accelerationNotice, __APP_VERSION__),
+      new MainScene(
+        save,
+        i18n,
+        auth,
+        celestial,
+        achievements,
+        accelerationNotice,
+        noticePorts,
+        __APP_VERSION__,
+      ),
       new CreditsScene(save, catalog, i18n, celestial, account, readPrivacyPolicyUrl()),
       new SongSelectScene(
         save,

@@ -67,11 +67,15 @@ export function failSignIn(
   attempt: AccountState,
   error: unknown,
 ): AccountState {
-  return whenCurrent(
-    current,
-    attempt,
-    guest(error instanceof AccountRejoinBlockedError ? 'rejoinBlocked' : 'failed'),
-  );
+  return whenCurrent(current, attempt, guest(readSignInFailure(error)));
+}
+
+export function readSignInFailure(error: unknown): SignInFailure {
+  return error instanceof AccountRejoinBlockedError ? 'rejoinBlocked' : 'failed';
+}
+
+export function clearSignInFailure(current: AccountState): AccountState {
+  return current.kind === 'guest' && current.signInFailure !== 'none' ? guest('none') : current;
 }
 
 /** 거절(`null`)은 저장된 세션이 무효가 된 것이라 실패 안내 없이 게스트로 둔다. */

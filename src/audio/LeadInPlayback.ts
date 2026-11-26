@@ -361,7 +361,7 @@ export class LeadInPlayback {
           return null;
         }
         const isAhead = driftMs > 0;
-        if (stage.drift === null || stage.drift.isAhead !== isAhead) {
+        if (stage.drift?.isAhead !== isAhead) {
           this.stage = {
             ...stage,
             drift: {

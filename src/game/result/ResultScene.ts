@@ -52,6 +52,10 @@ import type { Difficulty, GameplayResult, LaneCount } from '../../rhythm/types.j
 import { JUDGMENTS } from '../../rhythm/judgment.js';
 import { Button } from '../ui/view/widgets/Button.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
+import {
+  addSignInFailureDialog,
+  getSignInFailureDialog,
+} from '../ui/view/widgets/SignInFailureDialog.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
 import type { TextTabItem, TextTabsLayout, TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
@@ -76,7 +80,10 @@ import {
 } from '../ui/view/textures/lightTextures.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { queueAchievementEmblemLoads } from '../ui/view/widgets/achievementEmblem.js';
-import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
+import {
+  getAccountPanelButtonView,
+  getSignInFailureButtonView,
+} from '../ui/state/accountIdentity.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
 import type { AccountAuth } from '../app/accountState.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
@@ -97,6 +104,7 @@ interface ResultView {
   readonly presentToast: (content: ToastContent) => ToastPresentation;
   readonly rankingNotice: ConfirmDialog;
   readonly guestNotice: ConfirmDialog;
+  readonly signInFailure: ConfirmDialog;
   readonly recordStatusText: Phaser.GameObjects.Text;
   readonly recordStatusStar: LoadingStar;
 }
@@ -334,6 +342,19 @@ export class ResultScene extends Phaser.Scene {
                 getGuestNoticeButtonView(next, 'guestNoticeSignIn'),
               );
               break;
+            case 'signInFailure':
+              view.signInFailure.render(
+                getSignInFailureDialog(
+                  this.i18n.t('account.signInFailure', { returnObjects: true }),
+                  next.signInFailure,
+                ),
+              );
+              break;
+            case 'signInFailureButtons': {
+              const buttonView = getSignInFailureButtonView(next.hover);
+              view.signInFailure.renderButtons(buttonView, buttonView);
+              break;
+            }
             case 'controls':
               view.chrome.controls.render(
                 isControlsPanelOpen(next)
@@ -404,6 +425,7 @@ export class ResultScene extends Phaser.Scene {
       },
       {
         isLeaving: () => this.exit.kind === 'leaving',
+        captureKey: (event) => controller.captureKey(event),
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => {
           // 곡 선택 화면처럼 ←→ 는 난이도, 메뉴 이동은 ↑↓ 다.
@@ -565,7 +587,6 @@ export class ResultScene extends Phaser.Scene {
             };
         }
       },
-      // 확인 버튼 하나뿐이라 숨긴 취소 버튼도 같은 닫기로 잇는다.
       rankingNotice: new ConfirmDialog(this, {
         cancel: pointButton(controller, 'noticeClose'),
         accept: pointButton(controller, 'noticeClose'),
@@ -574,6 +595,8 @@ export class ResultScene extends Phaser.Scene {
         cancel: pointButton(controller, 'guestNoticeLater'),
         accept: pointButton(controller, 'guestNoticeSignIn'),
       }),
+      // 순위 알림·게스트 안내 위에 오도록 나중에 만든다.
+      signInFailure: addSignInFailureDialog(this, pointButton(controller, 'signInFailureClose')),
       recordStatusText: this.add
         .text(RIGHT_X_PX, 0, '', textStyle('meta', COLORS.textSecondary))
         .setOrigin(1, 0.5),
