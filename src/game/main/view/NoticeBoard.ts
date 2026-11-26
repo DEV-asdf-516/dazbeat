@@ -2,7 +2,8 @@ import type Phaser from 'phaser';
 import type { ButtonView } from '../../ui/state/buttonPointer.js';
 import type { PointerActions } from '../../ui/view/input/hoverTarget.js';
 import { getBrushRectTexture } from '../../ui/view/textures/brushRect.js';
-import { Button } from '../../ui/view/widgets/Button.js';
+import { Button, QUIET_PADDING_PX } from '../../ui/view/widgets/Button.js';
+import { createCloseIconButton } from '../../ui/view/widgets/closeIcon.js';
 import {
   CONFIRM_ACCEPT_BUTTON,
   CONFIRM_CANCEL_BUTTON,
@@ -64,10 +65,14 @@ export class NoticeBoard {
   private readonly scrollBar: ScrollBar;
   private readonly dismiss: Button;
   private readonly close: Button;
+  private readonly closeIcon: Button;
   // 배치 결과다. 공지가 도착할 때 한 번 만들고 스크롤은 기준 y 에서 옮기기만 한다.
   private pieces: readonly PlacedPiece[] = [];
 
-  constructor(scene: Phaser.Scene, pointer: { dismiss: PointerActions; close: PointerActions }) {
+  constructor(
+    scene: Phaser.Scene,
+    pointer: { dismiss: PointerActions; close: PointerActions; closeIcon: PointerActions },
+  ) {
     this.scene = scene;
     this.frame = new ModalFrame(scene, null);
     this.frame.panel.setSize(PANEL_WIDTH_PX, PANEL_HEIGHT_PX);
@@ -92,6 +97,11 @@ export class NoticeBoard {
       label: '',
       pointer: pointer.close,
     });
+    this.closeIcon = createCloseIconButton(
+      scene,
+      header.y + header.height / 2,
+      pointer.closeIcon,
+    ).alignX(PANEL_WIDTH_PX - PADDING_PX + QUIET_PADDING_PX.xPx, 1);
     this.frame.container.add([
       header,
       addDivider(HEADER_DIVIDER_Y_PX),
@@ -99,6 +109,7 @@ export class NoticeBoard {
       ...this.scrollBar.objects,
       this.dismiss,
       this.close,
+      this.closeIcon,
     ]);
   }
 
@@ -169,9 +180,10 @@ export class NoticeBoard {
     }
   }
 
-  renderButtons(dismiss: ButtonView, close: ButtonView): void {
+  renderButtons(dismiss: ButtonView, close: ButtonView, closeIcon: ButtonView): void {
     this.dismiss.render(dismiss);
     this.close.render(close);
+    this.closeIcon.render(closeIcon);
   }
 
   renderScroll(scrollPx: number, contentHeightPx: number): void {

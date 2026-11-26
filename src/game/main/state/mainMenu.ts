@@ -57,7 +57,8 @@ export type MainButton =
   | 'accelerationNoticeAccept'
   | SignInFailureButton
   | 'noticeBoardDismiss'
-  | 'noticeBoardClose';
+  | 'noticeBoardClose'
+  | 'noticeBoardCloseIcon';
 
 export interface MainState {
   readonly account: AccountState;
@@ -214,7 +215,7 @@ export function openNoticeBoard(state: MainState): MainState {
   };
 }
 
-// Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 창을 닫을 때 두 버튼의 hover 를 푼다.
+// Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 창을 닫을 때 버튼들의 hover 를 푼다.
 export function closeNoticeBoard(state: MainState): MainState {
   if (state.noticeBoard.kind === 'closed') {
     return state;
@@ -222,7 +223,10 @@ export function closeNoticeBoard(state: MainState): MainState {
   return {
     ...state,
     noticeBoard: { kind: 'closed' },
-    hover: unhoverButton(unhoverButton(state.hover, 'noticeBoardDismiss'), 'noticeBoardClose'),
+    hover: unhoverButton(
+      unhoverButton(unhoverButton(state.hover, 'noticeBoardDismiss'), 'noticeBoardClose'),
+      'noticeBoardCloseIcon',
+    ),
   };
 }
 
@@ -337,11 +341,13 @@ export function getNoticeIds(state: MainState): readonly string[] {
 export function getNoticeBoardButtonViews(state: MainState): {
   readonly dismiss: ButtonView;
   readonly close: ButtonView;
+  readonly closeIcon: ButtonView;
 } {
   const isOpen = state.noticeBoard.kind === 'open';
   return {
     dismiss: getButtonView(state.hover, 'noticeBoardDismiss', isOpen, false),
     close: getButtonView(state.hover, 'noticeBoardClose', isOpen, false),
+    closeIcon: getButtonView(state.hover, 'noticeBoardCloseIcon', isOpen, false),
   };
 }
 
@@ -443,6 +449,7 @@ const REGION_SOURCES: Readonly<
     (state) => state.noticeBoard.kind,
     ...readButton('noticeBoardDismiss'),
     ...readButton('noticeBoardClose'),
+    ...readButton('noticeBoardCloseIcon'),
   ],
 };
 

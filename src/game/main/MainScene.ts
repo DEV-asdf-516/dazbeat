@@ -419,8 +419,8 @@ export class MainScene extends Phaser.Scene {
               }
               break;
             case 'noticeBoardButtons': {
-              const { dismiss, close } = getNoticeBoardButtonViews(next);
-              mainView.noticeBoard.renderButtons(dismiss, close);
+              const { dismiss, close, closeIcon } = getNoticeBoardButtonViews(next);
+              mainView.noticeBoard.renderButtons(dismiss, close, closeIcon);
               break;
             }
           }
@@ -597,6 +597,7 @@ export class MainScene extends Phaser.Scene {
       noticeBoard: new NoticeBoard(this, {
         dismiss: pointButton(controller, 'noticeBoardDismiss'),
         close: pointButton(controller, 'noticeBoardClose'),
+        closeIcon: pointButton(controller, 'noticeBoardCloseIcon'),
       }),
       signInFailure: addSignInFailureDialog(this, pointButton(controller, 'signInFailureClose')),
       account: view,

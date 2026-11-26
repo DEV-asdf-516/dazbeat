@@ -14,7 +14,13 @@ export const AUXILIARY_LABEL_TYPE = {
   sizePx: 14,
   weight: 400,
 } as const;
-const AUXILIARY_BUTTON_HEIGHT_PX = 44;
+export const AUXILIARY_BUTTON = {
+  variant: 'quiet',
+  heightPx: 44,
+  colors: AUXILIARY_BUTTON_COLORS,
+  labelType: AUXILIARY_LABEL_TYPE,
+  focus: 'outline',
+} as const;
 /** 화면 아래 줄 보조 버튼 왼쪽에 함께 두는 글자 진입점과의 간격이다. */
 export const FOOTER_AUXILIARY_ENTRY_GAP_PX = 24;
 
@@ -24,13 +30,9 @@ export function createAuxiliaryButton(
   centerYPx: number,
   options: { label: string; pointer: PointerActions },
 ): Button {
-  return new Button(scene, xPx, centerYPx - AUXILIARY_BUTTON_HEIGHT_PX / 2, {
+  return new Button(scene, xPx, centerYPx - AUXILIARY_BUTTON.heightPx / 2, {
     ...options,
-    variant: 'quiet',
-    heightPx: AUXILIARY_BUTTON_HEIGHT_PX,
-    colors: AUXILIARY_BUTTON_COLORS,
-    labelType: AUXILIARY_LABEL_TYPE,
-    focus: 'outline',
+    ...AUXILIARY_BUTTON,
   });
 }
 

@@ -199,6 +199,7 @@ export class MainController {
         this.screen.playSound('click');
         return;
       case 'noticeBoardClose':
+      case 'noticeBoardCloseIcon':
         this.apply(closeNoticeBoard(released));
         this.screen.playSound('close');
         return;
