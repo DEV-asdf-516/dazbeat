@@ -319,13 +319,13 @@ function groupRolesByKind(roles: readonly Role[]): Record<Role['kind'], Record<s
     'composed-sequence': {},
   };
   const ids = new Set<string>();
-  roles.forEach((manifestRole) => {
+  for (const manifestRole of roles) {
     if (ids.has(manifestRole.id)) {
       throw invalid(MANIFEST_URL, `duplicate role ${manifestRole.id}`);
     }
     ids.add(manifestRole.id);
     groups[manifestRole.kind][manifestRole.id] = manifestRole;
-  });
+  }
   return groups;
 }
 
@@ -612,14 +612,14 @@ export async function loadCelestialCatalog(
         })),
       };
     });
-    placed.forEach(({ endMs }) => {
+    for (const { endMs } of placed) {
       if (endMs > sequence.durationMs) {
         throw invalid(
           sequencesUrl,
           `sequence ${name} child ends at ${endMs}ms after ${sequence.durationMs}ms`,
         );
       }
-    });
+    }
     expanding.delete(name);
     const result = {
       durationMs: sequence.durationMs,

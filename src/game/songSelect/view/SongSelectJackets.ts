@@ -52,7 +52,16 @@ export class SongSelectJackets {
       kind: 'idle',
       range,
     };
-    this.startNextBatch(range);
+    const batch = this.findNextBatch(range);
+    if (batch.length === 0) {
+      return;
+    }
+    this.state = {
+      kind: 'loading',
+      range,
+    };
+    this.textures.queue(batch, this.recordFailure);
+    this.textures.start();
   }
 
   complete(inUse: readonly string[]): void {
@@ -65,7 +74,16 @@ export class SongSelectJackets {
       range: state.range,
     };
     this.removeOutside(state.range, inUse);
-    this.startNextBatch(state.range);
+    const batch = this.findNextBatch(state.range);
+    if (batch.length === 0) {
+      return;
+    }
+    this.state = {
+      kind: 'loading',
+      range: state.range,
+    };
+    this.textures.queue(batch, this.recordFailure);
+    this.textures.start();
   }
 
   close(): void {
@@ -91,17 +109,9 @@ export class SongSelectJackets {
     this.textures.remove(this.textures.loadedSongIds().filter((songId) => !keep.has(songId)));
   }
 
-  private startNextBatch(range: JacketRange): void {
+  // 보이는 곡을 먼저 불러오고, 다 불러왔으면 앞뒤 쪽 곡을 불러온다.
+  private findNextBatch(range: JacketRange): Song[] {
     const visible = this.findUnready(range.visible);
-    const batch = visible.length > 0 ? visible : this.findUnready(range.adjacent);
-    if (batch.length === 0) {
-      return;
-    }
-    this.state = {
-      kind: 'loading',
-      range,
-    };
-    this.textures.queue(batch, this.recordFailure);
-    this.textures.start();
+    return visible.length > 0 ? visible : this.findUnready(range.adjacent);
   }
 }

@@ -10,6 +10,8 @@ const SETTINGS_KEY = 'dazbeat:settings:v1';
 const RECORDS_KEY = 'dazbeat:records:v2';
 const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
 const ACCELERATION_NOTICE_KEY = 'dazbeat:accelerationNotice:v1';
+const GUEST_NOTICE_KEY = 'dazbeat:guestNotice:v1';
+const GUEST_PLAYER_REPORTS_KEY = 'dazbeat:guestPlayerReports:v1';
 
 export class LocalSave {
   constructor(private readonly storage: Storage) {}
@@ -89,15 +91,42 @@ export class LocalSave {
     this.storage.setItem(ACCELERATION_NOTICE_KEY, JSON.stringify({ isDismissed: true }));
   }
 
+  isGuestNoticeShown(): boolean {
+    const saved = this.readObject(GUEST_NOTICE_KEY, 'guest notice', 'showing it again');
+    return saved?.isShown === true;
+  }
+
+  markGuestNoticeShown(): void {
+    this.storage.setItem(GUEST_NOTICE_KEY, JSON.stringify({ isShown: true }));
+  }
+
+  /** 순위표 플레이어 수는 revision 마다 다시 세므로, 같은 revision 을 이미 보냈는지만 본다. */
+  isGuestPlayerReported(chartId: string, chartRevision: string): boolean {
+    return (
+      this.readRevisionMap(GUEST_PLAYER_REPORTS_KEY, 'guest player reports')[chartId] ===
+      chartRevision
+    );
+  }
+
+  saveGuestPlayerReport(chartId: string, chartRevision: string): void {
+    const reports = this.readRevisionMap(GUEST_PLAYER_REPORTS_KEY, 'guest player reports');
+    reports[chartId] = chartRevision;
+    this.storage.setItem(GUEST_PLAYER_REPORTS_KEY, JSON.stringify(reports));
+  }
+
   private readRevisionNotices(): Record<string, string> {
-    const notices: Record<string, string> = {};
-    const saved = this.readObject(REVISION_NOTICES_KEY, 'revision notices', 'ignoring them');
+    return this.readRevisionMap(REVISION_NOTICES_KEY, 'revision notices');
+  }
+
+  private readRevisionMap(key: string, label: string): Record<string, string> {
+    const revisions: Record<string, string> = {};
+    const saved = this.readObject(key, label, 'ignoring them');
     for (const [chartId, chartRevision] of Object.entries(saved ?? {})) {
       if (isString(chartRevision)) {
-        notices[chartId] = chartRevision;
+        revisions[chartId] = chartRevision;
       }
     }
-    return notices;
+    return revisions;
   }
 
   private readRecords(): Record<string, ChartRecord> {

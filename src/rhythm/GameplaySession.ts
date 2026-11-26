@@ -81,12 +81,12 @@ export class GameplaySession {
       cursor: 0,
       holding: null,
     }));
-    chart.notes.forEach((note, noteIndex) => {
+    for (const [noteIndex, note] of chart.notes.entries()) {
       atLane(this.laneStates, note.lane).entries.push({
         noteIndex,
         note,
       });
-    });
+    }
     this.unjudgedCount = chart.notes.length;
   }
 

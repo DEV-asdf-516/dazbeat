@@ -53,13 +53,16 @@ function measureTextLine(
   return line;
 }
 
+export function getControlsBaselineYPx(scene: Phaser.Scene): number {
+  const controls = measureTextLine(scene, typeStyle(TYPE_SCALE.meta, COLORS.textSecondary));
+  const controlsCenterYPx = SCREEN_LAYOUT.hintYPx + MENU_KEY_HINT_STYLE.capHeightPx / 2;
+  return controlsCenterYPx - controls.heightPx / 2 + controls.ascentPx;
+}
+
 /** 글자 크기가 달라도 CONTROLS 글자와 기준선이 맞는 보조 글자의 세로 중심이다. */
 export function getFooterAuxiliaryCenterYPx(scene: Phaser.Scene): number {
-  const controls = measureTextLine(scene, typeStyle(TYPE_SCALE.meta, COLORS.textSecondary));
   const auxiliary = measureTextLine(scene, typeStyle(AUXILIARY_LABEL_TYPE, COLORS.textSecondary));
-  const controlsCenterYPx = SCREEN_LAYOUT.hintYPx + MENU_KEY_HINT_STYLE.capHeightPx / 2;
-  const baselineYPx = controlsCenterYPx - controls.heightPx / 2 + controls.ascentPx;
-  return baselineYPx + auxiliary.heightPx / 2 - auxiliary.ascentPx;
+  return getControlsBaselineYPx(scene) + auxiliary.heightPx / 2 - auxiliary.ascentPx;
 }
 
 /** 메뉴형 화면의 보조 버튼을 CONTROLS 진입점과 같은 줄의 오른쪽 끝에 둔다. */

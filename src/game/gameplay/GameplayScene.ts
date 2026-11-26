@@ -3,16 +3,15 @@ import Phaser from 'phaser';
 import type { CelestialAtlasId, CelestialCatalog } from '../celestial/state/celestialCatalog.js';
 import { GAME_HEIGHT, GAME_WIDTH } from '../app/config.js';
 import { SCENE_KEYS, startScene } from '../app/sceneRoutes.js';
-import type { GameplaySceneData, ResultSceneData } from '../app/sceneRoutes.js';
+import type { GameplaySceneData } from '../app/sceneRoutes.js';
 import { YouTubePlayer, loadYouTubeIframeApi } from '../../audio/YouTubePlayer.js';
 import type { PreparedChart } from '../../data/playSession.js';
 import type { ChartRef } from '../../data/songs.js';
 import { requireDefined } from '../../invariant.js';
 import { calculateAccuracy } from '../../rhythm/accuracy.js';
 import { getNoteTimeAtY } from '../../rhythm/notePosition.js';
-import type { Chart, Judgment, JudgmentEvent } from '../../rhythm/types.js';
+import type { Chart, Judgment } from '../../rhythm/types.js';
 import type { LocalSave } from '../../storage/LocalSave.js';
-import type { MvMode } from '../../storage/settings.js';
 import {
   ENDING_FX_IDS,
   ENDING_IMAGES,
@@ -21,27 +20,16 @@ import {
   playFullComboFx,
 } from './view/endingFx.js';
 import { GameplayController } from './GameplayController.js';
-import type { GameplayScreen, PlayScreen, RankedPlay } from './GameplayController.js';
+import type { GameplayScreen, RankedPlay } from './GameplayController.js';
 import {
-  getChangedButtonRegions,
-  getChangedStatusRegions,
   getGameplayButtonView,
   getLoadErrorText,
   getMvModeMarks,
   getStatusView,
 } from './state/gameplayStatus.js';
-import type {
-  GameplayButton,
-  GameplayButtonRegion,
-  GameplayButtons,
-  GameplayLoadError,
-  GameplayStatus,
-  GameplayStatusMessage,
-  GameplayStatusRegion,
-  LoadErrorMessage,
-} from './state/gameplayStatus.js';
+import type { GameplayStatusMessage, LoadErrorMessage } from './state/gameplayStatus.js';
+import { getChangedGameplayRegions, getFrame } from './state/gameplayScreen.js';
 import { QUIT_CONFIRM_TEXTS } from './state/quitConfirm.js';
-import type { QuitConfirmReason } from './state/quitConfirm.js';
 import { HUD_LABEL, addHudEffect, addHudText, withHudOutline } from './view/hudObjects.js';
 import {
   JUDGMENT_SHIMMER_ID,
@@ -58,7 +46,6 @@ import {
 import { playCelestialOnce, queueCelestialTextures } from '../celestial/view/celestialSprites.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
-import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { formatKeyCode, formatScore } from '../ui/state/format.js';
 import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { LaneFx } from './view/LaneFx.js';
@@ -81,9 +68,9 @@ import { PracticeStats } from './view/PracticeStats.js';
 import { StarlightGauge } from './view/StarlightGauge.js';
 import { IntroStarChart, getIntroStarChartUses } from './view/IntroStarChart.js';
 import { getComboTier } from './state/comboTier.js';
-import { getChangedHudRegions, getEnteredNoteRange } from './state/gameplayHud.js';
+import { getEnteredNoteRange } from './state/gameplayHud.js';
 import { getNoteTrailMs } from './state/noteAppearance.js';
-import type { GameplayFrame, HudRegion } from './state/gameplayHud.js';
+import type { HudRegion } from './state/gameplayHud.js';
 import { getStarlightBand, isBreathingBand } from './state/starlightBand.js';
 import type { ComboTier } from './state/comboTier.js';
 import {
@@ -346,12 +333,366 @@ export class GameplayScene extends Phaser.Scene {
       '',
       textStyle('meta', COLORS.textMuted),
     );
-    const pointer: ButtonPointer<GameplayButton> = {
-      pointerOver: (button) => controller.pointerOver(button),
-      pointerOut: (button) => controller.pointerOut(button),
-      pointerDown: (button) => controller.pointerDown(button),
-      pointerUp: (button) => controller.pointerUp(button),
+    // 플레이 자원은 곡이 시작될 때 beginPlay 가 만들고, 그 뒤 플레이 중 state 의 프레임 영역이 쓴다.
+    let notes: NoteLayer | undefined;
+    const screen: GameplayScreen = {
+      render: (previous, next) => {
+        const { countdownText } = view;
+        const isQuitConfirmOpen = next.buttons.isQuitConfirmOpen;
+        const { notice, countdownDigit } = getStatusView(next.status);
+        for (const region of getChangedGameplayRegions(previous, next)) {
+          switch (region) {
+            case 'notice':
+              view.status.show(
+                notice.kind === 'none'
+                  ? notice
+                  : {
+                      kind: 'loading',
+                      text: this.i18n.t(STATUS_MESSAGES[notice.message]),
+                    },
+              );
+              view.status.setVisible(!isQuitConfirmOpen);
+              break;
+            case 'countdown':
+              countdownText
+                .setText(countdownDigit === null ? '' : `${countdownDigit}`)
+                .setVisible(!isQuitConfirmOpen);
+              break;
+            case 'countdownPop':
+              this.tweens.killTweensOf(countdownText);
+              countdownText.setScale(1).setAlpha(1);
+              if (countdownDigit !== null) {
+                // 숫자가 바뀌는 순간을 박자처럼 읽게 해 재개 시점을 미리 맞출 수 있게 한다.
+                countdownText.setScale(COUNTDOWN_POP_SCALE).setAlpha(COUNTDOWN_POP_START_ALPHA);
+                this.tweens.add({
+                  targets: countdownText,
+                  scale: 1,
+                  alpha: 1,
+                  duration: MOTION.fastMs,
+                  ease: 'Cubic.Out',
+                });
+              }
+              break;
+            case 'backButton':
+              view.backButton
+                .setVisible(next.loadError !== null)
+                .render(getGameplayButtonView(next.buttons, 'back'));
+              break;
+            case 'backButtonFocus':
+              view.backButton.playFocus(true);
+              break;
+            case 'quitDialog': {
+              if (isQuitConfirmOpen) {
+                const { titleKey, bodyKey } = QUIT_CONFIRM_TEXTS[next.quitConfirmReason];
+                view.quitDialog.render({
+                  title: this.i18n.t(titleKey),
+                  body: this.i18n.t(bodyKey),
+                  cancelLabel: 'CONTINUE',
+                  acceptLabel: 'QUIT',
+                  acceptTone: 'default',
+                });
+              } else {
+                view.quitDialog.render(null);
+              }
+              view.quitDialog.renderButtons(
+                getGameplayButtonView(next.buttons, 'quitCancel'),
+                getGameplayButtonView(next.buttons, 'quitAccept'),
+              );
+              break;
+            }
+            case 'mvMode':
+              this.mvLayer.dataset.mvMode = next.mvMode;
+              view.mvMode.show(next.mvMode, getMvModeMarks(next.mvMode));
+              break;
+            case 'mvVisible':
+              // 영상이 가려지면 화면이 검게 비므로 그 동안만 밤하늘 성도를 깐다.
+              view.introChart.render(!next.isMvVisible);
+              if (next.isMvVisible) {
+                delete this.mvLayer.dataset.mvHidden;
+              } else {
+                this.mvLayer.dataset.mvHidden = '';
+              }
+              break;
+            case 'loadError': {
+              if (next.loadError === null) {
+                break;
+              }
+              const translateLoadError = (message: LoadErrorMessage): string => {
+                // eslint-disable-next-line dazbeat/two-way-switch -- 알림 종류는 늘어난다.
+                switch (message.kind) {
+                  case 'key':
+                    return this.i18n.t(message.key);
+                  case 'videoError':
+                    return this.i18n.t('gameplay.videoError', {
+                      message: this.i18n.t('youtubeError.withCode', {
+                        message: this.i18n.t(`youtubeError.${message.errorKind}`),
+                        code: message.code,
+                      }),
+                    });
+                }
+              };
+              const { message, hasHint } = getLoadErrorText(next.loadError);
+              addHudText(
+                this,
+                SCREEN_CENTER_X_PX,
+                ERROR_MESSAGE_Y_PX,
+                translateLoadError(message),
+                textStyle('heading', COLORS.textPrimary),
+              );
+              if (hasHint) {
+                addHudText(
+                  this,
+                  SCREEN_CENTER_X_PX,
+                  ERROR_HINT_Y_PX,
+                  this.i18n.t('youtubeError.embeddingNotAllowedHint'),
+                  textStyle('secondary', COLORS.textSecondary),
+                );
+              }
+              break;
+            }
+            case 'activationGlint':
+              playCelestialOnce(view.comboGlint);
+              break;
+            case 'frame': {
+              const frame = getFrame(next);
+              if (frame === null) {
+                break;
+              }
+              const playNotes = requireDefined(notes, 'Missing note layer', 'frame');
+              const previousFrame = previous === null ? null : getFrame(previous);
+              view.laneFx.setActivation(frame.activation.level);
+              playNotes.spawn(getEnteredNoteRange(previousFrame, frame));
+              playNotes.render(
+                frame.session,
+                frame.songTimeMs,
+                getNoteTrailMs(previousFrame, frame),
+              );
+              break;
+            }
+            case 'intro':
+              if (!next.isIntroVisible) {
+                view.introTitle.setVisible(false);
+                view.introDifficulty.setVisible(false);
+                // 콤보는 곡 제목과 같은 자리라 시작 전에는 숨겨 두고 제목이 걷힐 때 들인다.
+                this.tweens.add({
+                  targets: view.combo.layers,
+                  alpha: COMBO_ALPHA,
+                  duration: MOTION.mediumMs,
+                });
+                this.tweens.add({
+                  targets: view.comboLabel,
+                  alpha: COMBO_LABEL_ALPHA,
+                  duration: MOTION.mediumMs,
+                });
+              }
+              break;
+            case 'combo':
+            case 'comboTier':
+            case 'comboPop':
+            case 'score':
+            case 'progress':
+            case 'gaugeFill':
+            case 'gaugeBand':
+            case 'gaugeGlint':
+            case 'accuracy':
+            case 'perfectCount':
+            case 'greatCount':
+            case 'goodCount':
+            case 'badCount':
+            case 'missCount': {
+              const frame = getFrame(next);
+              if (frame === null) {
+                break;
+              }
+              const { state } = frame;
+              switch (region) {
+                case 'combo':
+                  view.combo.render(`${state.combo}`);
+                  break;
+                case 'comboTier':
+                  setComboTint([...view.combo.layers, view.comboLabel], getComboTier(state.combo));
+                  break;
+                case 'comboPop':
+                  this.tweens.add({
+                    targets: view.combo.layers,
+                    scale: {
+                      from: COMBO_TIER_POP_SCALE,
+                      to: 1,
+                    },
+                    alpha: {
+                      from: 1,
+                      to: COMBO_ALPHA,
+                    },
+                    duration: MOTION.mediumMs,
+                    ease: 'Cubic.Out',
+                  });
+                  break;
+                case 'score':
+                  view.score.render(formatScore(state.score));
+                  break;
+                case 'progress':
+                  view.progress.render(frame.progress);
+                  break;
+                case 'gaugeFill':
+                  if (view.modeHud.kind === 'standard') {
+                    view.modeHud.starlight.renderFill(state.hp);
+                  }
+                  break;
+                case 'gaugeBand':
+                  if (view.modeHud.kind === 'standard') {
+                    const band = getStarlightBand(state.hp);
+                    view.modeHud.starlight.renderBand(band, isBreathingBand(band));
+                  }
+                  break;
+                case 'gaugeGlint':
+                  if (view.modeHud.kind === 'standard') {
+                    view.modeHud.starlight.flashGlint();
+                  }
+                  break;
+                case 'accuracy':
+                  if (view.modeHud.kind === 'practice') {
+                    view.modeHud.stats.renderAccuracy(calculateAccuracy(state.counts));
+                  }
+                  break;
+                case 'perfectCount':
+                case 'greatCount':
+                case 'goodCount':
+                case 'badCount':
+                case 'missCount':
+                  if (view.modeHud.kind === 'practice') {
+                    const judgment = PRACTICE_COUNT_JUDGMENTS[region];
+                    view.modeHud.stats.renderCount(judgment, state.counts[judgment]);
+                  }
+                  break;
+              }
+              break;
+            }
+          }
+        }
+      },
+      playSound: (sound) => view.soundEffects.play(sound),
+      beginPlay: (chart) => {
+        const { scrollSpeedPxPerSecond } = settings;
+        const playNotes = new NoteLayer(this, {
+          notes: chart.notes,
+          playfield: view.playfield,
+          scrollSpeedPxPerSecond,
+        });
+        notes = playNotes;
+        setComboTint([...view.combo.layers, view.comboLabel], getComboTier(0));
+        return {
+          approachMs: getNoteTimeAtY(0, 0, view.playfield.judgeLineYPx, scrollSpeedPxPerSecond),
+          hasNoteEntered: (noteTimeMs, songTimeMs) => playNotes.hasEntered(noteTimeMs, songTimeMs),
+          pressLane: (lane) => {
+            view.soundEffects.play('lanePress');
+            view.laneFx.press(lane);
+            this.flashKeyLabel(requireDefined(view.lanes[lane], 'Unknown lane', lane).keyLabel);
+          },
+          showJudgments: (events) => {
+            for (const event of events) {
+              view.laneFx.judge(event);
+              const effect = getJudgmentSoundEffect(event);
+              if (effect !== null) {
+                view.soundEffects.play(effect);
+              }
+            }
+            const lastEvent = getShownJudgment(events);
+            if (lastEvent === undefined) {
+              return;
+            }
+            const { judgmentGlow } = view;
+            const { judgment } = lastEvent;
+            const { text: judgmentText, flash: judgmentFlash } = view.judgments[judgment];
+            const color = JUDGMENT_COLORS[judgment];
+            const { intensity, popScale, hasGlow, hasShimmer } = getJudgmentEffect(judgment);
+            const judgmentTexts = Object.values(view.judgments).flatMap(({ text, flash }) => [
+              text,
+              flash,
+            ]);
+            this.tweens.killTweensOf([...judgmentTexts, judgmentGlow]);
+            judgmentTexts.forEach((text) => text.setAlpha(0));
+            judgmentText.setAlpha(1).setScale(popScale);
+            this.tweens.add({
+              targets: judgmentText,
+              alpha: 0,
+              delay: JUDGMENT_HOLD_MS,
+              duration: JUDGMENT_FADE_MS,
+            });
+            this.tweens.add({
+              targets: judgmentText,
+              scale: 1,
+              duration: MOTION.fastMs,
+            });
+            // 글자와 같은 크기로 줄어들며 사라져 획이 어긋나 보이지 않는다.
+            judgmentFlash.setAlpha(JUDGMENT_FLASH_ALPHA * intensity).setScale(popScale);
+            this.tweens.add({
+              targets: judgmentFlash,
+              alpha: 0,
+              scale: 1,
+              duration: JUDGMENT_FLASH_MS,
+              ease: 'Quad.Out',
+            });
+            judgmentGlow.setAlpha(0);
+            if (hasGlow) {
+              judgmentGlow
+                .setTint(color)
+                .setAlpha(JUDGMENT_GLOW_ALPHA * intensity)
+                .setDisplaySize(
+                  judgmentText.width * JUDGMENT_GLOW_WIDTH_SCALE.from,
+                  JUDGMENT_GLOW_HEIGHT_PX.from,
+                );
+              this.tweens.add({
+                targets: judgmentGlow,
+                alpha: 0,
+                displayWidth: judgmentText.width * JUDGMENT_GLOW_WIDTH_SCALE.to,
+                displayHeight: JUDGMENT_GLOW_HEIGHT_PX.to,
+                duration: JUDGMENT_HOLD_MS + JUDGMENT_FADE_MS,
+                ease: 'Cubic.Out',
+              });
+            }
+            if (hasShimmer) {
+              playCelestialOnce(view.judgmentShimmer);
+            }
+          },
+          playFullCombo: (onDone) =>
+            this.clearPlayfield(view, () => playFullComboFx(this, this.celestial, onDone)),
+          playFailure: (onDone) => {
+            playFailureFx(
+              this,
+              this.celestial,
+              view.modeHud.kind === 'standard' ? view.modeHud.starlight : null,
+              onDone,
+            );
+          },
+          playClear: (onDone) => this.clearPlayfield(view, () => playClearFx(this, onDone)),
+        };
+      },
+      showResult: (result) => {
+        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
+          startScene(this, 'result', result),
+        );
+        this.cameras.main.fadeOut(MOTION.mediumMs);
+      },
+      leave: (request) => this.scene.start(SCENE_KEYS[request.key], request.data),
     };
+    const controller = new GameplayController(
+      {
+        save: this.save,
+        prepareChart: this.prepareChart,
+        loadChart: this.loadChart,
+        rankedPlay: this.rankedPlay,
+        players: {
+          loadApi: loadYouTubeIframeApi,
+          create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
+        },
+        now: () => performance.now(),
+        frameNow: () => this.game.loop.now,
+      },
+      screen,
+      data,
+      settings,
+    );
+
     // 판정마다 글자를 다시 굽지 않도록 판정별로 미리 만들어 두고 보일 것만 켠다.
     const addJudgmentTexts = (judgment: Judgment): JudgmentTexts => ({
       text: addHudText(
@@ -460,8 +801,8 @@ export class GameplayScene extends Phaser.Scene {
         KEY_LABEL_Y_PX,
       ),
       quitDialog: new ConfirmDialog(this, {
-        cancel: pointButton(pointer, 'quitCancel'),
-        accept: pointButton(pointer, 'quitAccept'),
+        cancel: pointButton(controller, 'quitCancel'),
+        accept: pointButton(controller, 'quitAccept'),
       }),
       backButton: new Button(this, 0, ERROR_BUTTON_Y_PX, {
         variant: 'primary',
@@ -470,50 +811,13 @@ export class GameplayScene extends Phaser.Scene {
             ? 'gameplay.backToEditor'
             : 'gameplay.backToSongSelect',
         ),
-        pointer: pointButton(pointer, 'back'),
+        pointer: pointButton(controller, 'back'),
       })
         .alignX(SCREEN_CENTER_X_PX, 0.5)
         .setDepth(GAMEPLAY_DEPTH.text)
         .setVisible(false),
     };
     view.combo.layers.forEach((layer) => layer.setAlpha(0));
-    // 플레이어가 준비되기 전에는 보일 영상이 없으므로 가린 상태로 시작한다.
-    this.setMvVisible(view, false);
-
-    const screen: GameplayScreen = {
-      showStatus: (previous, next) => this.renderStatus(view, previous, next),
-      renderButtons: (previous, next) => {
-        for (const region of getChangedButtonRegions(previous, next)) {
-          this.renderButtonRegion(view, next, region);
-        }
-      },
-      showMvMode: (mode) => this.showMvMode(view, mode),
-      setMvVisible: (isVisible) => this.setMvVisible(view, isVisible),
-      showLoadError: (error) => this.showLoadError(view, error),
-      openQuitConfirm: (reason) => this.openQuitConfirm(view, reason),
-      closeQuitConfirm: () => this.closeQuitConfirm(view),
-      playSound: (sound) => view.soundEffects.play(sound),
-      beginPlay: (chart) => this.beginPlay(view, chart, settings.scrollSpeedPxPerSecond),
-      showResult: (result) => this.showResult(result),
-      leave: (request) => this.scene.start(SCENE_KEYS[request.key], request.data),
-    };
-    const controller = new GameplayController(
-      {
-        save: this.save,
-        prepareChart: this.prepareChart,
-        loadChart: this.loadChart,
-        rankedPlay: this.rankedPlay,
-        players: {
-          loadApi: loadYouTubeIframeApi,
-          create: (videoId, handlers) => new YouTubePlayer(this.mvLayer, videoId, handlers),
-        },
-        now: () => performance.now(),
-        frameNow: () => this.game.loop.now,
-      },
-      screen,
-      data,
-      settings,
-    );
 
     // 노트·레인은 창 크기와 무관하게 창 높이에 맞추고 남는 폭은 양옆으로 늘리거나 자른다.
     // 점수 묶음은 오른쪽 끝을 따라오되 레인에 닿기 전에 멈추고, 더 좁으면 창 밖으로 잘린다.
@@ -577,225 +881,6 @@ export class GameplayScene extends Phaser.Scene {
     return new PracticeStats(this, SCORE_RIGHT_X_PX, PRACTICE_STATS_Y_PX);
   }
 
-  private renderStatus(
-    view: GameplayView,
-    previous: GameplayStatus | null,
-    next: GameplayStatus,
-  ): void {
-    for (const region of getChangedStatusRegions(previous, next)) {
-      this.renderStatusRegion(view, next, region);
-    }
-  }
-
-  private renderStatusRegion(
-    view: GameplayView,
-    status: GameplayStatus,
-    region: GameplayStatusRegion,
-  ): void {
-    const { notice, countdownDigit } = getStatusView(status);
-    const { countdownText } = view;
-    switch (region) {
-      case 'notice':
-        switch (notice.kind) {
-          case 'none':
-            view.status.show(notice);
-            return;
-          case 'loading':
-            view.status.show({
-              kind: 'loading',
-              text: this.i18n.t(STATUS_MESSAGES[notice.message]),
-            });
-            return;
-        }
-        return;
-      case 'countdown':
-        countdownText.setText(countdownDigit === null ? '' : `${countdownDigit}`);
-        return;
-      case 'countdownPop':
-        this.tweens.killTweensOf(countdownText);
-        countdownText.setScale(1).setAlpha(1);
-        if (countdownDigit !== null) {
-          // 숫자가 바뀌는 순간을 박자처럼 읽게 해 재개 시점을 미리 맞출 수 있게 한다.
-          countdownText.setScale(COUNTDOWN_POP_SCALE).setAlpha(COUNTDOWN_POP_START_ALPHA);
-          this.tweens.add({
-            targets: countdownText,
-            scale: 1,
-            alpha: 1,
-            duration: MOTION.fastMs,
-            ease: 'Cubic.Out',
-          });
-        }
-        return;
-    }
-  }
-
-  private beginPlay(view: GameplayView, chart: Chart, scrollSpeedPxPerSecond: number): PlayScreen {
-    const notes = new NoteLayer(this, {
-      notes: chart.notes,
-      playfield: view.playfield,
-      scrollSpeedPxPerSecond,
-    });
-    setComboTint([...view.combo.layers, view.comboLabel], getComboTier(0));
-    return {
-      approachMs: getNoteTimeAtY(0, 0, view.playfield.judgeLineYPx, scrollSpeedPxPerSecond),
-      drawFrame: (previous, next) => {
-        view.laneFx.setActivation(next.activation.level);
-        if (next.activation.reachedFull) {
-          playCelestialOnce(view.comboGlint);
-        }
-        notes.spawn(getEnteredNoteRange(previous, next));
-        notes.render(next.session, next.songTimeMs, getNoteTrailMs(previous, next));
-        for (const region of getChangedHudRegions(previous, next)) {
-          this.renderHudRegion(view, next, region);
-        }
-      },
-      hasNoteEntered: (noteTimeMs, songTimeMs) => notes.hasEntered(noteTimeMs, songTimeMs),
-      pressLane: (lane) => {
-        view.soundEffects.play('lanePress');
-        view.laneFx.press(lane);
-        this.flashKeyLabel(requireDefined(view.lanes[lane], 'Unknown lane', lane).keyLabel);
-      },
-      showJudgments: (events) => this.applyJudgmentEvents(view, events),
-      hideIntro: () => this.hideIntro(view),
-      playFullCombo: (onDone) =>
-        this.clearPlayfield(view, () => playFullComboFx(this, this.celestial, onDone)),
-      // 확인창이 열려 있어도 keyup 판정으로 실패할 수 있으므로 확인창만 숨긴다.
-      playFailure: (onDone) => {
-        view.quitDialog.render(null);
-        playFailureFx(
-          this,
-          this.celestial,
-          view.modeHud.kind === 'standard' ? view.modeHud.starlight : null,
-          onDone,
-        );
-      },
-      playClear: (onDone) => this.clearPlayfield(view, () => playClearFx(this, onDone)),
-    };
-  }
-
-  private showLoadError(view: GameplayView, error: GameplayLoadError): void {
-    const { message, hasHint } = getLoadErrorText(error);
-    view.quitDialog.render(null);
-    this.hideIntro(view);
-    // 오류 뒤에는 컨트롤러가 안내를 더 보내지 않으므로 처음 그리듯 안내를 지운다.
-    this.renderStatus(view, null, { kind: 'none' });
-    addHudText(
-      this,
-      SCREEN_CENTER_X_PX,
-      ERROR_MESSAGE_Y_PX,
-      this.translateLoadError(message),
-      textStyle('heading', COLORS.textPrimary),
-    );
-    if (hasHint) {
-      addHudText(
-        this,
-        SCREEN_CENTER_X_PX,
-        ERROR_HINT_Y_PX,
-        this.i18n.t('youtubeError.embeddingNotAllowedHint'),
-        textStyle('secondary', COLORS.textSecondary),
-      );
-    }
-    view.backButton.setVisible(true).playFocus(true);
-  }
-
-  private renderButtonRegion(
-    view: GameplayView,
-    buttons: GameplayButtons,
-    region: GameplayButtonRegion,
-  ): void {
-    switch (region) {
-      case 'backButton':
-        view.backButton.render(getGameplayButtonView(buttons, 'back'));
-        return;
-      case 'quitConfirmButtons':
-        view.quitDialog.renderButtons(
-          getGameplayButtonView(buttons, 'quitCancel'),
-          getGameplayButtonView(buttons, 'quitAccept'),
-        );
-        return;
-    }
-  }
-
-  private translateLoadError(message: LoadErrorMessage): string {
-    switch (message.kind) {
-      case 'key':
-        return this.i18n.t(message.key);
-      case 'videoError':
-        return this.i18n.t('gameplay.videoError', {
-          message: this.i18n.t('youtubeError.withCode', {
-            message: this.i18n.t(`youtubeError.${message.errorKind}`),
-            code: message.code,
-          }),
-        });
-    }
-  }
-
-  private hideIntro(view: GameplayView): void {
-    view.introTitle.setVisible(false);
-    view.introDifficulty.setVisible(false);
-    // 콤보는 곡 제목과 같은 자리라 시작 전에는 숨겨 두고 제목이 걷힐 때 들인다.
-    this.tweens.add({
-      targets: view.combo.layers,
-      alpha: COMBO_ALPHA,
-      duration: MOTION.mediumMs,
-    });
-    this.tweens.add({
-      targets: view.comboLabel,
-      alpha: COMBO_LABEL_ALPHA,
-      duration: MOTION.mediumMs,
-    });
-  }
-
-  private popComboTier(comboLayers: readonly Phaser.GameObjects.BitmapText[]): void {
-    this.tweens.add({
-      targets: comboLayers,
-      scale: {
-        from: COMBO_TIER_POP_SCALE,
-        to: 1,
-      },
-      alpha: {
-        from: 1,
-        to: COMBO_ALPHA,
-      },
-      duration: MOTION.mediumMs,
-      ease: 'Cubic.Out',
-    });
-  }
-
-  private openQuitConfirm(view: GameplayView, reason: QuitConfirmReason): void {
-    view.status.setVisible(false);
-    view.countdownText.setVisible(false);
-    const { titleKey, bodyKey } = QUIT_CONFIRM_TEXTS[reason];
-    view.quitDialog.render({
-      title: this.i18n.t(titleKey),
-      body: this.i18n.t(bodyKey),
-      cancelLabel: 'CONTINUE',
-      acceptLabel: 'QUIT',
-      acceptTone: 'default',
-    });
-  }
-
-  private closeQuitConfirm(view: GameplayView): void {
-    view.quitDialog.render(null);
-    view.status.setVisible(true);
-    view.countdownText.setVisible(true);
-  }
-
-  private showMvMode(view: GameplayView, mode: MvMode): void {
-    this.mvLayer.dataset.mvMode = mode;
-    view.mvMode.show(mode, getMvModeMarks(mode));
-  }
-
-  private setMvVisible(view: GameplayView, isVisible: boolean): void {
-    // 영상이 가려지면 화면이 검게 비므로 그 동안만 밤하늘 성도를 깐다.
-    view.introChart.render(!isVisible);
-    if (isVisible) {
-      delete this.mvLayer.dataset.mvHidden;
-      return;
-    }
-    this.mvLayer.dataset.mvHidden = '';
-  }
-
   private clearPlayfield(view: GameplayView, onCleared: () => void): void {
     const targets = [
       ...view.playfieldChrome,
@@ -828,154 +913,6 @@ export class GameplayScene extends Phaser.Scene {
       duration: MOTION.fastMs,
       onComplete: () => keyLabel.setTint(COLORS.textMuted),
     });
-  }
-
-  private applyJudgmentEvents(view: GameplayView, events: readonly JudgmentEvent[]): void {
-    events.forEach((event) => {
-      view.laneFx.judge(event);
-      const effect = getJudgmentSoundEffect(event);
-      if (effect !== null) {
-        view.soundEffects.play(effect);
-      }
-    });
-    const lastEvent = getShownJudgment(events);
-    if (lastEvent === undefined) {
-      return;
-    }
-    const { judgmentGlow } = view;
-    const { judgment } = lastEvent;
-    const { text: judgmentText, flash: judgmentFlash } = view.judgments[judgment];
-    const color = JUDGMENT_COLORS[judgment];
-    const { intensity, popScale, hasGlow, hasShimmer } = getJudgmentEffect(judgment);
-    const judgmentTexts = Object.values(view.judgments).flatMap(({ text, flash }) => [text, flash]);
-    this.tweens.killTweensOf([...judgmentTexts, judgmentGlow]);
-    judgmentTexts.forEach((text) => text.setAlpha(0));
-    judgmentText.setAlpha(1).setScale(popScale);
-    this.tweens.add({
-      targets: judgmentText,
-      alpha: 0,
-      delay: JUDGMENT_HOLD_MS,
-      duration: JUDGMENT_FADE_MS,
-    });
-    this.tweens.add({
-      targets: judgmentText,
-      scale: 1,
-      duration: MOTION.fastMs,
-    });
-    // 글자와 같은 크기로 줄어들며 사라져 획이 어긋나 보이지 않는다.
-    judgmentFlash.setAlpha(JUDGMENT_FLASH_ALPHA * intensity).setScale(popScale);
-    this.tweens.add({
-      targets: judgmentFlash,
-      alpha: 0,
-      scale: 1,
-      duration: JUDGMENT_FLASH_MS,
-      ease: 'Quad.Out',
-    });
-    judgmentGlow.setAlpha(0);
-    if (hasGlow) {
-      judgmentGlow
-        .setTint(color)
-        .setAlpha(JUDGMENT_GLOW_ALPHA * intensity)
-        .setDisplaySize(
-          judgmentText.width * JUDGMENT_GLOW_WIDTH_SCALE.from,
-          JUDGMENT_GLOW_HEIGHT_PX.from,
-        );
-      this.tweens.add({
-        targets: judgmentGlow,
-        alpha: 0,
-        displayWidth: judgmentText.width * JUDGMENT_GLOW_WIDTH_SCALE.to,
-        displayHeight: JUDGMENT_GLOW_HEIGHT_PX.to,
-        duration: JUDGMENT_HOLD_MS + JUDGMENT_FADE_MS,
-        ease: 'Cubic.Out',
-      });
-    }
-    if (hasShimmer) {
-      playCelestialOnce(view.judgmentShimmer);
-    }
-  }
-
-  private renderHudRegion(view: GameplayView, frame: GameplayFrame, region: HudRegion): void {
-    const { state } = frame;
-    switch (region) {
-      case 'combo':
-        view.combo.render(`${state.combo}`);
-        return;
-      case 'comboTier':
-        setComboTint([...view.combo.layers, view.comboLabel], getComboTier(state.combo));
-        return;
-      case 'comboPop':
-        this.popComboTier(view.combo.layers);
-        return;
-      case 'score':
-        view.score.render(formatScore(state.score));
-        return;
-      case 'progress':
-        view.progress.render(frame.progress);
-        return;
-      case 'gaugeFill':
-      case 'gaugeBand':
-      case 'gaugeGlint':
-        switch (view.modeHud.kind) {
-          case 'standard':
-            this.renderGaugeRegion(view.modeHud.starlight, frame, region);
-            return;
-          case 'practice':
-            return;
-        }
-        return;
-      case 'accuracy':
-        switch (view.modeHud.kind) {
-          case 'standard':
-            return;
-          case 'practice':
-            view.modeHud.stats.renderAccuracy(calculateAccuracy(frame.state.counts));
-            return;
-        }
-        return;
-      case 'perfectCount':
-      case 'greatCount':
-      case 'goodCount':
-      case 'badCount':
-      case 'missCount':
-        switch (view.modeHud.kind) {
-          case 'standard':
-            return;
-          case 'practice': {
-            const judgment = PRACTICE_COUNT_JUDGMENTS[region];
-            view.modeHud.stats.renderCount(judgment, state.counts[judgment]);
-            return;
-          }
-        }
-        return;
-    }
-  }
-
-  private renderGaugeRegion(
-    starlight: StarlightGauge,
-    frame: GameplayFrame,
-    region: Extract<HudRegion, 'gaugeFill' | 'gaugeBand' | 'gaugeGlint'>,
-  ): void {
-    const { hp } = frame.state;
-    switch (region) {
-      case 'gaugeFill':
-        starlight.renderFill(hp);
-        return;
-      case 'gaugeBand': {
-        const band = getStarlightBand(hp);
-        starlight.renderBand(band, isBreathingBand(band));
-        return;
-      }
-      case 'gaugeGlint':
-        starlight.flashGlint();
-        return;
-    }
-  }
-
-  private showResult(data: ResultSceneData): void {
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
-      startScene(this, 'result', data),
-    );
-    this.cameras.main.fadeOut(MOTION.mediumMs);
   }
 }
 

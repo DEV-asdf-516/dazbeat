@@ -10,7 +10,7 @@ export class ModalFrame {
   readonly container: Phaser.GameObjects.Container;
   private readonly scene: Phaser.Scene;
   private readonly backdrop: Phaser.GameObjects.Rectangle;
-  private readonly panel: ModalPanel;
+  readonly panel: ModalPanel;
   private readonly backdropHitArea = new Phaser.Geom.Rectangle();
 
   constructor(scene: Phaser.Scene, backdropPointer: PointerActions | null) {
@@ -34,8 +34,7 @@ export class ModalFrame {
     this.container.setVisible(false);
   }
 
-  setPanelSize(widthPx: number, heightPx: number): void {
-    this.panel.setSize(widthPx, heightPx);
+  placePanel(widthPx: number, heightPx: number): void {
     this.container.setPosition((GAME_WIDTH - widthPx) / 2, (GAME_HEIGHT - heightPx) / 2);
   }
 

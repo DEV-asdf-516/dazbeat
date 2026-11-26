@@ -80,7 +80,7 @@ export function playFullComboFx(
 ): void {
   const color = JUDGMENT_COLORS.perfect;
   addEndingTitle(scene, 'FULL COMBO', color, FULL_COMBO_STREAK.key);
-  FULL_COMBO_SPARKLE_BEATS_MS.forEach((beatMs, beat) => {
+  for (const [beat, beatMs] of FULL_COMBO_SPARKLE_BEATS_MS.entries()) {
     for (let index = 0; index < FULL_COMBO_SPARKLES_PER_BEAT; index += 1) {
       // 두 번째 묶음은 첫 묶음 사이사이에서 터지도록 각도를 반 칸 돌린다.
       const angle =
@@ -131,7 +131,7 @@ export function playFullComboFx(
         ease: 'Cubic.Out',
       });
     }
-  });
+  }
   scene.time.delayedCall(MOTION.mediumMs + ENDING_HOLD_MS, onDone);
 }
 
@@ -220,7 +220,7 @@ export function playFailureFx(
     FAILURE_STAR_HOLD_MS +
     FAILURE_STAR_STAGGER_MS * (GAMEPLAY_FAILURE_STARS.length - 1) +
     FAILURE_STAR_FADE_MS;
-  GAMEPLAY_FAILURE_STARS.forEach(({ id, xPx, yPx, scale, phaseFraction }, index) => {
+  for (const [index, { id, xPx, yPx, scale, phaseFraction }] of GAMEPLAY_FAILURE_STARS.entries()) {
     const star = addHudEffect(scene, celestial, id, xPx, yPx, phaseFraction);
     const alpha = star.alpha;
     star.setScale(scale).setAlpha(0);
@@ -239,7 +239,7 @@ export function playFailureFx(
         },
       ],
     });
-  });
+  }
   const failed = addHudText(
     scene,
     SCREEN_CENTER_X_PX,

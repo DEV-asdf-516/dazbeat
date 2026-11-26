@@ -1,8 +1,4 @@
-import type {
-  YouTubePlayer,
-  YouTubePlayerHandlers,
-  YouTubePlayerState,
-} from '../../audio/YouTubePlayer.js';
+import type { YouTubePlayer, YouTubePlayerHandlers } from '../../audio/YouTubePlayer.js';
 import { RhythmClock } from '../../audio/RhythmClock.js';
 import { YouTubeTimeSource } from '../../audio/YouTubeTimeSource.js';
 import { InvalidChartError, parseChart } from '../../data/chartSchema.js';
@@ -12,48 +8,49 @@ import type { Chart, Difficulty, LaneCount } from '../../rhythm/types.js';
 import { stepItem } from '../../range.js';
 import type { ListDirection } from '../../range.js';
 import {
-  clearNotes,
   completeSave,
   createDraft,
-  createEmptyDraft,
-  deleteSelectedNote,
   findInvalidNote,
   selectNote,
-  setDraftLevel,
   toChart,
 } from './state/chartDraft.js';
-import type { ChartDraft } from './state/chartDraft.js';
 import {
-  decideNavigation,
+  acceptPending,
   decideTestPlay,
-  getActiveSelection,
+  getEditableSession,
   getLevelControl,
   getSelection,
-  getEditableSession,
   getSession,
   hoverEditorButton,
   hoverSegment,
+  openSelection,
   parseLevelInput,
   pressEditorButton,
   recordEdit,
   releaseEditorButton,
+  removeSelectedNote,
+  requestNavigation,
+  seekTo,
   settleEditorButtons,
   settleGesture,
+  startEditing,
   stepLevel,
   undoEdit,
   unhoverEditorButton,
   unhoverSegment,
   withDraft,
+  withLevel,
+  withPending,
+  withSession,
   SAVE_FAILURE_NOTICES,
 } from './state/chartEditorState.js';
 import type {
   ChartEditorState,
   EditorButton,
   EditorPlayerStatus,
-  EditPhase,
   EditorSession,
   Navigation,
-  PendingAction,
+  NavigationFollow,
   SaveNotice,
   SegmentHover,
   Selection,
@@ -69,7 +66,6 @@ import {
   startPlayback,
   togglePlayback,
 } from './state/chartPlayback.js';
-import type { Playhead } from './state/chartPlayback.js';
 import { getOpeningTimeMs, getPlayStartMs, toEditTimeMs } from './state/editorTimeline.js';
 
 interface PlaybackPlayer {
@@ -150,8 +146,16 @@ interface EditorTiming {
   readonly pickToleranceMs: number;
 }
 
-// 닫힌 뒤에는 입력과 늦은 결과를 받지 않는다.
-type ScreenState = ChartEditorState | { readonly kind: 'closed'; readonly last: ChartEditorState };
+// 시작 전에는 그린 적이 없어 첫 그림의 직전 state 가 없다. 닫힌 뒤에는 입력과 늦은 결과를 받지 않는다.
+type ScreenState =
+  | ChartEditorState
+  | { readonly kind: 'unstarted'; readonly last: ChartEditorState }
+  | { readonly kind: 'closed'; readonly last: ChartEditorState };
+
+const PLAYER_LOAD_FAILED: EditorPlayerStatus = {
+  kind: 'failed',
+  failure: { kind: 'loadFailed' },
+};
 
 export class ChartEditorController {
   private screenState: ScreenState;
@@ -185,25 +189,29 @@ export class ChartEditorController {
     private readonly resumeTimeMs: number | null = null,
   ) {
     this.screenState = {
-      phase: {
-        kind: 'loading',
-        selection: first,
+      kind: 'unstarted',
+      last: {
+        phase: {
+          kind: 'loading',
+          selection: first,
+        },
+        tool: 'tap',
+        playhead: createPlayhead(first.song.gameStartMs),
+        player: { kind: 'loading' },
+        hover: null,
       },
-      tool: 'tap',
-      playhead: createPlayhead(first.song.gameStartMs),
-      player: { kind: 'loading' },
-      hover: null,
     };
   }
 
   // 씬의 render 가 view 를 참조하므로 생성자가 아니라 생성 뒤에 시작한다.
   start(): void {
-    this.screen.render(null, this.current);
-    this.replacePlayer(this.first.song);
-    void this.open(
+    const step = openSelection(
+      this.current,
       this.first,
       this.resumeTimeMs === null ? null : toEditTimeMs(this.resumeTimeMs, this.first.song),
     );
+    this.apply(step.state);
+    this.follow(step.follow);
   }
 
   get state(): ChartEditorState {
@@ -214,6 +222,10 @@ export class ChartEditorController {
     return 'kind' in this.screenState ? this.screenState.last : this.screenState;
   }
 
+  private get isClosed(): boolean {
+    return 'kind' in this.screenState && this.screenState.kind === 'closed';
+  }
+
   /** 씬이 닫힌 뒤 끝나는 로드·저장 결과가 반영되지 않도록 세션을 버린다. 화면이 없으므로 다시 그리지 않는다. */
   close(): void {
     this.screenState = {
@@ -221,108 +233,449 @@ export class ChartEditorController {
       last: this.current,
     };
     this.playerToken = null;
-    this.releasePlayer();
+    const { video } = this;
+    if (video.kind !== 'none') {
+      video.player.destroy();
+      this.video = { kind: 'none' };
+    }
   }
 
   back(): void {
-    this.requestNavigation({ kind: 'leave' });
-  }
-
-  moveSong(direction: ListDirection): void {
-    this.selectInList({ direction });
+    if (this.isClosed) {
+      return;
+    }
+    const step = requestNavigation(this.current, { kind: 'leave' });
+    this.apply(step.state);
+    this.follow(step.follow);
   }
 
   selectLaneCount(laneCount: LaneCount): void {
-    this.selectInList({ laneCount });
+    if (this.isClosed) {
+      return;
+    }
+    const step = requestNavigation(this.current, this.getListNavigation({ laneCount }));
+    this.apply(step.state);
+    this.follow(step.follow);
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.selectInList({ difficulty });
+    if (this.isClosed) {
+      return;
+    }
+    const step = requestNavigation(this.current, this.getListNavigation({ difficulty }));
+    this.apply(step.state);
+    this.follow(step.follow);
   }
 
   confirmPending(): void {
-    const { phase } = this.current;
-    if (phase.kind !== 'confirming') {
+    if (this.isClosed) {
       return;
     }
-    const { session, pending } = phase;
-    switch (pending.kind) {
-      case 'clearNotes':
-        this.edit(recordEdit(withDraft(session, clearNotes(session.draft)), session.draft));
-        return;
-      case 'select':
-      case 'leave':
-        this.edit(session);
-        this.proceed(pending);
-        return;
-      case 'saveFailed':
-      case 'saveConflict':
-      case 'invalidChart':
-      case 'testPlayUnsaved':
-      case 'testPlayNoChart':
-        this.edit(session);
-        return;
+    const step = acceptPending(this.current);
+    this.apply(step.state);
+    this.follow(step.follow);
+  }
+
+  selectTool(tool: EditTool): void {
+    if (this.current.tool !== tool) {
+      this.apply({
+        ...this.current,
+        tool,
+      });
     }
   }
 
-  cancelPending(): void {
-    const { phase } = this.current;
-    if (phase.kind === 'confirming') {
-      this.edit(phase.session);
+  hoverSegment(target: SegmentHover): void {
+    this.apply(hoverSegment(this.current, target));
+  }
+
+  unhoverSegment(target: SegmentHover): void {
+    this.apply(unhoverSegment(this.current, target));
+  }
+
+  pointerOver(button: EditorButton): void {
+    this.apply(hoverEditorButton(this.current, button));
+  }
+
+  pointerOut(button: EditorButton): void {
+    this.apply(unhoverEditorButton(this.current, button));
+  }
+
+  pointerDown(button: EditorButton): void {
+    this.apply(pressEditorButton(this.current, button));
+  }
+
+  pointerUp(button: EditorButton): void {
+    const released = releaseEditorButton(this.current, button);
+    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
+    if (released === this.current) {
+      return;
+    }
+    switch (button) {
+      case 'back':
+      case 'previousSong':
+      case 'nextSong': {
+        if (this.isClosed) {
+          return;
+        }
+        const step = requestNavigation(
+          released,
+          button === 'back'
+            ? { kind: 'leave' }
+            : this.getListNavigation({
+                direction: button === 'previousSong' ? 'previous' : 'next',
+              }),
+        );
+        this.apply(step.state);
+        this.follow(step.follow);
+        return;
+      }
+      case 'confirmAccept': {
+        if (this.isClosed) {
+          return;
+        }
+        const step = acceptPending(released);
+        this.apply(step.state);
+        this.follow(step.follow);
+        return;
+      }
+      case 'confirmCancel': {
+        const { phase } = released;
+        this.apply(
+          phase.kind === 'confirming'
+            ? {
+                ...released,
+                phase: {
+                  kind: 'editing',
+                  session: phase.session,
+                },
+              }
+            : released,
+        );
+        return;
+      }
+      case 'save': {
+        const session = getEditableSession(released);
+        if (session === null || session.saveProgress.kind === 'saving') {
+          this.apply(released);
+          return;
+        }
+        const { draft } = session;
+        let chart: Chart;
+        try {
+          chart = parseChart(toChart(draft), draft.song, draft.difficulty, draft.laneCount);
+        } catch (error) {
+          if (!(error instanceof InvalidChartError)) {
+            throw error;
+          }
+          const notice: SaveNotice = {
+            kind: 'invalidChart',
+            reason: error.message,
+          };
+          const note = findInvalidNote(draft, error);
+          this.apply(
+            note === null
+              ? withPending(released, session, notice)
+              : {
+                  ...released,
+                  phase: {
+                    kind: 'confirming',
+                    session: withDraft(session, selectNote(draft, note)),
+                    pending: notice,
+                  },
+                  playhead: seekPlayback(released.playhead, draft.song, note.timeMs),
+                },
+          );
+          return;
+        }
+        this.apply(
+          withSession(released, {
+            ...session,
+            saveProgress: { kind: 'saving' },
+          }),
+        );
+        void this.requestSave(session, chart);
+        return;
+      }
+      case 'testPlay': {
+        const session = getEditableSession(released);
+        if (session === null) {
+          this.apply(released);
+          return;
+        }
+        const decision = decideTestPlay(session);
+        if (decision.kind === 'notice') {
+          this.apply(withPending(released, session, decision.notice));
+          return;
+        }
+        this.apply(released);
+        this.screen.startTestPlay(
+          decision.chart,
+          getPlayStartMs(released.playhead.currentTimeMs, session.draft.song),
+        );
+        return;
+      }
+      case 'restart':
+        this.apply(seekTo(released, getSelection(released).song.gameStartMs));
+        return;
+      case 'play': {
+        const session = getEditableSession(released);
+        if (session === null) {
+          this.apply(released);
+          return;
+        }
+        const { song, offsetMs } = session.draft;
+        const toggle = togglePlayback(released.playhead, song, offsetMs);
+        if (toggle.kind === 'pause') {
+          this.apply({
+            ...released,
+            playhead: toggle.playhead,
+          });
+          return;
+        }
+        const timeSource = this.player.play(toggle.fromSec);
+        this.apply(
+          timeSource === null
+            ? released
+            : {
+                ...released,
+                playhead: startPlayback(
+                  toggle.startMs,
+                  new RhythmClock(timeSource, 0, offsetMs, {
+                    audioStartTimeSec: 0,
+                    songStartMs: 0,
+                  }),
+                ),
+              },
+        );
+        return;
+      }
+      case 'delete':
+        this.apply(removeSelectedNote(released));
+        return;
+      case 'clear': {
+        const session = getEditableSession(released);
+        if (session === null) {
+          this.apply(released);
+          return;
+        }
+        const settled = settleGesture(session);
+        this.apply(
+          settled.draft.notes.length === 0
+            ? withSession(released, settled)
+            : withPending(released, settled, { kind: 'clearNotes' }),
+        );
+        return;
+      }
+      case 'levelDown':
+      case 'levelUp': {
+        const session = getEditableSession(released);
+        this.apply(
+          session === null
+            ? released
+            : withLevel(
+                released,
+                stepLevel(session.draft.level, button === 'levelUp' ? 'next' : 'previous'),
+              ),
+        );
+        return;
+      }
     }
   }
 
-  requestClearNotes(): void {
+  /** 값 집합 밖의 글자는 레벨을 바꾸지 않고, 확정하면 입력칸은 지금 레벨 글자로 돌아간다. */
+  commitLevelInput(text: string): void {
+    const level = parseLevelInput(text);
+    if (level !== undefined) {
+      this.apply(withLevel(this.current, level));
+    }
+    this.screen.syncLevelInput(getLevelControl(this.current).level);
+  }
+
+  cancelLevelInput(): void {
+    this.screen.syncLevelInput(getLevelControl(this.current).level);
+  }
+
+  deleteSelected(): void {
+    this.apply(removeSelectedNote(this.current));
+  }
+
+  undo(): void {
+    const session = getEditableSession(this.current);
+    if (session !== null && session.gesture.kind === 'none') {
+      this.apply(withSession(this.current, undoEdit(session)));
+    }
+  }
+
+  pressTimeline(pointer: TimelinePointer): void {
     const session = getEditableSession(this.current);
     if (session === null) {
       return;
     }
-    const settled = settleGesture(session);
-    if (settled.draft.notes.length === 0) {
-      this.setSession(settled);
-      return;
-    }
-    this.confirm(settled, { kind: 'clearNotes' });
+    const { draft, gesture } = startGesture(
+      session.draft,
+      this.current.tool,
+      pointer,
+      this.getGestureLimits(),
+    );
+    this.apply(
+      withSession(this.current, {
+        ...withDraft(session, draft),
+        gesture,
+      }),
+    );
   }
 
-  /** 저장 중에도 편집할 수 있고, 끝나면 요청 때의 notes 만 저장 기준으로 삼으므로 그 뒤의 편집은 미저장으로 남는다. */
-  async save(): Promise<void> {
+  dragTimeline(pointer: TimelinePointer): void {
     const session = getEditableSession(this.current);
-    if (session === null || session.saveProgress.kind === 'saving') {
+    if (session === null || session.gesture.kind === 'none') {
       return;
     }
-    const { draft } = session;
-    let chart: Chart;
-    try {
-      chart = parseChart(toChart(draft), draft.song, draft.difficulty, draft.laneCount);
-    } catch (error) {
-      if (!(error instanceof InvalidChartError)) {
-        throw error;
-      }
-      const notice: SaveNotice = {
-        kind: 'invalidChart',
-        reason: error.message,
-      };
-      const note = findInvalidNote(draft, error);
-      if (note === null) {
-        this.confirm(session, notice);
-        return;
-      }
-      this.setState({
+    const draft = continueGesture(session.draft, session.gesture, pointer, this.getGestureLimits());
+    this.apply(withSession(this.current, withDraft(session, draft)));
+  }
+
+  releaseTimeline(pointerTimeMs: number): void {
+    const session = getEditableSession(this.current);
+    if (session === null || session.gesture.kind === 'none') {
+      return;
+    }
+    this.apply(
+      withSession(
+        this.current,
+        recordEdit(
+          {
+            ...withDraft(session, endGesture(session.draft, session.gesture, pointerTimeMs)),
+            gesture: NO_GESTURE,
+          },
+          session.gesture.before,
+        ),
+      ),
+    );
+  }
+
+  seek(targetMs: number): void {
+    this.apply(seekTo(this.current, targetMs));
+  }
+
+  togglePlayback(): void {
+    const session = getEditableSession(this.current);
+    if (session === null) {
+      return;
+    }
+    const { song, offsetMs } = session.draft;
+    const toggle = togglePlayback(this.current.playhead, song, offsetMs);
+    if (toggle.kind === 'pause') {
+      this.apply({
         ...this.current,
-        phase: {
-          kind: 'confirming',
-          session: withDraft(session, selectNote(draft, note)),
-          pending: notice,
-        },
-        playhead: seekPlayback(this.current.playhead, draft.song, note.timeMs),
+        playhead: toggle.playhead,
       });
       return;
     }
-    this.setSession({
-      ...session,
-      saveProgress: { kind: 'saving' },
+    const timeSource = this.player.play(toggle.fromSec);
+    if (timeSource === null) {
+      return;
+    }
+    const clock = new RhythmClock(timeSource, 0, offsetMs, {
+      audioStartTimeSec: 0,
+      songStartMs: 0,
     });
+    this.apply({
+      ...this.current,
+      playhead: startPlayback(toggle.startMs, clock),
+    });
+  }
+
+  advancePlayback(): void {
+    const { playhead } = this.current;
+    if (playhead.transport.kind !== 'playing') {
+      return;
+    }
+    const next = advancePlayback(
+      playhead,
+      getSelection(this.current).song,
+      playhead.transport.clock.getTimeMs(this.ports.frameNow()),
+    );
+    if (next !== playhead) {
+      this.apply({
+        ...this.current,
+        playhead: next,
+      });
+    }
+  }
+
+  private getListNavigation(change: {
+    readonly direction?: ListDirection;
+    readonly laneCount?: LaneCount;
+    readonly difficulty?: Difficulty;
+  }): Navigation {
+    const selection = getSelection(this.current);
+    const songs = this.list.songs;
+    const listed = requireDefined(
+      songs.find((song) => song.id === selection.song.id),
+      'Selected song is not in the song list',
+      selection.song.id,
+    );
+    return {
+      kind: 'select',
+      song: change.direction === undefined ? listed : stepItem(songs, listed, change.direction),
+      laneCount: change.laneCount ?? selection.laneCount,
+      difficulty: change.difficulty ?? selection.difficulty,
+    };
+  }
+
+  private follow(follow: NavigationFollow): void {
+    switch (follow.kind) {
+      case 'none':
+        return;
+      case 'leave':
+        this.screen.leave(follow.songId);
+        return;
+      case 'loadChart':
+        void this.loadChart(follow);
+        return;
+    }
+  }
+
+  private async loadChart(follow: Extract<NavigationFollow, { kind: 'loadChart' }>): Promise<void> {
+    const { chart, loading, keptTimeMs } = follow;
+    const loaded = await this.catalog.loadChart(chart).catch((error: unknown) => {
+      console.error(
+        `Failed to load chart for song ${chart.song.id} ${chart.laneCount}K difficulty ${chart.difficulty}`,
+        error,
+      );
+      return undefined;
+    });
+    const { current } = this;
+    if (current.phase !== loading) {
+      return;
+    }
+    if (loaded === undefined) {
+      this.apply({
+        ...current,
+        phase: {
+          kind: 'loadFailed',
+          selection: loading.selection,
+        },
+        playhead: createPlayhead(current.playhead.currentTimeMs),
+      });
+      return;
+    }
+    const draft = createDraft(chart.song, loaded.chart, loaded.revision, loaded.level);
+    this.apply({
+      ...current,
+      phase: startEditing(draft),
+      playhead: createPlayhead(
+        keptTimeMs === null
+          ? getOpeningTimeMs(draft.notes, this.timing.openingLeadMs, chart.song)
+          : current.playhead.currentTimeMs,
+      ),
+    });
+  }
+
+  /** 저장 중에도 편집할 수 있고, 끝나면 요청 때의 notes 만 저장 기준으로 삼으므로 그 뒤의 편집은 미저장으로 남는다. */
+  private async requestSave(session: EditorSession, chart: Chart): Promise<void> {
+    const { draft } = session;
     const outcome = await this.catalog
       .saveChart(draft.song, chart, draft.level, draft.baseRevision)
       .catch((error: unknown) => {
@@ -339,12 +692,15 @@ export class ChartEditorController {
       }
       // 다른 확인 팝업이 떠 있어도 실패를 놓치지 않게 알림으로 바꾼다.
       // 충돌이면 초안과 기준 revision 은 그대로 두고, 다시 열 때만 서버 최신으로 바꾼다.
-      this.confirm(
-        {
-          ...current,
-          saveProgress: { kind: 'idle' },
-        },
-        SAVE_FAILURE_NOTICES[outcome.kind],
+      this.apply(
+        withPending(
+          this.current,
+          {
+            ...current,
+            saveProgress: { kind: 'idle' },
+          },
+          SAVE_FAILURE_NOTICES[outcome.kind],
+        ),
       );
       return;
     }
@@ -362,373 +718,38 @@ export class ChartEditorController {
     if (current?.id !== session.id) {
       return;
     }
-    this.setSession({
-      ...current,
-      draft: completeSave(current.draft, draft.notes, draft.level, song, outcome.revision),
-      saveProgress: { kind: 'idle' },
-    });
-  }
-
-  selectTool(tool: EditTool): void {
-    if (this.current.tool === tool) {
-      return;
-    }
-    this.setState({
-      ...this.current,
-      tool,
-    });
-  }
-
-  hoverSegment(target: SegmentHover): void {
-    this.applyHover(hoverSegment(this.current, target));
-  }
-
-  unhoverSegment(target: SegmentHover): void {
-    this.applyHover(unhoverSegment(this.current, target));
-  }
-
-  pointerOverButton(button: EditorButton): void {
-    this.applyHover(hoverEditorButton(this.current, button));
-  }
-
-  pointerOutButton(button: EditorButton): void {
-    this.applyHover(unhoverEditorButton(this.current, button));
-  }
-
-  pointerDownButton(button: EditorButton): void {
-    this.applyHover(pressEditorButton(this.current, button));
-  }
-
-  pointerUpButton(button: EditorButton): void {
-    const released = releaseEditorButton(this.current, button);
-    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
-    if (released === this.current) {
-      return;
-    }
-    this.setState(released);
-    switch (button) {
-      case 'back':
-        this.back();
-        return;
-      case 'previousSong':
-        this.moveSong('previous');
-        return;
-      case 'nextSong':
-        this.moveSong('next');
-        return;
-      case 'save':
-        void this.save();
-        return;
-      case 'testPlay':
-        this.requestTestPlay();
-        return;
-      case 'restart':
-        this.seek(getSelection(this.current).song.gameStartMs);
-        return;
-      case 'play':
-        this.togglePlayback();
-        return;
-      case 'delete':
-        this.deleteSelected();
-        return;
-      case 'clear':
-        this.requestClearNotes();
-        return;
-      case 'confirmCancel':
-        this.cancelPending();
-        return;
-      case 'confirmAccept':
-        this.confirmPending();
-        return;
-      case 'levelDown':
-        this.moveLevel('previous');
-        return;
-      case 'levelUp':
-        this.moveLevel('next');
-        return;
-    }
-  }
-
-  /** 레벨 변경은 Ctrl+Z 되돌리기 기록에 넣지 않는다. 되돌리기는 노트 편집만 되돌린다. */
-  moveLevel(direction: ListDirection): void {
-    const session = getEditableSession(this.current);
-    if (session !== null) {
-      this.setLevel(session, stepLevel(session.draft.level, direction));
-    }
-  }
-
-  /** 값 집합 밖의 글자는 레벨을 바꾸지 않고, 확정하면 입력칸은 지금 레벨 글자로 돌아간다. */
-  commitLevelInput(text: string): void {
-    const session = getEditableSession(this.current);
-    const level = parseLevelInput(text);
-    if (session !== null && level !== undefined) {
-      this.setLevel(session, level);
-    }
-    this.screen.syncLevelInput(getLevelControl(this.current).level);
-  }
-
-  cancelLevelInput(): void {
-    this.screen.syncLevelInput(getLevelControl(this.current).level);
-  }
-
-  deleteSelected(): void {
-    const session = getEditableSession(this.current);
-    if (session !== null) {
-      this.setSession(
-        recordEdit(withDraft(session, deleteSelectedNote(session.draft)), session.draft),
-      );
-    }
-  }
-
-  undo(): void {
-    const session = getEditableSession(this.current);
-    if (session !== null && session.gesture.kind === 'none') {
-      this.setSession(undoEdit(session));
-    }
-  }
-
-  pointerDown(pointer: TimelinePointer): void {
-    const session = getEditableSession(this.current);
-    if (session === null) {
-      return;
-    }
-    const { draft, gesture } = startGesture(
-      session.draft,
-      this.current.tool,
-      pointer,
-      this.getGestureLimits(),
+    this.apply(
+      withSession(this.current, {
+        ...current,
+        draft: completeSave(current.draft, draft.notes, draft.level, song, outcome.revision),
+        saveProgress: { kind: 'idle' },
+      }),
     );
-    this.setSession({
-      ...withDraft(session, draft),
-      gesture,
-    });
-  }
-
-  pointerMove(pointer: TimelinePointer): void {
-    const session = getEditableSession(this.current);
-    if (session === null || session.gesture.kind === 'none') {
-      return;
-    }
-    const draft = continueGesture(session.draft, session.gesture, pointer, this.getGestureLimits());
-    this.setSession(withDraft(session, draft));
-  }
-
-  pointerUp(pointerTimeMs: number): void {
-    const session = getEditableSession(this.current);
-    if (session === null || session.gesture.kind === 'none') {
-      return;
-    }
-    this.setSession(
-      recordEdit(
-        {
-          ...withDraft(session, endGesture(session.draft, session.gesture, pointerTimeMs)),
-          gesture: NO_GESTURE,
-        },
-        session.gesture.before,
-      ),
-    );
-  }
-
-  seek(targetMs: number): void {
-    const selection = getActiveSelection(this.current);
-    if (selection === null) {
-      return;
-    }
-    this.setPlayhead(seekPlayback(this.current.playhead, selection.song, targetMs));
-  }
-
-  togglePlayback(): void {
-    const session = getEditableSession(this.current);
-    if (session === null) {
-      return;
-    }
-    const { song, offsetMs } = session.draft;
-    const toggle = togglePlayback(this.current.playhead, song, offsetMs);
-    if (toggle.kind === 'pause') {
-      this.setPlayhead(toggle.playhead);
-      return;
-    }
-    const timeSource = this.player.play(toggle.fromSec);
-    if (timeSource === null) {
-      return;
-    }
-    const clock = new RhythmClock(timeSource, 0, offsetMs, {
-      audioStartTimeSec: 0,
-      songStartMs: 0,
-    });
-    this.setPlayhead(startPlayback(toggle.startMs, clock));
-  }
-
-  private handlePlayerState(playerState: YouTubePlayerState): void {
-    const playhead = followPlayerState(this.current.playhead, playerState);
-    // 멈춘 뒤에 도착한 playing 은 영상만 재생 중이라는 뜻이므로 player 도 다시 멈춘다.
-    if (playerState === 'playing' && playhead.transport.kind === 'paused') {
-      this.player.pause();
-    }
-    this.setPlayhead(playhead);
-  }
-
-  stopPlayback(): void {
-    this.setPlayhead(pausePlayback(this.current.playhead));
-  }
-
-  advancePlayback(): void {
-    const { playhead } = this.current;
-    if (playhead.transport.kind === 'playing') {
-      this.setPlayhead(
-        advancePlayback(
-          playhead,
-          getSelection(this.current).song,
-          playhead.transport.clock.getTimeMs(this.ports.frameNow()),
-        ),
-      );
-    }
-  }
-
-  private selectInList(change: {
-    readonly direction?: ListDirection;
-    readonly laneCount?: LaneCount;
-    readonly difficulty?: Difficulty;
-  }): void {
-    const selection = getSelection(this.current);
-    const songs = this.list.songs;
-    const listed = requireDefined(
-      songs.find((song) => song.id === selection.song.id),
-      'Selected song is not in the song list',
-      selection.song.id,
-    );
-    this.requestNavigation({
-      kind: 'select',
-      song: change.direction === undefined ? listed : stepItem(songs, listed, change.direction),
-      laneCount: change.laneCount ?? selection.laneCount,
-      difficulty: change.difficulty ?? selection.difficulty,
-    });
-  }
-
-  /** 확인 팝업을 띄우기 전에 진행 중인 drag 를 거두므로, 취소 뒤에 만들다 만 Hold 가 남지 않는다. */
-  private requestNavigation(navigation: Navigation): void {
-    if ('kind' in this.screenState) {
-      return;
-    }
-    const decision = decideNavigation(this.current, navigation);
-    switch (decision.kind) {
-      case 'ignore':
-        return;
-      case 'cancelPending':
-        this.cancelPending();
-        return;
-      case 'proceed':
-        this.proceed(navigation);
-        return;
-      case 'settle':
-        this.setSession(decision.session);
-        return;
-      case 'settleAndProceed':
-        this.setSession(decision.session);
-        this.proceed(navigation);
-        return;
-      case 'confirm':
-        this.confirm(decision.session, navigation);
-        return;
-    }
-  }
-
-  private proceed(navigation: Navigation): void {
-    if (navigation.kind === 'leave') {
-      this.screen.leave(getSelection(this.current).song.id);
-      return;
-    }
-    // 레인 수·난이도만 바뀌면 같은 음원이므로 player 를 유지하고, 보던 위치에서 이어 편집한다.
-    const isSameSong = getSelection(this.current).song.id === navigation.song.id;
-    if (!isSameSong) {
-      this.replacePlayer(navigation.song);
-    }
-    void this.open(
-      {
-        song: navigation.song,
-        laneCount: navigation.laneCount,
-        difficulty: navigation.difficulty,
-      },
-      isSameSong ? this.current.playhead.currentTimeMs : null,
-    );
-  }
-
-  /** keptTimeMs 가 있으면 그 위치에서 이어 편집하고, null 이면 채보를 읽은 뒤 첫 노트 앞으로 간다. */
-  private async open(selection: Selection, keptTimeMs: number | null): Promise<void> {
-    const { song, laneCount, difficulty } = selection;
-    const startTimeMs = keptTimeMs ?? song.gameStartMs;
-    // 에디터는 채보가 없는 레인 수·난이도도 고를 수 있으므로 여기서 chart id 유무로 새 draft 와 로드를 가른다.
-    const listed = song.charts[laneCount]?.[difficulty];
-    if (listed === undefined) {
-      this.enter(startEditing(createEmptyDraft(song, laneCount, difficulty)), startTimeMs);
-      return;
-    }
-    const loading: EditPhase = {
-      kind: 'loading',
-      selection,
-    };
-    this.enter(loading, startTimeMs);
-    let loaded: LoadedChart;
-    try {
-      loaded = await this.catalog.loadChart({
-        song,
-        laneCount,
-        difficulty,
-        chartId: listed.id,
-        level: listed.level,
-      });
-    } catch (error) {
-      console.error(
-        `Failed to load chart for song ${song.id} ${laneCount}K difficulty ${difficulty}`,
-        error,
-      );
-      if (this.current.phase === loading) {
-        this.enter(
-          {
-            kind: 'loadFailed',
-            selection,
-          },
-          this.current.playhead.currentTimeMs,
-        );
-      }
-      return;
-    }
-    if (this.current.phase !== loading) {
-      return;
-    }
-    const draft = createDraft(song, loaded.chart, loaded.revision, loaded.level);
-    this.enter(
-      startEditing(draft),
-      keptTimeMs === null
-        ? getOpeningTimeMs(draft.notes, this.timing.openingLeadMs, song)
-        : this.current.playhead.currentTimeMs,
-    );
-  }
-
-  private replacePlayer(song: Song): void {
-    const token = {};
-    this.playerToken = token;
-    this.releasePlayer();
-    this.setPlayerStatus({ kind: 'loading' });
-    void this.createPlayer(song, token);
-  }
-
-  private releasePlayer(): void {
-    const { video } = this;
-    if (video.kind !== 'none') {
-      video.player.destroy();
-      this.video = { kind: 'none' };
-    }
   }
 
   private async createPlayer(song: Song, token: object): Promise<void> {
     const { players, now, volume } = this.ports;
+    const loaded = await players.loadApi().then(
+      () => ({ kind: 'loaded' }) as const,
+      (error: unknown) =>
+        ({
+          kind: 'failed',
+          error,
+        }) as const,
+    );
+    if (this.playerToken !== token) {
+      return;
+    }
+    if (loaded.kind === 'failed') {
+      console.error('Failed to load YouTube player for chart editor', loaded.error);
+      this.apply({
+        ...this.current,
+        player: PLAYER_LOAD_FAILED,
+      });
+      return;
+    }
+    const timeSource = new YouTubeTimeSource(now);
     try {
-      await players.loadApi();
-      if (this.playerToken !== token) {
-        return;
-      }
-      const timeSource = new YouTubeTimeSource(now);
       const player = players.create(song.youtubeVideoId, {
         onReady: () => {
           if (this.playerToken !== token) {
@@ -740,12 +761,27 @@ export class ChartEditorController {
             player,
             timeSource,
           };
-          this.setPlayerStatus({ kind: 'ready' });
+          this.apply({
+            ...this.current,
+            player: { kind: 'ready' },
+          });
         },
-        onStateChange: (state) => {
-          if (this.playerToken === token) {
-            timeSource.handleStateChange(state);
-            this.handlePlayerState(state);
+        onStateChange: (playerState) => {
+          if (this.playerToken !== token) {
+            return;
+          }
+          timeSource.handleStateChange(playerState);
+          const { current } = this;
+          const playhead = followPlayerState(current.playhead, playerState);
+          // 멈춘 뒤에 도착한 playing 은 영상만 재생 중이라는 뜻이므로 player 도 다시 멈춘다.
+          if (playerState === 'playing' && playhead.transport.kind === 'paused') {
+            this.player.pause();
+          }
+          if (playhead !== current.playhead) {
+            this.apply({
+              ...current,
+              playhead,
+            });
           }
         },
         onError: (errorKind, code) => {
@@ -754,15 +790,18 @@ export class ChartEditorController {
           }
           player.destroy();
           this.video = { kind: 'none' };
-          this.setPlayerStatus({
-            kind: 'failed',
-            failure: {
-              kind: 'videoError',
-              errorKind,
-              code,
+          this.apply({
+            ...this.current,
+            player: {
+              kind: 'failed',
+              failure: {
+                kind: 'videoError',
+                errorKind,
+                code,
+              },
             },
+            playhead: pausePlayback(this.current.playhead),
           });
-          this.stopPlayback();
         },
       });
       this.video = {
@@ -770,128 +809,48 @@ export class ChartEditorController {
         player,
       };
     } catch (error) {
-      if (this.playerToken === token) {
-        this.failPlayer(error);
-      }
-    }
-  }
-
-  private failPlayer(error: unknown): void {
-    console.error('Failed to load YouTube player for chart editor', error);
-    this.setPlayerStatus({
-      kind: 'failed',
-      failure: { kind: 'loadFailed' },
-    });
-  }
-
-  private setPlayerStatus(player: EditorPlayerStatus): void {
-    this.setState({
-      ...this.current,
-      player,
-    });
-  }
-
-  private enter(phase: EditPhase, currentTimeMs: number): void {
-    this.setState({
-      ...this.current,
-      phase,
-      playhead: createPlayhead(currentTimeMs),
-    });
-  }
-
-  /** 확인 팝업이 떠 있는 동안 끝난 저장도 세션에 반영하되 팝업은 그대로 둔다. */
-  private setSession(session: EditorSession): void {
-    const { phase } = this.current;
-    if (phase.kind !== 'editing' && phase.kind !== 'confirming') {
-      throw new Error(`Editor session cannot change in phase: ${phase.kind}`);
-    }
-    if (phase.session !== session) {
-      this.setPhase({
-        ...phase,
-        session,
-      });
-    }
-  }
-
-  private setLevel(session: EditorSession, level: ChartLevel): void {
-    this.setSession(withDraft(session, setDraftLevel(session.draft, level)));
-  }
-
-  private edit(session: EditorSession): void {
-    this.setPhase({
-      kind: 'editing',
-      session,
-    });
-  }
-
-  private requestTestPlay(): void {
-    const session = getEditableSession(this.current);
-    if (session === null) {
-      return;
-    }
-    const decision = decideTestPlay(session);
-    switch (decision.kind) {
-      case 'notice':
-        this.confirm(session, decision.notice);
-        return;
-      case 'start':
-        this.screen.startTestPlay(
-          decision.chart,
-          getPlayStartMs(this.current.playhead.currentTimeMs, session.draft.song),
-        );
-        return;
-    }
-  }
-
-  private confirm(session: EditorSession, pending: PendingAction): void {
-    this.setState({
-      ...this.current,
-      phase: {
-        kind: 'confirming',
-        session,
-        pending,
-      },
-      playhead: pausePlayback(this.current.playhead),
-    });
-  }
-
-  private setPhase(phase: EditPhase): void {
-    this.setState({
-      ...this.current,
-      phase,
-    });
-  }
-
-  private applyHover(next: ChartEditorState): void {
-    if (next !== this.current) {
-      this.setState(next);
-    }
-  }
-
-  private setPlayhead(playhead: Playhead): void {
-    if (this.current.playhead !== playhead) {
-      this.setState({
+      console.error('Failed to load YouTube player for chart editor', error);
+      this.apply({
         ...this.current,
-        playhead,
+        player: PLAYER_LOAD_FAILED,
       });
     }
   }
 
   /** player 가 스스로 알린 정지 뒤의 pause 는 무해하다. */
-  private setState(requested: ChartEditorState): void {
-    if ('kind' in this.screenState) {
+  private apply(requested: ChartEditorState): void {
+    const { screenState } = this;
+    if ('kind' in screenState && screenState.kind === 'closed') {
       return;
     }
+    const previous = 'kind' in screenState ? null : screenState;
     const next = settleEditorButtons(requested);
-    const previous = this.screenState;
+    if (next === previous) {
+      return;
+    }
+    // 새 loading 재생기 상태는 다른 곡으로 넘어간 것이다. 옛 재생기를 pause 보다 먼저 없애 옛 영상에 pause 가 가지 않는다.
+    const isNewPlayer = next.player.kind === 'loading' && next.player !== previous?.player;
+    const token = {};
+    if (isNewPlayer) {
+      this.playerToken = token;
+      const { video } = this;
+      if (video.kind !== 'none') {
+        video.player.destroy();
+        this.video = { kind: 'none' };
+      }
+    }
     this.screenState = next;
     if (
+      previous !== null &&
       previous.playhead.transport.kind !== 'paused' &&
       next.playhead.transport.kind === 'paused'
     ) {
       this.player.pause();
     }
     this.screen.render(previous, next);
+    if (isNewPlayer) {
+      void this.createPlayer(getSelection(next).song, token);
+    }
   }
 
   private getGestureLimits(): GestureLimits {
@@ -901,17 +860,4 @@ export class ChartEditorController {
       pickToleranceMs: this.timing.pickToleranceMs,
     };
   }
-}
-
-function startEditing(draft: ChartDraft): EditPhase {
-  return {
-    kind: 'editing',
-    session: {
-      id: {},
-      draft,
-      gesture: NO_GESTURE,
-      saveProgress: { kind: 'idle' },
-      undoStack: [],
-    },
-  };
 }

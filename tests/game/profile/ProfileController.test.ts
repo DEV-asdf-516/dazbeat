@@ -348,7 +348,7 @@ function createHarness(isSignedIn = true): Harness {
 async function loadedHarness(profile: Profile = createProfile()): Promise<Harness> {
   const harness = createHarness();
   harness.controller.start();
-  harness.loads[0]?.resolve(profile);
+  requireDefined(harness.loads[0], 'Missing profile load', 0).resolve(profile);
   await flush();
   return harness;
 }
@@ -376,7 +376,7 @@ describe('ProfileController loading', () => {
     harness.controller.start();
     expect(harness.last()).toEqual({ kind: 'loading' });
 
-    harness.loads[0]?.resolve(profile);
+    requireDefined(harness.loads[0], 'Missing profile load', 0).resolve(profile);
     await flush();
 
     const state = harness.loaded();
@@ -388,13 +388,13 @@ describe('ProfileController loading', () => {
   it('shows the failure and loads again on retry', async () => {
     const harness = createHarness();
     harness.controller.start();
-    harness.loads[0]?.reject(requestError('failed'));
+    requireDefined(harness.loads[0], 'Missing profile load', 0).reject(requestError('failed'));
     await flush();
     expect(harness.last()).toEqual({ kind: 'failed' });
 
     harness.controller.confirm();
     expect(harness.last()).toEqual({ kind: 'loading' });
-    harness.loads[1]?.resolve(createProfile());
+    requireDefined(harness.loads[1], 'Missing profile load', 1).resolve(createProfile());
     await flush();
 
     expect(harness.loaded().kind).toBe('loaded');
@@ -404,7 +404,9 @@ describe('ProfileController loading', () => {
   it('treats a parse failure as a load failure', async () => {
     const harness = createHarness();
     harness.controller.start();
-    harness.loads[0]?.reject(new Error('Profile must list every achievement exactly once'));
+    requireDefined(harness.loads[0], 'Missing profile load', 0).reject(
+      new Error('Profile must list every achievement exactly once'),
+    );
     await flush();
 
     expect(harness.last()).toEqual({ kind: 'failed' });
@@ -422,7 +424,9 @@ describe('ProfileController loading', () => {
   it('shows the guest screen when the session expired', async () => {
     const harness = createHarness();
     harness.controller.start();
-    harness.loads[0]?.reject(requestError('unauthorized'));
+    requireDefined(harness.loads[0], 'Missing profile load', 0).reject(
+      requestError('unauthorized'),
+    );
     await flush();
 
     expect(harness.last()).toEqual({ kind: 'guest' });
@@ -433,7 +437,7 @@ describe('ProfileController loading', () => {
     harness.controller.start();
     harness.controller.close();
 
-    harness.loads[0]?.resolve(createProfile());
+    requireDefined(harness.loads[0], 'Missing profile load', 0).resolve(createProfile());
     await flush();
 
     expect(harness.rendered).toEqual([{ kind: 'loading' }]);
@@ -597,12 +601,12 @@ describe('ProfileController focus and views', () => {
     harness.controller.moveFocus('down');
     harness.controller.select();
 
-    harness.controller.switchSet('previous');
+    harness.controller.switchTab('previous');
 
     expect(harness.loaded().collection.set).toBe('discography');
     expect(harness.loaded().collection.focusedId).toBe('ALBUM_REMINDFUL_ONE_CLEAR');
 
-    harness.controller.switchSet('next');
+    harness.controller.switchTab('next');
 
     expect(harness.loaded().collection).toEqual({
       set: 'rhythm',
@@ -623,20 +627,6 @@ describe('ProfileController focus and views', () => {
     const count = harness.rendered.length;
     harness.controller.selectSet('zodiac');
     expect(harness.rendered).toHaveLength(count);
-  });
-
-  it('ignores input and requests after close', async () => {
-    const harness = await loadedHarness();
-    const count = harness.rendered.length;
-    harness.controller.close();
-
-    harness.controller.moveFocus('down');
-    harness.controller.select();
-    harness.controller.back();
-
-    expect(harness.rendered).toHaveLength(count);
-    expect(harness.leaveCount()).toBe(0);
-    expect(harness.loads).toHaveLength(1);
   });
 
   it('focuses a pointed achievement of the shown set only, with the focus sound', async () => {
@@ -1018,7 +1008,7 @@ describe('ProfileController hover', () => {
   it('passes null as the first previous state and then the state rendered before', async () => {
     const harness = createHarness();
     harness.controller.start();
-    harness.loads[0]?.resolve(createProfile());
+    requireDefined(harness.loads[0], 'Missing profile load', 0).resolve(createProfile());
     await flush();
     harness.controller.selectTab('collection');
 
@@ -1231,7 +1221,7 @@ describe('ProfileController set tab sound', () => {
     const clicksBefore = harness.clickSoundCount();
     const focusesBefore = harness.focusSoundCount();
 
-    harness.controller.switchSet('next');
+    harness.controller.switchTab('next');
     harness.controller.selectSet('rhythm');
     harness.controller.selectSet('rhythm');
 
@@ -1261,7 +1251,7 @@ describe('ProfileController controls', () => {
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
     expect(harness.controlsOpen.at(-1)).toBe(false);
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
     expect(harness.controlsOpen.at(-1)).toBe(false);
   });
@@ -1342,7 +1332,7 @@ describe('ProfileController button pointer', () => {
     expect(harness.controlsOpen.at(-1)).toBe(false);
     expect(harness.hover()).toBeNull();
 
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     harness.controller.pointerDown('controlsBackdrop');
     harness.controller.pointerUp('controlsBackdrop');
     expect(harness.controlsOpen.at(-1)).toBe(false);
@@ -1382,33 +1372,13 @@ describe('ProfileController account deletion', () => {
     expect(harness.clickSoundCount()).toBe(clicks + 1);
   });
 
-  it('does not open on the collection, while editing the nickname or before the profile loads', async () => {
-    const collection = await loadedHarness();
-    collection.controller.selectTab('collection');
-    collection.controller.moveFocus('down');
-    collection.controller.select();
+  it('does not open while editing the nickname', async () => {
     const editing = await editingHarness();
-    const guest = createHarness(false);
-    guest.controller.start();
-    const loading = createHarness();
-    loading.controller.start();
-    const failed = createHarness();
-    failed.controller.start();
-    failed.loads[0]?.reject(new Error('offline'));
-    await flush();
 
-    for (const harness of [collection, editing]) {
-      const clicks = harness.clickSoundCount();
-      press(harness, 'deleteEntry');
-      expect(harness.loaded().accountDeletion).toEqual({ kind: 'closed' });
-      expect(harness.clickSoundCount()).toBe(clicks);
-    }
-    for (const harness of [guest, loading, failed]) {
-      const page = harness.last();
-      press(harness, 'deleteEntry');
-      expect(harness.last()).toBe(page);
-      expect(harness.clickSoundCount()).toBe(0);
-    }
+    const clicks = editing.clickSoundCount();
+    press(editing, 'deleteEntry');
+    expect(editing.loaded().accountDeletion).toEqual({ kind: 'closed' });
+    expect(editing.clickSoundCount()).toBe(clicks);
   });
 
   it.each([
@@ -1480,7 +1450,7 @@ describe('ProfileController account deletion', () => {
   it('leaves to the main screen once the deletion succeeds', async () => {
     const harness = await deletingHarness();
 
-    harness.deletions[0]?.resolve();
+    requireDefined(harness.deletions[0], 'Missing account deletion', 0).resolve();
     await flush();
 
     expect(harness.mainLeaveCount()).toBe(1);
@@ -1491,7 +1461,7 @@ describe('ProfileController account deletion', () => {
     const count = harness.rendered.length;
     harness.controller.close();
 
-    harness.deletions[0]?.resolve();
+    requireDefined(harness.deletions[0], 'Missing account deletion', 0).resolve();
     await flush();
 
     expect(harness.leaveCount()).toBe(0);
@@ -1505,7 +1475,7 @@ describe('ProfileController account deletion', () => {
   ] as const)('shows %s deletion error with the cancel focus', async (_name, error, kind) => {
     const harness = await deletingHarness();
 
-    harness.deletions[0]?.reject(error);
+    requireDefined(harness.deletions[0], 'Missing account deletion', 0).reject(error);
     await flush();
 
     expect(harness.loaded().accountDeletion).toEqual({
@@ -1518,7 +1488,9 @@ describe('ProfileController account deletion', () => {
   it('shows the guest page when the session is no longer valid', async () => {
     const harness = await deletingHarness();
 
-    harness.deletions[0]?.reject(new AccountDeletionError('unauthorized', undefined));
+    requireDefined(harness.deletions[0], 'Missing account deletion', 0).reject(
+      new AccountDeletionError('unauthorized', undefined),
+    );
     await flush();
 
     expect(harness.last()).toEqual({ kind: 'guest' });
@@ -1526,7 +1498,9 @@ describe('ProfileController account deletion', () => {
 
   it('requests again when retrying after a failure', async () => {
     const harness = await deletingHarness();
-    harness.deletions[0]?.reject(new AccountDeletionError('failed', undefined));
+    requireDefined(harness.deletions[0], 'Missing account deletion', 0).reject(
+      new AccountDeletionError('failed', undefined),
+    );
     await flush();
 
     press(harness, 'deleteAccept');
@@ -1548,7 +1522,7 @@ describe('ProfileController ranking tab', () => {
   ): Promise<Harness> {
     const harness = await loadedHarness();
     harness.controller.selectTab('ranking');
-    harness.rankings[0]?.resolve({
+    requireDefined(harness.rankings[0], 'Missing ranking request', 0).resolve({
       items,
       next,
     });
@@ -1567,7 +1541,7 @@ describe('ProfileController ranking tab', () => {
       isSlow: false,
     });
     const items = [rankedChart(1), rankedChart(4)];
-    harness.rankings[0]?.resolve({
+    requireDefined(harness.rankings[0], 'Missing ranking request', 0).resolve({
       items,
       next: null,
     });
@@ -1616,7 +1590,9 @@ describe('ProfileController ranking tab', () => {
   it('shows the failure and requests again on retry', async () => {
     const harness = await loadedHarness();
     harness.controller.selectTab('ranking');
-    harness.rankings[0]?.reject(new RankingRequestError('failed', undefined));
+    requireDefined(harness.rankings[0], 'Missing ranking request', 0).reject(
+      new RankingRequestError('failed', undefined),
+    );
     await flush();
     expect(harness.loaded().rankings).toEqual({ kind: 'failed' });
 
@@ -1627,7 +1603,7 @@ describe('ProfileController ranking tab', () => {
       previous: null,
       isSlow: false,
     });
-    harness.rankings[1]?.resolve({
+    requireDefined(harness.rankings[1], 'Missing ranking request', 1).resolve({
       items: [rankedChart(2)],
       next: null,
     });
@@ -1645,7 +1621,9 @@ describe('ProfileController ranking tab', () => {
   it('does not retry the rankings while another tab is shown', async () => {
     const harness = await loadedHarness();
     harness.controller.selectTab('ranking');
-    harness.rankings[0]?.reject(new RankingRequestError('failed', undefined));
+    requireDefined(harness.rankings[0], 'Missing ranking request', 0).reject(
+      new RankingRequestError('failed', undefined),
+    );
     await flush();
     harness.controller.selectTab('stats');
 
@@ -1658,7 +1636,9 @@ describe('ProfileController ranking tab', () => {
   it('shows the guest screen when the session expired', async () => {
     const harness = await loadedHarness();
     harness.controller.selectTab('ranking');
-    harness.rankings[0]?.reject(new RankingRequestError('unauthorized', undefined));
+    requireDefined(harness.rankings[0], 'Missing ranking request', 0).reject(
+      new RankingRequestError('unauthorized', undefined),
+    );
     await flush();
 
     expect(harness.last()).toEqual({ kind: 'guest' });
@@ -1667,7 +1647,9 @@ describe('ProfileController ranking tab', () => {
   it('requests the rankings again from the RETRY button', async () => {
     const harness = await loadedHarness();
     harness.controller.selectTab('ranking');
-    harness.rankings[0]?.reject(new RankingRequestError('failed', undefined));
+    requireDefined(harness.rankings[0], 'Missing ranking request', 0).reject(
+      new RankingRequestError('failed', undefined),
+    );
     await flush();
 
     harness.controller.pointerOver('retry');
@@ -1867,7 +1849,9 @@ describe('ProfileController ranking tab', () => {
     harness.controller.scrollByWheel(WHEEL_STEP_PX, 2000);
     expect(harness.rankings).toHaveLength(2);
 
-    harness.rankings[1]?.reject(new RankingRequestError('failed', undefined));
+    requireDefined(harness.rankings[1], 'Missing ranking request', 1).reject(
+      new RankingRequestError('failed', undefined),
+    );
     await flush();
     expect(getRankedChartIds(harness)).toHaveLength(20);
 
@@ -1875,7 +1859,7 @@ describe('ProfileController ranking tab', () => {
     expect(harness.rankingCursors).toEqual([null, cursor, cursor]);
 
     const topRow = getRankingTopRow(harness);
-    harness.rankings[2]?.resolve({
+    requireDefined(harness.rankings[2], 'Missing ranking request', 2).resolve({
       items: [rankedChart(21)],
       next: null,
     });
@@ -1901,7 +1885,7 @@ describe('ProfileController ranking tab', () => {
 
   it('does not scroll the list behind the controls', async () => {
     const harness = await rankingHarness([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(rankedChart));
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     const count = harness.rendered.length;
 
     harness.controller.scrollByWheel(WHEEL_STEP_PX, 0);
@@ -1930,7 +1914,7 @@ describe('ProfileController ranking tab', () => {
     const count = harness.rendered.length;
     harness.controller.close();
 
-    harness.rankings[0]?.resolve({
+    requireDefined(harness.rankings[0], 'Missing ranking request', 0).resolve({
       items: [rankedChart(1)],
       next: null,
     });

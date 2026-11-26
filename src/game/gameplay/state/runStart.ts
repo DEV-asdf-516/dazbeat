@@ -14,29 +14,26 @@ export function getRunSection(
   chart: Chart,
   song: Pick<Song, 'gameStartMs' | 'gameEndMs'>,
 ): RunSection {
-  switch (start.kind) {
-    case 'whole':
-      return {
-        chart,
-        gameStartMs: song.gameStartMs,
-        report: { kind: 'graded' },
-      };
-    case 'from': {
-      const notes = chart.notes.filter((note) => note.timeMs >= start.timeMs);
-      return {
-        chart: {
-          ...chart,
-          notes,
-        },
-        gameStartMs: start.timeMs - chart.offsetMs,
-        report: {
-          kind: 'section',
-          startTimeMs: start.timeMs,
-          endTimeMs: song.gameEndMs,
-          noteCount: notes.length,
-          totalNoteCount: chart.notes.length,
-        },
-      };
-    }
+  if (start.kind === 'whole') {
+    return {
+      chart,
+      gameStartMs: song.gameStartMs,
+      report: { kind: 'graded' },
+    };
   }
+  const notes = chart.notes.filter((note) => note.timeMs >= start.timeMs);
+  return {
+    chart: {
+      ...chart,
+      notes,
+    },
+    gameStartMs: start.timeMs - chart.offsetMs,
+    report: {
+      kind: 'section',
+      startTimeMs: start.timeMs,
+      endTimeMs: song.gameEndMs,
+      noteCount: notes.length,
+      totalNoteCount: chart.notes.length,
+    },
+  };
 }

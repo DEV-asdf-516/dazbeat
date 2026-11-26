@@ -35,7 +35,7 @@ export function playYoutubeHearts(scene: Phaser.Scene, button: Button): void {
   }
   const centerXPx = button.x + button.width / 2;
   const yPx = button.y + QUIET_PADDING_PX.yPx - HEART_GAP_Y_PX;
-  HEARTS.forEach(({ delayMs, offsetXPx, widthPx }) => {
+  for (const { delayMs, offsetXPx, widthPx } of HEARTS) {
     const heart = scene.add.image(centerXPx + offsetXPx, yPx, YOUTUBE_HEART_IMAGE.key).setAlpha(0);
     const scale = widthPx / heart.width;
     heart.setScale(scale * POP_START_SCALE);
@@ -63,5 +63,5 @@ export function playYoutubeHearts(scene: Phaser.Scene, button: Button): void {
       duration: RISE_MS,
       ease: 'Cubic.Out',
     });
-  });
+  }
 }

@@ -110,7 +110,7 @@ function ensureLevelTexture(
   const widthPx = Math.ceil(lastStarX * scale) + paddingPx * 2;
   // 세로 가운데에 origin 0.5 로 두므로 중심이 픽셀 경계에 오도록 짝수 크기로 굽는다.
   const heightPx =
-    Math.ceil(Math.max(...STAR_OFFSETS_Y.map((offset) => Math.abs(offset))) * scale + paddingPx) *
+    Math.ceil(Math.max(...STAR_OFFSETS_Y.map((offsetY) => Math.abs(offsetY))) * scale + paddingPx) *
     2;
   createCanvasTexture(
     scene,
@@ -135,14 +135,14 @@ function ensureLevelTexture(
           break;
         }
         const strength = (reach < 1 ? LINE.halfStepRatio : 1) * brightness;
-        [LINE.halo, LINE.core].forEach(({ color: lineColor, alpha, width }) => {
+        for (const { color: lineColor, alpha, width } of [LINE.halo, LINE.core]) {
           context.strokeStyle = rgba(lineColor, alpha * strength);
           context.lineWidth = width * scale;
           context.beginPath();
           context.moveTo(getX(index), getY(index));
           context.lineTo(getX(index + 1), getY(index + 1));
           context.stroke();
-        });
+        }
       }
       for (let index = 0; index < STAR_COUNT; index += 1) {
         const fill = Math.min(1, level - index);

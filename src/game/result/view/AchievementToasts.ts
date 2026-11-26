@@ -9,11 +9,11 @@ import { addCelestialSprite } from '../../celestial/view/celestialSprites.js';
 import { getAchievementEmblemTexture } from '../../ui/view/widgets/achievementEmblem.js';
 import { getCloseIconTexture } from '../../ui/view/widgets/closeIcon.js';
 import { setFittedText } from '../../ui/view/widgets/fitText.js';
-import { TopRankBadge } from '../../ui/view/widgets/TopRankBadge.js';
+import type { TopRankBadge } from '../../ui/view/widgets/TopRankBadge.js';
 import { bindHoverTarget } from '../../ui/view/input/hoverTarget.js';
 import { CARD_PANEL, COLORS, RADIUS, typeStyle } from '../../ui/view/theme.js';
 import { requireDefined } from '../../../invariant.js';
-import type { ShownToast, ToastChanges, ToastContent } from '../state/resultState.js';
+import type { ShownToast, ToastContent } from '../state/resultState.js';
 import { addBrushRect } from '../../ui/view/textures/brushRect.js';
 
 export interface ToastPresentation {
@@ -73,6 +73,14 @@ const ENTER_MS = 250;
 const EXIT_MS = 300;
 const ENTER_RISE_PX = 24;
 const BOTTOM_SLOT_Y_PX = GAME_HEIGHT - EDGE_INSET_PX - TOAST_HEIGHT_PX;
+/** 순위 업적 토스트의 배지는 씬 그리기가 이 자리로 만들어 들어옴에 넘긴다. */
+export const TOAST_RANK_BADGE = {
+  xPx: RANK_LEFT_X_PX,
+  yPx: TOAST_HEIGHT_PX / 2,
+  align: 'left',
+  hasWord: true,
+  numberSizePx: RANK_NUMBER_SIZE_PX,
+} as const;
 
 /** 결과 화면 오른쪽 아래에 대기열이 정한 칸으로 알림을 들이고 옮기고 내보낸다. */
 export class AchievementToasts {
@@ -82,26 +90,20 @@ export class AchievementToasts {
     options.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.views.clear());
   }
 
-  apply(changes: ToastChanges, presentOf: (content: ToastContent) => ToastPresentation): void {
-    changes.entered.forEach((toast) => this.enter(toast, presentOf(toast.content)));
-    changes.moved.forEach(({ id, slot }) => this.slide(this.getView(id).container, slot));
-    changes.leaving.forEach((id) => this.leave(id));
-  }
-
   renderCloseHover(hoveredId: number | null): void {
-    this.views.forEach(({ closeIcon }, id) => {
+    for (const [id, { closeIcon }] of this.views) {
       if (id === hoveredId) {
         closeIcon.clearTint();
       } else {
         closeIcon.setTint(COLORS.textMuted);
       }
-    });
+    }
   }
 
-  private enter(toast: ShownToast, presentation: ToastPresentation): void {
+  enter(toast: ShownToast, presentation: ToastPresentation, badge: TopRankBadge | null): void {
     const { scene, onClose, onHover, onUnhover, onExpire } = this.options;
     const { id } = toast;
-    const { objects: slotObjects, textXPx } = this.addSlot(toast.content);
+    const { objects: slotObjects, textXPx } = this.addSlot(toast.content, badge);
     const nameTexts = this.addName(presentation, textXPx);
     const widthPx = Math.max(
       TOAST_MIN_WIDTH_PX,
@@ -163,7 +165,14 @@ export class AchievementToasts {
     scene.time.delayedCall(VISIBLE_MS, () => onExpire(id));
   }
 
-  private addSlot(content: ToastContent): {
+  move(id: number, slot: number): void {
+    this.slide(this.getView(id).container, slot);
+  }
+
+  private addSlot(
+    content: ToastContent,
+    badge: TopRankBadge | null,
+  ): {
     readonly objects: readonly Phaser.GameObjects.GameObject[];
     readonly textXPx: number;
   } {
@@ -184,14 +193,9 @@ export class AchievementToasts {
           textXPx: TEXT_X_PX,
         };
       case 'ranking': {
-        const badge = new TopRankBadge(scene, celestial, {
-          xPx: RANK_LEFT_X_PX,
-          yPx: TOAST_HEIGHT_PX / 2,
-          align: 'left',
-          hasWord: true,
-          numberSizePx: RANK_NUMBER_SIZE_PX,
-        });
-        badge.render(content.rank);
+        if (badge === null) {
+          throw new Error('Ranking toast entered without a rank badge');
+        }
         return {
           objects: badge.objects,
           textXPx: badge.getRightXPx() + RANK_TEXT_GAP_PX,
@@ -257,7 +261,7 @@ export class AchievementToasts {
     });
   }
 
-  private leave(id: number): void {
+  leave(id: number): void {
     const { container } = this.getView(id);
     this.options.scene.tweens.add({
       targets: container,

@@ -107,16 +107,13 @@ export async function createTapChart(superuser: PocketBase, songKey: string): Pr
 }
 
 export async function issuePlaySession(player: TestUser, chart: RecordModel): Promise<string> {
-  const { sessionId } = await player.client.send<{ sessionId: string }>(
-    '/api/dazbeat/play-sessions',
-    {
-      method: 'POST',
-      body: {
-        chartId: chart.id,
-        chartRevision: String(chart['revision']),
-      },
+  const { sessionId } = await player.client.send<{ sessionId: string }>('/api/dazbeat/play', {
+    method: 'POST',
+    body: {
+      chartId: chart.id,
+      chartRevision: String(chart['revision']),
     },
-  );
+  });
   return sessionId;
 }
 
@@ -131,7 +128,7 @@ export async function playRanked(
   await superuser
     .collection('play_sessions')
     .update(sessionId, { issuedAt: new Date(Date.now() - ELAPSED_PLAY_MS).toISOString() });
-  await player.client.send(`/api/dazbeat/play-sessions/${sessionId}/result`, {
+  await player.client.send(`/api/dazbeat/play/${sessionId}/result`, {
     method: 'POST',
     body: {
       inputOffsetMs: 0,

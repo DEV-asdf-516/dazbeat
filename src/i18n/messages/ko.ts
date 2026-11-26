@@ -87,6 +87,12 @@ export const ko = {
       mvMode: 'MV 모드',
       language: '언어',
     },
+    rowHelp: {
+      inputOffset: {
+        meaning: '노트와 음악이 어긋날 때 맞추는 값',
+        direction: '노트가 음악보다 늦으면 +, 빠르면 −',
+      },
+    },
   },
   credits: {
     title: 'CREDITS',
@@ -217,6 +223,17 @@ export const ko = {
     earned: '획득',
     setFeatured: '장착',
     unsetFeatured: '장착 해제',
+  },
+  localRecord: {
+    signInPrompt: {
+      title: '게스트 기록은 랭킹에 반영되지 않습니다',
+      body: '로그인하면 다음 플레이부터 랭킹에 반영됩니다.',
+      later: '나중에',
+      signIn: 'Google로 로그인',
+    },
+  },
+  result: {
+    checkingRecord: '기록 확인 중',
   },
   rankingNotice: {
     issueFailed: {

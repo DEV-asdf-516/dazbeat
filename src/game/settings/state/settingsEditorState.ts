@@ -16,14 +16,11 @@ import {
   isButtonPressed,
   pressButton,
   releaseButton,
-  releaseDisabledButton,
   unhoverButton,
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
-  getControlsCloseView,
   getControlsHelpButtonView,
-  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
   leaveControlsButton,
@@ -46,6 +43,7 @@ export type SettingsButton =
   | 'resetEntry'
   | 'resetCancel'
   | 'resetAccept'
+  | 'inputOffsetHelp'
   | ControlsButton
   | AccountPanelButton
   | `keyBox:${number}`
@@ -473,14 +471,6 @@ export function getRowValue(state: SettingsEditorState, index: number): string {
   );
 }
 
-export function canAdjustRow(
-  state: SettingsEditorState,
-  index: number,
-  direction: ListDirection,
-): boolean {
-  return canAdjust(state.settings, getRow(state, index), direction, state.displayedLanguage);
-}
-
 export function getKeyBoxView(state: SettingsEditorState, index: number): ButtonView {
   return getButtonView(state.hover, getKeyBoxButton(index), true, index === state.rowIndex);
 }
@@ -493,7 +483,7 @@ export function getStepView(
   return getButtonView(
     state.hover,
     getStepButton(index, direction),
-    canAdjustRow(state, index, direction),
+    canAdjust(state.settings, getRow(state, index), direction, state.displayedLanguage),
     index === state.rowIndex,
   );
 }
@@ -555,14 +545,6 @@ export function isResetEntryHovered(state: SettingsEditorState): boolean {
   return isButtonHovered(state.hover, 'resetEntry');
 }
 
-export function isSettingsControlsEntryHovered(state: SettingsEditorState): boolean {
-  return isControlsEntryHovered(state.hover);
-}
-
-export function getSettingsControlsCloseView(state: SettingsEditorState): ButtonView {
-  return getControlsCloseView(state.hover);
-}
-
 export type SettingsRegion =
   | 'title'
   | 'groups'
@@ -580,7 +562,8 @@ export type SettingsRegion =
   | 'resetButtons'
   | 'controlsClose'
   | 'controlsHelpCard'
-  | 'controlsHelpButton';
+  | 'controlsHelpButton'
+  | 'inputOffsetHelp';
 
 type SettingsReader = StateReader<SettingsEditorState>;
 
@@ -627,6 +610,11 @@ const REGION_SOURCES: Readonly<Record<SettingsRegion, readonly SettingsReader[]>
   controlsClose: [readCloseHovered, readClosePressed],
   controlsHelpCard: [isControlsHelpShown],
   controlsHelpButton: [(state) => getControlsHelpButtonView(state).appearance],
+  // 이름 너비와 줄 자리는 rowLabels 가 칠하므로 도움말 hover 만 바뀌면 다른 줄 이름을 다시 그리지 않는다.
+  inputOffsetHelp: [
+    (state) => isButtonHovered(state.hover, 'inputOffsetHelp'),
+    readDisplayedLanguage,
+  ],
 };
 
 export function getChangedRegions(
@@ -656,14 +644,13 @@ function settleHover(state: SettingsEditorState): SettingsEditorState {
   if (rowButton.kind !== 'step') {
     return state;
   }
-  return withHover(
-    state,
-    releaseDisabledButton(
-      hover,
-      hover.button,
-      canAdjustRow(state, rowButton.index, rowButton.direction),
-    ),
+  const canStep = canAdjust(
+    state.settings,
+    getRow(state, rowButton.index),
+    rowButton.direction,
+    state.displayedLanguage,
   );
+  return canStep ? state : withHover(state, releaseButton(hover, hover.button));
 }
 
 // Phaser 는 숨긴 대상에 POINTER_OUT 을 보내지 않으므로 확인 창을 닫을 때 그 안 버튼의 hover 를 푼다.
@@ -718,11 +705,13 @@ function isSettingsButtonEnabled(state: SettingsEditorState, button: SettingsBut
     case 'resetEntry':
     case 'resetCancel':
     case 'resetAccept':
+    case 'inputOffsetHelp':
     case 'controlsEntry':
     case 'controlsClose':
     case 'controlsBackdrop':
     case 'controlsHelp':
     case 'accountProfile':
+    case 'accountSignIn':
       return true;
   }
   const rowButton = requireDefined(findRowButton(state, button), 'Not a settings button', button);
@@ -731,7 +720,12 @@ function isSettingsButtonEnabled(state: SettingsEditorState, button: SettingsBut
     case 'mute':
       return true;
     case 'step':
-      return canAdjustRow(state, rowButton.index, rowButton.direction);
+      return canAdjust(
+        state.settings,
+        getRow(state, rowButton.index),
+        rowButton.direction,
+        state.displayedLanguage,
+      );
   }
 }
 

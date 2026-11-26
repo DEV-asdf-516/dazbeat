@@ -108,18 +108,22 @@ function createHarness(songs: readonly Song[]) {
   };
   const feed = new SongFeed(ALL_SONGS_QUERY, server.loadBatch);
   let controller: ChartEditorSelectController | undefined;
+  let nowMs = 0;
   const open = (entry: ChartEditorSelectSceneData): ChartEditorSelectController => {
     controller = new ChartEditorSelectController(
       {
-        catalog: feed,
-        create: (query) => {
-          if (isShallowEqual(query, ALL_SONGS_QUERY)) {
-            return feed;
-          }
-          const next = new SongFeed(query, server.loadBatch);
-          created.push(next);
-          return next;
+        feeds: {
+          catalog: feed,
+          create: (query) => {
+            if (isShallowEqual(query, ALL_SONGS_QUERY)) {
+              return feed;
+            }
+            const next = new SongFeed(query, server.loadBatch);
+            created.push(next);
+            return next;
+          },
         },
+        now: () => nowMs,
       },
       {
         render: (previous, next) => {
@@ -147,10 +151,13 @@ function createHarness(songs: readonly Song[]) {
           search.isFocused = false;
         },
       },
-      VISIBLE_ROW_COUNT,
+      {
+        visibleRowCount: VISIBLE_ROW_COUNT,
+        rowHeightPx: ROW_HEIGHT_PX,
+      },
       entry,
-      ROW_HEIGHT_PX,
     );
+    controller.start();
     return controller;
   };
   return {
@@ -164,6 +171,9 @@ function createHarness(songs: readonly Song[]) {
     open,
     get controller(): ChartEditorSelectController {
       return requireDefined(controller, 'Not opened');
+    },
+    set nowMs(atMs: number) {
+      nowMs = atMs;
     },
     get leaveCount() {
       return leaveCount;
@@ -254,10 +264,10 @@ describe('ChartEditorSelectController list', () => {
   it('requests the next batch when scrolling reaches the end', async () => {
     const harness = await openLoaded();
 
-    harness.controller.scroll(1);
+    harness.controller.scrollByWheel(ROW_HEIGHT_PX);
     expect(harness.server.calls).toHaveLength(0);
-    harness.controller.scroll(5);
-    harness.controller.scroll(5);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
 
     expect(harness.server.calls).toHaveLength(1);
   });
@@ -335,7 +345,7 @@ describe('ChartEditorSelectController list', () => {
 describe('ChartEditorSelectController query', () => {
   it('switches categories to a new feed with the current title and resets focus', async () => {
     const harness = await openLoaded();
-    harness.controller.scroll(1);
+    harness.controller.scrollByWheel(ROW_HEIGHT_PX);
     harness.controller.handleKey(key('ArrowDown'));
     expect(harness.view.topIndex).toBeGreaterThan(0);
 
@@ -418,7 +428,7 @@ describe('ChartEditorSelectController status', () => {
 
   it('shows loading more and a retryable failure with songs, and retries from the same cursor', async () => {
     const harness = await openLoaded();
-    harness.controller.scroll(5);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
     expect(harness.view.status).toBe('loadingMore');
     expect(harness.view.notice).toBeNull();
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -441,11 +451,11 @@ describe('ChartEditorSelectController status', () => {
 
   it('requests a failed batch again only through retry, not through list input', async () => {
     const harness = await openLoaded();
-    harness.controller.scroll(5);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
 
-    harness.controller.scroll(5);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
     harness.controller.hoverRow(0);
     harness.controller.handleKey(key('ArrowUp'));
 
@@ -455,7 +465,7 @@ describe('ChartEditorSelectController status', () => {
 
   it('opens a failure popup when loading more fails, cancels it with Escape and opens it again on the next failure', async () => {
     const harness = await openLoaded();
-    harness.controller.scroll(5);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
 
@@ -466,7 +476,8 @@ describe('ChartEditorSelectController status', () => {
     expect(harness.view.isLoadMoreFailureOpen).toBe(false);
     expect(harness.view.canRetry).toBe(true);
 
-    harness.controller.retry();
+    harness.controller.pointerDown('retry');
+    harness.controller.pointerUp('retry');
     expect(harness.view.isLoadMoreFailureOpen).toBe(false);
     await settle(harness.server.calls[1], 'reject');
 
@@ -475,7 +486,7 @@ describe('ChartEditorSelectController status', () => {
 
   it('retries from the failure popup with Enter or its RETRY and releases that hover when it hides', async () => {
     const harness = await openLoaded();
-    harness.controller.scroll(5);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
 
@@ -492,13 +503,14 @@ describe('ChartEditorSelectController status', () => {
     expect(harness.view.hover).toBeNull();
   });
 
-  it('retries a failed request through retry()', async () => {
+  it('retries a failed request through the RETRY button', async () => {
     const harness = createHarness(songs);
     harness.open({ kind: 'fresh' });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await settle(harness.server.calls[0], 'reject');
 
-    harness.controller.retry();
+    harness.controller.pointerDown('retry');
+    harness.controller.pointerUp('retry');
     await settle(harness.server.calls[1]);
 
     expect(harness.server.calls[1]?.after).toBeNull();
@@ -638,7 +650,7 @@ describe('ChartEditorSelectController search', () => {
 describe('ChartEditorSelectController close', () => {
   it('ignores responses after closing', async () => {
     const harness = await openLoaded();
-    harness.controller.scroll(5);
+    harness.controller.scrollByWheel(5 * ROW_HEIGHT_PX);
     const renderCount = harness.views.length;
     const callCount = harness.server.calls.length;
 
@@ -661,7 +673,7 @@ describe('ChartEditorSelectController input after close', () => {
     harness.controller.pointerOver('back');
     harness.controller.hoverFilter('original');
     harness.controller.hoverRow(1);
-    harness.controller.scrollByWheel(1000, 0);
+    harness.controller.scrollByWheel(1000);
     harness.controller.handleKey(key('Escape'));
 
     expect(harness.views).toHaveLength(renderCount);
@@ -674,7 +686,7 @@ describe('ChartEditorSelectController view', () => {
     const harness = await openLoaded();
     const first = harness.view;
 
-    harness.controller.scroll(1);
+    harness.controller.scrollByWheel(ROW_HEIGHT_PX);
 
     expect(harness.previousViews[0]).toBeNull();
     expect(harness.previousViews.at(-1)).toBe(first);
@@ -702,7 +714,7 @@ describe('ChartEditorSelectController wheel', () => {
   it('scrolls one row for a wheel of one row height', async () => {
     const harness = await openLoaded();
 
-    harness.controller.scrollByWheel(ROW_HEIGHT_PX, 0);
+    harness.controller.scrollByWheel(ROW_HEIGHT_PX);
 
     expect(harness.view.topIndex).toBe(1);
   });
@@ -711,7 +723,7 @@ describe('ChartEditorSelectController wheel', () => {
     const harness = await openLoaded();
     const renderCount = harness.views.length;
 
-    harness.controller.scrollByWheel(10, 0);
+    harness.controller.scrollByWheel(10);
 
     expect(harness.views).toHaveLength(renderCount);
   });
@@ -719,8 +731,9 @@ describe('ChartEditorSelectController wheel', () => {
   it('accumulates wheels within the gesture gap', async () => {
     const harness = await openLoaded();
 
-    harness.controller.scrollByWheel(10, 0);
-    harness.controller.scrollByWheel(10, 100);
+    harness.controller.scrollByWheel(10);
+    harness.nowMs = 100;
+    harness.controller.scrollByWheel(10);
 
     expect(harness.view.topIndex).toBe(1);
   });

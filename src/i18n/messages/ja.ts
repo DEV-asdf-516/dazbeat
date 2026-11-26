@@ -90,6 +90,12 @@ export const ja: Messages = {
       mvMode: 'MVモード',
       language: '言語',
     },
+    rowHelp: {
+      inputOffset: {
+        meaning: 'ノーツと音楽のずれを合わせる値',
+        direction: 'ノーツが音楽より遅ければ +、早ければ −',
+      },
+    },
   },
   credits: {
     title: 'CREDITS',
@@ -221,6 +227,17 @@ export const ja: Messages = {
     earned: '獲得',
     setFeatured: '装備',
     unsetFeatured: '装備解除',
+  },
+  localRecord: {
+    signInPrompt: {
+      title: 'ゲストの記録はランキングに反映されません',
+      body: 'ログインすると、次のプレイからランキングに反映されます。',
+      later: 'あとで',
+      signIn: 'Googleでログイン',
+    },
+  },
+  result: {
+    checkingRecord: '記録を確認中',
   },
   rankingNotice: {
     issueFailed: {

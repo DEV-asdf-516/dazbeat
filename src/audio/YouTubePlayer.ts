@@ -110,8 +110,8 @@ export class YouTubePlayer {
   private readonly placeholder: HTMLDivElement;
   private readonly player: YTPlayer;
   private readonly handlers: YouTubePlayerHandlers;
-  private ready = false;
-  private destroyed = false;
+  private isReady = false;
+  private isDestroyed = false;
 
   constructor(container: HTMLElement, videoId: string, handlers: YouTubePlayerHandlers) {
     const Player = window.YT?.Player;
@@ -133,11 +133,11 @@ export class YouTubePlayer {
       },
       events: {
         onReady: () => {
-          this.ready = true;
+          this.isReady = true;
           handlers.onReady();
         },
         onStateChange: (event) => {
-          if (!this.ready) {
+          if (!this.isReady) {
             return;
           }
           const state = isFiniteNumber(event.data) ? PLAYER_STATES.get(event.data) : undefined;
@@ -181,10 +181,10 @@ export class YouTubePlayer {
   }
 
   destroy(): void {
-    if (this.destroyed) {
+    if (this.isDestroyed) {
       return;
     }
-    this.destroyed = true;
+    this.isDestroyed = true;
     window.removeEventListener('message', this.handleMessage);
     this.player.destroy();
     this.placeholder.remove();

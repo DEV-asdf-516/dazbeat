@@ -5,6 +5,7 @@ import type {
   NamedAchievementDefinition,
 } from '../../../../src/data/achievements.js';
 import {
+  applyRankingSubmission,
   createResultState,
   dismissToast,
   getChangedRegions,
@@ -63,19 +64,19 @@ function chartOf(difficulty: ChartRef['difficulty'], chartId: string): ChartRef 
 
 describe('selectRetryDifficulty', () => {
   it('keeps the same state for the selected difficulty', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
 
     expect(selectRetryDifficulty(state, 'easy')).toBe(state);
   });
 
   it('keeps the same state for a difficulty without a chart', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
 
     expect(selectRetryDifficulty(state, 'normal')).toBe(state);
   });
 
   it('switches to the chart of another difficulty', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
 
     expect(selectRetryDifficulty(state, 'hard').retryChart).toEqual(chartOf('hard', 'hard.json'));
   });
@@ -83,7 +84,7 @@ describe('selectRetryDifficulty', () => {
 
 describe('stepRetryChart', () => {
   it('moves to the next and previous difficulty with a chart', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
     const next = stepRetryChart(state, 'next');
 
     expect(next.retryChart).toEqual(chartOf('hard', 'hard.json'));
@@ -91,8 +92,8 @@ describe('stepRetryChart', () => {
   });
 
   it('keeps the same state at either end', () => {
-    const first = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
-    const last = createResultState(chartOf('expert', 'expert.json'), { kind: 'none' });
+    const first = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
+    const last = createResultState(chartOf('expert', 'expert.json'), { kind: 'none' }, true);
 
     expect(stepRetryChart(first, 'previous')).toBe(first);
     expect(stepRetryChart(last, 'next')).toBe(last);
@@ -101,7 +102,7 @@ describe('stepRetryChart', () => {
 
 describe('getRetryTabAppearance', () => {
   it('reads selection, chart availability and hover', () => {
-    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+    const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
 
     expect(getRetryTabAppearance(state, 'easy')).toBe('selected');
     expect(getRetryTabAppearance(state, 'normal')).toBe('disabled');
@@ -114,7 +115,7 @@ describe('getRetryTabAppearance', () => {
 describe('hover', () => {
   it('keeps the same state when hovering the hovered difficulty again', () => {
     const hovered = hoverDifficulty(
-      createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }),
+      createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true),
       'hard',
     );
 
@@ -123,7 +124,7 @@ describe('hover', () => {
 
   it('clears hover only for the hovered difficulty', () => {
     const hovered = hoverDifficulty(
-      createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }),
+      createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true),
       'hard',
     );
 
@@ -160,7 +161,7 @@ function achievementToast(achievement: NamedAchievementDefinition): ToastContent
 }
 
 describe('getChangedRegions', () => {
-  const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+  const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
 
   it('redraws only the controls when only the controls open', () => {
     expect(
@@ -186,6 +187,9 @@ describe('getChangedRegions', () => {
       'controlsHelpButton',
       'rankingNotice',
       'rankingNoticeButtons',
+      'guestNotice',
+      'guestNoticeButtons',
+      'recordStatus',
       'menuFocusMotion',
     ]);
   });
@@ -215,6 +219,33 @@ describe('getChangedRegions', () => {
     ]);
   });
 
+  it('redraws only the record status when only the record status changes', () => {
+    const checking = createResultState(
+      chartOf('easy', 'easy.json'),
+      {
+        kind: 'submitted',
+        submission: new Promise(() => undefined),
+      },
+      true,
+    );
+    const answered = applyRankingSubmission(checking, {
+      kind: 'saved',
+      play: {
+        score: 0,
+        accuracy: 0,
+        maxCombo: 0,
+        review: {
+          kind: 'approved',
+          ranking: null,
+        },
+        newAchievements: [],
+      },
+    });
+
+    expect(getChangedRegions(checking, answered)).toEqual(['recordStatus']);
+    expect(getChangedRegions(answered, hoverDifficulty(answered, 'hard'))).toEqual(['tabs']);
+  });
+
   it('redraws the toasts when the queue changes', () => {
     expect(getChangedRegions(state, queueToasts(state, [achievementToast(FIRST_FINISH)]))).toEqual([
       'toasts',
@@ -224,7 +255,7 @@ describe('getChangedRegions', () => {
 });
 
 describe('getToastChanges', () => {
-  const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' });
+  const state = createResultState(chartOf('easy', 'easy.json'), { kind: 'none' }, true);
 
   it('reports entered toasts and moved older toasts', () => {
     const one = queueToasts(state, [achievementToast(FIRST_FINISH)]);

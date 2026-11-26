@@ -47,41 +47,37 @@ export function ensureVolumeMeterTexture(
       }));
       context.lineWidth = METER_STROKE_PX;
       const insetPx = METER_STROKE_PX / 2;
-      segments
-        .filter(({ isFilled }) => !isFilled || isMuted)
-        .forEach(({ xPx, isFilled }) => {
-          // 음소거 중에도 채운 칸은 테두리로 남겨 음소거를 풀면 돌아갈 크기를 보여 준다.
-          context.strokeStyle = isFilled
-            ? cssColor(COLORS.textDisabled)
-            : rgba(COLORS.border, isMuted ? METER_MUTED_EMPTY_ALPHA : 1);
-          context.beginPath();
-          context.roundRect(
-            xPx + insetPx,
-            insetPx,
-            METER_SEGMENT_WIDTH_PX - METER_STROKE_PX,
-            METER_SEGMENT_HEIGHT_PX - METER_STROKE_PX,
-            METER_SEGMENT_RADIUS_PX,
-          );
-          context.stroke();
-        });
+      for (const { xPx, isFilled } of segments.filter(({ isFilled }) => !isFilled || isMuted)) {
+        // 음소거 중에도 채운 칸은 테두리로 남겨 음소거를 풀면 돌아갈 크기를 보여 준다.
+        context.strokeStyle = isFilled
+          ? cssColor(COLORS.textDisabled)
+          : rgba(COLORS.border, isMuted ? METER_MUTED_EMPTY_ALPHA : 1);
+        context.beginPath();
+        context.roundRect(
+          xPx + insetPx,
+          insetPx,
+          METER_SEGMENT_WIDTH_PX - METER_STROKE_PX,
+          METER_SEGMENT_HEIGHT_PX - METER_STROKE_PX,
+          METER_SEGMENT_RADIUS_PX,
+        );
+        context.stroke();
+      }
       applyGrain(context, widthPx, METER_SEGMENT_HEIGHT_PX, ICON_GRAIN);
       if (isMuted) {
         return;
       }
       context.fillStyle = cssColor(COLORS.textPrimary);
-      segments
-        .filter(({ isFilled }) => isFilled)
-        .forEach(({ xPx }) => {
-          context.beginPath();
-          context.roundRect(
-            xPx,
-            0,
-            METER_SEGMENT_WIDTH_PX,
-            METER_SEGMENT_HEIGHT_PX,
-            METER_SEGMENT_RADIUS_PX,
-          );
-          context.fill();
-        });
+      for (const { xPx } of segments.filter(({ isFilled }) => isFilled)) {
+        context.beginPath();
+        context.roundRect(
+          xPx,
+          0,
+          METER_SEGMENT_WIDTH_PX,
+          METER_SEGMENT_HEIGHT_PX,
+          METER_SEGMENT_RADIUS_PX,
+        );
+        context.fill();
+      }
     },
   );
   return key;

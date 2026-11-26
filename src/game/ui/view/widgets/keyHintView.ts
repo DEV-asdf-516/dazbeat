@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { parseKeyHints } from '../../state/keyHints.js';
-import { addBrushRect, getBrushRectTexture } from '../textures/brushRect.js';
+import { getBrushRectTexture } from '../textures/brushRect.js';
 import type { BrushRectLook } from '../textures/brushRect.js';
 import { COLORS, RADIUS, TYPE_SCALE, typeStyle } from '../theme.js';
 
@@ -54,7 +54,7 @@ interface KeyHintItem extends KeyCap {
   label: Phaser.GameObjects.Text;
 }
 
-function getCapLook(style: KeyHintStyle, widthPx: number): BrushRectLook {
+export function getKeyCapLook(style: KeyHintStyle, widthPx: number): BrushRectLook {
   return {
     widthPx,
     heightPx: style.capHeightPx,
@@ -73,18 +73,13 @@ export function getKeyCapWidthPx(key: Phaser.GameObjects.Text, style: KeyHintSty
   return Math.max(style.capMinWidthPx, key.width + style.capPaddingXPx * 2);
 }
 
-export function setKeyCapWidth(keyCap: KeyCap, style: KeyHintStyle, widthPx: number): void {
-  keyCap.cap.setTexture(getBrushRectTexture(keyCap.cap.scene, getCapLook(style, widthPx)));
-}
-
 export function createKeyCap(scene: Phaser.Scene, key: string, style: KeyHintStyle): KeyCap {
   const text = scene.add
     .text(0, 0, key, typeStyle(style.keyType, style.keyColor))
     .setOrigin(0.5, 0.5);
-  const cap = addBrushRect(scene, getCapLook(style, getKeyCapWidthPx(text, style))).setOrigin(
-    0,
-    0.5,
-  );
+  const cap = scene.add
+    .image(0, 0, getBrushRectTexture(scene, getKeyCapLook(style, getKeyCapWidthPx(text, style))))
+    .setOrigin(0, 0.5);
   return {
     cap,
     key: text,
@@ -139,11 +134,11 @@ export function addKeyHintRow(
 ): Phaser.GameObjects.Container {
   const items = createItems(scene, text, style);
   let xPx = 0;
-  items.forEach((item) => {
+  for (const item of items) {
     const labelLeftPx = xPx + item.cap.width + style.capLabelGapPx;
     placeItem(item, xPx, labelLeftPx, 0);
     xPx = labelLeftPx + item.label.width + style.rowItemGapPx;
-  });
+  }
   return addContainer(scene, leftPx, centerYPx, items);
 }
 

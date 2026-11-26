@@ -1,4 +1,6 @@
+import type { AuthUser } from '../../data/account.js';
 import type { Language } from '../../i18n/language.js';
+import { completeAccountSignIn } from '../ui/state/accountIdentity.js';
 import {
   clickControlsHelp,
   isControlsPanelOpen,
@@ -44,14 +46,14 @@ export interface SettingsScreen {
   setBackgroundVolume(settings: Settings): void;
   leave(): void;
   openProfile(): void;
+  renderAccount(): void;
 }
 
 export interface SettingsPorts {
   readonly save: Pick<LocalSave, 'saveSettings'>;
   readonly changeLanguage: (language: Language) => Promise<unknown>;
+  signIn(): Promise<AuthUser | null>;
 }
-
-type Transition = (state: SettingsEditorState) => SettingsEditorState;
 
 // 닫힌 뒤에는 입력과 늦은 언어 변경 결과를 받지 않는다.
 type ControllerState = SettingsEditorState | { readonly kind: 'closed' };
@@ -66,9 +68,7 @@ export class SettingsController {
     settings: Settings,
     displayedLanguage: Language,
   ) {
-    const first = createSettingsEditorState(rows, settings, displayedLanguage);
-    this.state = first;
-    this.screen.render(null, first);
+    this.state = createSettingsEditorState(rows, settings, displayedLanguage);
   }
 
   get settings(): Settings {
@@ -78,102 +78,147 @@ export class SettingsController {
     return this.state.settings;
   }
 
+  // 씬의 render 가 생성자 뒤에 만드는 위젯을 그리므로 생성자가 아니라 생성 뒤에 시작한다.
+  start(): void {
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.screen.render(null, state);
+  }
+
   hoverRow(index: number): void {
-    this.apply((state) => hoverRow(state, index));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(hoverRow(state, index));
   }
 
   unhoverRow(index: number): void {
-    this.apply((state) => unhoverRow(state, index));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(unhoverRow(state, index));
   }
 
   pointRow(index: number): void {
-    this.applyPointer((state) => focusRow(state, index));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(applyPointer(state, (current) => focusRow(current, index)));
   }
 
   captureKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
-    if ('kind' in this.state) {
+    const state = this.open;
+    if (state === null) {
       return false;
     }
-    const result = readSettingsKey(this.state, event);
-    switch (result.kind) {
-      case 'pass':
-        return false;
-      case 'state':
-        this.apply(() => result.state);
-        return true;
+    const result = readSettingsKey(state, event);
+    if (result.kind === 'pass') {
+      return false;
     }
-  }
-
-  openControls(): void {
-    this.apply((state) => withControlsOpen(state, true));
-  }
-
-  closeControls(): void {
-    this.apply((state) => withControlsOpen(state, false));
+    this.apply(result.state);
+    return true;
   }
 
   pointerOver(button: SettingsButton): void {
-    this.apply((state) => hoverSettingsButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(hoverSettingsButton(state, button));
   }
 
   pointerOut(button: SettingsButton): void {
-    this.apply((state) => unhoverSettingsButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(unhoverSettingsButton(state, button));
   }
 
   pointerDown(button: SettingsButton): void {
-    this.apply((state) => pressSettingsButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    this.apply(pressSettingsButton(state, button));
   }
 
   pointerUp(button: SettingsButton): void {
-    const previous = this.state;
-    this.apply((state) => releaseSettingsButton(state, button));
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
+    const released = releaseSettingsButton(state, button);
     // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
-    if (this.state === previous || 'kind' in this.state) {
+    if (released === state) {
       return;
     }
     switch (button) {
-      case 'back':
-        this.back();
+      case 'back': {
+        const outcome = pressBack(released);
+        if (outcome.kind === 'stay') {
+          this.apply(outcome.state);
+          return;
+        }
+        this.apply(released);
+        this.screen.playSound('close', released.settings);
+        this.screen.leave();
         return;
+      }
       case 'accountProfile':
-        this.screen.playSound('click', this.state.settings);
+        this.apply(released);
+        this.screen.playSound('click', released.settings);
         this.screen.openProfile();
         return;
+      case 'accountSignIn':
+        this.apply(released);
+        this.screen.playSound('click', released.settings);
+        this.signIn();
+        return;
       case 'resetEntry':
-        this.applyPointer(requestReset);
+        this.apply(applyPointer(released, requestReset));
         return;
       case 'resetCancel':
-        this.apply(cancelPrompt);
+        this.apply(cancelPrompt(released));
         return;
       case 'resetAccept':
-        this.apply(confirmReset);
+        this.apply(confirmReset(released));
         return;
       case 'controlsEntry':
-        this.openControls();
+        this.apply(withControlsOpen(released, true));
         return;
       case 'controlsClose':
       case 'controlsBackdrop':
-        this.closeControls();
+        this.apply(withControlsOpen(released, false));
         return;
       case 'controlsHelp':
-        this.apply(clickControlsHelp);
+        this.apply(clickControlsHelp(released));
+        return;
+      case 'inputOffsetHelp':
+        this.apply(released);
         return;
       default:
-        this.applyPointer((state) => pointRowButton(state, button));
+        this.apply(applyPointer(released, (current) => pointRowButton(current, button)));
         return;
     }
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
-    if ('kind' in this.state) {
+    const state = this.open;
+    if (state === null) {
       return false;
     }
-    switch (readControlsKey(isControlsPanelOpen(this.state), event)) {
+    switch (readControlsKey(isControlsPanelOpen(state), event)) {
       case 'open':
-        this.openControls();
+        this.apply(withControlsOpen(state, true));
         return true;
       case 'close':
-        this.closeControls();
+        this.apply(withControlsOpen(state, false));
         return true;
       case 'block':
         return true;
@@ -183,40 +228,35 @@ export class SettingsController {
   }
 
   handleMenuKey(action: MenuAction | null): void {
+    const state = this.open;
+    if (state === null) {
+      return;
+    }
     switch (action) {
       case 'up':
       case 'down':
-        this.apply((state) => moveFocus(state, action === 'up' ? 'previous' : 'next'));
+        this.apply(moveFocus(state, action === 'up' ? 'previous' : 'next'));
         return;
       case 'left':
-        this.apply((state) => adjustRow(state, state.rowIndex, 'previous'));
+        this.apply(adjustRow(state, state.rowIndex, 'previous'));
         return;
       case 'right':
-        this.apply((state) => adjustRow(state, state.rowIndex, 'next'));
+        this.apply(adjustRow(state, state.rowIndex, 'next'));
         return;
       case 'confirm':
-        this.apply((state) => confirmRow(state, state.rowIndex));
+        this.apply(confirmRow(state, state.rowIndex));
         return;
-      case 'back':
-        this.back();
-        return;
-      case null:
-        return;
-    }
-  }
-
-  back(): void {
-    if ('kind' in this.state) {
-      return;
-    }
-    const outcome = pressBack(this.state);
-    switch (outcome.kind) {
-      case 'stay':
-        this.apply(() => outcome.state);
-        return;
-      case 'leave':
-        this.screen.playSound('close', this.state.settings);
+      case 'back': {
+        const outcome = pressBack(state);
+        if (outcome.kind === 'stay') {
+          this.apply(outcome.state);
+          return;
+        }
+        this.screen.playSound('close', state.settings);
         this.screen.leave();
+        return;
+      }
+      case null:
         return;
     }
   }
@@ -225,17 +265,30 @@ export class SettingsController {
     this.state = { kind: 'closed' };
   }
 
-  private applyPointer(transition: Transition): void {
-    this.apply((state) => applyPointer(state, transition));
+  /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
+  private signIn(): void {
+    void this.ports
+      .signIn()
+      .then((user) => {
+        const state = this.open;
+        if (user === null || state === null) {
+          return;
+        }
+        this.screen.renderAccount();
+        this.apply(completeAccountSignIn(state));
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to sign in with Google', error);
+      });
   }
 
-  private apply(transition: Transition): void {
-    if ('kind' in this.state) {
-      return;
-    }
-    const previous = this.state;
-    const next = transition(previous);
-    if (next === previous) {
+  private get open(): SettingsEditorState | null {
+    return 'kind' in this.state ? null : this.state;
+  }
+
+  private apply(next: SettingsEditorState): void {
+    const previous = this.open;
+    if (previous === null || next === previous) {
       return;
     }
     this.state = next;
@@ -260,7 +313,13 @@ export class SettingsController {
       case 'changeLanguage': {
         const { language } = effect;
         this.ports.changeLanguage(language).then(
-          () => this.apply((state) => withDisplayedLanguage(state, language)),
+          () => {
+            const state = this.open;
+            if (state === null) {
+              return;
+            }
+            this.apply(withDisplayedLanguage(state, language));
+          },
           (error: unknown) => console.error('Failed to change language', error),
         );
         return;

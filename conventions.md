@@ -63,8 +63,9 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 import하지 않고 `src/main.t
 - `lib/`: 훅이 쓰는 서버 로직(순수 TS). `src/data`·`src/rhythm`을 import할 수 있다. `npm run build:hooks`가 `pb_hooks/lib/<경로>.cjs`로 번들하면 훅이 `require`한다. 공용 모듈(`jsvm`, `pbQuery`, `originPolicy`)은 `lib/` 바로 아래.
 - `lib/<도메인>/`(`achievement`, `session`, `profile`, `song`). 일이 여럿이면 `service/<일>.ts`.
   - `dto.ts`: 요청 파싱·거절 코드·타입.
-  - `repository.ts`: DB 읽기·쓰기(`read*`·`is*`·`has*`·`save*`·`delete*`). 없으면 거절 대신 `undefined`. dbx 함수 먼저, 레코드 API 뒤.
+  - `repository.ts`: DB 읽기·쓰기. 없으면 거절 대신 `undefined`. dbx 함수 먼저, 레코드 API 뒤.
   - `service.ts`: 판단과 흐름(repository 결과를 해석·거절하는 `load*`).
+  - export 함수 이름의 동사는 `eslint.config.mjs`의 `LIB_FUNCTION_VERBS`. 새 동사는 기존 동사로 안 될 때만 더한다.
 - `seed/`: 로컬 개발용 시드.
 
 ## 3. Phaser 화면 (`src/game/`)
@@ -73,20 +74,22 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 import하지 않고 `src/main.t
 - 클릭은 pointer up에서 실행. pointer down은 드래그·탐색 제스처에만.
 - Phaser는 씬 인스턴스를 재사용한다. 상태는 `create`에서 다시 설정하고, 외부 리스너는 SHUTDOWN에서 해제하며 `close()`로 늦은 결과를 버린다.
 - 판단은 `state/` 순수 함수만 한다. 조건문 유무나 줄 수가 아니라 규칙의 소유와 변경 이유로 가르고, 단순 비교를 옮기려고 래퍼 함수를 만들지 않는다.
-  - 판단(의미를 정하는 일): 상태 전이, 게임·업무 규칙, 입력·I/O 결과(키 조합·상태·오류)의 의미(팝업이 열린 동안 막거나 다른 동작으로 바꾸는 입력 포함), 여러 값을 묶은 조건의 의미, 표시 데이터 집계.
-  - 판단 아님: Controller 수명(닫힘)·늦은 결과·중복 요청 확인, 부수효과 실행, 받은 값으로 표현 고르기.
+  - 판단(의미를 정하는 일): 상태 전이, 게임·업무 규칙, 입력·I/O 결과(키 조합·상태·오류)의 의미(위치 없는 입력(키)을 팝업이 열린 동안 막거나 다른 동작으로 바꾸는 것 포함), 여러 값을 묶은 조건의 의미, 표시 데이터 집계.
+  - 판단 아님: Controller 수명(닫힘)·늦은 결과·중복 요청 확인, 부수효과 실행, 받은 값으로 표현 고르기, 포인터를 어느 객체가 받는지(위에 그려진 것이 정하고 팝업 배경이 뒤를 막는다).
 - Controller: 화면 state를 단독 소유한다(단계가 있으면 phase union, 열림·닫힘뿐이면 생성자에서 열어 객체 수명으로).
   - state가 정한 대로 부수효과를 순서대로 실행하고 외부 결과를 반영한다(늦은 결과·중복 요청·종료 확인 포함). state가 바뀌면 직전·다음 state를 Screen에 넘긴다.
-  - 둘 수 있는 분기: 결과 종류마다 작업이 다를 때 잇는 `switch`(값만 다르면 인자로 넘긴다), 자원 상태 `if`.
+  - 공개 메서드는 apply를 한 번 넘게 부르지 않고 다른 공개 메서드를 부르지 않는다. 도우미는 apply와 공개 메서드를 부르지 않는다. state 변화로 정해지는 부수효과(재생 멈춤 등)는 apply가 직전·다음 state를 비교해 실행한다.
+  - 둘 수 있는 분기: 결과 종류마다 작업이 다를 때 잇는 `switch`(두 값으로 닫히면 if-else, 값만 다르면 인자로 넘긴다), 자원 상태 `if`.
   - I/O·시계는 Controller가 정의한 Ports interface, 표시·이동은 씬이 구현한 Screen interface로 주입받는다.
 - 화면 state: 값 하나, 상태 모듈의 전이 함수로만 바뀐다. 포인터 상태는 그 안의 hover union 하나, 버튼 눌림은 그 항목에 둔다. 숨기거나 닫는 전이에서 그 대상의 hover를 푼다.
 - 씬: Phaser 객체, 입력·update 위임, 그리기. 도메인 집계·검증·업무 규칙은 하지 않고, 직전 state는 상태 모듈 함수에 넘기기만 한다.
   - 그리기: 받은 값으로 표현 고르기(`switch`·`Record<Union, X>`), 값 하나로 정하는 가시성, 좌표·크기·알파·클리핑 계산, 애니메이션과 리소스 수명.
+  - Screen `render`는 영역 `switch` 안에서 위젯 공개 메서드를 직접 부른다.
 - 위젯: 그릴 값만 받아 씬과 같은 범위로 그린다. 포인터 이벤트는 컨트롤러에 전하기만 한다.
   - 필드는 Phaser·DOM 객체, 생성 옵션, 트윈·텍스처·애니메이션 캐시. Phaser 객체의 현재 상태는 읽어도 된다.
   - hover·포커스·눌림·선택 같은 화면 state 값이나 직전 state 캐시는 두지 않는다. 필드의 readonly·타입·이름이나 대입 위치만으로 위반을 판정하지 않는다.
 - 여러 화면에 반복되는 UI(조작 안내 팝업 등)는 같은 규칙만 공용 순수 함수로 두고, 그 결과를 화면 메서드에 잇는 `switch`는 화면마다 둔다.
-- 비용은 도는 빈도(진입 한 번, 입력마다, 매 프레임)와 같은 순간에 겹치는 합으로 본다. 자주 도는 자리일수록 미리 만든 것을 움직이고, 보이지 않는 것은 그리지도 돌리지도 않는다.
+- 비용은 도는 빈도(진입 한 번, 입력마다, 매 프레임)와 같은 순간에 겹치는 합으로 본다. 자주 도는 자리일수록 미리 만든 것을 움직이고, 보이지 않는 것은 그리지도 돌리지도 않는다. 매 프레임 그리기 경로의 계산은 객체 대신 숫자를 반환하고, 한 대상의 같은 텍스처 조각은 메시 하나에 담는다.
 - Graphics와 경로 Shape는 매 프레임 다시 처리하므로 텍스처로 구워(Graphics는 굽는 붓으로만) 이미지·NineSlice·메시로 보인다. 채우기만 하는 각진 사각형 Shape는 쓴다.
 - 느린 곳은 추정하지 않고 120Hz(8.3ms) 기준 가장 긴 프레임을 잰다.
 - 가속 끔(Canvas 렌더러)에서도 같은 모양이어야 한다. Canvas가 빼고 그리는 Phaser 기능(틴트·NineSlice·Mesh2D·필터·Graphics 그라데이션 등)은 `ui/view/canvas/`에 Canvas 그리기가 있는 것만 쓰고, 새로 쓰면 함께 더한다.
@@ -99,7 +102,8 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 import하지 않고 `src/main.t
   - 고쳐 저장할 레코드나 id 한 건: 레코드 API(`findRecordById`·`findRecordsByFilter`).
   - 레코드가 필요한데(rule 검사 등) 레코드 API로 표현할 수 없음: `recordQuery`.
   - 값만 읽음: `app.db().select()` builder를 `selectRows`·`selectRow`로. builder로 만들 수 없는 문장(UNION 전체에 거는 `LIMIT` 등)만 `newQuery`.
-  - 조건: `dbx.hashExp`·`dbx.in`·`dbx.not`. dbx에 없는 것(`COLLATE`·`GLOB`·FTS `MATCH`·`LIKE ... ESCAPE`·OR 묶음)만 `dbx.exp`.
+  - 조건: `dbx.hashExp`·`dbx.in`·`dbx.not`·`dbx.and`·`dbx.or`·`dbx.between`. `dbx.exp`는 이것들로 못 쓰는 조건 하나(`COLLATE`·`GLOB`·FTS `MATCH`·`LIKE ... ESCAPE`·상관 `EXISTS` 서브쿼리)만.
+- SQL 문자열을 쓰기 전에 PocketBase dbx에 그 함수·메서드가 있는지 보고, `jsvm.ts` 타입에 없으면 타입에 더해 쓴다.
 - 쓰기: 넣기·고치기는 `save`(id·autodate·검증·레코드 훅이 이 경로에서 돈다), 서버 전용 컬렉션 지우기는 `app.db().delete()`, `save` 경로가 필요 없는 복제 열 일괄 수정은 `app.db().update()`.
 - 고치거나 지울 레코드는 repository `find<Thing>Record`로 한 번 찾아 값 해석(`parse<Thing>Record`)과 저장·삭제 함수에 넘긴다. 같은 레코드를 다시 찾지 않는다.
 - 서버 전용 컬렉션은 API 규칙을 모두 `null`로 두고 훅으로만 쓴다. 커스텀 라우트는 `/api/dazbeat/…`, 오류 응답은 `{ status, code(snake_case), message }`.
@@ -145,9 +149,12 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 import하지 않고 `src/main.t
 #### 함수는 하나의 작업만 한다.
 
 - 예외·빈 경우는 먼저 반환하고, 결과를 찾으면 바로 반환한다.
-- 한 곳에서만 호출하는 함수는 인라인이 기본이다. 호출부의 분기·단계 하나를 통째로 맡아 한 줄 위임이 되고 이름이 동작을 설명할 때만 함수로 둔다. 몇 줄 변환을 감싸거나 흐름 중간만 떼어 낸 함수는 인라인한다.
+- 한 곳에서만 호출하는 함수는 인라인이 기본이다. 호출부의 분기·단계 하나를 통째로 맡아 한 줄 위임이 되고 이름이 동작을 설명할 때만 함수로 둔다. 그렇게 둔 함수는 부르는 블록의 지역 함수로 둘 수 있다. 몇 줄 변환을 감싸거나 흐름 중간만 떼어 낸 함수는 인라인한다.
 - 자기 규칙 없이 값을 꺼내 다른 함수에 넘기기만 하는 함수는 호출 수와 관계없이 인라인한다.
+- 진입 함수(이벤트·콜백·외부에서 처음 부르는 함수)에서 동기 호출로 내려가는 깊이는 7단계 이하. 2.1 순수 모듈 호출과 이벤트·Promise 콜백(`await` 뒤 포함)은 세지 않는다. 화면 흐름은 진입 0 → Controller 공개 메서드 1 → apply 2 → 씬 render 3 → 위젯 공개 메서드 4로 나누고, 함수의 아래 깊이는 7 − 그 함수가 불리는 가장 깊은 자리 이하다.
 - 인자 2~4개는 그대로 두고, 많을 때만 의미 있는 객체로 묶는다.
+- `forEach`는 콜백이 식 하나일 때만, 블록 본문이 필요하면 `for...of`.
+- 뜻이 두 값으로 닫힌 union(있음과 없음, 머묾과 떠남)은 `switch` 대신 if-else나 삼항. 늘어날 union은 `switch`로 두고 검사 예외에 그 이유를 적는다.
 - 의미 있는 수치만 상수화한다(`0`, `1` 제외).
 
 #### 의존성은 한 방향으로 유지한다.
@@ -203,12 +210,15 @@ Phaser 씬과 UI. `backend/`·`createI18n.ts`를 import하지 않고 `src/main.t
 
 - 명령: `npm test`(관련 테스트 `npm test -- tests/<folder>/<file>.test.ts`), `npm run typecheck`, `npm run lint`, `npm run format:check`.
 - `eslint.config.mjs`는 아래만 검사한다. 이 문서의 해당 규칙을 바꾸면 함께 고치고, 판별할 수 없는 책임 판단은 리뷰로 본다.
-  - 2장의 의존 방향(`state/` → Controller·씬·`view/` 런타임 import 포함).
+  - 2장의 의존 방향(`state/` → Controller·씬·`view/` 런타임 import 포함)과 `state/`·`rhythm/`·`data/`·2.1 순수 모듈의 DOM·타이머·시계 전역 사용.
   - 정확히 판별되는 그리기 규칙: Phaser 파일에서 `state/` 타입을 변경 비교 함수로 비교, `state/` 타입 객체 필드 쓰기, 위젯의 `state/` 타입 가변 필드, Graphics·경로 Shape를 표시 목록에 만들기.
-- `scripts/convention-check.sh`(`eslint.fast-check.config.mjs`)는 피처 리뷰 전에 변경 파일만 검사한다: 5.4의 Boolean 이름과 `time`·`offset`·`duration`·`size` 단독 이름, 테스트에서 결과를 버리는 `arr[i]?.f()`(5.5).
+  - 5.3의 두 값 union `switch`(판별 값이 리터럴 두 개인 `switch`).
+- `npm run lint`는 `scripts/call-depth.mjs`로 5.3의 호출 깊이와 3장 Controller 모양(공개 메서드의 apply 횟수, 공개 메서드끼리 호출, 도우미의 apply 호출)을 검사한다.
+- `eslint.config.mjs`의 5.4 Boolean 이름과 `time`·`offset`·`duration`·`size` 단독 이름, 테스트에서 결과를 버리는 `arr[i]?.f()`(5.5) 규칙은 `scripts/convention-check.sh`가 피처 리뷰 전에 변경 파일에도 돌린다.
 - Vitest는 단발 실행. 피처의 unit targeted_test에 구체적인 테스트 경로를 명시한다.
 - 테스트 skip·passWithNoTests·린트/타입 설정 완화로 게이트를 우회하지 않고, 테스트 없는 상태를 성공으로 치지 않는다.
 - 테스트는 `tests/<src 하위 폴더>/<파일명>.test.ts`로 src 구조를 따르고, 흐름을 소유한 단위(Controller·Session·화면 상태 모듈·I/O·lifecycle 클래스·backend·서버)의 외부 관찰 가능한 동작을 검증한다. 순수 함수·헬퍼는 단독 테스트하지 않고 경계값도 그 흐름을 거쳐 검증한다. 프레임워크 렌더링은 테스트하지 않는다.
+- 테스트 입력은 화면에서 닿는 공개 진입으로만 넣는다(팝업 배경이 가린 버튼처럼 닿지 않는 입력은 넣지 않는다).
 - 커버리지·private 상태·내부 호출 횟수를 위한 테스트는 만들지 않는다(외부 I/O 횟수가 명시적 계약이면 가능). 테스트를 위해 export하거나 운영 코드를 빼거나 추상화하지 않는다.
 - `vi.mock` 금지. 대역은 직접 만든 객체, 시간은 값으로 주입한다. fake timer는 브라우저 타이머를 직접 쓰는 I/O 경계(`backend/`·`audio/`·`storage/`) 테스트에만.
 

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { AuthUser } from '../../../src/data/account.js';
+import { parseNickname } from '../../../src/data/nickname.js';
 import type { Language } from '../../../src/i18n/language.js';
 import { SettingsController } from '../../../src/game/settings/SettingsController.js';
 import type { SettingsRow } from '../../../src/game/settings/state/settingsAdjust.js';
@@ -65,6 +67,14 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+const USER: AuthUser = {
+  id: 'user1',
+  email: 'player@example.com',
+  nickname: requireDefined(parseNickname('Star'), 'Invalid test nickname', 'Star'),
+  isEditor: false,
+  featuredAchievement: null,
+};
+
 type Event =
   | { readonly kind: 'save'; readonly settings: Settings }
   | { readonly kind: 'sound'; readonly sound: SoundEffect; readonly settings: Settings }
@@ -82,14 +92,20 @@ interface Harness {
   failSave(): void;
   leaveCount(): number;
   profileOpenCount(): number;
+  signInCount(): number;
+  accountRenderCount(): number;
   clickSoundCount(): number;
   closeSoundCount(): number;
   renders(): Extract<Event, { kind: 'render' }>[];
   lastRender(): Extract<Event, { kind: 'render' }>;
 }
 
-function createHarness(): Harness {
+function createHarness(
+  signIn: () => Promise<AuthUser | null> = () => Promise.resolve(null),
+): Harness {
   let profileOpenCount = 0;
+  let signInCount = 0;
+  let accountRenderCount = 0;
   const events: Event[] = [];
   const languageChanges: { language: Language; response: Pending<void> }[] = [];
   const backgroundVolumes: Settings[] = [];
@@ -116,6 +132,10 @@ function createHarness(): Harness {
         });
         return response.promise;
       },
+      signIn: () => {
+        signInCount += 1;
+        return signIn();
+      },
     },
     {
       render: (previous, next) =>
@@ -137,11 +157,15 @@ function createHarness(): Harness {
       openProfile: () => {
         profileOpenCount += 1;
       },
+      renderAccount: () => {
+        accountRenderCount += 1;
+      },
     },
     ROWS,
     DEFAULT_SETTINGS,
     'ko',
   );
+  controller.start();
   const renders = () =>
     events.filter((event): event is Extract<Event, { kind: 'render' }> => event.kind === 'render');
   return {
@@ -154,6 +178,8 @@ function createHarness(): Harness {
     },
     leaveCount: () => leaveCount,
     profileOpenCount: () => profileOpenCount,
+    signInCount: () => signInCount,
+    accountRenderCount: () => accountRenderCount,
     clickSoundCount: () => countSounds(events, 'click'),
     closeSoundCount: () => countSounds(events, 'close'),
     renders,
@@ -198,8 +224,8 @@ describe('SettingsController', () => {
 
     click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
-    expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'sound', 'sound', 'render']);
-    const sound = requireDefined(harness.events[3], 'Missing focus sound', 3);
+    expect(kinds(harness.events)).toEqual(['render', 'save', 'sound', 'sound', 'render']);
+    const sound = requireDefined(harness.events[2], 'Missing focus sound', 2);
     expect(sound.kind === 'sound' && sound.sound).toBe('menuFocus');
     expect(sound.kind === 'sound' && sound.settings.backgroundVolume).toBe(0.9);
   });
@@ -209,14 +235,7 @@ describe('SettingsController', () => {
 
     click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
-    expect(kinds(harness.events)).toEqual([
-      'render',
-      'render',
-      'render',
-      'save',
-      'sound',
-      'render',
-    ]);
+    expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'sound', 'render']);
     expect(harness.clickSoundCount()).toBe(1);
   });
 
@@ -338,7 +357,7 @@ describe('SettingsController', () => {
 
     click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
-    expect(harness.renders()).toHaveLength(4);
+    expect(harness.renders()).toHaveLength(3);
     expect(harness.lastRender().next.settings.backgroundVolume).toBe(0.9);
   });
 
@@ -364,7 +383,7 @@ describe('SettingsController', () => {
 
     click(harness, getStepButton(VOLUME_INDEX, 'previous'));
 
-    expect(kinds(harness.events)).toEqual(['render', 'render', 'sound', 'render']);
+    expect(kinds(harness.events)).toEqual(['render', 'sound', 'render']);
     expect(harness.closeSoundCount()).toBe(1);
     expect(harness.lastRender().next.mode).toEqual({ kind: 'browsing' });
     expect(harness.lastRender().next.settings).toBe(DEFAULT_SETTINGS);
@@ -378,13 +397,13 @@ describe('SettingsController', () => {
 
     click(harness, 'resetAccept');
 
-    expect(kinds(harness.events)).toEqual(['render', 'render', 'save', 'sound', 'render']);
+    expect(kinds(harness.events)).toEqual(['render', 'save', 'sound', 'render']);
   });
 
   it('leaves on back while browsing', () => {
     const harness = createHarness();
 
-    harness.controller.back();
+    harness.controller.handleMenuKey('back');
 
     expect(harness.leaveCount()).toBe(1);
   });
@@ -393,7 +412,7 @@ describe('SettingsController', () => {
     const harness = createHarness();
     click(harness, getKeyBoxButton(KEY_INDEX));
 
-    harness.controller.back();
+    harness.controller.handleMenuKey('back');
 
     expect(harness.leaveCount()).toBe(0);
     expect(harness.lastRender().next.mode).toEqual({ kind: 'browsing' });
@@ -451,7 +470,7 @@ describe('SettingsController prompt sounds', () => {
 
     harness.controller.handleControlsKey(H_KEY);
     harness.controller.handleControlsKey(H_KEY);
-    harness.controller.back();
+    harness.controller.handleMenuKey('back');
 
     expect(harness.clickSoundCount()).toBe(1);
     expect(harness.closeSoundCount()).toBe(2);
@@ -495,7 +514,7 @@ describe('SettingsController controls', () => {
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
     expect(isOpen()).toBe(false);
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
     expect(isOpen()).toBe(false);
   });
@@ -511,6 +530,21 @@ describe('SettingsController button pointer', () => {
     harness.controller.pointerUp('back');
 
     expect(harness.leaveCount()).toBe(1);
+  });
+
+  it('neither changes the settings nor plays a sound for the input offset help', () => {
+    const harness = createHarness();
+
+    harness.controller.pointerOver('inputOffsetHelp');
+    harness.controller.pointerDown('inputOffsetHelp');
+    harness.controller.pointerUp('inputOffsetHelp');
+
+    expect(harness.lastRender().next.settings).toBe(DEFAULT_SETTINGS);
+    expect(harness.lastRender().next.mode).toEqual({ kind: 'browsing' });
+    expect(harness.events.some((event) => event.kind === 'sound' || event.kind === 'save')).toBe(
+      false,
+    );
+    expect(harness.leaveCount()).toBe(0);
   });
 
   it('does not run the button for an up that was pressed elsewhere', () => {
@@ -559,14 +593,14 @@ describe('SettingsController button pointer', () => {
     click(harness, 'resetEntry');
     harness.controller.pointerOver('resetCancel');
 
-    harness.controller.back();
+    harness.controller.handleMenuKey('back');
 
     expect(harness.lastRender().next.hover).toBeNull();
   });
 
   it('releases the hover of the close button when the controls close', () => {
     const harness = createHarness();
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     harness.controller.pointerOver('controlsClose');
 
     harness.controller.handleControlsKey(ESCAPE_KEY);
@@ -583,5 +617,30 @@ describe('SettingsController button pointer', () => {
 
     expect(harness.leaveCount()).toBe(0);
     expect(harness.clickSoundCount()).toBe(1);
+  });
+
+  it('signs in from the guest account button and redraws the account', async () => {
+    const harness = createHarness(() => Promise.resolve(USER));
+
+    harness.controller.pointerOver('accountSignIn');
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    expect(harness.signInCount()).toBe(1);
+    expect(harness.clickSoundCount()).toBe(1);
+    await flush();
+
+    expect(harness.accountRenderCount()).toBe(1);
+    expect(harness.lastRender().next.hover).toBeNull();
+  });
+
+  it('keeps the guest account when sign-in is cancelled', async () => {
+    const harness = createHarness();
+
+    harness.controller.pointerDown('accountSignIn');
+    harness.controller.pointerUp('accountSignIn');
+    await flush();
+
+    expect(harness.signInCount()).toBe(1);
+    expect(harness.accountRenderCount()).toBe(0);
   });
 });

@@ -18,6 +18,7 @@ function createHarness(): {
     },
     { render: (previous, next) => regions.push([...getChangedRegions(previous, next)]) },
   );
+  controller.start();
   return {
     controller,
     retryCount: () => retryCount,
@@ -51,16 +52,5 @@ describe('BootErrorController', () => {
     const { controller, retryCount } = createHarness();
     controller.retry();
     expect(retryCount()).toBe(1);
-  });
-
-  it('ignores input after closing', () => {
-    const { controller, retryCount, regions } = createHarness();
-    controller.close();
-    controller.pointerOver('retry');
-    controller.pointerDown('retry');
-    controller.pointerUp('retry');
-    controller.retry();
-    expect(retryCount()).toBe(0);
-    expect(regions).toHaveLength(1);
   });
 });

@@ -8,7 +8,8 @@ import type {
 } from '../../../celestial/state/celestialCatalog.js';
 import { addCelestialSprite } from '../../../celestial/view/celestialSprites.js';
 import { formatLaneCount } from '../../state/format.js';
-import { addBrushRect } from '../textures/brushRect.js';
+import { getBrushRectTexture } from '../textures/brushRect.js';
+import type { BrushRectLook } from '../textures/brushRect.js';
 import { CELESTIAL_COLORS, COLORS, TYPE_SCALE, typeStyle } from '../theme.js';
 import { addVerticalDivider } from './verticalDivider.js';
 import type { TextTabsLayout, TextTabsStyle } from './TextTabs.js';
@@ -167,15 +168,30 @@ export function renderLaneMarks(
   const dividerXPx = categoryText.x + categoryText.width + INFO_DIVIDER_GAP_PX;
   marks.divider.setPosition(dividerXPx, centerYPx).setVisible(true);
   const firstStarXPx = dividerXPx + INFO_DIVIDER_GAP_PX + LANE_STAR_STEP_PX / 2;
-  marks.stars.forEach((star, index) => {
+  for (const [index, star] of marks.stars.entries()) {
     star
       .setPosition(firstStarXPx + index * LANE_STAR_STEP_PX, centerYPx)
       .setVisible(index < laneCount);
-  });
+  }
   marks.text
     .setText(formatLaneCount(laneCount))
     .setPosition(firstStarXPx + (laneCount - 1) * LANE_STAR_STEP_PX + LANE_TEXT_GAP_PX, centerYPx)
     .setVisible(true);
+}
+
+export function getGlassPanelLook(
+  widthPx: number,
+  heightPx: number,
+  radiusPx: number,
+): BrushRectLook {
+  return {
+    widthPx,
+    heightPx,
+    radiusPx,
+    fillColor: LIST_PANEL.fill,
+    fillAlpha: LIST_PANEL.fillAlpha,
+    border: null,
+  };
 }
 
 export function addGlassPanel(
@@ -188,14 +204,12 @@ export function addGlassPanel(
   },
   radiusPx: number,
 ): Phaser.GameObjects.Image {
-  return addBrushRect(scene, {
-    widthPx: area.widthPx,
-    heightPx: area.heightPx,
-    radiusPx,
-    fillColor: LIST_PANEL.fill,
-    fillAlpha: LIST_PANEL.fillAlpha,
-    border: null,
-  })
+  return scene.add
+    .image(
+      0,
+      0,
+      getBrushRectTexture(scene, getGlassPanelLook(area.widthPx, area.heightPx, radiusPx)),
+    )
     .setOrigin(0, 0)
     .setPosition(area.xPx, area.yPx);
 }

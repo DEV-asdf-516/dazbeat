@@ -36,11 +36,11 @@ export function redrawTextsWhenFontsLoad(game: Phaser.Game): void {
 }
 
 function redrawTexts(objects: readonly Phaser.GameObjects.GameObject[]): void {
-  objects.forEach((object) => {
+  for (const object of objects) {
     if (object instanceof Phaser.GameObjects.Text) {
       object.updateText();
     } else if (object instanceof Phaser.GameObjects.Container) {
       redrawTexts(object.list);
     }
-  });
+  }
 }

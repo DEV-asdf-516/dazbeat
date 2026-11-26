@@ -16,10 +16,12 @@ import { preparePlay } from './backend/playSessions.js';
 import {
   changeNickname,
   isNicknameAvailable,
+  loadMyRankings,
+  loadMyTopRanks,
   loadProfile,
   setFeaturedAchievement,
-} from './backend/profile.js';
-import { loadLeaderboard, loadMyRankings, loadMyTopRanks } from './backend/rankings.js';
+} from './backend/me.js';
+import { loadLeaderboard, reportGuestPlayer } from './backend/rankings.js';
 import { loadSongBatch } from './backend/songLoader.js';
 import type { AchievementCatalog } from './data/achievements.js';
 import type { PreparedChart } from './data/playSession.js';
@@ -90,6 +92,24 @@ async function loadSongCatalog(): Promise<{
     loadAllBatch: createLoader('all'),
     achievements: await loadAchievementCatalog(pb),
   };
+}
+
+// 선택 설정이라 없거나 잘못된 주소는 경고만 남기고 CREDITS 에서 PRIVACY 를 뺀다.
+function readPrivacyPolicyUrl(): string | null {
+  const url = import.meta.env.VITE_PRIVACY_POLICY_URL;
+  if (url === undefined || url === '') {
+    return null;
+  }
+  try {
+    if (new URL(url).protocol === 'https:') {
+      return url;
+    }
+  } catch (error) {
+    console.warn('VITE_PRIVACY_POLICY_URL is not a valid URL', error);
+    return null;
+  }
+  console.warn('VITE_PRIVACY_POLICY_URL must use https', url);
+  return null;
 }
 
 async function fetchJson(url: string): Promise<unknown> {
@@ -187,6 +207,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
     const playRecords = new PlayRecords(pb, achievements);
     const rankedPlay: RankedPlay = {
       submit: (sessionId, submission) => playRecords.submit(sessionId, submission),
+      reportGuestPlayer: (chartId, chartRevision) => reportGuestPlayer(pb, chartId, chartRevision),
     };
     const profilePorts: ProfilePorts = {
       isSignedIn: () => getCurrentUser(pb) !== null,
@@ -205,6 +226,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       loadRevisionNotices: () => save.loadRevisionNotices(),
       saveRevisionNotice: (chartId, chartRevision) =>
         save.saveRevisionNotice(chartId, chartRevision),
+      signIn: () => auth.signIn(),
     };
     const editorCharts: ChartCatalog = {
       loadChart: (ref) => loadChart(pb, ref),
@@ -235,6 +257,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
         const user = getCurrentUser(pb);
         return user === null ? null : getAccountIdentity(user, achievements);
       },
+      signIn: () => auth.signIn(),
       catalog: achievements,
     };
     // Phaser 는 webgl 컨텍스트를 못 만들 때만 Canvas 로 그리므로, 이 검사가 Canvas 렌더러까지 잡는다.
@@ -258,8 +281,8 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
       },
     };
     const scenes = [
-      new MainScene(save, i18n, auth, celestial, achievements, accelerationNotice),
-      new CreditsScene(save, catalog, i18n, celestial, account),
+      new MainScene(save, i18n, auth, celestial, achievements, accelerationNotice, __APP_VERSION__),
+      new CreditsScene(save, catalog, i18n, celestial, account, readPrivacyPolicyUrl()),
       new SongSelectScene(
         save,
         mvLayer,
@@ -286,7 +309,7 @@ await Promise.all([loadSongCatalog(), celestialLoad]).then(
         rankedPlay,
         isSoftwareRendering,
       ),
-      new ResultScene(save, i18n, celestial, achievements, account),
+      new ResultScene(save, i18n, celestial, achievements, account, auth),
       new ChartEditorSelectScene(editorFeeds, auth, i18n, celestial),
       new ChartEditorScene(save, mvLayer, editorCharts, auth, i18n, celestial),
     ];

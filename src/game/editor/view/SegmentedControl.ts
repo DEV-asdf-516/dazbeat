@@ -113,27 +113,24 @@ export class SegmentedControl<T extends string | number> {
   renderIndicator(value: T, motion: 'snap' | 'slide'): void {
     const targetXPx = this.requireSegment(value).centerXPx;
     this.scene.tweens.killTweensOf(this.indicator);
-    switch (motion) {
-      case 'snap':
-        this.indicator.setX(targetXPx);
-        return;
-      case 'slide':
-        this.scene.tweens.add({
-          targets: this.indicator,
-          x: targetXPx,
-          duration: MOTION.fastMs,
-          ease: 'Cubic.Out',
-        });
-        return;
+    if (motion === 'snap') {
+      this.indicator.setX(targetXPx);
+      return;
     }
+    this.scene.tweens.add({
+      targets: this.indicator,
+      x: targetXPx,
+      duration: MOTION.fastMs,
+      ease: 'Cubic.Out',
+    });
   }
 
   renderSegments(appearanceOf: (value: T) => SegmentAppearance): void {
-    this.segments.forEach(({ option, label, glyph }) => {
+    for (const { option, label, glyph } of this.segments) {
       const color = SEGMENT_COLORS[appearanceOf(option.value)];
       setTextColor(label, color);
       glyph?.setTint(color);
-    });
+    }
   }
 
   private requireSegment(value: T): Segment<T> {

@@ -61,7 +61,7 @@ function readCharts(record: RecordModel): SongCharts {
     throw new Error(`Invalid songs record ${record.id}: ${path} ${reason}`);
   }
   const charts: SongCharts = {};
-  (result.data?.charts_via_song ?? []).forEach(({ id, difficulty, laneCount, level }) => {
+  for (const { id, difficulty, laneCount, level } of result.data?.charts_via_song ?? []) {
     charts[laneCount] = {
       ...charts[laneCount],
       [difficulty]: {
@@ -69,7 +69,7 @@ function readCharts(record: RecordModel): SongCharts {
         level,
       },
     };
-  });
+  }
   return charts;
 }
 

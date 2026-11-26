@@ -73,6 +73,11 @@ export const PLAY_SESSIONS = collectionSpec('play_sessions', [
   'laneCount',
 ]);
 export const PLAY_SESSION_QUOTAS = collectionSpec('play_session_quotas', ['user']);
+export const GUEST_PLAYER_COUNTS = collectionSpec('guest_player_counts', [
+  'chart',
+  'chartRevision',
+  'playerCount',
+]);
 export const USERS = collectionSpec('users', ['id', 'email', 'nickname', 'featuredAchievement']);
 export const PLAY_RESULTS = collectionSpec('play_results', [
   'id',

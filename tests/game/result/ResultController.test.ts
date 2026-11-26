@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { AuthUser } from '../../../src/data/account.js';
+import { parseNickname } from '../../../src/data/nickname.js';
 import type { AchievementId, NamedAchievementDefinition } from '../../../src/data/achievements.js';
 import type { RankingSubmission } from '../../../src/data/playSession.js';
 import type { PlayReview } from '../../../src/data/ranking.js';
@@ -81,7 +83,29 @@ interface Harness {
   closeSoundCount(): number;
   last(): ResultState;
   submit(submission: RankingSubmission): void;
+  signInCount(): number;
+  markShownCount(): number;
+  accountRenderCount(): number;
+  leave(): void;
 }
+
+interface GuestNoticeSetup {
+  readonly isShown: boolean;
+  readonly signIn: () => Promise<AuthUser | null>;
+}
+
+const USER: AuthUser = {
+  id: 'user1',
+  email: 'player@example.com',
+  nickname: requireDefined(parseNickname('Star'), 'Invalid test nickname', 'Star'),
+  isEditor: false,
+  featuredAchievement: null,
+};
+
+const SHOWN_GUEST_NOTICE: GuestNoticeSetup = {
+  isShown: true,
+  signIn: () => Promise.resolve(null),
+};
 
 const UNRANKED: PlayReview = {
   kind: 'approved',
@@ -126,11 +150,16 @@ function createHarness(
   rankingKind: ResultRanking['kind'] = 'submitted',
   played: ChartRef = EASY,
   report: ResultReport = { kind: 'graded' },
+  guestNotice: GuestNoticeSetup = SHOWN_GUEST_NOTICE,
 ): Harness {
+  let signInCount = 0;
+  let markShownCount = 0;
+  let accountRenderCount = 0;
   const renders: { previous: ResultState | null; next: ResultState }[] = [];
   const leaves: SceneRequest[] = [];
   const sounds: SoundEffect[] = [];
   let profileOpenCount = 0;
+  let isLeaving = false;
   const profileRankings: ResultRanking[] = [];
   let resolve: (submission: RankingSubmission) => void = () => {};
   const submission = new Promise<RankingSubmission>((resolveSubmission) => {
@@ -156,16 +185,34 @@ function createHarness(
         profileOpenCount += 1;
         profileRankings.push(awaitedRanking);
       },
+      renderAccount: () => {
+        accountRenderCount += 1;
+      },
+      isLeaving: () => isLeaving,
     },
     played,
     origin,
     ranking,
     report,
+    {
+      isShown: () => guestNotice.isShown,
+      markShown: () => {
+        markShownCount += 1;
+      },
+      signIn: () => {
+        signInCount += 1;
+        return guestNotice.signIn();
+      },
+    },
   );
+  controller.start();
   return {
     controller,
     renders,
     leaves,
+    leave: () => {
+      isLeaving = true;
+    },
     profileOpenCount: () => profileOpenCount,
     profileRankings: () => profileRankings,
     focusSoundCount: () => sounds.filter((sound) => sound === 'menuFocus').length,
@@ -173,6 +220,9 @@ function createHarness(
     closeSoundCount: () => sounds.filter((sound) => sound === 'close').length,
     last: () => requireDefined(renders.at(-1), 'Missing render', renders.length).next,
     submit: (submitted) => resolve(submitted),
+    signInCount: () => signInCount,
+    markShownCount: () => markShownCount,
+    accountRenderCount: () => accountRenderCount,
   };
 }
 
@@ -221,10 +271,10 @@ describe('ResultController', () => {
       ]);
     });
 
-    it('draws nothing for an empty list', async () => {
+    it('shows no toast for an empty list', async () => {
       const harness = await withAchievements([]);
 
-      expect(harness.renders).toHaveLength(1);
+      expect(harness.last().toasts).toBe(harness.renders[0]?.next.toasts);
     });
 
     it('ignores a submission result that arrives after close', async () => {
@@ -489,6 +539,18 @@ describe('ResultController', () => {
       });
     });
 
+    it('keeps the retry chart when a difficulty tab is selected while leaving', () => {
+      const harness = createHarness();
+      harness.leave();
+      const renderCount = harness.renders.length;
+
+      harness.controller.selectDifficulty('hard');
+
+      expect(harness.renders).toHaveLength(renderCount);
+      expect(harness.last().retryChart.chartId).toBe('easy.json');
+      expect(harness.clickSoundCount()).toBe(0);
+    });
+
     it('changes the retry chart by selecting and stepping difficulties', () => {
       const harness = createHarness();
 
@@ -556,7 +618,7 @@ describe('ResultController controls', () => {
     expect(harness.controller.handleControlsKey(DOWN_KEY)).toBe(true);
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(true);
     expect(harness.last().controls).toBe('closed');
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(true);
     expect(harness.last().controls).toBe('closed');
   });
@@ -611,7 +673,7 @@ describe('ResultController button pointer', () => {
     harness.controller.pointerUp('controlsClose');
     expect(harness.last().controls).toBe('closed');
 
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     harness.controller.pointerDown('controlsBackdrop');
     harness.controller.pointerUp('controlsBackdrop');
     expect(harness.last().controls).toBe('closed');
@@ -619,7 +681,7 @@ describe('ResultController button pointer', () => {
 
   it('releases the hover of the close button when the controls close', () => {
     const harness = createHarness();
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
     harness.controller.pointerOver('controlsClose');
 
     harness.controller.handleControlsKey(ESCAPE_KEY);
@@ -629,7 +691,7 @@ describe('ResultController button pointer', () => {
 });
 
 describe('ResultController ranking notice', () => {
-  const ENTER_KEY = {
+  const enterKey = {
     code: 'Enter',
     repeat: false,
   };
@@ -686,7 +748,7 @@ describe('ResultController ranking notice', () => {
 
   it('closes the controls guide when the notice opens', async () => {
     const harness = createHarness();
-    harness.controller.openControls();
+    harness.controller.handleControlsKey(H_KEY);
 
     harness.submit({ kind: 'unknown' });
     await flush();
@@ -717,11 +779,9 @@ describe('ResultController ranking notice', () => {
 
     harness.controller.moveFocus('next');
     harness.controller.stepDifficulty('next');
-    harness.controller.selectDifficulty('hard');
-    harness.controller.openControls();
 
     expect(harness.controller.handleControlsKey(H_KEY)).toBe(false);
-    expect(harness.controller.handleControlsKey(ENTER_KEY)).toBe(false);
+    expect(harness.controller.handleControlsKey(enterKey)).toBe(false);
     expect(harness.controller.handleControlsKey(ESCAPE_KEY)).toBe(false);
     expect(harness.last()).toBe(state);
     expect(harness.leaves).toEqual([]);
@@ -769,6 +829,8 @@ describe('ResultController ranking notice', () => {
         playSound: () => undefined,
         leave: () => undefined,
         openProfile: () => undefined,
+        renderAccount: () => undefined,
+        isLeaving: () => false,
       },
       EASY,
       {
@@ -782,7 +844,12 @@ describe('ResultController ranking notice', () => {
         submission,
       },
       { kind: 'graded' },
-    );
+      {
+        isShown: () => true,
+        markShown: () => undefined,
+        signIn: () => Promise.resolve(null),
+      },
+    ).start();
     await submission;
     await Promise.resolve();
 
@@ -813,5 +880,176 @@ describe('ResultController ranking notice', () => {
     expect(harness.profileOpenCount()).toBe(1);
     expect(harness.leaves).toEqual([]);
     expect(harness.clickSoundCount()).toBe(1);
+  });
+});
+
+describe('ResultController record status', () => {
+  it.each([
+    ['submitted', 'checking'],
+    ['local', 'none'],
+    ['none', 'none'],
+    ['issueFailed', 'none'],
+  ] as const)('shows %s as %s from the first render', (rankingKind, recordStatus) => {
+    const harness = createHarness(undefined, rankingKind);
+
+    expect(harness.renders).toHaveLength(1);
+    expect(harness.last().recordStatus).toBe(recordStatus);
+  });
+
+  it('stops checking and queues the toasts when a saved submission arrives', async () => {
+    const harness = await withAchievements([FIRST_FINISH]);
+
+    expect(harness.last().recordStatus).toBe('none');
+    expect(harness.last().toasts.shown).toHaveLength(1);
+  });
+
+  it('stops checking when a saved submission arrives without toasts', async () => {
+    const harness = await withAchievements([]);
+
+    expect(harness.renders).toHaveLength(2);
+    expect(harness.last().recordStatus).toBe('none');
+  });
+
+  it.each(['rejected', 'unknown'] as const)(
+    'stops checking and opens the %s notice',
+    async (kind) => {
+      const harness = createHarness();
+
+      harness.submit({ kind });
+      await flush();
+
+      expect(harness.last()).toMatchObject({
+        recordStatus: 'none',
+        rankingNotice: kind,
+      });
+    },
+  );
+
+  it.each([
+    ['local', false, { kind: 'local' }],
+    ['issueFailed', true, { kind: 'none' }],
+  ] as const)('hands %s to the profile', (rankingKind, hasNotice, expected) => {
+    const harness = createHarness(undefined, rankingKind);
+    if (hasNotice) {
+      harness.controller.pointerDown('noticeClose');
+      harness.controller.pointerUp('noticeClose');
+    }
+
+    harness.controller.pointerDown('accountProfile');
+    harness.controller.pointerUp('accountProfile');
+
+    expect(harness.profileRankings()).toEqual([expected]);
+  });
+});
+
+describe('ResultController guest notice', () => {
+  const standardOrigin: PlayOrigin = {
+    kind: 'songSelect',
+    mode: 'standard',
+    quitKey: 'confirm',
+    start: { kind: 'whole' },
+  };
+
+  function createGuestHarness(
+    signIn: () => Promise<AuthUser | null> = () => Promise.resolve(null),
+    rankingKind: ResultRanking['kind'] = 'local',
+    isShown = false,
+  ): Harness {
+    return createHarness(
+      standardOrigin,
+      rankingKind,
+      EASY,
+      { kind: 'graded' },
+      {
+        isShown,
+        signIn,
+      },
+    );
+  }
+
+  it('opens once on the first local record and marks it shown', () => {
+    const harness = createGuestHarness();
+
+    expect(harness.last().isGuestNoticeOpen).toBe(true);
+    expect(harness.markShownCount()).toBe(1);
+  });
+
+  it.each([
+    ['an already shown notice', 'local', true],
+    ['a run without a saved record', 'none', false],
+    ['a signed-in submission', 'submitted', false],
+    ['a failed session issue', 'issueFailed', false],
+  ] as const)('stays closed for %s', (_label, rankingKind, isShown) => {
+    const harness = createGuestHarness(undefined, rankingKind, isShown);
+
+    expect(harness.last().isGuestNoticeOpen).toBe(false);
+    expect(harness.markShownCount()).toBe(0);
+  });
+
+  it('closes on later without signing in', () => {
+    const harness = createGuestHarness();
+
+    harness.controller.pointerDown('guestNoticeLater');
+    harness.controller.pointerUp('guestNoticeLater');
+
+    expect(harness.last().isGuestNoticeOpen).toBe(false);
+    expect(harness.signInCount()).toBe(0);
+    expect(harness.closeSoundCount()).toBe(1);
+  });
+
+  it('closes on back without leaving the result', () => {
+    const harness = createGuestHarness();
+
+    harness.controller.back();
+
+    expect(harness.last().isGuestNoticeOpen).toBe(false);
+    expect(harness.leaves).toEqual([]);
+    expect(harness.signInCount()).toBe(0);
+  });
+
+  it('signs in from confirm and renders the account once signed in', async () => {
+    const harness = createGuestHarness(() => Promise.resolve(USER));
+
+    harness.controller.confirm();
+
+    expect(harness.signInCount()).toBe(1);
+    expect(harness.last().isGuestNoticeOpen).toBe(false);
+    expect(harness.leaves).toEqual([]);
+    await flush();
+    expect(harness.accountRenderCount()).toBe(1);
+  });
+
+  it.each([
+    ['is cancelled', () => Promise.resolve(null)],
+    ['fails', () => Promise.reject(new Error('popup closed'))],
+  ] as const)('closes the notice when sign-in %s', async (_label, signIn) => {
+    const harness = createGuestHarness(signIn);
+
+    harness.controller.pointerDown('guestNoticeSignIn');
+    harness.controller.pointerUp('guestNoticeSignIn');
+    await flush();
+
+    expect(harness.signInCount()).toBe(1);
+    expect(harness.last().isGuestNoticeOpen).toBe(false);
+  });
+
+  it('ignores menu and difficulty keys while open', () => {
+    const harness = createGuestHarness();
+    const before = harness.last();
+
+    harness.controller.moveFocus('next');
+    harness.controller.stepDifficulty('next');
+
+    expect(harness.last()).toBe(before);
+  });
+
+  it('ignores a sign-in that finishes after the result closed', async () => {
+    const harness = createGuestHarness(() => Promise.resolve(USER));
+
+    harness.controller.confirm();
+    harness.controller.close();
+    await flush();
+
+    expect(harness.accountRenderCount()).toBe(0);
   });
 });

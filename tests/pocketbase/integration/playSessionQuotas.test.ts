@@ -15,7 +15,7 @@ const GAME_END_MS = 5_000;
 // Longer than the minimum elapsed time (0.9 × play duration) of a 5 s song.
 const ELAPSED_PLAY_MS = 10_000;
 const ISSUE_LIMIT = 20;
-const SESSIONS_PATH = '/api/dazbeat/play-sessions';
+const SESSIONS_PATH = '/api/dazbeat/play';
 
 const chart: Chart = {
   songId: SONG_KEY,
@@ -162,7 +162,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 

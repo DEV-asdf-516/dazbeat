@@ -1,6 +1,5 @@
 import type { PlaybackStatus } from '../../../audio/LeadInPlayback.js';
 import type { YouTubeErrorKind } from '../../../audio/YouTubePlayer.js';
-import { filterChangedRegions } from '../../../changedRegions.js';
 import type { StateReader } from '../../../changedRegions.js';
 import { MV_MODES } from '../../../storage/settings.js';
 import type { MvMode } from '../../../storage/settings.js';
@@ -100,23 +99,17 @@ type StatusReader = StateReader<GameplayStatus>;
 const readKind: StatusReader = (status) => status.kind;
 const readDigit: StatusReader = (status) => getStatusView(status).countdownDigit;
 
-const REGION_SOURCES: Readonly<
+export const STATUS_REGION_SOURCES: Readonly<
   Record<Exclude<GameplayStatusRegion, 'countdownPop'>, readonly StatusReader[]>
 > = {
   notice: [readKind],
   countdown: [readDigit],
 };
 
-export function getChangedStatusRegions(
-  previous: GameplayStatus | null,
-  next: GameplayStatus,
-): readonly GameplayStatusRegion[] {
-  const regions: GameplayStatusRegion[] = [...filterChangedRegions(REGION_SOURCES, previous, next)];
+// 숫자가 사라질 때도 팝 트윈을 멈추고 크기를 되돌려야 하므로 숫자가 바뀌면 늘 고른다.
+export function isCountdownPopped(previous: GameplayStatus | null, next: GameplayStatus): boolean {
   const digit = getStatusView(next).countdownDigit;
-  // 숫자가 사라질 때도 팝 트윈을 멈추고 크기를 되돌려야 하므로 숫자가 바뀌면 늘 고른다.
-  const isPopped =
-    previous === null ? digit !== null : getStatusView(previous).countdownDigit !== digit;
-  return isPopped ? [...regions, 'countdownPop'] : regions;
+  return previous === null ? digit !== null : getStatusView(previous).countdownDigit !== digit;
 }
 
 export type LoadErrorMessage =
@@ -249,7 +242,7 @@ export function getGameplayButtonView(
   return getButtonView(buttons.hover, button, true, button === 'back');
 }
 
-export type GameplayButtonRegion = 'backButton' | 'quitConfirmButtons';
+export type GameplayButtonRegion = 'backButton' | 'quitDialog';
 
 type ButtonsReader = StateReader<GameplayButtons>;
 
@@ -260,14 +253,9 @@ function readPointer(button: GameplayButton): readonly ButtonsReader[] {
   ];
 }
 
-const BUTTON_REGION_SOURCES: Readonly<Record<GameplayButtonRegion, readonly ButtonsReader[]>> = {
+export const BUTTON_REGION_SOURCES: Readonly<
+  Record<GameplayButtonRegion, readonly ButtonsReader[]>
+> = {
   backButton: readPointer('back'),
-  quitConfirmButtons: [...readPointer('quitCancel'), ...readPointer('quitAccept')],
+  quitDialog: [...readPointer('quitCancel'), ...readPointer('quitAccept')],
 };
-
-export function getChangedButtonRegions(
-  previous: GameplayButtons | null,
-  next: GameplayButtons,
-): readonly GameplayButtonRegion[] {
-  return filterChangedRegions(BUTTON_REGION_SOURCES, previous, next);
-}

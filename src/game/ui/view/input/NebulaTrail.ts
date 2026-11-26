@@ -1,6 +1,7 @@
 import { advanceTrail, emitTrail, getPuffLook } from '../../state/cursorTrail.js';
 import type { PointPx, TrailPuff } from '../../state/cursorTrail.js';
 import { lerp } from '../../../../range.js';
+import { getEffectStepMs } from '../../../../time.js';
 import { CURSOR_TAIL_OFFSET_PX } from './cursor.js';
 import { rgba } from '../textures/lightTextures.js';
 
@@ -23,8 +24,6 @@ const SPARK_COLOR = 0xfaf6ff;
 const SPARK_RADIUS_PX = 0.9;
 /** 덩이 alpha 가 아주 옅으므로 별빛 점은 그 몇 배로 밝혀 겨우 보이게 한다. */
 const SPARK_ALPHA_SCALE = 7;
-/** 탭 전환 등으로 프레임이 멈췄다 오면 한 번에 다 늙혀 버리지 않도록 자른다. */
-const MAX_FRAME_MS = 50;
 
 export class NebulaTrail {
   private readonly canvas: HTMLCanvasElement;
@@ -32,7 +31,7 @@ export class NebulaTrail {
   private puffs: readonly TrailPuff[] = [];
   private last: PointPx | null = null;
   private frameId: number | null = null;
-  private lastFrameMs = 0;
+  private advancedAtMs = 0;
 
   constructor(parent: HTMLElement) {
     this.canvas = document.createElement('canvas');
@@ -49,6 +48,20 @@ export class NebulaTrail {
     document.addEventListener('pointerleave', () => {
       this.last = null;
     });
+    document.addEventListener('visibilitychange', (event) => this.onVisibilityChange(event));
+  }
+
+  private onVisibilityChange(event: Event): void {
+    if (document.hidden) {
+      this.last = null;
+      if (this.frameId !== null) {
+        cancelAnimationFrame(this.frameId);
+        this.frameId = null;
+      }
+      return;
+    }
+    // 숨김으로 취소된 프레임이 지우지 못한 캔버스를 덩이가 없어도 복귀 첫 프레임이 지운다.
+    this.start(event.timeStamp);
   }
 
   private onPointerMove(event: PointerEvent): void {
@@ -60,30 +73,36 @@ export class NebulaTrail {
       yPx: event.clientY + CURSOR_TAIL_OFFSET_PX.yPx,
     };
     if (this.last !== null) {
+      this.advance(event.timeStamp);
       const next = emitTrail(this.puffs, this.last, point, Math.random);
       if (next === this.puffs) {
         return;
       }
       this.puffs = next;
-      this.start();
+      this.start(event.timeStamp);
     }
     this.last = point;
   }
 
-  private start(): void {
+  // 이벤트 시각이 직전 프레임 시각보다 이를 수 있어, 시계를 되돌리면 그 구간을 두 번 센다.
+  private advance(atMs: number): void {
+    this.puffs = advanceTrail(this.puffs, getEffectStepMs(this.advancedAtMs, atMs));
+    this.advancedAtMs = Math.max(this.advancedAtMs, atMs);
+  }
+
+  private start(atMs: number): void {
     if (this.frameId !== null) {
       return;
     }
-    this.lastFrameMs = performance.now();
-    this.frameId = requestAnimationFrame((nowMs) => this.frame(nowMs));
+    this.advancedAtMs = Math.max(this.advancedAtMs, atMs);
+    this.frameId = requestAnimationFrame((frameAtMs) => this.frame(frameAtMs));
   }
 
-  private frame(nowMs: number): void {
-    const elapsedMs = Math.min(MAX_FRAME_MS, nowMs - this.lastFrameMs);
-    this.lastFrameMs = nowMs;
-    this.puffs = advanceTrail(this.puffs, elapsedMs);
+  private frame(atMs: number): void {
+    this.advance(atMs);
     this.draw();
-    this.frameId = this.puffs.length > 0 ? requestAnimationFrame((next) => this.frame(next)) : null;
+    this.frameId =
+      this.puffs.length > 0 ? requestAnimationFrame((frameAtMs) => this.frame(frameAtMs)) : null;
   }
 
   private draw(): void {

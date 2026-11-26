@@ -107,21 +107,18 @@ async function play(
   chart: RecordModel,
   inputs: readonly InputEvent[],
 ): Promise<{ score: number; accuracy: number; maxCombo: number }> {
-  const { sessionId } = await player.client.send<{ sessionId: string }>(
-    '/api/dazbeat/play-sessions',
-    {
-      method: 'POST',
-      body: {
-        chartId: chart.id,
-        chartRevision: String(chart['revision']),
-      },
+  const { sessionId } = await player.client.send<{ sessionId: string }>('/api/dazbeat/play', {
+    method: 'POST',
+    body: {
+      chartId: chart.id,
+      chartRevision: String(chart['revision']),
     },
-  );
+  });
   // Moves issuedAt into the past so a submission is not rejected as too short without waiting.
   await server.superuser
     .collection('play_sessions')
     .update(sessionId, { issuedAt: new Date(Date.now() - ELAPSED_PLAY_MS).toISOString() });
-  return player.client.send(`/api/dazbeat/play-sessions/${sessionId}/result`, {
+  return player.client.send(`/api/dazbeat/play/${sessionId}/result`, {
     method: 'POST',
     body: {
       inputOffsetMs: 0,
@@ -144,7 +141,7 @@ async function readMyRankingPage(
   cursor: RankedChartCursorItem | null = null,
   sort?: string,
 ): Promise<{ items: RankedChartItem[]; next: RankedChartCursorItem | null }> {
-  return client.send('/api/dazbeat/profile/rankings', {
+  return client.send('/api/dazbeat/me/rankings', {
     method: 'GET',
     query: {
       ...(sort === undefined ? {} : { sort }),
@@ -160,6 +157,27 @@ async function readMyRankingPage(
 
 async function readMyRankings(client: PocketBase): Promise<RankedChartItem[]> {
   return (await readMyRankingPage(client)).items;
+}
+
+async function reportGuestPlayer(
+  client: PocketBase,
+  chartId: string,
+  chartRevision: unknown,
+): Promise<void> {
+  await client.send(`/api/dazbeat/charts/${chartId}/guest`, {
+    method: 'POST',
+    body: { chartRevision },
+  });
+}
+
+async function readGuestPlayerRows(chartId: string): Promise<RecordModel[]> {
+  return server.superuser
+    .collection('guest_player_counts')
+    .getFullList({ filter: server.superuser.filter('chart = {:chartId}', { chartId }) });
+}
+
+async function readRevision(chartId: string): Promise<string> {
+  return String((await server.superuser.collection('charts').getOne(chartId))['revision']);
 }
 
 async function editChart(chart: RankedTestChart): Promise<void> {
@@ -180,7 +198,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 
@@ -399,7 +417,80 @@ describe('GET /api/dazbeat/leaderboards/{chartId}', () => {
   });
 });
 
-describe('GET /api/dazbeat/profile/rankings', () => {
+describe('POST /api/dazbeat/charts/{chartId}/guest', () => {
+  it('adds guests of the current revision to the players and restarts with a new revision', async () => {
+    const chart = await createRankedChart('guest-players');
+    const anonymous = createClient(server.url);
+    const totalPlayers = async () =>
+      (await readLeaderboard(anonymous, chart.record.id)).totalPlayers;
+    const revision = await readRevision(chart.record.id);
+
+    await reportGuestPlayer(anonymous, chart.record.id, revision);
+    await reportGuestPlayer(anonymous, chart.record.id, revision);
+    const player = await newPlayer();
+    await play(player, chart.record, perfectInputs(chart.data));
+    expect(await totalPlayers()).toBe(3);
+
+    await reportGuestPlayer(anonymous, chart.record.id, 'stalerevision');
+    expect(await totalPlayers()).toBe(3);
+
+    await editChart(chart);
+    expect(await totalPlayers()).toBe(0);
+    await reportGuestPlayer(anonymous, chart.record.id, await readRevision(chart.record.id));
+    expect(await totalPlayers()).toBe(1);
+  });
+
+  it('answers alike but counts nothing for an unpublished or missing chart', async () => {
+    const hidden = await createRankedChart('hidden-guest-players', { isPublished: false });
+    const anonymous = createClient(server.url);
+
+    await reportGuestPlayer(anonymous, hidden.record.id, await readRevision(hidden.record.id));
+    await reportGuestPlayer(anonymous, 'missingchart123', 'anyrevision');
+
+    expect(await readGuestPlayerRows(hidden.record.id)).toEqual([]);
+    expect(await readGuestPlayerRows('missingchart123')).toEqual([]);
+  });
+
+  it('rejects a signed-in player and counts nothing', async () => {
+    const chart = await createRankedChart('signed-in-guest-players');
+    const player = await newPlayer();
+
+    await expect(
+      reportGuestPlayer(player.client, chart.record.id, await readRevision(chart.record.id)),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'signed_in_player' },
+    });
+    expect(await readGuestPlayerRows(chart.record.id)).toEqual([]);
+  });
+
+  it('rejects a request without a string revision', async () => {
+    const chart = await createRankedChart('invalid-guest-players');
+
+    await expect(
+      reportGuestPlayer(createClient(server.url), chart.record.id, 7),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'invalid_chart_revision' },
+    });
+  });
+
+  it('drops the count with its chart', async () => {
+    const chart = await createRankedChart('deleted-guest-players');
+    await reportGuestPlayer(
+      createClient(server.url),
+      chart.record.id,
+      await readRevision(chart.record.id),
+    );
+    expect(await readGuestPlayerRows(chart.record.id)).toHaveLength(1);
+
+    await server.superuser.collection('charts').delete(chart.record.id);
+
+    expect(await readGuestPlayerRows(chart.record.id)).toEqual([]);
+  });
+});
+
+describe('GET /api/dazbeat/me/rankings', () => {
   it('lists every current record I played with its rank, inside or outside the top 20', async () => {
     const player = await newPlayer();
     const first = await createRankedChart('mine-first');
@@ -478,10 +569,9 @@ describe('GET /api/dazbeat/profile/rankings', () => {
     expect(second.next).toBeNull();
     expect(new Set([...first.items, ...second.items].map(({ chartId }) => chartId)).size).toBe(21);
 
-    const { items } = await player.client.send<{ items: unknown[] }>(
-      '/api/dazbeat/profile/top-ranks',
-      { method: 'GET' },
-    );
+    const { items } = await player.client.send<{ items: unknown[] }>('/api/dazbeat/me/top-ranks', {
+      method: 'GET',
+    });
     expect(items).toHaveLength(21);
   });
 
@@ -689,7 +779,7 @@ describe('GET /api/dazbeat/profile/rankings', () => {
     }
 
     const { items } = await player.client.send<{ items: RankedChartItem[] }>(
-      '/api/dazbeat/profile/rankings',
+      '/api/dazbeat/me/rankings',
       {
         method: 'GET',
         query: { difficulty: 'hard' },
@@ -699,7 +789,7 @@ describe('GET /api/dazbeat/profile/rankings', () => {
     expect(items.map(({ chartId }) => chartId)).toEqual([hard.id]);
     const readLane = async (laneCount: number) =>
       (
-        await player.client.send<{ items: RankedChartItem[] }>('/api/dazbeat/profile/rankings', {
+        await player.client.send<{ items: RankedChartItem[] }>('/api/dazbeat/me/rankings', {
           method: 'GET',
           query: { laneCount },
         })
@@ -708,7 +798,7 @@ describe('GET /api/dazbeat/profile/rankings', () => {
     expect(await readLane(5)).toHaveLength(0);
     await expect(readLane(7)).rejects.toMatchObject({ status: 400 });
     await expect(
-      player.client.send('/api/dazbeat/profile/rankings', {
+      player.client.send('/api/dazbeat/me/rankings', {
         method: 'GET',
         query: { difficulty: 'insane' },
       }),
@@ -737,7 +827,7 @@ describe('GET /api/dazbeat/profile/rankings', () => {
     const player = await newPlayer();
 
     await expect(
-      player.client.send('/api/dazbeat/profile/rankings', {
+      player.client.send('/api/dazbeat/me/rankings', {
         method: 'GET',
         query: { afterValue: 1 },
       }),
@@ -751,9 +841,9 @@ describe('GET /api/dazbeat/profile/rankings', () => {
   });
 });
 
-describe('GET /api/dazbeat/profile/records', () => {
+describe('GET /api/dazbeat/me/records', () => {
   function readMyRecords(client: PocketBase): Promise<{ items: Record<string, unknown>[] }> {
-    return client.send('/api/dazbeat/profile/records', { method: 'GET' });
+    return client.send('/api/dazbeat/me/records', { method: 'GET' });
   }
 
   function recordOf(

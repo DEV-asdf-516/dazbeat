@@ -1,8 +1,10 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import {
+  getControlsCloseView,
   getControlsGuide,
   getControlsHelpButtonView,
+  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
 } from '../app/controlsGuide.js';
@@ -17,6 +19,7 @@ import { isChoiceRow } from './state/settingsRowView.js';
 import { STAYING } from '../app/sceneExit.js';
 import type { SceneExit } from '../app/sceneExit.js';
 import { SettingsController } from './SettingsController.js';
+import type { SettingsScreen } from './SettingsController.js';
 import {
   getBackButtonView,
   getChangedRegions,
@@ -27,27 +30,19 @@ import {
   getResetDialogButtonViews,
   getRowAppearance,
   getRowValue,
-  getSettingsControlsCloseView,
   getStepButton,
   getStepView,
   getVolumeMeterView,
   getWaitingLane,
   isResetEntryHovered,
   isRowShownAt,
-  isSettingsControlsEntryHovered,
 } from './state/settingsEditorState.js';
-import type {
-  MuteToggleTone,
-  SettingsButton,
-  SettingsEditorState,
-  SettingsRegion,
-} from './state/settingsEditorState.js';
+import type { MuteToggleTone } from './state/settingsEditorState.js';
 import { Button, SURFACE_BUTTON_COLORS } from '../ui/view/widgets/Button.js';
 import type { SecondaryButtonColors } from '../ui/view/widgets/Button.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import { HOVER_CURSOR } from '../ui/view/input/cursor.js';
 import { bindHoverTarget, bindPointer, pointButton } from '../ui/view/input/hoverTarget.js';
-import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import {
   MENU_KEY_HINT_STYLE,
   createKeyCap,
@@ -79,6 +74,8 @@ import type { AccountSource } from '../ui/state/accountIdentity.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { renderTextEntry } from '../ui/view/widgets/textEntry.js';
+import { HELP_BUTTON, HelpTip } from '../ui/view/widgets/HelpTip.js';
+import { isButtonHovered } from '../ui/state/buttonPointer.js';
 import {
   CELESTIAL_COLORS,
   COLORS,
@@ -210,6 +207,10 @@ const ROW_HEIGHT_PX = 72;
 // 선택 띠는 그룹 제목 선에서 시작하고 열 오른쪽 끝에서 끝난다. 노드와 링(반지름 약 20px)은 띠 안에 둔다.
 const ROW_NODE_OFFSET_X_PX = 28;
 const LABEL_OFFSET_X_PX = ROW_NODE_OFFSET_X_PX + LIST_ROW.nodeOffsetXPx;
+const ROW_HELP_GAP_PX = 12;
+const ROW_HELP_OFFSET_X_PX = ROW_HELP_GAP_PX + HELP_BUTTON.radiusPx + HELP_BUTTON.ringWidthPx;
+// 도움말 판 위끝을 줄 이름 아래끝에서 이만큼 띄운다(시안 ⑦).
+const ROW_HELP_PANEL_GAP_PX = 18;
 const CONTROL_INSET_RIGHT_PX = 16;
 const STEP_SIZE_PX = 48;
 const STEP_GAP_PX = 12;
@@ -266,6 +267,7 @@ interface RowView {
   hitArea: Phaser.GameObjects.Rectangle;
   marker: ListRowMarker;
   label: Phaser.GameObjects.Text;
+  help: HelpTip | null;
   control: RowControl;
 }
 
@@ -316,23 +318,243 @@ export class SettingsScene extends Phaser.Scene {
   create(data: SettingsSceneData): void {
     this.exit = STAYING;
     this.returnTo = data.returnTo;
-    // 컨트롤러는 첫 그림을 위해 view 가 먼저 있어야 하므로, 입력 콜백은 만든 뒤에 불릴 때 컨트롤러를 찾는다.
-    const getController = (): SettingsController => controller;
-    const pointer: ButtonPointer<SettingsButton> = {
-      pointerOver: (button) => controller.pointerOver(button),
-      pointerOut: (button) => controller.pointerOut(button),
-      pointerDown: (button) => controller.pointerDown(button),
-      pointerUp: (button) => controller.pointerUp(button),
+    const screen: SettingsScreen = {
+      render: (previous, next) => {
+        for (const region of getChangedRegions(previous, next)) {
+          switch (region) {
+            case 'title':
+              view.title.setText(this.i18n.t('settings.title'));
+              break;
+            case 'groups':
+              view.groups.forEach(({ group, text }) =>
+                text.setText(this.i18n.t(`settings.groups.${group}`)),
+              );
+              break;
+            case 'rowLabels':
+              for (const { row, index, hitArea, marker, label, help } of view.rows) {
+                const isShown = isRowShownAt(next, index);
+                hitArea.setVisible(isShown);
+                label.setVisible(isShown);
+                help?.container.setVisible(isShown);
+                if (!isShown) {
+                  marker.render(null);
+                  continue;
+                }
+                const appearance = getRowAppearance(next, index);
+                const isSelected = appearance === 'selected';
+                marker.render({
+                  node: this.celestial.atlasPresentations[ROW_NODE_IDS[appearance]],
+                  isSelected,
+                });
+                label.setText(this.formatLabel(row));
+                setTextColor(
+                  label,
+                  appearance === 'normal' ? COLORS.textSecondary : COLORS.textPrimary,
+                );
+                setTextWeight(label, isSelected ? ROW_EMPHASIS_WEIGHT : ROW_LABEL_WEIGHT);
+                const labelRestXPx = COLUMN_LEFT_X_PX[row.column] + LABEL_OFFSET_X_PX;
+                slideSelectedRowContent(this, label, labelRestXPx, isSelected);
+                if (help !== null) {
+                  slideSelectedRowContent(
+                    this,
+                    help.container,
+                    labelRestXPx + label.width + ROW_HELP_OFFSET_X_PX,
+                    isSelected,
+                  );
+                }
+              }
+              break;
+            case 'rowControls':
+              for (const { index, control } of view.rows) {
+                switch (control.kind) {
+                  case 'key': {
+                    const isShown = isRowShownAt(next, index);
+                    control.keyBox.setVisible(isShown);
+                    if (isShown) {
+                      control.keyBox.setContent({
+                        kind: 'label',
+                        label: getRowValue(next, index),
+                      });
+                    }
+                    break;
+                  }
+                  case 'step':
+                    control.value.setText(getRowValue(next, index));
+                    break;
+                  case 'volume':
+                    control.meter.setTexture(
+                      ensureVolumeMeterTexture(this, getVolumeMeterView(next, index)),
+                    );
+                    break;
+                }
+              }
+              break;
+            case 'selectedHalo':
+              view.selectedHalo.render(
+                requireDefined(
+                  view.rows[next.rowIndex],
+                  'Invalid settings row index',
+                  next.rowIndex,
+                ).marker,
+              );
+              break;
+            case 'waitingText': {
+              const waitingLane = getWaitingLane(next);
+              const { container, text, escCap, cancel } = view.waiting;
+              container.setVisible(waitingLane !== null);
+              if (waitingLane === null) {
+                break;
+              }
+              text.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
+              cancel.setText(this.i18n.t('settings.waitingCancel'));
+              const capLeftPx = text.width + MENU_KEY_HINT_STYLE.rowItemGapPx;
+              placeKeyCap(escCap, capLeftPx, 0);
+              cancel.setX(capLeftPx + escCap.cap.width + MENU_KEY_HINT_STYLE.capLabelGapPx);
+              break;
+            }
+            case 'controlsEntry':
+              view.controlsEntry.setVisible(getWaitingLane(next) === null);
+              view.chrome.renderControlsEntry(isControlsEntryHovered(next.hover));
+              break;
+            case 'controlsClose':
+              view.chrome.controls.closeButton.render(getControlsCloseView(next.hover));
+              break;
+            case 'controlsHelpCard':
+              view.chrome.controls.helpCard.render(isControlsHelpShown(next));
+              break;
+            case 'controlsHelpButton':
+              view.chrome.controls.renderHelpButton(getControlsHelpButtonView(next));
+              break;
+            case 'inputOffsetHelp':
+              for (const { help } of view.rows) {
+                help?.render(
+                  {
+                    title: this.i18n.t('settings.rows.inputOffset'),
+                    lines: [
+                      this.i18n.t('settings.rowHelp.inputOffset.meaning'),
+                      this.i18n.t('settings.rowHelp.inputOffset.direction'),
+                    ],
+                  },
+                  isButtonHovered(next.hover, 'inputOffsetHelp'),
+                );
+              }
+              break;
+            case 'accountButton': {
+              const views = getAccountPanelButtonView(next.hover);
+              view.chrome.accountCorner.nameplate.renderButton(views.accountProfile);
+              view.chrome.accountCorner.signInButton.render(views.accountSignIn);
+              break;
+            }
+            case 'backButton':
+              view.backButton.render(getBackButtonView(next));
+              break;
+            case 'resetEntry':
+              renderTextEntry(view.resetEntry, isResetEntryHovered(next));
+              break;
+            case 'resetButtons': {
+              const { cancel, accept } = getResetDialogButtonViews(next);
+              view.resetDialog.renderButtons(cancel, accept);
+              break;
+            }
+            case 'rowButtons':
+              for (const { index, control } of view.rows) {
+                switch (control.kind) {
+                  case 'key':
+                    control.keyBox.render(getKeyBoxView(next, index));
+                    continue;
+                  case 'step':
+                    control.steps.forEach(({ button, direction }) =>
+                      button.render(getStepView(next, index, direction)),
+                    );
+                    continue;
+                  case 'volume': {
+                    control.steps.forEach(({ button, direction }) =>
+                      button.render(getStepView(next, index, direction)),
+                    );
+                    const { isMuted, tone } = getMuteToggleView(next, index);
+                    control.mute
+                      .setTexture(ensureSpeakerTexture(this, isMuted, STEP_SIZE_PX))
+                      .setDisplaySize(STEP_SIZE_PX, STEP_SIZE_PX)
+                      .setTint(MUTE_TONE_COLORS[tone]);
+                    continue;
+                  }
+                }
+              }
+              break;
+            case 'resetDialog':
+              view.resetDialog.render(
+                next.mode.kind === 'confirmingReset'
+                  ? {
+                      title: this.i18n.t('settings.resetTitle'),
+                      body: this.i18n.t('settings.resetConfirm'),
+                      cancelLabel: 'CANCEL',
+                      acceptLabel: 'RESET',
+                      acceptTone: 'danger',
+                    }
+                  : null,
+              );
+              break;
+            case 'controls':
+              // 조작 안내의 레인 키는 이 화면에서 바뀌므로 저장소가 아니라 지금 설정으로 그린다.
+              view.chrome.controls.render(
+                isControlsPanelOpen(next)
+                  ? getControlsGuide(
+                      this.i18n.t('controls', { returnObjects: true }),
+                      next.settings,
+                    )
+                  : null,
+              );
+              break;
+          }
+        }
+      },
+      // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
+      playSound: (sound, settings) => new SoundEffects(this, settings).play(sound),
+      setBackgroundVolume: (settings) => this.menuMusic.setVolume(settings),
+      renderAccount: () => {
+        const identity = this.account.getIdentity();
+        view.chrome.accountCorner.nameplate.render(identity);
+        view.chrome.accountCorner.renderSignIn(identity);
+      },
+      openProfile: () => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'profile',
+          data: {
+            returnTo: {
+              key: 'settings',
+              data: { returnTo: this.returnTo },
+            },
+          },
+        });
+      },
+      leave: () => {
+        this.exit = exitScene(this, this.exit, this.returnTo);
+      },
     };
+    const controller = new SettingsController(
+      {
+        save: this.save,
+        changeLanguage: (language) => this.i18n.changeLanguage(language),
+        signIn: () => this.account.signIn(),
+      },
+      screen,
+      ROWS,
+      this.save.loadSettings(),
+      requireDefined(
+        parseLanguage(this.i18n.language),
+        'Unsupported i18n language',
+        this.i18n.language,
+      ),
+    );
     const chrome = new MenuSceneChrome(
       this,
       {
         celestial: this.celestial,
         screen: 'secondary',
         account: {
-          kind: 'nameplate',
+          kind: 'corner',
           catalog: this.account.catalog,
-          pointer,
+          pointer: controller,
         },
       },
       {
@@ -341,9 +563,11 @@ export class SettingsScene extends Phaser.Scene {
         handleControlsKey: (event) => controller.handleControlsKey(event),
         handleMenuKey: (action) => controller.handleMenuKey(action),
       },
-      pointer,
+      controller,
     );
-    chrome.renderAccount(this.account.getIdentity());
+    const identity = this.account.getIdentity();
+    chrome.accountCorner.nameplate.render(identity);
+    chrome.accountCorner.renderSignIn(identity);
     const keyboard = requireKeyboard(this);
 
     const widgets: Omit<SettingsView, 'controlsEntry' | 'backButton'> = {
@@ -363,19 +587,19 @@ export class SettingsScene extends Phaser.Scene {
           textStyle('primary', COLORS.textSecondary, GROUP_TITLE_WEIGHT),
         ),
       })),
-      rows: ROWS.map((row, index) => this.createRow(row, index, getController, pointer)),
+      rows: ROWS.map((row, index) => this.createRow(row, index, controller)),
       waiting: this.addWaitingHint(),
       selectedHalo: new SelectedRowHalo(this, this.celestial.atlasPresentations[SELECTED_HALO_ID]),
       resetDialog: new ConfirmDialog(this, {
-        cancel: pointButton(pointer, 'resetCancel'),
-        accept: pointButton(pointer, 'resetAccept'),
+        cancel: pointButton(controller, 'resetCancel'),
+        accept: pointButton(controller, 'resetAccept'),
       }),
-      resetEntry: this.addResetEntry(pointer),
+      resetEntry: this.addResetEntry(controller),
     };
     const [backButton] = createFooterAuxiliaryButtons(this, [
       {
         label: 'BACK',
-        pointer: pointButton(pointer, 'back'),
+        pointer: pointButton(controller, 'back'),
       },
     ]);
     widgets.resetEntry.setX(
@@ -389,44 +613,8 @@ export class SettingsScene extends Phaser.Scene {
       backButton: requireDefined(backButton, 'Missing settings header button', 'BACK'),
       controlsEntry: chrome.start(widgets.title.getBounds()),
     };
-    const controller = new SettingsController(
-      {
-        save: this.save,
-        changeLanguage: (language) => this.i18n.changeLanguage(language),
-      },
-      {
-        render: (previous, next) => {
-          for (const region of getChangedRegions(previous, next)) {
-            this.renderRegion(view, next, region);
-          }
-        },
-        // 이 화면에서 효과음 볼륨이 바뀌므로 재생할 때마다 지금 설정으로 만든다.
-        playSound: (sound, settings) => new SoundEffects(this, settings).play(sound),
-        setBackgroundVolume: (settings) => this.menuMusic.setVolume(settings),
-        openProfile: () => {
-          this.exit = exitScene(this, this.exit, {
-            key: 'profile',
-            data: {
-              returnTo: {
-                key: 'settings',
-                data: { returnTo: this.returnTo },
-              },
-            },
-          });
-        },
-        leave: () => {
-          this.exit = exitScene(this, this.exit, this.returnTo);
-        },
-      },
-      ROWS,
-      this.save.loadSettings(),
-      requireDefined(
-        parseLanguage(this.i18n.language),
-        'Unsupported i18n language',
-        this.i18n.language,
-      ),
-    );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
+    controller.start();
   }
 
   private addWaitingHint(): SettingsView['waiting'] {
@@ -448,7 +636,7 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   /** 되돌릴 수 없는 동작이라 설정 행과 떨어뜨려 화면 우하단 BACK 옆에 CONTROLS 진입점과 같은 높이로 둔다. */
-  private addResetEntry(pointer: ButtonPointer<SettingsButton>): Phaser.GameObjects.Text {
+  private addResetEntry(controller: SettingsController): Phaser.GameObjects.Text {
     const label = this.add
       .text(
         SCREEN_LAYOUT.rightXPx,
@@ -458,15 +646,14 @@ export class SettingsScene extends Phaser.Scene {
       )
       .setOrigin(1, 0.5)
       .setInteractive({ cursor: HOVER_CURSOR });
-    bindPointer(label, pointButton(pointer, 'resetEntry'));
+    bindPointer(label, pointButton(controller, 'resetEntry'));
     return label;
   }
 
   private createRow(
     row: SettingsRow & RowLayout,
     index: number,
-    getController: () => SettingsController,
-    pointer: ButtonPointer<SettingsButton>,
+    controller: SettingsController,
   ): RowView {
     const leftXPx = COLUMN_LEFT_X_PX[row.column];
     const centerYPx = row.yPx + ROW_HEIGHT_PX / 2;
@@ -485,18 +672,25 @@ export class SettingsScene extends Phaser.Scene {
       .rectangle(leftXPx, row.yPx, COLUMN_WIDTH_PX, ROW_HEIGHT_PX)
       .setOrigin(0, 0);
     bindHoverTarget(hitArea, {
-      onOver: () => getController().hoverRow(index),
-      onOut: () => getController().unhoverRow(index),
-      onActivate: () => getController().pointRow(index),
+      onOver: () => controller.hoverRow(index),
+      onOut: () => controller.unhoverRow(index),
+      onActivate: () => controller.pointRow(index),
     });
     const label = this.add
       .text(
         leftXPx + LABEL_OFFSET_X_PX,
         centerYPx,
-        '',
+        this.formatLabel(row),
         textStyle('secondary', COLORS.textSecondary),
       )
       .setOrigin(0, 0.5);
+    const help =
+      row.kind === 'inputOffset'
+        ? new HelpTip(this, pointButton(controller, 'inputOffsetHelp'), {
+            panelTopOffsetPx: label.height / 2 + ROW_HELP_PANEL_GAP_PX,
+          })
+        : null;
+    help?.container.setPosition(label.x + label.width + ROW_HELP_OFFSET_X_PX, centerYPx);
 
     if (row.kind === 'key') {
       const keyBox = new Button(
@@ -511,7 +705,7 @@ export class SettingsScene extends Phaser.Scene {
           label: '',
           widthPx: KEY_BOX_WIDTH_PX,
           heightPx: KEY_BOX_HEIGHT_PX,
-          pointer: pointButton(pointer, getKeyBoxButton(index)),
+          pointer: pointButton(controller, getKeyBoxButton(index)),
         },
       );
       return {
@@ -520,6 +714,7 @@ export class SettingsScene extends Phaser.Scene {
         hitArea,
         marker,
         label,
+        help,
         control: {
           kind: 'key',
           keyBox,
@@ -540,10 +735,14 @@ export class SettingsScene extends Phaser.Scene {
         label: buttonLabel,
         widthPx: STEP_SIZE_PX,
         heightPx: STEP_SIZE_PX,
-        pointer: pointButton(pointer, getStepButton(index, direction)),
+        pointer: pointButton(controller, getStepButton(index, direction)),
       });
       if (isChoice) {
-        button.setIcon(ensureChevronTexture(this, direction), CHEVRON_SIZE_PX);
+        button.setContent({
+          kind: 'icon',
+          textureKey: ensureChevronTexture(this, direction),
+          sizePx: CHEVRON_SIZE_PX,
+        });
       }
       return {
         button,
@@ -563,13 +762,14 @@ export class SettingsScene extends Phaser.Scene {
         )
         .setDisplaySize(STEP_SIZE_PX, STEP_SIZE_PX)
         .setInteractive({ cursor: HOVER_CURSOR });
-      bindPointer(mute, pointButton(pointer, getMuteButton(index)));
+      bindPointer(mute, pointButton(controller, getMuteButton(index)));
       return {
         row,
         index,
         hitArea,
         marker,
         label,
+        help,
         control: {
           kind: 'volume',
           meter: this.add.image(leftXPx + VALUE_OFFSET_X_PX, centerYPx, '__DEFAULT'),
@@ -592,179 +792,13 @@ export class SettingsScene extends Phaser.Scene {
       hitArea,
       marker,
       label,
+      help,
       control: {
         kind: 'step',
         value,
         steps,
       },
     };
-  }
-
-  private renderRegion(
-    view: SettingsView,
-    state: SettingsEditorState,
-    region: SettingsRegion,
-  ): void {
-    switch (region) {
-      case 'title':
-        view.title.setText(this.i18n.t('settings.title'));
-        return;
-      case 'groups':
-        view.groups.forEach(({ group, text }) =>
-          text.setText(this.i18n.t(`settings.groups.${group}`)),
-        );
-        return;
-      case 'rowLabels':
-        view.rows.forEach((rowView) => this.renderRowLabel(rowView, state));
-        return;
-      case 'rowControls':
-        view.rows.forEach((rowView) => this.renderRowControl(rowView, state));
-        return;
-      case 'selectedHalo':
-        view.selectedHalo.render(
-          requireDefined(view.rows[state.rowIndex], 'Invalid settings row index', state.rowIndex)
-            .marker,
-        );
-        return;
-      case 'waitingText': {
-        const waitingLane = getWaitingLane(state);
-        const { container, text, escCap, cancel } = view.waiting;
-        container.setVisible(waitingLane !== null);
-        if (waitingLane === null) {
-          return;
-        }
-        text.setText(this.i18n.t('settings.waitingKey', { lane: waitingLane + 1 }));
-        cancel.setText(this.i18n.t('settings.waitingCancel'));
-        const capLeftPx = text.width + MENU_KEY_HINT_STYLE.rowItemGapPx;
-        placeKeyCap(escCap, capLeftPx, 0);
-        cancel.setX(capLeftPx + escCap.cap.width + MENU_KEY_HINT_STYLE.capLabelGapPx);
-        return;
-      }
-      case 'controlsEntry':
-        view.controlsEntry.setVisible(getWaitingLane(state) === null);
-        view.chrome.renderControlsEntry(isSettingsControlsEntryHovered(state));
-        return;
-      case 'controlsClose':
-        view.chrome.renderControlsClose(getSettingsControlsCloseView(state));
-        return;
-      case 'controlsHelpCard':
-        view.chrome.renderControlsHelpCard(isControlsHelpShown(state));
-        return;
-      case 'controlsHelpButton':
-        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(state));
-        return;
-      case 'accountButton':
-        view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));
-        return;
-      case 'backButton':
-        view.backButton.render(getBackButtonView(state));
-        return;
-      case 'resetEntry':
-        renderTextEntry(view.resetEntry, isResetEntryHovered(state));
-        return;
-      case 'resetButtons': {
-        const { cancel, accept } = getResetDialogButtonViews(state);
-        view.resetDialog.renderButtons(cancel, accept);
-        return;
-      }
-      case 'rowButtons':
-        view.rows.forEach(({ index, control }) => {
-          switch (control.kind) {
-            case 'key':
-              control.keyBox.render(getKeyBoxView(state, index));
-              return;
-            case 'step':
-              control.steps.forEach(({ button, direction }) =>
-                button.render(getStepView(state, index, direction)),
-              );
-              return;
-            case 'volume': {
-              control.steps.forEach(({ button, direction }) =>
-                button.render(getStepView(state, index, direction)),
-              );
-              const { isMuted, tone } = getMuteToggleView(state, index);
-              control.mute
-                .setTexture(ensureSpeakerTexture(this, isMuted, STEP_SIZE_PX))
-                .setDisplaySize(STEP_SIZE_PX, STEP_SIZE_PX)
-                .setTint(MUTE_TONE_COLORS[tone]);
-              return;
-            }
-          }
-        });
-        return;
-      case 'resetDialog':
-        switch (state.mode.kind) {
-          case 'confirmingReset':
-            view.resetDialog.render({
-              title: this.i18n.t('settings.resetTitle'),
-              body: this.i18n.t('settings.resetConfirm'),
-              cancelLabel: 'CANCEL',
-              acceptLabel: 'RESET',
-              acceptTone: 'danger',
-            });
-            return;
-          case 'browsing':
-          case 'waitingKey':
-            view.resetDialog.render(null);
-            return;
-        }
-        return;
-      case 'controls':
-        // 조작 안내의 레인 키는 이 화면에서 바뀌므로 저장소가 아니라 지금 설정으로 그린다.
-        view.chrome.renderControls(
-          isControlsPanelOpen(state)
-            ? getControlsGuide(this.i18n.t('controls', { returnObjects: true }), state.settings)
-            : null,
-        );
-        return;
-    }
-  }
-
-  private renderRowLabel(
-    { row, index, hitArea, marker, label }: RowView,
-    state: SettingsEditorState,
-  ): void {
-    const isShown = isRowShownAt(state, index);
-    hitArea.setVisible(isShown);
-    label.setVisible(isShown);
-    if (!isShown) {
-      marker.render(null);
-      return;
-    }
-    const appearance = getRowAppearance(state, index);
-    const isSelected = appearance === 'selected';
-    marker.render({
-      node: this.celestial.atlasPresentations[ROW_NODE_IDS[appearance]],
-      isSelected,
-    });
-    label.setText(this.formatLabel(row));
-    setTextColor(label, appearance === 'normal' ? COLORS.textSecondary : COLORS.textPrimary);
-    setTextWeight(label, isSelected ? ROW_EMPHASIS_WEIGHT : ROW_LABEL_WEIGHT);
-    slideSelectedRowContent(
-      this,
-      label,
-      COLUMN_LEFT_X_PX[row.column] + LABEL_OFFSET_X_PX,
-      isSelected,
-    );
-  }
-
-  private renderRowControl({ index, control }: RowView, state: SettingsEditorState): void {
-    switch (control.kind) {
-      case 'key': {
-        const isShown = isRowShownAt(state, index);
-        control.keyBox.setVisible(isShown);
-        if (isShown) {
-          control.keyBox.setLabel(getRowValue(state, index));
-        }
-        return;
-      }
-      case 'step':
-        control.value.setText(getRowValue(state, index));
-        return;
-      case 'volume':
-        control.meter.setTexture(ensureVolumeMeterTexture(this, getVolumeMeterView(state, index)));
-        return;
-    }
   }
 
   private formatLabel(row: SettingsRow): string {

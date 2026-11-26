@@ -66,9 +66,9 @@ const SOUND_EFFECTS: Record<SoundEffect, { key: string; url: string; group: Soun
 };
 
 const GROUP_KEYS = new Map<SoundEffectGroup, Set<string>>();
-Object.values(SOUND_EFFECTS).forEach(({ key, group }) => {
+for (const { key, group } of Object.values(SOUND_EFFECTS)) {
   GROUP_KEYS.set(group, (GROUP_KEYS.get(group) ?? new Set()).add(key));
-});
+}
 
 const MAX_PLAYING_PER_GROUP = 4;
 // 짧은 음원이 작게(피크 -4 ~ -8 dBFS) 마스터링돼 있어 음악에 묻히므로, 가장 큰 음원이 클리핑 직전에 닿을 만큼 키운다.

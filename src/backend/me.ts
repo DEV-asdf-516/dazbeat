@@ -7,12 +7,22 @@ import { isNickname } from '../data/nickname.js';
 import type { Nickname } from '../data/nickname.js';
 import { ProfileRequestError } from '../data/profile.js';
 import type { AchievementStatus, Profile, ProfileRequestErrorKind } from '../data/profile.js';
+import { RankingRequestError } from '../data/ranking.js';
+import type {
+  ChartTopRank,
+  MyChartRecord,
+  RankedChart,
+  RankedChartPage,
+  RankedChartQuery,
+} from '../data/ranking.js';
+import { DIFFICULTIES, ZODIACS } from '../data/songs.js';
+import { LANE_COUNTS } from '../rhythm/lanes.js';
 import { HTTP_STATUS } from '../httpStatus.js';
 import { isRecord, isString } from '../typeGuards.js';
 import { sendApiRequest } from './apiRequest.js';
-import { getCurrentUser } from './auth.js';
+import { getCurrentUserId } from './auth.js';
 
-const PROFILE_PATH = '/api/dazbeat/profile';
+const ME_PATH = '/api/dazbeat/me';
 
 const ROUTE_ERROR_KINDS: Readonly<Record<string, ProfileRequestErrorKind>> = {
   invalid_nickname: 'invalidNickname',
@@ -165,13 +175,13 @@ async function updateCurrentUser<T>(
   body: Record<string, string>,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const user = getCurrentUser(pb);
-  if (user === null) {
+  const userId = getCurrentUserId(pb);
+  if (userId === null) {
     throw new ProfileRequestError('unauthorized', undefined);
   }
   let record: unknown;
   try {
-    record = await pb.collection('users').update(user.id, body);
+    record = await pb.collection('users').update(userId, body);
   } catch (error) {
     throw toProfileRequestError(error);
   }
@@ -179,7 +189,13 @@ async function updateCurrentUser<T>(
 }
 
 export async function loadProfile(pb: PocketBase): Promise<Profile> {
-  return sendApiRequest(pb, PROFILE_PATH, { method: 'GET' }, profileSchema, toProfileRequestError);
+  return sendApiRequest(
+    pb,
+    `${ME_PATH}/profile`,
+    { method: 'GET' },
+    profileSchema,
+    toProfileRequestError,
+  );
 }
 
 export async function changeNickname(pb: PocketBase, nickname: Nickname): Promise<Nickname> {
@@ -190,7 +206,7 @@ export async function changeNickname(pb: PocketBase, nickname: Nickname): Promis
 export async function isNicknameAvailable(pb: PocketBase, nickname: Nickname): Promise<boolean> {
   const { available } = await sendApiRequest(
     pb,
-    `${PROFILE_PATH}/nickname/available`,
+    `${ME_PATH}/nickname/available`,
     {
       method: 'GET',
       query: { nickname },
@@ -207,4 +223,106 @@ export async function setFeaturedAchievement(
 ): Promise<AchievementId | null> {
   const changed = await updateCurrentUser(pb, { featuredAchievement: id ?? '' }, changedFeatured);
   return changed.featuredAchievement;
+}
+
+const myRankingsSchema = z.object({
+  items: z.array(
+    z
+      .object({
+        chartId: z.string(),
+        songId: z.string(),
+        songTitle: z.string(),
+        constellation: z.literal(ZODIACS),
+        laneCount: z.literal(LANE_COUNTS),
+        difficulty: z.enum(DIFFICULTIES),
+        rank: z.number().int().positive(),
+        score: z.number(),
+        achievedAt: z.iso.datetime(),
+      })
+      .transform(({ achievedAt, ...chart }): RankedChart => ({
+        ...chart,
+        achievedAtMs: Date.parse(achievedAt),
+      })),
+  ),
+  next: z
+    .object({
+      value: z.number(),
+      chartId: z.string(),
+    })
+    .nullable(),
+});
+
+const myTopRanksSchema = z.object({
+  items: z.array(
+    z.object({
+      chartId: z.string(),
+      rank: z.number().int().positive(),
+    }),
+  ),
+});
+
+const myRecordsSchema = z.object({
+  items: z.array(
+    z.object({
+      songId: z.string(),
+      laneCount: z.literal(LANE_COUNTS),
+      difficulty: z.enum(DIFFICULTIES),
+      score: z.number(),
+      accuracy: z.number(),
+      maxCombo: z.number(),
+    }),
+  ),
+});
+
+function toMyRankingsError(error: unknown): RankingRequestError {
+  return new RankingRequestError(
+    error instanceof ClientResponseError && error.status === HTTP_STATUS.unauthorized
+      ? 'unauthorized'
+      : 'failed',
+    error,
+  );
+}
+
+export async function loadMyRankings(
+  pb: PocketBase,
+  { sort, laneCount, difficulty, cursor }: RankedChartQuery,
+): Promise<RankedChartPage> {
+  return sendApiRequest(
+    pb,
+    `${ME_PATH}/rankings`,
+    {
+      method: 'GET',
+      query: {
+        sort,
+        laneCount,
+        difficulty,
+        afterValue: cursor?.value,
+        afterChartId: cursor?.chartId,
+      },
+    },
+    myRankingsSchema,
+    toMyRankingsError,
+  );
+}
+
+export async function loadMyTopRanks(pb: PocketBase): Promise<readonly ChartTopRank[]> {
+  const { items } = await sendApiRequest(
+    pb,
+    `${ME_PATH}/top-ranks`,
+    { method: 'GET' },
+    myTopRanksSchema,
+    toMyRankingsError,
+  );
+  return items;
+}
+
+export async function loadMyRecords(pb: PocketBase): Promise<readonly MyChartRecord[]> {
+  const { items } = await sendApiRequest(
+    pb,
+    `${ME_PATH}/records`,
+    { method: 'GET' },
+    myRecordsSchema,
+    toMyRankingsError,
+  );
+  return items;
 }

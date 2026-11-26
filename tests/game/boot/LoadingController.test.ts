@@ -32,9 +32,9 @@ function createHarness() {
 }
 
 async function finishWait(waits: readonly { finish: () => void }[]): Promise<void> {
-  waits.forEach(({ finish }) => {
+  for (const { finish } of waits) {
     finish();
-  });
+  }
   await Promise.resolve();
   await Promise.resolve();
 }

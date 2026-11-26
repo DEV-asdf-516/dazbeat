@@ -2,7 +2,7 @@
 
 routerAdd(
   'GET',
-  '/api/dazbeat/profile',
+  '/api/dazbeat/me/profile',
   (e) => {
     const { loadProfileAchievements } = require(`${__hooks}/lib/achievement/service/grant.cjs`);
     const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
@@ -37,7 +37,7 @@ routerAdd(
 // 입력 중 안내일 뿐이다. 그 사이 다른 사람이 가질 수 있으므로 저장은 닉네임 유일 인덱스가 판정한다.
 routerAdd(
   'GET',
-  '/api/dazbeat/profile/nickname/available',
+  '/api/dazbeat/me/nickname/available',
   (e) => {
     const {
       parseNicknameRequest,
@@ -68,6 +68,90 @@ routerAdd(
       e.auth.id,
     );
     return e.json(HTTP_STATUS.ok, { available });
+  },
+  $apis.requireAuth('users'),
+  $apis.bodyLimit(4096),
+);
+
+routerAdd(
+  'GET',
+  '/api/dazbeat/me/rankings',
+  (e) => {
+    const {
+      InvalidRankingRequestError,
+      RANKING_REJECTIONS,
+      parseRankedChartCursor,
+      parseRankedChartDifficulty,
+      parseRankedChartLaneCount,
+      parseRankedChartSort,
+    } = require(`${__hooks}/lib/ranking/dto.cjs`);
+    const { loadMyRankings } = require(`${__hooks}/lib/ranking/service.cjs`);
+    const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
+
+    const {
+      sort: rawSort,
+      laneCount,
+      difficulty,
+      afterValue,
+      afterChartId,
+    } = e.requestInfo().query;
+    try {
+      const sort = parseRankedChartSort(rawSort);
+      const { items, next } = loadMyRankings(
+        { DynamicModel, arrayOf, dbx: $dbx },
+        e.app,
+        e.auth.id,
+        {
+          sort,
+          laneCount: parseRankedChartLaneCount(laneCount),
+          difficulty: parseRankedChartDifficulty(difficulty),
+          cursor: parseRankedChartCursor(sort, afterValue, afterChartId),
+        },
+      );
+      return e.json(HTTP_STATUS.ok, {
+        items: items.map(({ achievedAtMs, ...chart }) => ({
+          ...chart,
+          achievedAt: new Date(achievedAtMs).toISOString(),
+        })),
+        next,
+      });
+    } catch (error) {
+      if (error instanceof InvalidRankingRequestError) {
+        const { status } = RANKING_REJECTIONS[error.code];
+        return e.json(status, { status, code: error.code, message: error.message });
+      }
+      throw error;
+    }
+  },
+  $apis.requireAuth('users'),
+  $apis.bodyLimit(4096),
+);
+
+routerAdd(
+  'GET',
+  '/api/dazbeat/me/top-ranks',
+  (e) => {
+    const { loadMyTopRanks } = require(`${__hooks}/lib/ranking/service.cjs`);
+    const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
+
+    return e.json(HTTP_STATUS.ok, {
+      items: loadMyTopRanks({ DynamicModel, arrayOf, dbx: $dbx }, e.app, e.auth.id),
+    });
+  },
+  $apis.requireAuth('users'),
+  $apis.bodyLimit(4096),
+);
+
+routerAdd(
+  'GET',
+  '/api/dazbeat/me/records',
+  (e) => {
+    const { readUserBestRecords } = require(`${__hooks}/lib/ranking/repository.cjs`);
+    const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
+
+    return e.json(HTTP_STATUS.ok, {
+      items: readUserBestRecords({ DynamicModel, arrayOf, dbx: $dbx }, e.app, e.auth.id),
+    });
   },
   $apis.requireAuth('users'),
   $apis.bodyLimit(4096),

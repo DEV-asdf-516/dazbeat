@@ -97,13 +97,14 @@ export function readNumberedNicknames(
       .select(nicknameColumn)
       .from(USERS.name)
       .where(
-        runtime.dbx.exp(
-          `${nicknameColumn} COLLATE NOCASE BETWEEN {:lowest} AND {:highest} AND ${nicknameColumn} GLOB {:pattern}`,
-          {
+        runtime.dbx.and(
+          runtime.dbx.exp(`${nicknameColumn} COLLATE NOCASE BETWEEN {:lowest} AND {:highest}`, {
             lowest: `${prefix}${'0'.repeat(digits)}`,
             highest: `${prefix}${'9'.repeat(digits)}`,
+          }),
+          runtime.dbx.exp(`${nicknameColumn} GLOB {:pattern}`, {
             pattern: `${prefix}${'[0-9]'.repeat(digits)}`,
-          },
+          }),
         ),
       )
       // dbx 는 orderBy 문자열을 열 이름 하나로 인용하므로 [[ ]] 로 열만 감싼다.

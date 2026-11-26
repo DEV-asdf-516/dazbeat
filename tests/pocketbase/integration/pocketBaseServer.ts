@@ -110,10 +110,10 @@ export async function migrateDown(
     { stdio: ['pipe', 'pipe', 'pipe'] },
   );
   let output = '';
-  child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
-  child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString()));
   // The command asks for confirmation and exits 0 without reverting anything unless it reads `y`.
-  child.stdin?.end('y\n');
+  child.stdin.end('y\n');
   // 'close' rather than 'exit', so the output streams are fully read before checking them.
   await new Promise<void>((resolve, reject) => {
     child.once('error', reject);
@@ -162,8 +162,8 @@ export async function startPocketBase(options: PocketBaseServerOptions): Promise
     },
   );
   let output = '';
-  child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
-  child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString()));
   const stop = async (): Promise<void> => {
     child.kill('SIGTERM');
     await waitForExit(child);

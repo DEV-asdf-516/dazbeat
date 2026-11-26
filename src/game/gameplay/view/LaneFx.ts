@@ -230,7 +230,25 @@ export class LaneFx {
     }
     if (hasHitBloom) {
       this.playBloom(view.bloom, intensity);
-      this.playPillar(view, intensity);
+      // 사다리꼴은 크기를 tween 할 수 없으므로 alpha tween 의 진행률로 매 프레임 꼭짓점만 옮긴다.
+      const { pillar, xPx } = view;
+      const { judgeLineYPx } = this.playfield;
+      this.scene.tweens.killTweensOf(pillar);
+      placeColumnVertices(pillar.vertices, this.getPillarBand(xPx, 0), xPx, judgeLineYPx);
+      pillar.setAlpha(HIT_PILLAR.alpha * intensity);
+      this.scene.tweens.add({
+        targets: pillar,
+        alpha: 0,
+        duration: HIT_PILLAR.durationMs,
+        ease: 'Cubic.Out',
+        onUpdate: (tween) =>
+          placeColumnVertices(
+            pillar.vertices,
+            this.getPillarBand(xPx, Phaser.Math.Easing.Cubic.Out(tween.progress)),
+            xPx,
+            judgeLineYPx,
+          ),
+      });
     }
     getLaneEffectIds(event).forEach((id) => playCelestialOnce(view.effects[id]));
   }
@@ -257,32 +275,17 @@ export class LaneFx {
     }
   }
 
-  // 사다리꼴은 크기를 tween 할 수 없으므로 alpha tween 의 진행률로 매 프레임 꼭짓점만 옮긴다.
-  private playPillar({ pillar, xPx }: LaneFxView, intensity: number): void {
-    const { widthLaneRatio, heightPx, alpha, durationMs } = HIT_PILLAR;
-    const { judgeLineYPx } = this.playfield;
-    const draw = (progress: number): void => {
-      const widthPx =
-        this.playfield.laneWidthPx * lerp(widthLaneRatio.from, widthLaneRatio.to, progress);
-      const band = getPlayfieldTrapezoid(
-        this.playfield,
-        xPx - widthPx / 2,
-        xPx + widthPx / 2,
-        judgeLineYPx - lerp(heightPx.from, heightPx.to, progress),
-        judgeLineYPx,
-      );
-      placeColumnVertices(pillar.vertices, band, xPx, judgeLineYPx);
-    };
-    this.scene.tweens.killTweensOf(pillar);
-    draw(0);
-    pillar.setAlpha(alpha * intensity);
-    this.scene.tweens.add({
-      targets: pillar,
-      alpha: 0,
-      duration: durationMs,
-      ease: 'Cubic.Out',
-      onUpdate: (tween) => draw(Phaser.Math.Easing.Cubic.Out(tween.progress)),
-    });
+  private getPillarBand(xPx: number, progress: number): Trapezoid {
+    const { widthLaneRatio, heightPx } = HIT_PILLAR;
+    const { judgeLineYPx, laneWidthPx } = this.playfield;
+    const widthPx = laneWidthPx * lerp(widthLaneRatio.from, widthLaneRatio.to, progress);
+    return getPlayfieldTrapezoid(
+      this.playfield,
+      xPx - widthPx / 2,
+      xPx + widthPx / 2,
+      judgeLineYPx - lerp(heightPx.from, heightPx.to, progress),
+      judgeLineYPx,
+    );
   }
 
   // press 의 scale pulse 를 끊으므로 idle 크기로 되돌린 뒤 판정 flash 를 건다.

@@ -44,9 +44,7 @@ import {
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
-  getControlsCloseView,
   getControlsHelpButtonView,
-  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
   leaveControlsButton,
@@ -153,9 +151,20 @@ export type AccountDeletionKey =
 
 export type ProfileHover = ProfileTarget | ButtonHover<ProfileButton>;
 
+export type EarnedProgress = { readonly earned: number; readonly total: number };
+
+// 업적 목록은 불러온 뒤 바뀌지 않으므로 불러올 때 한 번 센다.
+export interface EarnedCounts {
+  readonly all: EarnedProgress;
+  readonly bySet: Readonly<Record<AchievementSet, EarnedProgress>>;
+  /** 컬렉션 줄마다의 진행, 줄 첫 업적의 id 로 찾는다. */
+  readonly rows: ReadonlyMap<AchievementId, EarnedProgress>;
+}
+
 export interface LoadedProfileState {
   readonly kind: 'loaded';
   readonly profile: Profile;
+  readonly earned: EarnedCounts;
   readonly view: ProfilePage;
   readonly summaryTab: SummaryTab;
   readonly summaryFocus: SummaryFocus;
@@ -358,6 +367,11 @@ const COLLECTION_REGION_SOURCES: Readonly<Record<CollectionRegion, readonly Prof
   unequipButton: [readUnequipHovered, readUnequipPressed],
 };
 
+// 디스코그래피는 카테고리가 모두 album 이라 앨범마다 한 줄이 되도록 앨범까지 같아야 묶는다.
+function getRowKey({ category, rule }: NamedAchievementDefinition): string {
+  return rule.kind === 'album' ? `${category}:${rule.album}` : category;
+}
+
 export function getCollectionRows(
   achievements: readonly AchievementStatus[],
   set: AchievementSet,
@@ -366,22 +380,18 @@ export function getCollectionRows(
     key: string;
     definitions: [NamedAchievementDefinition, ...NamedAchievementDefinition[]];
   }[] = [];
-  achievements
-    .filter(({ definition }) => definition.set === set)
-    .forEach(({ definition }) => {
-      const { category, rule } = definition;
-      // 디스코그래피는 카테고리가 모두 album 이라 앨범마다 한 줄이 되도록 앨범까지 같아야 묶는다.
-      const key = rule.kind === 'album' ? `${category}:${rule.album}` : category;
-      const last = rows.at(-1);
-      if (last?.key === key) {
-        last.definitions.push(definition);
-      } else {
-        rows.push({
-          key,
-          definitions: [definition],
-        });
-      }
-    });
+  for (const { definition } of achievements.filter(({ definition }) => definition.set === set)) {
+    const key = getRowKey(definition);
+    const last = rows.at(-1);
+    if (last?.key === key) {
+      last.definitions.push(definition);
+    } else {
+      rows.push({
+        key,
+        definitions: [definition],
+      });
+    }
+  }
   return rows.map(({ definitions }) => definitions);
 }
 
@@ -398,15 +408,74 @@ function firstAchievementOf(
 
 export function loadedState(profile: Profile): LoadedProfileState {
   const set = requireDefined(ACHIEVEMENT_SETS[0], 'Achievement sets are empty');
+  const bySet: Record<AchievementSet, { earned: number; total: number }> = {
+    rhythm: {
+      earned: 0,
+      total: 0,
+    },
+    zodiac: {
+      earned: 0,
+      total: 0,
+    },
+    discography: {
+      earned: 0,
+      total: 0,
+    },
+  };
+  const rows = new Map<AchievementId, { earned: number; total: number }>();
+  const lastRowBySet: Partial<
+    Record<
+      AchievementSet,
+      { readonly key: string; readonly progress: { earned: number; total: number } }
+    >
+  > = {};
+  let earnedCount = 0;
+  let focusedId: AchievementId | undefined;
+  // 요약과 줄 진행은 같은 목록에서 나오므로 한 번 돌며 함께 채운다.
+  for (const { definition, earnedAtMs } of profile.achievements) {
+    const isEarned = earnedAtMs !== null;
+    const setProgress = bySet[definition.set];
+    setProgress.total += 1;
+    const key = getRowKey(definition);
+    let row = lastRowBySet[definition.set];
+    if (row?.key !== key) {
+      row = {
+        key,
+        progress: {
+          earned: 0,
+          total: 0,
+        },
+      };
+      lastRowBySet[definition.set] = row;
+      rows.set(definition.id, row.progress);
+    }
+    row.progress.total += 1;
+    if (isEarned) {
+      earnedCount += 1;
+      setProgress.earned += 1;
+      row.progress.earned += 1;
+    }
+    if (focusedId === undefined && definition.set === set) {
+      focusedId = definition.id;
+    }
+  }
   return {
     kind: 'loaded',
     profile,
+    earned: {
+      all: {
+        earned: earnedCount,
+        total: profile.achievements.length,
+      },
+      bySet,
+      rows,
+    },
     view: 'summary',
     summaryTab: 'stats',
     summaryFocus: 'nickname',
     collection: {
       set,
-      focusedId: firstAchievementOf(profile.achievements, set),
+      focusedId: requireDefined(focusedId, 'Achievement set is empty', set),
     },
     nickname: IDLE_NICKNAME,
     featuredSave: 'idle',
@@ -1050,14 +1119,6 @@ export function getProfileButtonView(
   return getButtonView(screen.hover, button, true, false);
 }
 
-export function getProfileControlsCloseView(screen: ProfileScreenState): ButtonView {
-  return getControlsCloseView(screen.hover);
-}
-
-export function isProfileControlsEntryHovered(screen: ProfileScreenState): boolean {
-  return isControlsEntryHovered(screen.hover);
-}
-
 function isChoosingDeletion(deletion: AccountDeletion): deletion is ChoosingDeletion {
   return 'focus' in deletion;
 }
@@ -1518,38 +1579,6 @@ export function getChangedRegions(
       next.view === 'collection'
         ? filterChangedRegions(COLLECTION_REGION_SOURCES, before, loaded)
         : [],
-  };
-}
-
-type EarnedProgress = { readonly earned: number; readonly total: number };
-
-export function getEarnedProgress(
-  state: LoadedProfileState,
-  definitions: readonly AchievementDefinition[],
-): EarnedProgress {
-  return {
-    earned: definitions.filter(({ id }) => isEarned(state, id)).length,
-    total: definitions.length,
-  };
-}
-
-export function getEarnedSummary(state: LoadedProfileState): {
-  readonly all: EarnedProgress;
-  readonly bySet: Readonly<Record<AchievementSet, EarnedProgress>>;
-} {
-  const definitions = state.profile.achievements.map(({ definition }) => definition);
-  const getSetProgress = (set: AchievementSet): EarnedProgress =>
-    getEarnedProgress(
-      state,
-      definitions.filter((definition) => definition.set === set),
-    );
-  return {
-    all: getEarnedProgress(state, definitions),
-    bySet: {
-      rhythm: getSetProgress('rhythm'),
-      zodiac: getSetProgress('zodiac'),
-      discography: getSetProgress('discography'),
-    },
   };
 }
 

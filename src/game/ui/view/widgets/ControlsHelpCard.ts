@@ -42,10 +42,10 @@ import {
 } from '../theme.js';
 import {
   createKeyCap,
+  getKeyCapLook,
   getKeyCapObjects,
   getKeyCapWidthPx,
   placeKeyCap,
-  setKeyCapWidth,
 } from './keyHintView.js';
 import type { KeyCap, KeyHintStyle } from './keyHintView.js';
 import { ModalPanel, PANEL_GRAIN_ALPHA } from './ModalPanel.js';
@@ -206,6 +206,11 @@ interface HoldLook extends FigureLook {
   } | null;
 }
 
+interface FrameLooks {
+  readonly tap: TapLook;
+  readonly hold: HoldLook;
+}
+
 const AT_JUDGE: NoteLook = {
   untilJudgeMs: 0,
   squash: 0,
@@ -224,6 +229,12 @@ interface LaneFigure {
   readonly fog: Phaser.GameObjects.Image;
   readonly promptLabel: Phaser.GameObjects.Text;
   readonly promptMeter: Phaser.GameObjects.Rectangle;
+}
+
+interface LaneGeometry {
+  readonly laneTopYPx: number;
+  readonly judgeYPx: number;
+  readonly centerXPx: number;
 }
 
 interface HitBloom {
@@ -248,7 +259,7 @@ export class ControlsHelpCard {
   private readonly keyCapStyle: KeyHintStyle;
   private readonly notes: StarButtonTextures;
   private readonly noteHeightPx: number;
-  private readonly panel: ModalPanel;
+  readonly panel: ModalPanel;
   private readonly tap: LaneFigure;
   private readonly hold: LaneFigure;
   private readonly promptWidthPx: number;
@@ -325,15 +336,16 @@ export class ControlsHelpCard {
   }
 
   /** 키가 바뀌면 키캡 폭이 달라지므로 다시 배치한다. */
-  setGuide(key: string): void {
-    [this.tap, this.hold].forEach((figure) => {
-      figure.keyCap.key.setText(key);
-      setKeyCapWidth(
-        figure.keyCap,
-        this.keyCapStyle,
-        getKeyCapWidthPx(figure.keyCap.key, this.keyCapStyle),
+  setGuide(key: string): { readonly widthPx: number; readonly heightPx: number } {
+    for (const { keyCap } of [this.tap, this.hold]) {
+      keyCap.key.setText(key);
+      keyCap.cap.setTexture(
+        getBrushRectTexture(
+          this.scene,
+          getKeyCapLook(this.keyCapStyle, getKeyCapWidthPx(keyCap.key, this.keyCapStyle)),
+        ),
       );
-    });
+    }
     const widthPx =
       PADDING_PX + LANE.widthPx + TEXT_COLUMN_GAP_PX + this.promptWidthPx + PADDING_PX;
     const yPx = this.placeLaneFigure(
@@ -350,73 +362,115 @@ export class ControlsHelpCard {
       border: null,
     });
     [this.tap, this.hold].forEach((figure) => figure.underline.setTexture(underlineTexture));
-    this.panel.setSize(widthPx, heightPx);
+    return {
+      widthPx,
+      heightPx,
+    };
+  }
+
+  hide(): void {
+    this.playback?.remove();
+    this.playback = null;
+    this.container.setVisible(false);
   }
 
   render(isVisible: boolean): void {
-    this.playback?.remove();
-    this.playback = null;
-    this.container.setVisible(isVisible);
+    this.hide();
     if (!isVisible) {
       return;
     }
+    this.container.setVisible(true);
     if (isReducedMotionPreferred()) {
-      this.renderTap(getStillTapLook());
-      this.renderHold(getHoldLook(STILL_HOLD_MS));
+      this.renderLooks({
+        tap: getStillTapLook(),
+        hold: getHoldLook(STILL_HOLD_MS),
+      });
       return;
     }
-    this.renderAt(0);
+    this.renderLooks(getLooksAt(0));
     this.playback = this.scene.tweens.addCounter({
       from: 0,
       to: LOOP_MS,
       duration: LOOP_MS,
       repeat: -1,
-      onUpdate: (tween) => this.renderAt(tween.getValue() ?? 0),
+      onUpdate: (tween) => this.renderLooks(getLooksAt(tween.getValue() ?? 0)),
     });
   }
 
-  private renderAt(elapsedMs: number): void {
-    this.renderTap(getTapLook(elapsedMs % TAP_TIMING.periodMs));
-    this.renderHold(getHoldLook(elapsedMs % HOLD_TIMING.periodMs));
-  }
-
-  private renderTap(look: TapLook): void {
-    this.renderNote(this.tapNote, this.tap, look.note, HIT_SQUASH.tapScaleX);
-    this.renderFigure(this.tap, this.tapPerfect, look);
-  }
-
-  private renderHold(look: HoldLook): void {
-    const figure = this.hold;
-    const { judgeYPx, centerXPx } = getLaneGeometry(figure);
-    const headYPx = this.renderNote(this.holdHead, figure, look.head, HIT_SQUASH.holdScaleX);
-    if (look.tail === null) {
+  private renderLooks({ tap, hold }: FrameLooks): void {
+    const tapGeometry = getLaneGeometry(this.tap);
+    const holdGeometry = getLaneGeometry(this.hold);
+    this.renderNote(this.tapNote, tapGeometry, tap.note, HIT_SQUASH.tapScaleX);
+    const headYPx = this.renderNote(this.holdHead, holdGeometry, hold.head, HIT_SQUASH.holdScaleX);
+    if (hold.tail === null) {
       [this.holdTail, ...getRibbonObjects(this.ribbon)].forEach((image) => image.setVisible(false));
     } else {
       const tail = {
-        untilJudgeMs: look.tail.untilJudgeMs,
+        untilJudgeMs: hold.tail.untilJudgeMs,
         squash: 0,
       };
-      const tailYPx = this.renderNote(this.holdTail, figure, tail, HIT_SQUASH.holdScaleX);
+      const tailYPx = this.renderNote(this.holdTail, holdGeometry, tail, HIT_SQUASH.holdScaleX);
       this.holdTail.setVisible(true);
-      this.renderRibbon(figure, headYPx, tailYPx, look.tail.ribbonAlpha);
+      this.renderRibbon(holdGeometry, headYPx, tailYPx, hold.tail.ribbonAlpha);
     }
-    this.holdContact.setPosition(centerXPx, judgeYPx).setVisible(look.isKeyPressed);
-    this.renderFigure(figure, this.holdPerfect, look);
+    this.holdContact
+      .setPosition(holdGeometry.centerXPx, holdGeometry.judgeYPx)
+      .setVisible(hold.isKeyPressed);
+    for (const { figure, geometry, perfect, look } of [
+      {
+        figure: this.tap,
+        geometry: tapGeometry,
+        perfect: this.tapPerfect,
+        look: tap,
+      },
+      {
+        figure: this.hold,
+        geometry: holdGeometry,
+        perfect: this.holdPerfect,
+        look: hold,
+      },
+    ]) {
+      renderPerfect(perfect, geometry, look.perfectMs);
+      renderBloom(figure, look.bloomMs);
+      const { keyCap, promptLabel: label, promptMeter: meter } = figure;
+      placeKeyCap(
+        keyCap,
+        geometry.centerXPx - keyCap.cap.width / 2,
+        geometry.judgeYPx +
+          KEY_CAP_JUDGE_GAP_PX +
+          this.keyCapStyle.capHeightPx / 2 +
+          (look.isKeyPressed ? KEY_CAP_PRESS_OFFSET_PX : 0),
+      );
+      setTextColor(
+        keyCap.key,
+        look.isKeyPressed ? CELESTIAL_COLORS.selected : this.keyCapStyle.keyColor,
+      );
+      const { prompt } = look;
+      label.setVisible(prompt !== null);
+      meter.setVisible((prompt?.meter ?? null) !== null);
+      if (prompt === null) {
+        continue;
+      }
+      if (label.text !== prompt.text) {
+        label.setText(prompt.text);
+      }
+      setTextColor(label, prompt.color);
+      label.setAlpha(prompt.alpha).setScale(prompt.scale);
+      if (prompt.meter === null) {
+        continue;
+      }
+      meter
+        .setSize(JUDGE_LINE_WIDTH_PX * prompt.meter, PROMPT.meterHeightPx)
+        .setAlpha(prompt.alpha);
+    }
   }
 
-  private renderFigure(
-    figure: LaneFigure,
-    perfect: Phaser.GameObjects.Text,
-    look: FigureLook,
+  private renderRibbon(
+    { centerXPx, laneTopYPx }: LaneGeometry,
+    headYPx: number,
+    tailYPx: number,
+    alpha: number,
   ): void {
-    renderPerfect(perfect, figure, look.perfectMs);
-    renderBloom(figure, look.bloomMs);
-    this.renderKeyCap(figure, look.isKeyPressed);
-    renderPrompt(figure, look.prompt);
-  }
-
-  private renderRibbon(figure: LaneFigure, headYPx: number, tailYPx: number, alpha: number): void {
-    const { centerXPx, laneTopYPx } = getLaneGeometry(figure);
     const lengthPx = headYPx - tailYPx;
     const visiblePx = headYPx - Math.max(tailYPx, laneTopYPx);
     const halfWidthPx = RIBBON_WIDTH_PX / 2;
@@ -429,38 +483,11 @@ export class ControlsHelpCard {
         .setVisible(visiblePx > 0);
     };
     place(this.ribbon.glass, centerXPx, RIBBON_WIDTH_PX - HOLD_RIBBON_EDGE_PX * 2);
-    this.ribbon.sides.forEach(({ sign, edge, glow }) => {
+    for (const { sign, edge, glow } of this.ribbon.sides) {
       const edgeXPx = centerXPx + sign * (halfWidthPx - HOLD_RIBBON_EDGE_PX / 2);
       place(edge, edgeXPx, HOLD_RIBBON_EDGE_PX);
       place(glow, edgeXPx, glow.frame.width);
-    });
-  }
-
-  private renderKeyCap(figure: LaneFigure, isPressed: boolean): void {
-    const { judgeYPx, centerXPx } = getLaneGeometry(figure);
-    const { keyCap } = figure;
-    placeKeyCap(
-      keyCap,
-      centerXPx - keyCap.cap.width / 2,
-      judgeYPx +
-        KEY_CAP_JUDGE_GAP_PX +
-        this.keyCapStyle.capHeightPx / 2 +
-        (isPressed ? KEY_CAP_PRESS_OFFSET_PX : 0),
-    );
-    setTextColor(keyCap.key, isPressed ? CELESTIAL_COLORS.selected : this.keyCapStyle.keyColor);
-  }
-
-  private getFallingYPx(judgeYPx: number, untilJudgeMs: number): number {
-    const speedPxPerMs = (LANE.heightPx - LANE.judgeFromBottomPx) / FALL_MS;
-    return judgeYPx - untilJudgeMs * speedPxPerMs;
-  }
-
-  private getNoteAlpha(figure: LaneFigure, noteYPx: number): number {
-    const { laneTopYPx, judgeYPx } = getLaneGeometry(figure);
-    const noteTopYPx = noteYPx - this.noteHeightPx;
-    const emergence = getProgress(noteTopYPx, laneTopYPx, laneTopYPx + LANE.emergePx);
-    const approach = getProgress(noteYPx, judgeYPx - FIGURE_APPROACH_RANGE_PX, judgeYPx);
-    return emergence * lerp(NOTE_FAR_ALPHA, 1, approach);
+    }
   }
 
   private addNote(): Phaser.GameObjects.Image {
@@ -473,19 +500,21 @@ export class ControlsHelpCard {
 
   private renderNote(
     note: Phaser.GameObjects.Image,
-    figure: LaneFigure,
+    { laneTopYPx, judgeYPx, centerXPx }: LaneGeometry,
     look: NoteLook,
     toScaleX: number,
   ): number {
-    const { judgeYPx, centerXPx } = getLaneGeometry(figure);
-    const yPx = this.getFallingYPx(judgeYPx, look.untilJudgeMs);
+    const speedPxPerMs = (LANE.heightPx - LANE.judgeFromBottomPx) / FALL_MS;
+    const yPx = judgeYPx - look.untilJudgeMs * speedPxPerMs;
+    const emergence = getProgress(yPx - this.noteHeightPx, laneTopYPx, laneTopYPx + LANE.emergePx);
+    const approach = getProgress(yPx, judgeYPx - FIGURE_APPROACH_RANGE_PX, judgeYPx);
     note
       .setPosition(centerXPx, yPx)
       .setDisplaySize(
         NOTE_WIDTH_PX * this.notes.widthScale * lerp(1, toScaleX, look.squash),
         this.noteHeightPx * this.notes.heightScale * lerp(1, HIT_SQUASH.scaleY, look.squash),
       )
-      .setAlpha(this.getNoteAlpha(figure, yPx) * (1 - look.squash));
+      .setAlpha(emergence * lerp(NOTE_FAR_ALPHA, 1, approach) * (1 - look.squash));
     return yPx;
   }
 
@@ -564,11 +593,7 @@ export class ControlsHelpCard {
   }
 }
 
-function getLaneGeometry(figure: LaneFigure): {
-  readonly laneTopYPx: number;
-  readonly judgeYPx: number;
-  readonly centerXPx: number;
-} {
+function getLaneGeometry(figure: LaneFigure): LaneGeometry {
   return {
     laneTopYPx: figure.fill.y,
     judgeYPx: figure.judgeLine.y,
@@ -578,14 +603,13 @@ function getLaneGeometry(figure: LaneFigure): {
 
 function renderPerfect(
   perfect: Phaser.GameObjects.Text,
-  figure: LaneFigure,
+  { judgeYPx, centerXPx }: LaneGeometry,
   sinceHitMs: number | null,
 ): void {
   if (sinceHitMs === null || sinceHitMs >= PERFECT.endMs) {
     perfect.setVisible(false);
     return;
   }
-  const { judgeYPx, centerXPx } = getLaneGeometry(figure);
   const easeOut = Phaser.Math.Easing.Cubic.Out;
   const rise = easeOut(getProgress(sinceHitMs, 0, PERFECT.riseMs));
   const settle = easeOut(getProgress(sinceHitMs, 0, PERFECT.settleMs));
@@ -600,10 +624,13 @@ function renderPerfect(
 }
 
 function renderBloom(figure: LaneFigure, sinceHitMs: number | null): void {
-  figure.bloom.forEach(({ look: { widthPx, heightPx, alpha, durationMs }, image }) => {
+  for (const {
+    look: { widthPx, heightPx, alpha, durationMs },
+    image,
+  } of figure.bloom) {
     if (sinceHitMs === null || sinceHitMs >= durationMs) {
       image.setAlpha(0);
-      return;
+      continue;
     }
     const progress = Phaser.Math.Easing.Cubic.Out(getProgress(sinceHitMs, 0, durationMs));
     image
@@ -612,7 +639,14 @@ function renderBloom(figure: LaneFigure, sinceHitMs: number | null): void {
         lerp(heightPx.from, heightPx.to, progress),
       )
       .setAlpha(alpha * (1 - progress));
-  });
+  }
+}
+
+function getLooksAt(elapsedMs: number): FrameLooks {
+  return {
+    tap: getTapLook(elapsedMs % TAP_TIMING.periodMs),
+    hold: getHoldLook(elapsedMs % HOLD_TIMING.periodMs),
+  };
 }
 
 function getTapLook(timeMs: number): TapLook {
@@ -727,24 +761,6 @@ function getActionPrompt(text: string, sinceMs: number, durationMs: number): Pro
     meter: null,
     scale: lerp(PROMPT.popScale, 1, pop),
   };
-}
-
-function renderPrompt(figure: LaneFigure, look: PromptLook | null): void {
-  const { promptLabel: label, promptMeter: meter } = figure;
-  label.setVisible(look !== null);
-  meter.setVisible((look?.meter ?? null) !== null);
-  if (look === null) {
-    return;
-  }
-  if (label.text !== look.text) {
-    label.setText(look.text);
-  }
-  setTextColor(label, look.color);
-  label.setAlpha(look.alpha).setScale(look.scale);
-  if (look.meter === null) {
-    return;
-  }
-  meter.setSize(JUDGE_LINE_WIDTH_PX * look.meter, PROMPT.meterHeightPx).setAlpha(look.alpha);
 }
 
 function getRibbonObjects(ribbon: RibbonImages): Phaser.GameObjects.Image[] {

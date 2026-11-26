@@ -167,7 +167,7 @@ describe('account lifecycle', () => {
 
     const { client } = otherDevice;
     await expectUnauthorized(
-      client.send('/api/dazbeat/play-sessions', {
+      client.send('/api/dazbeat/play', {
         method: 'POST',
         body: {
           chartId: chart.id,
@@ -176,7 +176,7 @@ describe('account lifecycle', () => {
       }),
     );
     await expectUnauthorized(
-      client.send(`/api/dazbeat/play-sessions/${sessionId}/result`, {
+      client.send(`/api/dazbeat/play/${sessionId}/result`, {
         method: 'POST',
         body: {
           inputOffsetMs: 0,
@@ -184,7 +184,7 @@ describe('account lifecycle', () => {
         },
       }),
     );
-    await expectUnauthorized(client.send('/api/dazbeat/profile', { method: 'GET' }));
+    await expectUnauthorized(client.send('/api/dazbeat/me/profile', { method: 'GET' }));
     expectAllZero(await readUserOwnedRowCounts(server.superuser, otherDevice.id));
   });
 

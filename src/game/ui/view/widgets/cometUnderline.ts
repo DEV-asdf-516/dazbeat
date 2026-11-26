@@ -78,12 +78,19 @@ export function addTextUnderline(
   text: Phaser.GameObjects.Text,
   color: number,
 ): Phaser.GameObjects.Image {
-  const underline = addCometUnderline(scene, {
-    tailThicknessPx: INDICATOR.underlineThicknessPx,
-    headThicknessPx: TEXT_UNDERLINE_HEAD_THICKNESS_PX,
-    tailAlpha: 1,
-    headAlpha: TEXT_UNDERLINE_HEAD_ALPHA,
-  }).setTint(color);
+  const underline = scene.add
+    .image(
+      0,
+      0,
+      getCometUnderlineTexture(scene, {
+        tailThicknessPx: INDICATOR.underlineThicknessPx,
+        headThicknessPx: TEXT_UNDERLINE_HEAD_THICKNESS_PX,
+        tailAlpha: 1,
+        headAlpha: TEXT_UNDERLINE_HEAD_ALPHA,
+      }),
+    )
+    .setOrigin(0, 0.5)
+    .setTint(color);
   return placeTextUnderline(underline, text);
 }
 

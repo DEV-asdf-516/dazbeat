@@ -2,23 +2,12 @@ import { ClientResponseError } from 'pocketbase';
 import type PocketBase from 'pocketbase';
 import { z } from 'zod';
 import { RankingRequestError } from '../data/ranking.js';
-import type {
-  ChartTopRank,
-  Leaderboard,
-  MyChartRecord,
-  RankedChart,
-  RankedChartQuery,
-  RankedChartPage,
-} from '../data/ranking.js';
-import { DIFFICULTIES, ZODIACS } from '../data/songs.js';
-import { LANE_COUNTS } from '../rhythm/lanes.js';
+import type { Leaderboard } from '../data/ranking.js';
 import { HTTP_STATUS } from '../httpStatus.js';
 import { sendApiRequest } from './apiRequest.js';
 
 const LEADERBOARDS_PATH = '/api/dazbeat/leaderboards';
-const MY_RANKINGS_PATH = '/api/dazbeat/profile/rankings';
-const MY_TOP_RANKS_PATH = '/api/dazbeat/profile/top-ranks';
-const MY_RECORDS_PATH = '/api/dazbeat/profile/records';
+const CHARTS_PATH = '/api/dazbeat/charts';
 
 const rankedRecord = {
   rank: z.number().int().positive(),
@@ -63,104 +52,22 @@ export async function loadLeaderboard(pb: PocketBase, chartId: string): Promise<
   );
 }
 
-const myRankingsSchema = z.object({
-  items: z.array(
-    z
-      .object({
-        chartId: z.string(),
-        songId: z.string(),
-        songTitle: z.string(),
-        constellation: z.literal(ZODIACS),
-        laneCount: z.literal(LANE_COUNTS),
-        difficulty: z.enum(DIFFICULTIES),
-        rank: z.number().int().positive(),
-        score: z.number(),
-        achievedAt: z.iso.datetime(),
-      })
-      .transform(({ achievedAt, ...chart }): RankedChart => ({
-        ...chart,
-        achievedAtMs: Date.parse(achievedAt),
-      })),
-  ),
-  next: z
-    .object({
-      value: z.number(),
-      chartId: z.string(),
-    })
-    .nullable(),
-});
-
-const myTopRanksSchema = z.object({
-  items: z.array(
-    z.object({
-      chartId: z.string(),
-      rank: z.number().int().positive(),
-    }),
-  ),
-});
-
-const myRecordsSchema = z.object({
-  items: z.array(
-    z.object({
-      songId: z.string(),
-      laneCount: z.literal(LANE_COUNTS),
-      difficulty: z.enum(DIFFICULTIES),
-      score: z.number(),
-      accuracy: z.number(),
-      maxCombo: z.number(),
-    }),
-  ),
-});
-
-function toMyRankingsError(error: unknown): RankingRequestError {
-  return new RankingRequestError(
-    error instanceof ClientResponseError && error.status === HTTP_STATUS.unauthorized
-      ? 'unauthorized'
-      : 'failed',
-    error,
-  );
-}
-
-export async function loadMyRankings(
+/** 서버에 기록이 남지 않는 플레이어를 순위표 플레이어 수에만 더한다. 세지 않은 경우도 같은 응답이다. */
+export async function reportGuestPlayer(
   pb: PocketBase,
-  { sort, laneCount, difficulty, cursor }: RankedChartQuery,
-): Promise<RankedChartPage> {
-  return sendApiRequest(
+  chartId: string,
+  chartRevision: string,
+): Promise<void> {
+  await sendApiRequest(
     pb,
-    MY_RANKINGS_PATH,
+    `${CHARTS_PATH}/${encodeURIComponent(chartId)}/guest`,
     {
-      method: 'GET',
-      query: {
-        sort,
-        laneCount,
-        difficulty,
-        afterValue: cursor?.value,
-        afterChartId: cursor?.chartId,
-      },
+      method: 'POST',
+      body: { chartRevision },
+      // 연달아 끝낸 판의 요청을 SDK 가 같은 요청으로 보고 취소하지 않게 한다.
+      requestKey: null,
     },
-    myRankingsSchema,
-    toMyRankingsError,
+    z.unknown(),
+    (error) => new RankingRequestError('failed', error),
   );
-}
-
-export async function loadMyTopRanks(pb: PocketBase): Promise<readonly ChartTopRank[]> {
-  const { items } = await sendApiRequest(
-    pb,
-    MY_TOP_RANKS_PATH,
-    { method: 'GET' },
-    myTopRanksSchema,
-    toMyRankingsError,
-  );
-  return items;
-}
-
-export async function loadMyRecords(pb: PocketBase): Promise<readonly MyChartRecord[]> {
-  const { items } = await sendApiRequest(
-    pb,
-    MY_RECORDS_PATH,
-    { method: 'GET' },
-    myRecordsSchema,
-    toMyRankingsError,
-  );
-  return items;
 }

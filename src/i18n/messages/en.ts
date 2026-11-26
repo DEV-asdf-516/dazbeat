@@ -85,6 +85,12 @@ export const en: Messages = {
       mvMode: 'MV Mode',
       language: 'Language',
     },
+    rowHelp: {
+      inputOffset: {
+        meaning: 'Aligns notes with the music',
+        direction: 'Notes late vs. music: +, early: −',
+      },
+    },
   },
   credits: {
     title: 'CREDITS',
@@ -216,6 +222,17 @@ export const en: Messages = {
     earned: 'Earned',
     setFeatured: 'Equip',
     unsetFeatured: 'Unequip',
+  },
+  localRecord: {
+    signInPrompt: {
+      title: "Guest records don't count toward the rankings",
+      body: 'Sign in to have your next play count toward the rankings.',
+      later: 'Later',
+      signIn: 'Sign in with Google',
+    },
+  },
+  result: {
+    checkingRecord: 'Checking record',
   },
   rankingNotice: {
     issueFailed: {

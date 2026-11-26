@@ -93,10 +93,12 @@ export function writeStripRow(
   rightXPx: number,
   yPx: number,
 ): void {
-  writeMeshVertex(vertices, leftVertex, 'x', leftXPx);
-  writeMeshVertex(vertices, leftVertex, 'y', yPx);
-  writeMeshVertex(vertices, leftVertex + 1, 'x', rightXPx);
-  writeMeshVertex(vertices, leftVertex + 1, 'y', yPx);
+  const left = leftVertex * VERTEX_STRIDE;
+  const right = left + VERTEX_STRIDE;
+  vertices[left + VERTEX_FIELD.x] = leftXPx;
+  vertices[left + VERTEX_FIELD.y] = yPx;
+  vertices[right + VERTEX_FIELD.x] = rightXPx;
+  vertices[right + VERTEX_FIELD.y] = yPx;
 }
 
 function getStripVertexCount(rows: number): number {

@@ -1,8 +1,10 @@
 import type { i18n as I18n } from 'i18next';
 import Phaser from 'phaser';
 import {
+  getControlsCloseView,
   getControlsGuide,
   getControlsHelpButtonView,
+  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
 } from '../app/controlsGuide.js';
@@ -25,9 +27,10 @@ import type {
 } from './state/resultConstellation.js';
 import type { AchievementCatalog } from '../../data/achievements.js';
 import { getAchievementName } from '../ui/state/achievementName.js';
-import { AchievementToasts, PENDING_MOTE_ID } from './view/AchievementToasts.js';
+import { AchievementToasts, PENDING_MOTE_ID, TOAST_RANK_BADGE } from './view/AchievementToasts.js';
 import type { ToastPresentation } from './view/AchievementToasts.js';
 import { ResultController } from './ResultController.js';
+import type { ResultScreen } from './ResultController.js';
 import { RESULT_NODE_ID, planResultFinish } from './state/resultFinish.js';
 import type { FinishAnchor, FinishCue } from './state/resultFinish.js';
 import { STAYING } from '../app/sceneExit.js';
@@ -36,14 +39,13 @@ import {
   getChangedRegions,
   getHoveredToastId,
   getMenuButtonView,
+  getGuestNoticeButtonView,
   getRankingNoticeCloseView,
-  getResultControlsCloseView,
   getRetryTabAppearance,
   getToastChanges,
-  isResultControlsEntryHovered,
   isResultFocused,
 } from './state/resultState.js';
-import type { ResultButton, ResultRegion, ResultState, ToastContent } from './state/resultState.js';
+import type { ToastContent } from './state/resultState.js';
 import { DIFFICULTY_TAB_ITEMS } from '../ui/state/difficultyAppearance.js';
 import type { Song } from '../../data/songs.js';
 import type { Difficulty, GameplayResult, LaneCount } from '../../rhythm/types.js';
@@ -51,7 +53,6 @@ import { JUDGMENTS } from '../../rhythm/judgment.js';
 import { Button } from '../ui/view/widgets/Button.js';
 import { ConfirmDialog } from '../ui/view/widgets/ConfirmDialog.js';
 import { pointButton } from '../ui/view/input/hoverTarget.js';
-import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
 import type { TextTabItem, TextTabsLayout, TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
 import {
@@ -77,10 +78,12 @@ import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { queueAchievementEmblemLoads } from '../ui/view/widgets/achievementEmblem.js';
 import { getAccountPanelButtonView } from '../ui/state/accountIdentity.js';
 import type { AccountSource } from '../ui/state/accountIdentity.js';
+import type { AccountAuth } from '../app/accountState.js';
 import { MenuSceneChrome, getMenuSceneTextureUses } from '../ui/view/widgets/MenuSceneChrome.js';
 import { GradeLetter } from '../ui/view/widgets/GradeLetter.js';
+import { LOADING_STAR_ID, LoadingStar } from '../ui/view/widgets/LoadingStar.js';
 import { GlyphText } from '../ui/view/widgets/GlyphText.js';
-import { TOP_RANK_GLINT_ID } from '../ui/view/widgets/TopRankBadge.js';
+import { TOP_RANK_GLINT_ID, TopRankBadge } from '../ui/view/widgets/TopRankBadge.js';
 import { COLORS, JUDGMENT_COLORS, SCREEN_LAYOUT, TYPE_SCALE, textStyle } from '../ui/view/theme.js';
 import { MOTION } from '../ui/state/motion.js';
 import { strokeCanvasLine, strokeGrainedCanvasLine } from '../ui/view/textures/grain.js';
@@ -93,11 +96,15 @@ interface ResultView {
   readonly toasts: AchievementToasts;
   readonly presentToast: (content: ToastContent) => ToastPresentation;
   readonly rankingNotice: ConfirmDialog;
+  readonly guestNotice: ConfirmDialog;
+  readonly recordStatusText: Phaser.GameObjects.Text;
+  readonly recordStatusStar: LoadingStar;
 }
 
 const LEFT_X_PX = SCREEN_LAYOUT.leftXPx;
 const RIGHT_X_PX = SCREEN_LAYOUT.rightXPx;
 const TITLE_Y_PX = 152;
+const RECORD_CHECKING_CENTER_Y_PX = 172;
 const DIFFICULTY_Y_PX = 208;
 const PRACTICE_BADGE_GAP_PX = 24;
 const RANK_Y_PX = 262;
@@ -196,6 +203,7 @@ export class ResultScene extends Phaser.Scene {
     private readonly celestial: CelestialCatalog,
     private readonly catalog: AchievementCatalog,
     private readonly account: AccountSource,
+    private readonly auth: AccountAuth,
   ) {
     super(SCENE_KEYS.result);
   }
@@ -213,27 +221,185 @@ export class ResultScene extends Phaser.Scene {
       this.celestial.atlasPresentations[RESULT_NODE_ID],
       this.celestial.atlasPresentations[TOP_RANK_GLINT_ID],
       this.celestial.atlasPresentations[PENDING_MOTE_ID],
+      this.celestial.atlasPresentations[LOADING_STAR_ID],
       ...this.celestial.nodeOnlyFinish.map((step) => step.presentation),
     ]);
   }
 
   create(data: ResultSceneData): void {
     this.exit = STAYING;
-    const pointer: ButtonPointer<ResultButton> = {
-      pointerOver: (button) => controller.pointerOver(button),
-      pointerOut: (button) => controller.pointerOut(button),
-      pointerDown: (button) => controller.pointerDown(button),
-      pointerUp: (button) => controller.pointerUp(button),
+    const { song, laneCount, difficulty, chartId, level, origin, report, result, ranking } = data;
+    const screen: ResultScreen = {
+      render: (previous, next) => {
+        for (const region of getChangedRegions(previous, next)) {
+          switch (region) {
+            case 'tabs':
+              view.tabs.render(
+                (tabDifficulty) => getRetryTabAppearance(next, tabDifficulty),
+                next.retryChart.song.accentColor,
+              );
+              break;
+            case 'retryButton':
+              view.retryButton.render(getMenuButtonView(next, 'retry'));
+              break;
+            case 'songSelectButton':
+              view.songSelectButton.render(getMenuButtonView(next, 'songSelect'));
+              break;
+            case 'menuFocusMotion':
+              view.retryButton.playFocus(isResultFocused(next, 'retry'));
+              view.songSelectButton.playFocus(isResultFocused(next, 'songSelect'));
+              break;
+            case 'controlsEntry':
+              view.chrome.renderControlsEntry(isControlsEntryHovered(next.hover));
+              break;
+            case 'controlsClose':
+              view.chrome.controls.closeButton.render(getControlsCloseView(next.hover));
+              break;
+            case 'controlsHelpCard':
+              view.chrome.controls.helpCard.render(isControlsHelpShown(next));
+              break;
+            case 'controlsHelpButton':
+              view.chrome.controls.renderHelpButton(getControlsHelpButtonView(next));
+              break;
+            case 'accountButton': {
+              const views = getAccountPanelButtonView(next.hover);
+              view.chrome.accountCorner.nameplate.renderButton(views.accountProfile);
+              view.chrome.accountCorner.signInButton.render(views.accountSignIn);
+              break;
+            }
+            case 'toasts': {
+              const changes = getToastChanges(previous, next);
+              for (const toast of changes.entered) {
+                const { content } = toast;
+                let badge: TopRankBadge | null = null;
+                if (content.kind === 'ranking') {
+                  badge = new TopRankBadge(this, this.celestial, TOAST_RANK_BADGE);
+                  badge.render(content.rank);
+                }
+                view.toasts.enter(toast, view.presentToast(content), badge);
+              }
+              changes.moved.forEach(({ id, slot }) => view.toasts.move(id, slot));
+              changes.leaving.forEach((id) => view.toasts.leave(id));
+              break;
+            }
+            case 'toastClose':
+              view.toasts.renderCloseHover(getHoveredToastId(next));
+              break;
+            case 'rankingNotice':
+              view.rankingNotice.render(
+                next.rankingNotice === null
+                  ? null
+                  : {
+                      title: this.i18n.t(`rankingNotice.${next.rankingNotice}.title`),
+                      body: this.i18n.t(`rankingNotice.${next.rankingNotice}.body`),
+                      cancelLabel: null,
+                      acceptLabel: this.i18n.t('rankingNotice.close'),
+                      acceptTone: 'default',
+                    },
+              );
+              break;
+            case 'recordStatus':
+              if (next.recordStatus === 'checking') {
+                view.recordStatusText
+                  .setText(this.i18n.t('result.checkingRecord'))
+                  .setY(RECORD_CHECKING_CENTER_Y_PX)
+                  .setVisible(true);
+                view.recordStatusStar.show(view.recordStatusText.getBounds());
+              } else {
+                view.recordStatusText.setVisible(false);
+                view.recordStatusStar.show(null);
+              }
+              break;
+            case 'rankingNoticeButtons': {
+              const close = getRankingNoticeCloseView(next);
+              view.rankingNotice.renderButtons(close, close);
+              break;
+            }
+            case 'guestNotice':
+              view.guestNotice.render(
+                next.isGuestNoticeOpen
+                  ? {
+                      title: this.i18n.t('localRecord.signInPrompt.title'),
+                      body: this.i18n.t('localRecord.signInPrompt.body'),
+                      cancelLabel: this.i18n.t('localRecord.signInPrompt.later'),
+                      acceptLabel: this.i18n.t('localRecord.signInPrompt.signIn'),
+                      acceptTone: 'default',
+                    }
+                  : null,
+              );
+              break;
+            case 'guestNoticeButtons':
+              view.guestNotice.renderButtons(
+                getGuestNoticeButtonView(next, 'guestNoticeLater'),
+                getGuestNoticeButtonView(next, 'guestNoticeSignIn'),
+              );
+              break;
+            case 'controls':
+              view.chrome.controls.render(
+                isControlsPanelOpen(next)
+                  ? getControlsGuide(
+                      this.i18n.t('controls', { returnObjects: true }),
+                      this.save.loadSettings(),
+                    )
+                  : null,
+              );
+              break;
+          }
+        }
+      },
+      playSound: (sound) => soundEffects.play(sound),
+      leave: (request) => {
+        this.exit = exitScene(this, this.exit, request);
+      },
+      openProfile: (ranking) => {
+        this.exit = exitScene(this, this.exit, {
+          key: 'profile',
+          data: {
+            returnTo: {
+              key: 'result',
+              // 이미 보여 준 알림과 안내 팝업은 다시 뜨지 않고, 아직 응답을 못 받은 제출의 알림만 돌아와서 뜬다.
+              data: {
+                ...data,
+                ranking,
+              },
+            },
+          },
+        });
+      },
+      renderAccount: () => {
+        const identity = this.account.getIdentity();
+        view.chrome.accountCorner.nameplate.render(identity);
+        view.chrome.accountCorner.renderSignIn(identity);
+      },
+      isLeaving: () => this.exit.kind === 'leaving',
     };
+    const controller = new ResultController(
+      screen,
+      {
+        song,
+        laneCount,
+        difficulty,
+        chartId,
+        level,
+      },
+      origin,
+      ranking,
+      report,
+      {
+        isShown: () => this.save.isGuestNoticeShown(),
+        markShown: () => this.save.markGuestNoticeShown(),
+        signIn: () => this.auth.signIn(),
+      },
+    );
     const chrome = new MenuSceneChrome(
       this,
       {
         celestial: this.celestial,
         screen: 'result',
         account: {
-          kind: 'nameplate',
+          kind: 'corner',
           catalog: this.account.catalog,
-          pointer,
+          pointer: controller,
         },
       },
       {
@@ -263,11 +429,12 @@ export class ResultScene extends Phaser.Scene {
           }
         },
       },
-      pointer,
+      controller,
     );
-    chrome.renderAccount(this.account.getIdentity());
+    const identity = this.account.getIdentity();
+    chrome.accountCorner.nameplate.render(identity);
+    chrome.accountCorner.renderSignIn(identity);
     const soundEffects = new SoundEffects(this, this.save.loadSettings());
-    const { song, laneCount, difficulty, chartId, level, origin, report, result, ranking } = data;
     const presentation = getResultPresentation(origin.mode, result);
     this.cameras.main.fadeIn(MOTION.mediumMs);
 
@@ -289,7 +456,7 @@ export class ResultScene extends Phaser.Scene {
         : this.createGradedSummary(presentation, result, difficulty, song.accentColor);
     const headerTexts: Phaser.GameObjects.Text[] = [titleText];
     let metaXPx = LEFT_X_PX;
-    summary.metaLabels.forEach((label) => {
+    for (const label of summary.metaLabels) {
       const metaText = this.add.text(
         metaXPx,
         DIFFICULTY_Y_PX,
@@ -298,10 +465,10 @@ export class ResultScene extends Phaser.Scene {
       );
       headerTexts.push(metaText);
       metaXPx += metaText.width + PRACTICE_BADGE_GAP_PX;
-    });
+    }
     const statTexts: Phaser.GameObjects.Text[] = [...summary.statTexts];
     // 판정 내역은 세로 표 대신 한 줄의 열로 펼쳐 왼쪽 열 높이를 줄이고, 그만큼을 묶음 사이 여백으로 쓴다.
-    JUDGMENTS.forEach((judgment, index) => {
+    for (const [index, judgment] of JUDGMENTS.entries()) {
       const xPx = LEFT_X_PX + JUDGMENT_COLUMN_WIDTH_PX * index;
       statTexts.push(
         this.add.text(
@@ -317,7 +484,7 @@ export class ResultScene extends Phaser.Scene {
           textStyle('primary', COLORS.textPrimary),
         ),
       );
-    });
+    }
     const jacket = new JacketView(this, JACKET_X_PX, JACKET_Y_PX, JACKET_SIZE_PX).setSong(song);
 
     const retryButton = new Button(this, 0, BUTTON_Y_PX, {
@@ -327,7 +494,7 @@ export class ResultScene extends Phaser.Scene {
       // 화면의 기본 동작(Enter)이므로 TRACKS 보다 한 단계 크게 둔다.
       labelType: TYPE_SCALE.heading,
       isHoverUnderlined: true,
-      pointer: pointButton(pointer, 'retry'),
+      pointer: pointButton(controller, 'retry'),
     });
     retryButton.setX(RIGHT_X_PX + QUIET_BUTTON_PADDING_X_PX - retryButton.width);
     const tabs = new TextTabs(
@@ -336,13 +503,9 @@ export class ResultScene extends Phaser.Scene {
       DIFFICULTY_TABS_LAYOUT,
       DIFFICULTY_TABS_STYLE,
       {
-        onSelect: (tabDifficulty) => {
-          if (this.exit.kind !== 'leaving') {
-            controller.selectDifficulty(tabDifficulty);
-          }
-        },
-        onHover: (tabDifficulty) => controller.hoverDifficulty(tabDifficulty),
-        onUnhover: (tabDifficulty) => controller.unhoverDifficulty(tabDifficulty),
+        onSelect: controller.selectDifficulty.bind(controller),
+        onHover: controller.hoverDifficulty.bind(controller),
+        onUnhover: controller.unhoverDifficulty.bind(controller),
       },
     );
     const songSelectButton = new Button(this, LEFT_X_PX - QUIET_BUTTON_PADDING_X_PX, 0, {
@@ -350,7 +513,7 @@ export class ResultScene extends Phaser.Scene {
       focus: 'slide',
       label: origin.kind === 'chartEditor' ? 'EDITOR' : 'TRACKS',
       isHoverUnderlined: true,
-      pointer: pointButton(pointer, 'songSelect'),
+      pointer: pointButton(controller, 'songSelect'),
     });
     // 글자 크기가 달라 아랫변을 맞춰야 RETRY 와 한 줄로 읽힌다.
     songSelectButton.setY(retryButton.y + retryButton.height - songSelectButton.height);
@@ -373,11 +536,11 @@ export class ResultScene extends Phaser.Scene {
         scene: this,
         catalog: this.catalog,
         celestial: this.celestial,
-        onClose: (id) => controller.closeToast(id),
-        onHover: (id) => controller.hoverToastClose(id),
-        onUnhover: (id) => controller.unhoverToastClose(id),
-        onExpire: (id) => controller.dismissToast(id),
-        onRemoved: (id) => controller.removeToast(id),
+        onClose: controller.closeToast.bind(controller),
+        onHover: controller.hoverToastClose.bind(controller),
+        onUnhover: controller.unhoverToastClose.bind(controller),
+        onExpire: controller.dismissToast.bind(controller),
+        onRemoved: controller.removeToast.bind(controller),
       }),
       // 순위 알림의 곡과 난이도는 재시도 탭이 아니라 방금 플레이한 채보다.
       presentToast: (content) => {
@@ -404,49 +567,20 @@ export class ResultScene extends Phaser.Scene {
       },
       // 확인 버튼 하나뿐이라 숨긴 취소 버튼도 같은 닫기로 잇는다.
       rankingNotice: new ConfirmDialog(this, {
-        cancel: pointButton(pointer, 'noticeClose'),
-        accept: pointButton(pointer, 'noticeClose'),
+        cancel: pointButton(controller, 'noticeClose'),
+        accept: pointButton(controller, 'noticeClose'),
       }),
+      guestNotice: new ConfirmDialog(this, {
+        cancel: pointButton(controller, 'guestNoticeLater'),
+        accept: pointButton(controller, 'guestNoticeSignIn'),
+      }),
+      recordStatusText: this.add
+        .text(RIGHT_X_PX, 0, '', textStyle('meta', COLORS.textSecondary))
+        .setOrigin(1, 0.5),
+      recordStatusStar: new LoadingStar(this, this.celestial),
     };
-    const controller = new ResultController(
-      {
-        render: (previous, next) => {
-          for (const region of getChangedRegions(previous, next)) {
-            this.renderRegion(view, previous, next, region);
-          }
-        },
-        playSound: (sound) => soundEffects.play(sound),
-        leave: (request) => {
-          this.exit = exitScene(this, this.exit, request);
-        },
-        openProfile: (awaitedRanking) => {
-          this.exit = exitScene(this, this.exit, {
-            key: 'profile',
-            data: {
-              returnTo: {
-                key: 'result',
-                // 이미 보여 준 알림과 안내 팝업은 다시 뜨지 않고, 아직 응답을 못 받은 제출의 알림만 돌아와서 뜬다.
-                data: {
-                  ...data,
-                  ranking: awaitedRanking,
-                },
-              },
-            },
-          });
-        },
-      },
-      {
-        song,
-        laneCount,
-        difficulty,
-        chartId,
-        level,
-      },
-      origin,
-      ranking,
-      report,
-    );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => controller.close());
+    controller.start();
   }
 
   private createGradedSummary(
@@ -632,81 +766,6 @@ export class ResultScene extends Phaser.Scene {
     };
   }
 
-  private renderRegion(
-    view: ResultView,
-    previous: ResultState | null,
-    state: ResultState,
-    region: ResultRegion,
-  ): void {
-    switch (region) {
-      case 'tabs':
-        view.tabs.render(
-          (tabDifficulty) => getRetryTabAppearance(state, tabDifficulty),
-          state.retryChart.song.accentColor,
-        );
-        return;
-      case 'retryButton':
-        view.retryButton.render(getMenuButtonView(state, 'retry'));
-        return;
-      case 'songSelectButton':
-        view.songSelectButton.render(getMenuButtonView(state, 'songSelect'));
-        return;
-      case 'menuFocusMotion':
-        view.retryButton.playFocus(isResultFocused(state, 'retry'));
-        view.songSelectButton.playFocus(isResultFocused(state, 'songSelect'));
-        return;
-      case 'controlsEntry':
-        view.chrome.renderControlsEntry(isResultControlsEntryHovered(state));
-        return;
-      case 'controlsClose':
-        view.chrome.renderControlsClose(getResultControlsCloseView(state));
-        return;
-      case 'controlsHelpCard':
-        view.chrome.renderControlsHelpCard(isControlsHelpShown(state));
-        return;
-      case 'controlsHelpButton':
-        view.chrome.renderControlsHelpButton(getControlsHelpButtonView(state));
-        return;
-      case 'accountButton':
-        view.chrome.renderAccountButton(getAccountPanelButtonView(state.hover));
-        return;
-      case 'toasts':
-        view.toasts.apply(getToastChanges(previous, state), view.presentToast);
-        return;
-      case 'toastClose':
-        view.toasts.renderCloseHover(getHoveredToastId(state));
-        return;
-      case 'rankingNotice':
-        view.rankingNotice.render(
-          state.rankingNotice === null
-            ? null
-            : {
-                title: this.i18n.t(`rankingNotice.${state.rankingNotice}.title`),
-                body: this.i18n.t(`rankingNotice.${state.rankingNotice}.body`),
-                cancelLabel: null,
-                acceptLabel: this.i18n.t('rankingNotice.close'),
-                acceptTone: 'default',
-              },
-        );
-        return;
-      case 'rankingNoticeButtons': {
-        const close = getRankingNoticeCloseView(state);
-        view.rankingNotice.renderButtons(close, close);
-        return;
-      }
-      case 'controls':
-        view.chrome.renderControls(
-          isControlsPanelOpen(state)
-            ? getControlsGuide(
-                this.i18n.t('controls', { returnObjects: true }),
-                this.save.loadSettings(),
-              )
-            : null,
-        );
-        return;
-    }
-  }
-
   private fadeInAt(
     targets: Phaser.GameObjects.Components.AlphaSingle[],
     alpha: number,
@@ -736,14 +795,14 @@ export class ResultScene extends Phaser.Scene {
       NODE_X_PX,
       NODE_Y_PX,
     ).setVisible(false);
-    cues.forEach((cue) => {
+    for (const cue of cues) {
       const { xPx, yPx } = getFinishAnchorPosition(cue.anchor, rankBounds, scoreBounds);
       const sprite = addCelestialSprite(this, cue.step.presentation, xPx, yPx);
       if (cue.isNodeIgnite) {
         sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => node.setVisible(true));
       }
       this.time.delayedCall(cue.playAtMs, () => playCelestialOnce(sprite));
-    });
+    }
   }
 
   private revealConstellation(plan: ConstellationPlan, accent: number): void {
@@ -874,7 +933,7 @@ export class ResultScene extends Phaser.Scene {
       texture.refresh();
     };
     const extendLines = (fromElapsedMs: number, toElapsedMs: number): void => {
-      plan.edges.forEach(({ from, to, startMs, endMs }) => {
+      for (const { from, to, startMs, endMs } of plan.edges) {
         const startReach = getProgress(fromElapsedMs, startMs, endMs);
         const endReach = getProgress(toElapsedMs, startMs, endMs);
         const isFinishedNow = startReach < 1 && endReach === 1;
@@ -890,7 +949,7 @@ export class ResultScene extends Phaser.Scene {
             lerp(from.yPx, to.yPx, endReach),
           );
         }
-      });
+      }
     };
     let drawnElapsedMs = 0;
     this.tweens.addCounter({

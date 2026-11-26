@@ -11,7 +11,9 @@ import type { FinishedGameplayResult } from '../../src/rhythm/types.js';
 const SETTINGS_KEY = 'dazbeat:settings:v1';
 const RECORDS_KEY = 'dazbeat:records:v2';
 const REVISION_NOTICES_KEY = 'dazbeat:revisionNotices:v1';
+const GUEST_PLAYER_REPORTS_KEY = 'dazbeat:guestPlayerReports:v1';
 const ACCELERATION_NOTICE_KEY = 'dazbeat:accelerationNotice:v1';
+const GUEST_NOTICE_KEY = 'dazbeat:guestNotice:v1';
 const CUSTOM_KEY_BINDINGS: KeyBindings = {
   4: ['KeyQ', 'KeyW', 'KeyO', 'KeyP'],
   5: ['KeyQ', 'KeyW', 'Space', 'KeyO', 'KeyP'],
@@ -550,6 +552,38 @@ describe('LocalSave revision notices', () => {
   });
 });
 
+describe('LocalSave guest player reports', () => {
+  it('reports nothing when nothing is saved', () => {
+    expect(save.isGuestPlayerReported('chart-a', 'rev-1')).toBe(false);
+  });
+
+  it('remembers only the latest reported revision of each chart', () => {
+    save.saveGuestPlayerReport('chart-a', 'rev-1');
+    save.saveGuestPlayerReport('chart-b', 'rev-1');
+    save.saveGuestPlayerReport('chart-a', 'rev-2');
+
+    expect(save.isGuestPlayerReported('chart-a', 'rev-1')).toBe(false);
+    expect(save.isGuestPlayerReported('chart-a', 'rev-2')).toBe(true);
+    expect(save.isGuestPlayerReported('chart-b', 'rev-1')).toBe(true);
+  });
+
+  it('ignores malformed entries and warns when the JSON is broken', () => {
+    storage.setItem(
+      GUEST_PLAYER_REPORTS_KEY,
+      JSON.stringify({
+        'chart-a': 'rev-1',
+        'chart-b': 3,
+      }),
+    );
+    expect(save.isGuestPlayerReported('chart-a', 'rev-1')).toBe(true);
+    expect(save.isGuestPlayerReported('chart-b', '3')).toBe(false);
+
+    storage.setItem(GUEST_PLAYER_REPORTS_KEY, '{');
+    expect(save.isGuestPlayerReported('chart-a', 'rev-1')).toBe(false);
+    expect(warnSpy).toHaveBeenCalledOnce();
+  });
+});
+
 describe('LocalSave acceleration notice', () => {
   it('is not dismissed when nothing is saved', () => {
     expect(save.isAccelerationNoticeDismissed()).toBe(false);
@@ -575,5 +609,26 @@ describe('LocalSave acceleration notice', () => {
       throw new Error('quota');
     });
     expect(() => save.dismissAccelerationNotice()).toThrow('quota');
+  });
+});
+
+describe('LocalSave guest notice', () => {
+  it('is not shown when nothing is saved', () => {
+    expect(save.isGuestNoticeShown()).toBe(false);
+  });
+
+  it('stays shown for a new save on the same storage', () => {
+    save.markGuestNoticeShown();
+
+    expect(new LocalSave(storage).isGuestNoticeShown()).toBe(true);
+    expect(storage.getItem(GUEST_NOTICE_KEY)).toBe('{"isShown":true}');
+  });
+
+  it('is not shown when the saved value is broken or not a boolean', () => {
+    storage.setItem(GUEST_NOTICE_KEY, '{');
+    expect(save.isGuestNoticeShown()).toBe(false);
+
+    storage.setItem(GUEST_NOTICE_KEY, JSON.stringify({ isShown: 'true' }));
+    expect(save.isGuestNoticeShown()).toBe(false);
   });
 });

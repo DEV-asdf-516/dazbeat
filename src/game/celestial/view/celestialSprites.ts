@@ -51,9 +51,9 @@ export function queueCelestialTextures(
         () => undefined,
       );
       const texture = scene.textures.get(key);
-      atlas.frames.forEach(({ frameName, widthPx, heightPx }) => {
+      for (const { frameName, widthPx, heightPx } of atlas.frames) {
         texture.add(frameName, 0, 0, 0, widthPx, heightPx);
-      });
+      }
     },
   );
 }
@@ -61,26 +61,26 @@ export function queueCelestialTextures(
 /** 텍스처·animation 관리자는 게임 전역이므로 이미 등록된 frame·animation 은 다시 만들지 않는다. */
 export function registerCelestialAnimations(scene: Phaser.Scene, catalog: CelestialCatalog): void {
   // 아직 요청하지 않은 텍스처는 건너뛰고, 그 텍스처를 요청한 씬의 create 에서 등록된다.
-  catalog.atlasFrames.forEach(({ textureKey, frames }) => {
+  for (const { textureKey, frames } of catalog.atlasFrames) {
     if (!scene.textures.exists(textureKey)) {
-      return;
+      continue;
     }
     const texture = scene.textures.get(textureKey);
-    frames.forEach(({ frameName, xPx, yPx, widthPx, heightPx }) => {
+    for (const { frameName, xPx, yPx, widthPx, heightPx } of frames) {
       texture.add(frameName, 0, xPx, yPx, widthPx, heightPx);
-    });
-  });
+    }
+  }
   const presentations = [
     ...Object.values(catalog.atlasPresentations),
     ...catalog.nodeOnlyFinish.map((step) => step.presentation),
   ];
-  presentations.forEach(({ textureKey, playback }) => {
+  for (const { textureKey, playback } of presentations) {
     if (
       playback.kind === 'static' ||
       scene.anims.exists(playback.animationKey) ||
       !scene.textures.exists(textureKey)
     ) {
-      return;
+      continue;
     }
     // animation 수준 frameRate·duration 을 주지 않아야 frame 별 duration 이 그대로 다음 frame 시점이 된다.
     scene.anims.create({
@@ -92,7 +92,7 @@ export function registerCelestialAnimations(scene: Phaser.Scene, catalog: Celest
       })),
       repeat: playback.kind === 'loop' ? -1 : 0,
     });
-  });
+  }
 }
 
 export function addCelestialSprite(

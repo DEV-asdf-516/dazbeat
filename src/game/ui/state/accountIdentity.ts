@@ -1,10 +1,15 @@
 import { findAchievement } from '../../../data/achievements.js';
 import type { AchievementCatalog, NamedAchievementDefinition } from '../../../data/achievements.js';
 import type { AuthUser } from '../../../data/account.js';
-import { getButtonView, isButtonHovered, isButtonPressed } from './buttonPointer.js';
+import { getButtonView, isButtonHovered, isButtonPressed, unhoverButton } from './buttonPointer.js';
 import type { ButtonView, PointerHover } from './buttonPointer.js';
 
-export type AccountPanelButton = 'accountProfile';
+export type AccountPanelButton = 'accountProfile' | 'accountSignIn';
+
+export type AccountPanelButtonViews = Readonly<Record<AccountPanelButton, ButtonView>>;
+
+/** Google 아이콘을 불러오지 못했을 때 아이콘 대신 쓰는 버튼 글자. */
+export const GOOGLE_SIGN_IN_LABEL = 'SIGN IN WITH GOOGLE';
 
 export interface AccountIdentity {
   readonly nickname: string;
@@ -14,6 +19,7 @@ export interface AccountIdentity {
 
 export interface AccountSource {
   getIdentity(): AccountIdentity | null;
+  signIn(): Promise<AuthUser | null>;
   readonly catalog: AchievementCatalog;
 }
 
@@ -28,11 +34,26 @@ export function getAccountIdentity(user: AuthUser, catalog: AchievementCatalog):
   };
 }
 
+const ACCOUNT_PANEL_BUTTONS: readonly AccountPanelButton[] = ['accountProfile', 'accountSignIn'];
+
 /** 패널 버튼 영역의 변경 비교 값이다. 다른 버튼의 hover 로는 바뀌지 않는다. */
 export function getAccountPanelPointerKey(hover: PointerHover): string {
-  return `${isButtonHovered(hover, 'accountProfile')}:${isButtonPressed(hover, 'accountProfile')}`;
+  return ACCOUNT_PANEL_BUTTONS.map(
+    (button) => `${isButtonHovered(hover, button)}:${isButtonPressed(hover, button)}`,
+  ).join('|');
 }
 
-export function getAccountPanelButtonView(hover: PointerHover): ButtonView {
-  return getButtonView(hover, 'accountProfile', true, false);
+export function getAccountPanelButtonView(hover: PointerHover): AccountPanelButtonViews {
+  return {
+    accountProfile: getButtonView(hover, 'accountProfile', true, false),
+    accountSignIn: getButtonView(hover, 'accountSignIn', true, false),
+  };
+}
+
+/** 로그인하면 Google 버튼이 숨어 Phaser 가 POINTER_OUT 을 보내지 않으므로 그 hover 를 푼다. */
+export function completeAccountSignIn<S extends { readonly hover: PointerHover }>(state: S): S {
+  return {
+    ...state,
+    hover: unhoverButton(state.hover, 'accountSignIn'),
+  };
 }

@@ -174,16 +174,24 @@ export class ConfirmDialog {
     this.accepts.default.setVisible(content.acceptTone === 'default');
     this.accepts.danger.setVisible(content.acceptTone === 'danger');
     // 버튼 폭은 라벨에 맞춰지므로 라벨을 먼저 정한다.
-    accept.setLabel(content.acceptLabel);
+    accept.setContent({
+      kind: 'label',
+      label: content.acceptLabel,
+    });
     const actionsTopYPx = contentBottomYPx + ACTIONS_GAP_PX;
     const acceptXPx = PANEL_WIDTH_PX - PADDING_PX - accept.width;
     accept.setPosition(acceptXPx, actionsTopYPx);
     this.cancel.setVisible(content.cancelLabel !== null);
     if (content.cancelLabel !== null) {
-      this.cancel.setLabel(content.cancelLabel);
+      this.cancel.setContent({
+        kind: 'label',
+        label: content.cancelLabel,
+      });
       this.cancel.setPosition(acceptXPx - BUTTON_GAP_PX - this.cancel.width, actionsTopYPx);
     }
-    this.frame.setPanelSize(PANEL_WIDTH_PX, actionsTopYPx + BUTTON_HEIGHT_PX + PADDING_PX);
+    const panelHeightPx = actionsTopYPx + BUTTON_HEIGHT_PX + PADDING_PX;
+    this.frame.panel.setSize(PANEL_WIDTH_PX, panelHeightPx);
+    this.frame.placePanel(PANEL_WIDTH_PX, panelHeightPx);
     if (!this.frame.container.visible) {
       this.frame.render(true);
     }

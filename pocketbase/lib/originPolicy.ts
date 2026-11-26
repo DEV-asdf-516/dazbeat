@@ -23,9 +23,9 @@ export function decideOrigin(
     .split(',')
     .map((entry) => entry.trim())
     .filter((entry) => entry !== '');
-  const allowed =
+  const isAllowed =
     allowedOrigins.includes(origin) || origin === `http://${host}` || origin === `https://${host}`;
-  return allowed
+  return isAllowed
     ? { kind: 'allowed' }
     : {
         kind: 'rejected',

@@ -4,7 +4,7 @@ import type { RankingSubmission } from '../data/playSession.js';
 import type { PlaySubmission } from '../data/playSubmission.js';
 import type { MyChartRecord } from '../data/ranking.js';
 import { submitPlay } from './playSessions.js';
-import { loadMyRecords } from './rankings.js';
+import { loadMyRecords } from './me.js';
 
 export class PlayRecords {
   private pending: Promise<unknown> = Promise.resolve();

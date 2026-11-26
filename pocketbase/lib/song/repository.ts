@@ -1,9 +1,15 @@
 import { CHARTS, SONG_LIST_FIELDS, SONGS } from '../../../src/pbCollections.js';
 import { collectionSpec, desc } from '../../../src/pbQuery.js';
-import type { CompiledFilter, FilterValue } from '../../../src/pbQuery.js';
 import { column, columns, joinOn, orderTerms } from '../../../src/pbSql.js';
 import { selectRow, selectRows } from '../jsvm.js';
-import type { DbApp, JsvmRuntime, QueryBuilderApp, SelectQuery } from '../jsvm.js';
+import type {
+  DbApp,
+  Dbx,
+  DbxExpression,
+  JsvmRuntime,
+  QueryBuilderApp,
+  SelectQuery,
+} from '../jsvm.js';
 import type { SongSearchChart, SongSearchPage, SongSearchRequest, TitleSearch } from './dto.js';
 
 const SONG_SEARCH_BATCH_SIZE = 100;
@@ -17,20 +23,20 @@ export interface SongSearchQuery {
   /** 곡 레코드 쿼리에 붙일 조각. 제목을 FTS 로 찾을 때만 join 이 있다. */
   readonly join: { readonly table: string; readonly on: string } | null;
   /** 거를 조건이 없으면 null 이다. */
-  readonly condition: string | null;
+  readonly condition: DbxExpression | null;
   readonly orderBy: readonly string[];
   readonly limit: number;
-  readonly shouldCount: boolean;
-  readonly params: Readonly<Record<string, FilterValue>>;
+  readonly isCountNeeded: boolean;
 }
 
-function compileTitleClause(title: TitleSearch) {
+function compileTitleClause(dbx: Dbx, title: TitleSearch) {
   if (title.kind === 'prefix') {
     return {
       join: null,
       // 패턴의 %, _, \ 는 이스케이프해 글자 그대로 찾는다.
-      expression: `${column(SONGS, 'title')} LIKE {:titlePrefix} ESCAPE '\\'`,
-      params: { titlePrefix: `${title.term.replace(/[\\%_]/g, (char) => `\\${char}`)}%` },
+      condition: dbx.exp(`${column(SONGS, 'title')} LIKE {:titlePrefix} ESCAPE '\\'`, {
+        titlePrefix: `${title.term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`,
+      }),
     };
   }
   return {
@@ -38,69 +44,57 @@ function compileTitleClause(title: TitleSearch) {
       table: SONGS_TITLE_FTS.name,
       on: joinOn(SONGS_TITLE_FTS, 'songId', SONGS, 'id'),
     },
-    expression: `${SONGS_TITLE_FTS.name} MATCH {:match}`,
-    params: { match: `"${title.term.replace(/"/g, '""')}"` },
+    condition: dbx.exp(`${SONGS_TITLE_FTS.name} MATCH {:match}`, {
+      match: `"${title.term.replace(/"/g, '""')}"`,
+    }),
   };
 }
 
-export function buildSongSearchQuery(request: SongSearchRequest): SongSearchQuery {
+export function buildSongSearchQuery(dbx: Dbx, request: SongSearchRequest): SongSearchQuery {
   const { title, category, cursor, scope, level } = request;
-  const titleClause = title === null ? null : compileTitleClause(title);
-  const clauses: CompiledFilter[] = [
-    titleClause,
-    scope === 'all'
-      ? null
-      : {
-          expression: `${column(SONGS, 'isPublished')} = {:isPublished}`,
-          params: { isPublished: true },
-        },
+  const titleClause = title === null ? null : compileTitleClause(dbx, title);
+  const releasedOn = column(SONGS, 'releasedOn');
+  const conditions = [
+    titleClause?.condition ?? null,
+    scope === 'all' ? null : dbx.hashExp({ [column(SONGS, 'isPublished')]: true }),
     category === null
       ? null
-      : {
-          // 제목이 있으면 카테고리 인덱스는 그 카테고리 곡을 거의 다 읽게 되므로, 단항 + 로 막아 제목 인덱스를 쓰게 한다.
-          expression: `${title === null ? '' : '+'}${column(SONGS, 'category')} = {:category}`,
-          params: { category },
-        },
+      : // 제목이 있으면 카테고리 인덱스는 그 카테고리 곡을 거의 다 읽게 되므로, 단항 + 로 막아 제목 인덱스를 쓰게 한다.
+        dbx.exp(`${title === null ? '' : '+'}${column(SONGS, 'category')} = {:category}`, {
+          category,
+        }),
     cursor === null
       ? null
-      : {
-          expression:
-            `(${column(SONGS, 'releasedOn')} < {:afterReleasedOn} OR ` +
-            `(${column(SONGS, 'releasedOn')} = {:afterReleasedOn} AND ${column(SONGS, 'id')} < {:afterId}))`,
-          params: {
-            afterReleasedOn: cursor.releasedOn,
-            afterId: cursor.id,
-          },
-        },
+      : dbx.or(
+          dbx.exp(`${releasedOn} < {:afterReleasedOn}`, { afterReleasedOn: cursor.releasedOn }),
+          dbx.and(
+            dbx.exp(`${releasedOn} = {:afterReleasedOn}`),
+            dbx.exp(`${column(SONGS, 'id')} < {:afterId}`, { afterId: cursor.id }),
+          ),
+        ),
     level === null
       ? null
-      : {
-          // IN (SELECT …) 은 걸린 곡을 모두 모아 정렬하므로, 목록 인덱스 순서로 읽다 LIMIT 에서 멈추도록 곡마다 EXISTS 로 본다.
-          expression:
-            `EXISTS (SELECT 1 FROM ${CHARTS.name} WHERE ${joinOn(CHARTS, 'song', SONGS, 'id')} AND ` +
-            `${column(CHARTS, 'laneCount')} = {:levelLaneCount} AND ` +
-            `${column(CHARTS, 'level')} BETWEEN {:minLevel} AND {:maxLevel})`,
-          params: {
+      : // IN (SELECT …) 은 걸린 곡을 모두 모아 정렬하므로, 목록 인덱스 순서로 읽다 LIMIT 에서 멈추도록 곡마다 EXISTS 로 본다.
+        dbx.exp(
+          [
+            `EXISTS (SELECT 1 FROM ${CHARTS.name}`,
+            `WHERE ${joinOn(CHARTS, 'song', SONGS, 'id')}`,
+            `AND ${column(CHARTS, 'laneCount')} = {:levelLaneCount}`,
+            `AND ${column(CHARTS, 'level')} BETWEEN {:minLevel} AND {:maxLevel})`,
+          ].join(' '),
+          {
             levelLaneCount: level.laneCount,
             minLevel: level.min,
             maxLevel: level.max,
           },
-        },
-  ].filter((clause) => clause !== null);
+        ),
+  ].filter((condition) => condition !== null);
   return {
     join: titleClause?.join ?? null,
-    condition:
-      clauses.length === 0 ? null : clauses.map((clause) => clause.expression).join(' AND '),
+    condition: conditions.length === 0 ? null : dbx.and(...conditions),
     orderBy: orderTerms(SONGS, [desc('releasedOn'), desc('id')]),
     limit: SONG_SEARCH_BATCH_SIZE,
-    shouldCount: cursor === null,
-    params: clauses.reduce<Record<string, FilterValue>>(
-      (all, clause) => ({
-        ...all,
-        ...clause.params,
-      }),
-      {},
-    ),
+    isCountNeeded: cursor === null,
   };
 }
 
@@ -120,11 +114,9 @@ export function readSongSearchPage(
   const matchSearch = (query: SelectQuery) => {
     const joined =
       search.join === null ? query : query.innerJoin(search.join.table, dbx.exp(search.join.on));
-    return search.condition === null
-      ? joined
-      : joined.andWhere(dbx.exp(search.condition, search.params));
+    return search.condition === null ? joined : joined.andWhere(search.condition);
   };
-  const totalItems = search.shouldCount
+  const totalItems = search.isCountNeeded
     ? selectRow(
         runtime,
         { total: 'int' },
@@ -170,7 +162,7 @@ export function readSongSearchPage(
     .where(dbx.in(column(CHARTS, 'song'), ...songs.map((song) => song.id)))
     .all(charts);
   const chartsBySong = new Map<string, SongSearchChart[]>();
-  charts.forEach((chart) => {
+  for (const chart of charts) {
     const songId = chart.getString('song');
     const songCharts = chartsBySong.get(songId) ?? [];
     songCharts.push({
@@ -180,7 +172,7 @@ export function readSongSearchPage(
       level: chart.getFloat('level'),
     });
     chartsBySong.set(songId, songCharts);
-  });
+  }
   return {
     totalItems,
     songs,

@@ -4,7 +4,8 @@ import { requireDefined } from '../../../../invariant.js';
 import { getCenteredSquare } from '../../state/jacketCrop.js';
 import { queueImageLoads } from '../textures/imageLoad.js';
 import { LIGHT_TEXTURES, addLight, ensureLightTextures } from '../textures/lightTextures.js';
-import { addGlassPanel } from './songDetailLayout.js';
+import { getBrushRectTexture } from '../textures/brushRect.js';
+import { addGlassPanel, getGlassPanelLook } from './songDetailLayout.js';
 import { RADIUS } from '../theme.js';
 import { MOTION } from '../../state/motion.js';
 
@@ -64,24 +65,24 @@ abstract class SongCrossfade extends Phaser.GameObjects.Container {
     scene.add.existing(this);
   }
 
-  setSong(song: Song | null, transition = false): this {
-    return this.showContent(song === null ? [] : this.createContent(song), transition);
+  setSong(song: Song | null, isCrossfaded = false): this {
+    return this.showContent(song === null ? [] : this.createContent(song), isCrossfaded);
   }
 
-  protected showContent(content: Phaser.GameObjects.GameObject[], transition: boolean): this {
+  protected showContent(content: Phaser.GameObjects.GameObject[], isCrossfaded: boolean): this {
     [this.front, this.back] = [this.back, this.front];
     this.front.removeAll(true);
     this.front.add(content);
     this.moveAbove(this.front, this.back);
-    crossfade(this.scene, this.front, this.back, transition);
+    crossfade(this.scene, this.front, this.back, isCrossfaded);
     return this;
   }
 
-  refreshTexture(song: Song, transition = false): this {
+  refreshTexture(song: Song, isCrossfaded = false): this {
     if (getJacketSongIds(this.front).length > 0 || !this.hasTexture(song)) {
       return this;
     }
-    return this.setSong(song, transition);
+    return this.showContent(this.createContent(song), isCrossfaded);
   }
 
   /** 지금 곡과 사라지는 중인 직전 곡의 재킷 텍스처는 지우지 않게 둘 다 돌려준다. */
@@ -104,8 +105,22 @@ export class JacketView extends SongCrossfade {
   }
 
   // 곡이 없어도 재킷 자리임을 알 수 있어야 한다.
-  setEmptySlot(transition = false): this {
-    return this.showContent([this.createSlot()], transition);
+  setEmptySlot(isCrossfaded = false): this {
+    return this.showContent(
+      [
+        addGlassPanel(
+          this.scene,
+          {
+            xPx: 0,
+            yPx: 0,
+            widthPx: this.sizePx,
+            heightPx: this.sizePx,
+          },
+          RADIUS.mediumPx,
+        ),
+      ],
+      isCrossfaded,
+    );
   }
 
   protected hasTexture(song: Song): boolean {
@@ -126,25 +141,18 @@ export class JacketView extends SongCrossfade {
     }
     const center = this.sizePx / 2;
     return [
-      this.createSlot(),
+      scene.add
+        .image(
+          0,
+          0,
+          getBrushRectTexture(scene, getGlassPanelLook(this.sizePx, this.sizePx, RADIUS.mediumPx)),
+        )
+        .setOrigin(0, 0),
       addLight(scene, LIGHT_TEXTURES.glow, center, center)
         .setDisplaySize(this.sizePx, this.sizePx)
         .setTint(song.accentColor)
         .setAlpha(PLACEHOLDER_GLOW_ALPHA),
     ];
-  }
-
-  private createSlot(): Phaser.GameObjects.Image {
-    return addGlassPanel(
-      this.scene,
-      {
-        xPx: 0,
-        yPx: 0,
-        widthPx: this.sizePx,
-        heightPx: this.sizePx,
-      },
-      RADIUS.mediumPx,
-    );
   }
 }
 
@@ -159,18 +167,18 @@ function getJacketSongIds(container: Phaser.GameObjects.Container): string[] {
 function ensureSquareFrame(scene: Phaser.Scene, key: string): void {
   const texture = scene.textures.get(key);
   const source = texture.getSourceImage();
-  const { x, y, size } = getCenteredSquare(source.width, source.height);
-  texture.add(SQUARE_FRAME, 0, x, y, size, size);
+  const { x, y, sidePx } = getCenteredSquare(source.width, source.height);
+  texture.add(SQUARE_FRAME, 0, x, y, sidePx, sidePx);
 }
 
 function crossfade(
   scene: Phaser.Scene,
   incoming: Phaser.GameObjects.Container,
   outgoing: Phaser.GameObjects.Container,
-  transition: boolean,
+  isCrossfaded: boolean,
 ): void {
   scene.tweens.killTweensOf([incoming, outgoing]);
-  if (!transition) {
+  if (!isCrossfaded) {
     incoming.setAlpha(1);
     outgoing.setAlpha(0);
     return;

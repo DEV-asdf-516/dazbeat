@@ -47,9 +47,9 @@ export class SeekMarks {
   render(markXsPx: readonly number[]): void {
     const { brush, topPx } = this;
     brush.clear().lineStyle(HAIRLINE_PX, CELESTIAL_COLORS.selected, SEEK_MARK_ALPHA);
-    markXsPx.forEach((xPx) => {
+    for (const xPx of markXsPx) {
       brush.lineBetween(xPx, topPx, xPx, topPx + SEEK_MARK_HEIGHT_PX);
-    });
+    }
     this.texture.clear().draw(brush, -this.leftPx, -topPx).render();
   }
 }

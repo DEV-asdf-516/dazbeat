@@ -8,12 +8,11 @@ import {
 import type { CelestialCatalog } from '../../../celestial/state/celestialCatalog.js';
 import type { CelestialScreen } from '../../../celestial/state/celestialPlacements.js';
 import type { CelestialTextureUse } from '../../../celestial/view/celestialSprites.js';
-import type { ButtonView } from '../../state/buttonPointer.js';
-import type { ControlsButton, ControlsGuide } from '../../../app/controlsGuide.js';
-import type { AccountIdentity } from '../../state/accountIdentity.js';
-import { addAccountPanel } from './accountCard.js';
+import type { ControlsButton } from '../../../app/controlsGuide.js';
+import { AccountCard, AccountCorner } from './accountCard.js';
 import type { AccountPanelOptions } from './accountCard.js';
 import { ControlsOverlay, addControlsEntry } from './ControlsOverlay.js';
+import { pointButton } from '../input/hoverTarget.js';
 import type { ButtonPointer } from '../input/hoverTarget.js';
 import { handleEachEventOnce, requireKeyboard } from '../input/menuInput.js';
 import { readMenuAction } from '../../state/menuAction.js';
@@ -49,8 +48,9 @@ export interface MenuSceneKeys {
 
 /** 메뉴 씬이 함께 쓰는 배경 분위기, 조작 안내 팝업과 진입 버튼, 진입 연출, 키 처리 앞부분. */
 export class MenuSceneChrome {
-  private readonly overlay: ControlsOverlay;
-  private readonly accountPanel: ReturnType<typeof addAccountPanel> | null;
+  readonly controls: ControlsOverlay;
+  private readonly corner: AccountCorner | null = null;
+  private readonly card: AccountCard | null = null;
   private entryLabel: Phaser.GameObjects.Text | null = null;
 
   // 닫기 버튼과 막 포인터는 팝업을 만들 때 묶어야 해서 키·포인터 처리를 생성자에서 받는다.
@@ -61,32 +61,36 @@ export class MenuSceneChrome {
     private readonly pointer: ButtonPointer<ControlsButton>,
   ) {
     addCelestialAtmosphere(scene, options.celestial, options.screen);
-    this.accountPanel = options.account === null ? null : addAccountPanel(scene, options.account);
-    this.overlay = new ControlsOverlay(scene, pointer);
+    const { account } = options;
+    switch (account?.kind) {
+      case 'corner':
+        this.corner = new AccountCorner(scene, account.catalog, account.pointer);
+        break;
+      case 'card':
+        this.card = new AccountCard(
+          scene,
+          account.catalog,
+          pointButton(account.pointer, 'accountSignOut'),
+        );
+        break;
+      case undefined:
+        break;
+    }
+    this.controls = new ControlsOverlay(scene, pointer);
   }
 
-  renderAccount(identity: AccountIdentity | null): void {
-    this.accountPanel?.render(identity);
+  get accountCorner(): AccountCorner {
+    if (this.corner === null) {
+      throw new Error('Account corner read without the corner panel option');
+    }
+    return this.corner;
   }
 
-  renderAccountButton(view: ButtonView): void {
-    this.accountPanel?.renderButton(view);
-  }
-
-  renderControls(guide: ControlsGuide | null): void {
-    this.overlay.render(guide);
-  }
-
-  renderControlsClose(view: ButtonView): void {
-    this.overlay.renderCloseButton(view);
-  }
-
-  renderControlsHelpCard(isShown: boolean): void {
-    this.overlay.renderHelpCard(isShown);
-  }
-
-  renderControlsHelpButton(button: ButtonView): void {
-    this.overlay.renderHelpButton(button);
+  get accountCard(): AccountCard {
+    if (this.card === null) {
+      throw new Error('Account card read without the card panel option');
+    }
+    return this.card;
   }
 
   renderControlsEntry(isHovered: boolean): void {

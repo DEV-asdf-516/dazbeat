@@ -34,6 +34,11 @@ import type {
   SongListState,
 } from './state/songListState.js';
 
+export interface ChartEditorSelectPorts {
+  readonly feeds: SongFeeds;
+  readonly now: () => number;
+}
+
 export interface ChartEditorSelectScreen {
   render(previous: ChartEditorSelectView | null, next: ChartEditorSelectView): void;
   edit(songId: string, list: SongFeed): void;
@@ -60,18 +65,26 @@ export class ChartEditorSelectController {
   private shownView: ChartEditorSelectView | null = null;
 
   constructor(
-    private readonly feeds: SongFeeds,
+    private readonly ports: ChartEditorSelectPorts,
     private readonly screen: ChartEditorSelectScreen,
-    private readonly visibleRowCount: number,
+    private readonly frame: { readonly visibleRowCount: number; readonly rowHeightPx: number },
     entry: ChartEditorSelectSceneData,
-    private readonly rowHeightPx: number,
   ) {
-    const feed = entry.kind === 'fresh' ? feeds.catalog : entry.list;
-    const first = this.attach(feed, entry.kind === 'fresh' ? null : entry.focusedSongId, null);
-    this.current = first;
-    screen.showSearchText(feed.query.title);
-    this.render(first);
-    this.requestMoreAtListEnd();
+    const feed = entry.kind === 'fresh' ? ports.feeds.catalog : entry.list;
+    this.current = this.attach(feed, entry.kind === 'fresh' ? null : entry.focusedSongId, null);
+  }
+
+  // 씬의 render 가 생성자 뒤에 만드는 위젯을 그리므로 생성자가 아니라 생성 뒤에 시작한다.
+  start(): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.screen.showSearchText(current.feed.query.title);
+    this.apply(current);
+    if (isListEndVisible(current.list)) {
+      void current.feed.requestMore();
+    }
   }
 
   handleKey(key: SongListKey): boolean {
@@ -90,113 +103,236 @@ export class ChartEditorSelectController {
     if (command === null) {
       return false;
     }
+    let query: SongQuery;
     switch (command.kind) {
-      case 'move':
-        this.setListFromUser(moveSongListFocus(current.list, command.delta));
+      case 'move': {
+        const list = moveSongListFocus(current.list, command.delta);
+        if (list !== current.list) {
+          this.apply({
+            ...current,
+            list,
+          });
+          if (isListEndVisible(list)) {
+            void current.feed.requestMore();
+          }
+        }
         return true;
+      }
       case 'cycleCategory':
-        this.selectCategory(
-          cycleItem(SONG_FILTERS, current.feed.query.category, command.direction),
-        );
-        return true;
-      case 'edit':
-        this.editFocused();
-        return true;
-      case 'leave':
-        this.screen.leave();
-        return true;
-      case 'retry':
-        return this.retry();
-      case 'cancelLoadMoreFailure':
-        this.cancelLoadMoreFailure();
-        return true;
-      case 'focusSearch':
-        this.screen.focusSearch();
-        return true;
+        query = {
+          category: cycleItem(SONG_FILTERS, current.feed.query.category, command.direction),
+          title: current.feed.query.title,
+          level: null,
+        };
+        break;
       case 'search':
-        this.switchQuery({
+        query = {
           category: current.feed.query.category,
           title: this.screen.readSearchText().trim(),
           level: null,
-        });
+        };
+        break;
+      case 'edit': {
+        const song = getFocusedSong(current.list, current.feed.songs);
+        if (song !== undefined) {
+          this.screen.edit(song.id, current.feed);
+        }
+        return true;
+      }
+      case 'leave':
+        this.screen.leave();
+        return true;
+      case 'retry': {
+        if (!canRetry(current)) {
+          return false;
+        }
+        void current.feed.requestMoreFromUser();
+        // 요청이 곧바로 loading 으로 바뀌므로 그 뒤에 취소를 풀어야 팝업이 잠깐 다시 열리지 않는다.
+        const loading = this.open;
+        if (loading !== null) {
+          const list = setLoadMoreFailureCancelled(loading.list, false);
+          if (list !== loading.list) {
+            this.apply({
+              ...loading,
+              list,
+            });
+          }
+        }
+        return true;
+      }
+      case 'cancelLoadMoreFailure': {
+        const list = setLoadMoreFailureCancelled(current.list, true);
+        if (list !== current.list) {
+          this.apply({
+            ...current,
+            list,
+          });
+        }
+        return true;
+      }
+      case 'focusSearch':
+        this.screen.focusSearch();
         return true;
       case 'blurSearch':
         this.screen.blurSearch();
         return true;
     }
+    if (isShallowEqual(query, current.feed.query)) {
+      return true;
+    }
+    current.unsubscribe();
+    const next = this.attach(this.ports.feeds.create(query), null, current.list.hover);
+    this.apply(next);
+    if (isListEndVisible(next.list)) {
+      void next.feed.requestMore();
+    }
+    return true;
   }
 
   selectCategory(category: SongFilter): void {
     const current = this.open;
-    if (current !== null) {
-      this.switchQuery({
-        category,
-        title: current.feed.query.title,
-        level: null,
-      });
+    if (current === null) {
+      return;
+    }
+    const query: SongQuery = {
+      category,
+      title: current.feed.query.title,
+      level: null,
+    };
+    if (isShallowEqual(query, current.feed.query)) {
+      return;
+    }
+    current.unsubscribe();
+    const next = this.attach(this.ports.feeds.create(query), null, current.list.hover);
+    this.apply(next);
+    if (isListEndVisible(next.list)) {
+      void next.feed.requestMore();
     }
   }
 
   hoverRow(rowIndex: number): void {
     const current = this.open;
-    if (current !== null) {
-      this.setListFromUser(focusSongListRow(current.list, rowIndex));
+    if (current === null) {
+      return;
+    }
+    const list = focusSongListRow(current.list, rowIndex);
+    if (list === current.list) {
+      return;
+    }
+    this.apply({
+      ...current,
+      list,
+    });
+    if (isListEndVisible(list)) {
+      void current.feed.requestMore();
     }
   }
 
   pickRow(rowIndex: number): void {
     const current = this.open;
-    if (current !== null) {
-      this.setList(focusSongListRow(current.list, rowIndex));
-      this.editFocused();
+    if (current === null) {
+      return;
+    }
+    const list = focusSongListRow(current.list, rowIndex);
+    if (list !== current.list) {
+      this.apply({
+        ...current,
+        list,
+      });
+    }
+    const song = getFocusedSong(list, current.feed.songs);
+    if (song !== undefined) {
+      this.screen.edit(song.id, current.feed);
     }
   }
 
-  scroll(deltaRows: number): void {
+  scrollByWheel(deltaYPx: number): void {
     const current = this.open;
-    if (current !== null) {
-      this.setListFromUser(scrollSongList(current.list, deltaRows));
+    if (current === null) {
+      return;
     }
-  }
-
-  scrollByWheel(deltaYPx: number, atMs: number): void {
-    const read = readWheelRows(this.wheel, deltaYPx, atMs, this.rowHeightPx);
+    const read = readWheelRows(this.wheel, deltaYPx, this.ports.now(), this.frame.rowHeightPx);
     this.wheel = read.gesture;
-    this.scroll(read.rows);
+    const list = scrollSongList(current.list, read.rows);
+    if (list === current.list) {
+      return;
+    }
+    this.apply({
+      ...current,
+      list,
+    });
+    if (isListEndVisible(list)) {
+      void current.feed.requestMore();
+    }
   }
 
   hoverFilter(category: SongFilter): void {
     const current = this.open;
-    if (current !== null) {
-      this.setList(hoverEditorSelectFilter(current.list, category));
+    if (current === null) {
+      return;
+    }
+    const list = hoverEditorSelectFilter(current.list, category);
+    if (list !== current.list) {
+      this.apply({
+        ...current,
+        list,
+      });
     }
   }
 
   unhoverFilter(category: SongFilter): void {
     const current = this.open;
-    if (current !== null) {
-      this.setList(unhoverEditorSelectFilter(current.list, category));
+    if (current === null) {
+      return;
+    }
+    const list = unhoverEditorSelectFilter(current.list, category);
+    if (list !== current.list) {
+      this.apply({
+        ...current,
+        list,
+      });
     }
   }
 
   pointerOver(button: EditorSelectButton): void {
     const current = this.open;
-    if (current !== null) {
-      this.setList(hoverEditorSelectButton(current.list, button));
+    if (current === null) {
+      return;
+    }
+    const list = hoverEditorSelectButton(current.list, button);
+    if (list !== current.list) {
+      this.apply({
+        ...current,
+        list,
+      });
     }
   }
 
   pointerOut(button: EditorSelectButton): void {
     const current = this.open;
-    if (current !== null) {
-      this.setList(unhoverEditorSelectButton(current.list, button));
+    if (current === null) {
+      return;
+    }
+    const list = unhoverEditorSelectButton(current.list, button);
+    if (list !== current.list) {
+      this.apply({
+        ...current,
+        list,
+      });
     }
   }
 
   pointerDown(button: EditorSelectButton): void {
     const current = this.open;
-    if (current !== null) {
-      this.setList(pressEditorSelectButton(current.list, button));
+    if (current === null) {
+      return;
+    }
+    const list = pressEditorSelectButton(current.list, button);
+    if (list !== current.list) {
+      this.apply({
+        ...current,
+        list,
+      });
     }
   }
 
@@ -210,39 +346,48 @@ export class ChartEditorSelectController {
     if (released === current.list) {
       return;
     }
-    this.setList(released);
     switch (button) {
       case 'back':
+        this.apply({
+          ...current,
+          list: released,
+        });
         this.screen.leave();
         return;
-      case 'retry':
-      case 'failureRetry':
-        this.retry();
-        return;
       case 'failureCancel':
-        this.cancelLoadMoreFailure();
+        this.apply({
+          ...current,
+          list: setLoadMoreFailureCancelled(released, true),
+        });
         return;
-    }
-  }
-
-  retry(): boolean {
-    const current = this.open;
-    if (current === null || !canRetry(current)) {
-      return false;
-    }
-    void current.feed.requestMoreFromUser();
-    // 요청이 곧바로 loading 으로 바뀌므로 그 뒤에 취소를 풀어야 팝업이 잠깐 다시 열리지 않는다.
-    const loading = this.open;
-    if (loading !== null) {
-      this.setList(setLoadMoreFailureCancelled(loading.list, false));
-    }
-    return true;
-  }
-
-  private cancelLoadMoreFailure(): void {
-    const current = this.open;
-    if (current !== null) {
-      this.setList(setLoadMoreFailureCancelled(current.list, true));
+      case 'retry':
+      case 'failureRetry': {
+        if (!canRetry(current)) {
+          this.apply({
+            ...current,
+            list: released,
+          });
+          return;
+        }
+        // 요청의 동기 알림이 handleFeedChange 로 다시 들어와 목록을 바꿀 수 있어 요청 뒤에 다시 읽는다.
+        void current.feed.requestMoreFromUser();
+        const loading = this.open;
+        if (loading === null) {
+          return;
+        }
+        // 요청이 곧바로 loading 으로 바뀌므로 그 뒤에 취소를 풀어야 팝업이 잠깐 다시 열리지 않는다.
+        const list = setLoadMoreFailureCancelled(
+          releaseEditorSelectButton(loading.list, button),
+          false,
+        );
+        if (list !== loading.list) {
+          this.apply({
+            ...loading,
+            list,
+          });
+        }
+        return;
+      }
     }
   }
 
@@ -259,16 +404,6 @@ export class ChartEditorSelectController {
     return 'kind' in this.current ? null : this.current;
   }
 
-  private switchQuery(query: SongQuery): void {
-    const current = this.open;
-    if (current === null || isShallowEqual(query, current.feed.query)) {
-      return;
-    }
-    current.unsubscribe();
-    this.commit(this.attach(this.feeds.create(query), null, current.list.hover));
-    this.requestMoreAtListEnd();
-  }
-
   private attach(
     feed: SongFeed,
     focusedSongId: string | null,
@@ -276,7 +411,7 @@ export class ChartEditorSelectController {
   ): SelectState {
     return {
       feed,
-      list: createSongList(feed.songs, focusedSongId, this.visibleRowCount, hover),
+      list: createSongList(feed.songs, focusedSongId, this.frame.visibleRowCount, hover),
       unsubscribe: feed.subscribe(() => this.handleFeedChange()),
     };
   }
@@ -286,63 +421,26 @@ export class ChartEditorSelectController {
     if (current === null) {
       return;
     }
-    this.commit({
-      ...current,
-      list: withSongCount(current.list, current.feed.songs.length),
-    });
-    this.requestMoreAtListEnd();
-  }
-
-  private setListFromUser(next: SongListState): void {
-    if (this.open === null || next === this.open.list) {
-      return;
-    }
-    this.setList(next);
-    this.requestMoreAtListEnd();
-  }
-
-  private setList(list: SongListState): void {
-    const current = this.open;
-    if (current === null || list === current.list) {
-      return;
-    }
-    this.commit({
+    const list = withSongCount(current.list, current.feed.songs.length);
+    this.apply({
       ...current,
       list,
     });
-  }
-
-  private commit(next: SelectState): void {
-    const released = {
-      ...next,
-      list: releaseHiddenRetryHover(next.list, canRetry(next)),
-    };
-    this.current = released;
-    this.render(released);
-  }
-
-  private requestMoreAtListEnd(): void {
-    const current = this.open;
-    if (current !== null && isListEndVisible(current.list)) {
+    if (isListEndVisible(list)) {
       void current.feed.requestMore();
     }
   }
 
-  private editFocused(): void {
-    const current = this.open;
-    if (current === null) {
-      return;
-    }
-    const song = getFocusedSong(current.list, current.feed.songs);
-    if (song !== undefined) {
-      this.screen.edit(song.id, current.feed);
-    }
-  }
-
-  private render(current: SelectState): void {
-    const { feed, list } = current;
+  private apply(next: SelectState): void {
+    const isRetryable = canRetry(next);
+    const list = releaseHiddenRetryHover(next.list, isRetryable);
+    const { feed } = next;
+    this.current = {
+      ...next,
+      list,
+    };
     const status = getSongListStatus(list.songCount, feed.status);
-    const next: ChartEditorSelectView = {
+    const view: ChartEditorSelectView = {
       category: feed.query.category,
       hover: list.hover,
       rows: getSongListRows(list, feed.songs),
@@ -350,11 +448,11 @@ export class ChartEditorSelectController {
       songCount: list.songCount,
       notice: getSongListNotice(list.songCount, feed.status, feed.query),
       status,
-      canRetry: canRetry(current),
+      canRetry: isRetryable,
       isLoadMoreFailureOpen: isLoadMoreFailureOpen(list, status),
     };
-    this.screen.render(this.shownView, next);
-    this.shownView = next;
+    this.screen.render(this.shownView, view);
+    this.shownView = view;
   }
 }
 

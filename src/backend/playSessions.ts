@@ -13,7 +13,8 @@ import type { ChartCache } from './ChartCache.js';
 import type { LoadedChart } from './charts.js';
 import { sendApiRequest } from './apiRequest.js';
 
-const PLAY_SESSIONS_PATH = '/api/dazbeat/play-sessions';
+const PLAY_SESSIONS_PATH = '/api/dazbeat/play';
+const SUBMIT_TIMEOUT_MS = 15_000;
 
 const STATUS_CODES: Readonly<Record<number, string>> = {
   0: 'network',
@@ -92,7 +93,10 @@ export async function preparePlay(
     if (getCurrentUser(pb) === null) {
       return {
         chart,
-        ranking: { kind: 'signedOut' },
+        ranking: {
+          kind: 'signedOut',
+          chartRevision: revision,
+        },
       };
     }
     const issued = await sendApiRequest(
@@ -117,11 +121,14 @@ export async function preparePlay(
     };
   };
 
-  const withoutSession = ({ chart }: LoadedChart, error: unknown): PreparedChart => {
+  const withoutSession = ({ chart, revision }: LoadedChart, error: unknown): PreparedChart => {
     console.warn('Failed to start ranked play session', error);
     return {
       chart,
-      ranking: { kind: 'issueFailed' },
+      ranking: {
+        kind: 'issueFailed',
+        chartRevision: revision,
+      },
     };
   };
 
@@ -141,7 +148,10 @@ export async function submitPlay(
   sessionId: string,
   submission: PlaySubmission,
 ): Promise<RankingSubmission> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
   try {
+    // 자동 취소 키가 있으면 SDK 가 signal 을 자기 것으로 덮어써 시간 제한이 동작하지 않는다.
     const play = await sendApiRequest(
       pb,
       `${PLAY_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/result`,
@@ -151,6 +161,8 @@ export async function submitPlay(
           inputOffsetMs: submission.inputOffsetMs,
           events: submission.events,
         },
+        requestKey: null,
+        signal: controller.signal,
       },
       verifiedPlaySchema(catalog),
       toPlaySessionError,
@@ -166,5 +178,7 @@ export async function submitPlay(
     console.warn('Failed to submit ranked play', error);
     // status 0 은 응답을 받지 못한 경우라 서버가 저장했는지 알 수 없다.
     return { kind: error.status === 0 ? 'unknown' : 'rejected' };
+  } finally {
+    clearTimeout(timer);
   }
 }

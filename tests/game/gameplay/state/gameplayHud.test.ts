@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceEnteredNotes,
-  getChangedHudRegions,
   getEnteredNoteRange,
 } from '../../../../src/game/gameplay/state/gameplayHud.js';
 import type { GameplayFrame } from '../../../../src/game/gameplay/state/gameplayHud.js';
@@ -51,87 +50,12 @@ function frameOf(
     progress: 0,
     activation: {
       level: 0,
-      reachedFull: false,
+      hasReachedFull: false,
     },
     enteredNoteCount: 0,
     ...overrides,
   };
 }
-
-describe('getChangedHudRegions', () => {
-  it('paints every lasting region without effects on the first frame', () => {
-    expect(getChangedHudRegions(null, frameOf())).toEqual([
-      'combo',
-      'comboTier',
-      'score',
-      'progress',
-      'gaugeFill',
-      'gaugeBand',
-      'perfectCount',
-      'greatCount',
-      'goodCount',
-      'badCount',
-      'missCount',
-      'accuracy',
-    ]);
-  });
-
-  it('paints only the combo when it grows within a tier', () => {
-    expect(getChangedHudRegions(frameOf({ combo: 10 }), frameOf({ combo: 11 }))).toEqual(['combo']);
-  });
-
-  it('pops the combo when the tier rises', () => {
-    expect(getChangedHudRegions(frameOf({ combo: 49 }), frameOf({ combo: 50 }))).toEqual([
-      'combo',
-      'comboTier',
-      'comboPop',
-    ]);
-  });
-
-  it('does not pop when the combo breaks', () => {
-    expect(getChangedHudRegions(frameOf({ combo: 60 }), frameOf({ combo: 0 }))).toEqual([
-      'combo',
-      'comboTier',
-    ]);
-  });
-
-  it('paints only the fill when the HP drops within a band', () => {
-    expect(getChangedHudRegions(frameOf({ hp: 90 }), frameOf({ hp: 80 }))).toEqual(['gaugeFill']);
-  });
-
-  it('glints when the band drops', () => {
-    expect(getChangedHudRegions(frameOf({ hp: 70 }), frameOf({ hp: 60 }))).toEqual([
-      'gaugeFill',
-      'gaugeBand',
-      'gaugeGlint',
-    ]);
-  });
-
-  it('does not glint when the band rises', () => {
-    expect(getChangedHudRegions(frameOf({ hp: 60 }), frameOf({ hp: 70 }))).toEqual([
-      'gaugeFill',
-      'gaugeBand',
-    ]);
-  });
-
-  it('paints the count of the judgment that grew and the accuracy', () => {
-    expect(
-      getChangedHudRegions(
-        frameOf(),
-        frameOf({
-          counts: {
-            ...STATE.counts,
-            good: 1,
-          },
-        }),
-      ),
-    ).toEqual(['goodCount', 'accuracy']);
-  });
-
-  it('paints only the progress when only the progress changes', () => {
-    expect(getChangedHudRegions(frameOf(), frameOf({}, { progress: 0.5 }))).toEqual(['progress']);
-  });
-});
 
 describe('getEnteredNoteRange', () => {
   it('starts from zero on the first frame', () => {

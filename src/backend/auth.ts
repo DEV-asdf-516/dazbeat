@@ -153,3 +153,8 @@ export function getCurrentUser(pb: PocketBase): AuthUser | null {
   }
   return parseAuthUserRecord(record);
 }
+
+export function getCurrentUserId(pb: PocketBase): string | null {
+  const { record } = pb.authStore;
+  return !pb.authStore.isValid || record === null ? null : record.id;
+}

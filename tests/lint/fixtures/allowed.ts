@@ -65,10 +65,10 @@ export function paintCanvas(canvas: HTMLCanvasElement, image: ImageData): void {
 
 export function layoutTexts(texts: readonly Phaser.GameObjects.Text[]): number {
   let xPx = 0;
-  texts.forEach((text) => {
+  for (const text of texts) {
     text.setX(xPx);
     xPx += text.width;
-  });
+  }
   return xPx;
 }
 

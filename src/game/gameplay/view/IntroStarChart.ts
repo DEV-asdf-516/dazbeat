@@ -119,9 +119,9 @@ export class IntroStarChart {
   render(isShown: boolean): void {
     if (isShown) {
       this.runningTweens.forEach((tween) => tween.resume());
-      this.runningTimers.forEach((timer) => {
+      for (const timer of this.runningTimers) {
         timer.paused = false;
-      });
+      }
     }
     this.fade?.stop();
     this.fade = this.scene.tweens.add({
@@ -135,9 +135,9 @@ export class IntroStarChart {
           return;
         }
         this.runningTweens.forEach((tween) => tween.pause());
-        this.runningTimers.forEach((timer) => {
+        for (const timer of this.runningTimers) {
           timer.paused = true;
-        });
+        }
       },
     });
   }
@@ -215,15 +215,13 @@ export class IntroStarChart {
     );
     // 오른쪽에서 흘러 들어올 별자리를 미리 두고, 왼쪽 밖으로 나간 별자리는 치웠다가 한 바퀴 돌아오면 다시 둔다.
     this.addSign(next.order + 1);
-    this.signs
-      .splice(
-        0,
-        this.signs.findIndex(({ order }) => order >= sign.order - 1),
-      )
-      .forEach((removed) => {
-        removed.holder.destroy();
-        this.removeLineTextures(removed);
-      });
+    for (const removed of this.signs.splice(
+      0,
+      this.signs.findIndex(({ order }) => order >= sign.order - 1),
+    )) {
+      removed.holder.destroy();
+      this.removeLineTextures(removed);
+    }
     this.schedule(STEP_MS * LINK_LEAD_FRACTION, () => this.link(next));
     const tween = this.scene.tweens.add({
       targets: this.turn,
@@ -255,13 +253,13 @@ export class IntroStarChart {
 
   private applyPan(): void {
     this.chart.setRotation(-this.turn.rad);
-    this.signs.forEach(({ angleRad, stars, lines, tip }) => {
+    for (const { angleRad, stars, lines, tip } of this.signs) {
       const focus = 1 - getProgress(getDistance(angleRad, this.turn.rad), 0, SIGN_STEP_RAD);
       stars.setAlpha(lerp(DIM_STAR_ALPHA, 1, focus));
       const lineAlpha = lerp(DIM_LINE_ALPHA, 1, focus);
       lines.setAlpha(lineAlpha);
       tip.setAlpha(lineAlpha);
-    });
+    }
   }
 
   private applyVisibility(): void {

@@ -71,11 +71,11 @@ async function newPlayer(): Promise<TestUser> {
 }
 
 function getProfile(client: PocketBase): Promise<ProfileResponse> {
-  return client.send<ProfileResponse>('/api/dazbeat/profile', { method: 'GET' });
+  return client.send<ProfileResponse>('/api/dazbeat/me/profile', { method: 'GET' });
 }
 
 function checkNickname(client: PocketBase, nickname: string): Promise<{ available: boolean }> {
-  return client.send<{ available: boolean }>('/api/dazbeat/profile/nickname/available', {
+  return client.send<{ available: boolean }>('/api/dazbeat/me/nickname/available', {
     method: 'GET',
     query: { nickname },
   });
@@ -143,11 +143,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
+  await server.stop();
   await removeTempDir(dataDir);
 });
 
-describe('GET /api/dazbeat/profile', () => {
+describe('GET /api/dazbeat/me/profile', () => {
   it('answers the nickname, stats and all achievements of a new user', async () => {
     const player = await newPlayer();
 
@@ -306,7 +306,7 @@ describe('saving the nickname through the users API', () => {
   });
 });
 
-describe('GET /api/dazbeat/profile/nickname/available', () => {
+describe('GET /api/dazbeat/me/nickname/available', () => {
   it('reports a nickname another user holds in any letter case as unavailable', async () => {
     const holder = await newPlayer();
     const other = await newPlayer();
@@ -331,7 +331,7 @@ describe('GET /api/dazbeat/profile/nickname/available', () => {
 
   it('rejects a guest', async () => {
     await expect(
-      createClient(server.url).send('/api/dazbeat/profile/nickname/available', {
+      createClient(server.url).send('/api/dazbeat/me/nickname/available', {
         method: 'GET',
         query: { nickname: 'Altair' },
       }),

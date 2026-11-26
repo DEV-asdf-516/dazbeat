@@ -128,11 +128,11 @@ export function strokeGrainedLine(
   line: GrainedLine,
   look: GrainedLineLook,
 ): void {
-  getGrainedSegments(line, look).forEach((segment) => {
+  for (const segment of getGrainedSegments(line, look)) {
     graphics
       .lineStyle(look.widthPx, look.color, segment.alpha)
       .lineBetween(segment.fromXPx, segment.fromYPx, segment.toXPx, segment.toYPx);
-  });
+  }
 }
 
 // WebGL 텍스처에는 안티앨리어싱이 없어 구운 선이 계단지므로, 텍스처로 굽는 선은 Canvas 2D 로 긋는다.
@@ -154,11 +154,11 @@ export function strokeGrainedCanvasLine(
   line: GrainedLine,
   look: GrainedLineLook,
 ): void {
-  getGrainedSegments(line, look).forEach((segment) => {
+  for (const segment of getGrainedSegments(line, look)) {
     strokeCanvasLine(context, segment, {
       widthPx: look.widthPx,
       color: look.color,
       alpha: segment.alpha,
     });
-  });
+  }
 }

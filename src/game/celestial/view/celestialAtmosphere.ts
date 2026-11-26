@@ -59,11 +59,11 @@ export function addCelestialAtmosphere(
     addScreenTile(scene, grain.textureKey, grain.opacity);
   }
   addScreenTile(scene, catalog.imagePresentations[DUST_ID].textureKey, layers.dustOpacity);
-  layers.ambient.forEach(({ id, xPx, yPx, scale, phaseFraction }) => {
+  for (const { id, xPx, yPx, scale, phaseFraction } of layers.ambient) {
     addCelestialSprite(scene, catalog.atlasPresentations[id], xPx, yPx, phaseFraction).setScale(
       scale,
     );
-  });
+  }
 }
 
 export function playCelestialEntryTransition(

@@ -1,6 +1,5 @@
 import type Phaser from 'phaser';
 import type { ChartLevel } from '../../../data/songs.js';
-import type { ButtonView } from '../../ui/state/buttonPointer.js';
 import type { PointerActions } from '../../ui/view/input/hoverTarget.js';
 import { addBakedRoundedRect } from '../../ui/view/textures/bakedTexture.js';
 import { CELESTIAL_COLORS, RADIUS } from '../../ui/view/theme.js';
@@ -32,8 +31,8 @@ function formatLevel(level: ChartLevel | null): string {
 }
 
 export class LevelStepper {
-  private readonly down: EditorIconButton;
-  private readonly up: EditorIconButton;
+  readonly down: EditorIconButton;
+  readonly up: EditorIconButton;
   private readonly input: TextInput;
 
   constructor(
@@ -100,14 +99,7 @@ export class LevelStepper {
     return this.input.isFocused;
   }
 
-  render(view: {
-    readonly level: ChartLevel | null;
-    readonly isEnabled: boolean;
-    readonly down: ButtonView;
-    readonly up: ButtonView;
-  }): void {
-    this.down.render(view.down, 'previous');
-    this.up.render(view.up, 'next');
+  render(view: { readonly level: ChartLevel | null; readonly isEnabled: boolean }): void {
     this.input.setEnabled(view.isEnabled);
     // 쓰는 중인 글자를 지우지 않는다.
     if (!this.input.isFocused) {

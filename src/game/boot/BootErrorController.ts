@@ -24,7 +24,9 @@ export class BootErrorController {
   constructor(
     private readonly ports: BootErrorPorts,
     private readonly screen: BootErrorScreen,
-  ) {
+  ) {}
+
+  start(): void {
     this.screen.render(null, INITIAL_BOOT_ERROR_STATE);
   }
 
@@ -45,14 +47,11 @@ export class BootErrorController {
     this.apply((state) => releaseBootErrorButton(state, button));
     // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
     if (this.state !== previous) {
-      this.retry();
+      this.ports.retry();
     }
   }
 
   retry(): void {
-    if ('kind' in this.state) {
-      return;
-    }
     this.ports.retry();
   }
 

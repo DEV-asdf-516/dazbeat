@@ -10,23 +10,11 @@ import {
 const NOTE_EMERGE_END_Y_PX = 160;
 const NOTE_TRAIL_MAX_MS = 40;
 
-export interface VerticalSpan {
-  topYPx: number;
-  bottomYPx: number;
-}
-
-export interface FadingSpan extends VerticalSpan {
-  topAlpha: number;
-  bottomAlpha: number;
-}
-
-export interface HoldRibbonSpans {
-  body: FadingSpan;
-  fade: FadingSpan;
-}
+export type HoldRibbonSpan = 'body' | 'fade';
 
 function getNoteEmergence(yPx: number): number {
-  return smoothstep(getProgress(yPx, 0, NOTE_EMERGE_END_Y_PX));
+  const t = getProgress(yPx, 0, NOTE_EMERGE_END_Y_PX);
+  return t * t * (3 - 2 * t);
 }
 
 export function getNoteEmphasis(yPx: number, judgeLineYPx: number): number {
@@ -41,25 +29,24 @@ export function getNoteTrailMs(previous: GameplayFrame | null, next: GameplayFra
   return clamp(next.songTimeMs - previous.songTimeMs, 0, NOTE_TRAIL_MAX_MS);
 }
 
-export function getHoldRibbonSpans(headYPx: number, tailYPx: number): HoldRibbonSpans {
-  const getAlpha = (yPx: number): number =>
-    getNoteEmergence(yPx) * lerp(1, HOLD_RIBBON_TAIL_ALPHA, getProgress(yPx, headYPx, tailYPx));
-  // 비는 구간은 아래 끝으로 접어 높이 0 으로 둔다.
-  const toSpan = (topYPx: number, bottomYPx: number): FadingSpan => {
-    const clampedTopYPx = Math.min(topYPx, bottomYPx);
-    return {
-      topYPx: clampedTopYPx,
-      bottomYPx,
-      topAlpha: getAlpha(clampedTopYPx),
-      bottomAlpha: getAlpha(bottomYPx),
-    };
-  };
-  return {
-    body: toSpan(Math.max(tailYPx, NOTE_EMERGE_END_Y_PX), headYPx),
-    fade: toSpan(Math.max(tailYPx, 0), Math.min(headYPx, NOTE_EMERGE_END_Y_PX)),
-  };
+// 리본은 흐려지며 떠오르는 fade 구간과 그 아래 body 구간으로 나뉜다.
+// 홀드마다 매 프레임 부르므로 구간 객체 대신 끝 y 와 alpha 를 숫자로 따로 돌려준다.
+export function getHoldRibbonSpanBottomYPx(span: HoldRibbonSpan, headYPx: number): number {
+  return span === 'body' ? headYPx : Math.min(headYPx, NOTE_EMERGE_END_Y_PX);
 }
 
-function smoothstep(t: number): number {
-  return t * t * (3 - 2 * t);
+// 비는 구간은 아래 끝으로 접어 높이 0 으로 둔다.
+export function getHoldRibbonSpanTopYPx(
+  span: HoldRibbonSpan,
+  headYPx: number,
+  tailYPx: number,
+): number {
+  const topYPx = Math.max(tailYPx, span === 'body' ? NOTE_EMERGE_END_Y_PX : 0);
+  return Math.min(topYPx, getHoldRibbonSpanBottomYPx(span, headYPx));
+}
+
+export function getHoldRibbonAlpha(yPx: number, headYPx: number, tailYPx: number): number {
+  return (
+    getNoteEmergence(yPx) * lerp(1, HOLD_RIBBON_TAIL_ALPHA, getProgress(yPx, headYPx, tailYPx))
+  );
 }

@@ -1,5 +1,6 @@
 import { PreviewLoop } from '../../audio/PreviewLoop.js';
 import type { YouTubePlayer, YouTubePlayerHandlers } from '../../audio/YouTubePlayer.js';
+import type { AuthUser } from '../../data/account.js';
 import type { ChartTopRank, MyChartRecord } from '../../data/ranking.js';
 import { SONG_FILTERS } from '../../data/songs.js';
 import type { ChartLevel, ChartRef, Song, SongFilter, SongQuery } from '../../data/songs.js';
@@ -51,6 +52,7 @@ import {
   releaseRetryHover,
   releaseSongSelectButton,
   retryRecords,
+  completeSongSelectSignIn,
   selectDifficulty,
   selectRandomSong,
   selectSong,
@@ -81,6 +83,7 @@ export interface SongSelectScreen {
   openRanking(chart: ChartRef, restore: SongSelectRestore): void;
   backToMain(): void;
   openProfile(restore: SongSelectRestore): void;
+  renderAccount(): void;
 }
 
 interface ControllerState {
@@ -117,6 +120,7 @@ export interface SongSelectPorts {
     loadMyRecords(): Promise<readonly MyChartRecord[]>;
   };
   loadLocalRecords(): ChartRecords;
+  signIn(): Promise<AuthUser | null>;
 }
 
 type PreviewState =
@@ -132,8 +136,6 @@ type PreviewState =
     }
   | { readonly kind: 'failed'; readonly song: Song };
 
-type Transition = (state: SongSelectState) => SongSelectState;
-
 const PREVIEW_DELAY_MS = 200;
 // 키를 이어 누르는 동안에는 목록을 받지 않고 멈춘 뒤에 한 번 받는다.
 const LEVEL_COMMIT_DELAY_MS = 300;
@@ -147,6 +149,8 @@ export class SongSelectController {
   private wheel = IDLE_WHEEL;
   private shownView: SongSelectView | null = null;
   private levelCommitAtMs: number | null = null;
+  private readonly isRestored: boolean;
+  private readonly isSignedIn: boolean;
 
   constructor(
     private readonly ports: SongSelectPorts,
@@ -157,21 +161,12 @@ export class SongSelectController {
     private readonly wheelStepPx: number,
   ) {
     const { feed, state } = openSongSelect(ports.feeds.catalog, laneCount, restore);
-    const isSignedIn = ports.rankings.isSignedIn();
-    const first = this.attach(
+    this.isRestored = restore !== undefined;
+    this.isSignedIn = ports.rankings.isSignedIn();
+    this.current = this.attach(
       feed,
-      isSignedIn ? state : withLocalRecords(state, ports.loadLocalRecords()),
+      this.isSignedIn ? state : withLocalRecords(state, ports.loadLocalRecords()),
     );
-    this.current = first;
-    this.render(first);
-    this.applyLevelRangeToFeed();
-    if (restore === undefined) {
-      this.requestMoreFromUser();
-    }
-    if (isSignedIn) {
-      this.requestTopRanks();
-      this.requestRecords();
-    }
   }
 
   get view(): SongSelectView {
@@ -181,8 +176,43 @@ export class SongSelectController {
     return this.shownView;
   }
 
+  // 씬의 render 가 생성자 뒤에 만드는 위젯을 그리므로 생성자가 아니라 생성 뒤에 시작한다.
+  start(): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const switched = this.switchToLevelRangeFeed(current);
+    const first = switched ?? current;
+    this.current = first;
+    const view: SongSelectView = {
+      state: first.state,
+      notice: first.notice,
+      isLoadingMore: first.isLoadingMore,
+      songCount: first.feed.songCount,
+    };
+    this.screen.render(null, view);
+    this.shownView = view;
+    this.focusPreview(first.state);
+    if (switched !== null || !this.isRestored) {
+      this.requestMoreFromUser();
+    }
+    if (this.isSignedIn) {
+      this.requestTopRanks();
+      this.requestRecords();
+    }
+  }
+
+  /** 키 이동과 목록 클릭은 같은 곡 포커스 이동이라 곡이 바뀔 때 같은 효과음을 낸다. */
   moveSong(delta: number): void {
-    this.focusSongFromUser((state) => moveSong(state, delta));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    if (this.apply(this.withState(current, moveSong(current.state, delta)))) {
+      this.screen.playSound('menuFocus');
+    }
+    this.requestMoreFromUser();
   }
 
   scrollByWheel(deltaYPx: number, atMs: number): void {
@@ -196,23 +226,48 @@ export class SongSelectController {
       rowPx: this.wheelStepPx,
     });
     this.wheel = read.gesture;
-    if (read.rows !== 0) {
-      this.moveSong(read.rows);
+    if (read.rows === 0) {
+      return;
     }
+    if (this.apply(this.withState(current, moveSong(current.state, read.rows)))) {
+      this.screen.playSound('menuFocus');
+    }
+    this.requestMoreFromUser();
   }
 
   selectRow(slot: number): void {
-    this.focusSongFromUser((state) =>
-      selectSong(state, getSongPage(state, this.rowsPerPage).startIndex + slot),
-    );
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const { state } = current;
+    const next = selectSong(state, getSongPage(state, this.rowsPerPage).startIndex + slot);
+    if (this.apply(this.withState(current, next))) {
+      this.screen.playSound('menuFocus');
+    }
+    this.requestMoreFromUser();
   }
 
   moveDifficulty(direction: ListDirection): void {
-    this.changeDifficultyFromUser((state) => moveDifficulty(state, direction));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    if (this.apply(this.withState(current, moveDifficulty(current.state, direction)))) {
+      this.screen.playSound('click');
+    }
+    this.requestMoreFromUser();
   }
 
   selectDifficulty(difficulty: Difficulty): void {
-    this.changeDifficultyFromUser((state) => selectDifficulty(state, difficulty));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    if (this.apply(this.withState(current, selectDifficulty(current.state, difficulty)))) {
+      this.screen.playSound('click');
+    }
+    this.requestMoreFromUser();
   }
 
   // 비활성 RANDOM 이 실패한 feed 를 다시 부르지 않도록 고를 곡이 없으면 아무것도 요청하지 않는다.
@@ -227,18 +282,25 @@ export class SongSelectController {
     }
     this.screen.playSound('click');
     if (feed.status !== 'hasMore' && feed.status !== 'loading') {
-      this.pickRandomSong();
+      // 다 받기 전에 실패했으면 받아 둔 곡에서 고르고, 실패 알림이 다시 받기를 안내한다.
+      if (this.apply(this.withState(current, selectRandomSong(state, this.ports.random)))) {
+        this.requestMoreFromUser();
+      }
       return;
     }
     // 남은 곡을 받는 동안 방향키가 슬라이더 범위를 바꿔 이 요청을 취소하지 않도록 포커스를 먼저 푼다.
-    this.apply(blurLevelSlider);
+    this.apply(this.withState(current, blurLevelSlider(state)));
     // 리듬게임 관례대로 받아 둔 곡이 아니라 필터의 곡 전체에서 고르도록 남은 곡을 다 받은 뒤 고른다.
     const request = {};
     this.randomRequest = request;
     void feed.requestRemaining().then(() => {
-      if (this.randomRequest === request) {
-        this.randomRequest = null;
-        this.pickRandomSong();
+      const picking = this.open;
+      if (this.randomRequest !== request || picking === null) {
+        return;
+      }
+      this.randomRequest = null;
+      if (this.apply(this.withState(picking, selectRandomSong(picking.state, this.ports.random)))) {
+        this.requestMoreFromUser();
       }
     });
   }
@@ -249,9 +311,12 @@ export class SongSelectController {
       return;
     }
     this.screen.playSound('click');
-    this.switchFeed(current, getSongSelectQuery(current.state, filter), (state, songs) =>
-      withFilter(state, filter, songs),
+    this.apply(
+      this.switchFeed(current, getSongSelectQuery(current.state, filter), (state, songs) =>
+        withFilter(state, filter, songs),
+      ),
     );
+    this.requestMoreFromUser();
   }
 
   handleLevelSliderKey(action: MenuAction | null): boolean {
@@ -266,52 +331,75 @@ export class SongSelectController {
       case 'block':
         return true;
       case 'focus':
-        this.changeLevelFocus(focusLevelSlider);
+        if (this.apply(this.withState(current, focusLevelSlider(current.state)))) {
+          this.screen.playSound('menuFocus');
+        }
         return true;
       case 'switchHandle':
-        this.changeLevelFocus(switchLevelHandle);
+        if (this.apply(this.withState(current, switchLevelHandle(current.state)))) {
+          this.screen.playSound('menuFocus');
+        }
         return true;
       case 'move':
-        if (this.apply((state) => moveLevelHandle(state, key.direction))) {
+        if (this.apply(this.withState(current, moveLevelHandle(current.state, key.direction)))) {
           this.screen.playSound('click');
           this.levelCommitAtMs = this.ports.preview.now() + LEVEL_COMMIT_DELAY_MS;
         }
         return true;
       case 'blur':
-        this.apply(blurLevelSlider);
+        this.apply(this.withState(current, blurLevelSlider(current.state)));
         return true;
     }
   }
 
   pressLevelSlider(level: ChartLevel): void {
-    this.apply((state) => pressLevelSlider(state, level));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(this.withState(current, pressLevelSlider(current.state, level)));
   }
 
   dragLevelSlider(level: ChartLevel): void {
-    this.apply((state) => dragLevelSlider(state, level));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(this.withState(current, dragLevelSlider(current.state, level)));
   }
 
   resetLevelFilter(): void {
-    if (this.apply(resetLevelSlider)) {
-      this.screen.playSound('click');
-      this.applyLevelRangeToFeed();
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    const reset = this.withState(current, resetLevelSlider(current.state));
+    if (reset.state === current.state) {
+      return;
+    }
+    const switched = this.switchToLevelRangeFeed(reset);
+    this.apply(switched ?? reset);
+    this.screen.playSound('click');
+    if (switched !== null) {
+      this.requestMoreFromUser();
     }
   }
 
   releaseLevelSlider(): void {
-    if (this.apply(releaseLevelSlider) && this.applyLevelRangeToFeed()) {
-      this.screen.playSound('click');
+    const current = this.open;
+    if (current === null) {
+      return;
     }
-  }
-
-  openControls(): void {
-    this.screen.playSound('click');
-    this.setControlsOpen(true);
-  }
-
-  closeControls(): void {
-    this.setControlsOpen(false);
-    this.screen.playSound('close');
+    const released = this.withState(current, releaseLevelSlider(current.state));
+    if (released.state === current.state) {
+      return;
+    }
+    const switched = this.switchToLevelRangeFeed(released);
+    this.apply(switched ?? released);
+    if (switched !== null) {
+      this.screen.playSound('click');
+      this.requestMoreFromUser();
+    }
   }
 
   handleControlsKey(event: Pick<KeyboardEvent, 'code' | 'repeat'>): boolean {
@@ -321,10 +409,12 @@ export class SongSelectController {
     }
     switch (readControlsKey(isControlsPanelOpen(current.state), event)) {
       case 'open':
-        this.openControls();
+        this.apply(this.withState(current, withControlsOpen(current.state, true)));
+        this.screen.playSound('click');
         return true;
       case 'close':
-        this.closeControls();
+        this.apply(this.withState(current, withControlsOpen(current.state, false)));
+        this.screen.playSound('close');
         return true;
       case 'block':
         return true;
@@ -334,74 +424,229 @@ export class SongSelectController {
   }
 
   hover(target: SongSelectHover): void {
-    this.apply((state) => setHover(state, target));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(this.withState(current, setHover(current.state, target)));
   }
 
   unhover(target: SongSelectHover): void {
-    this.apply((state) => clearHover(state, target));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(this.withState(current, clearHover(current.state, target)));
+  }
+
+  hoverFilterTab(filter: SongFilter): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(
+      this.withState(
+        current,
+        setHover(current.state, {
+          kind: 'filter',
+          filter,
+        }),
+      ),
+    );
+  }
+
+  unhoverFilterTab(filter: SongFilter): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(
+      this.withState(
+        current,
+        clearHover(current.state, {
+          kind: 'filter',
+          filter,
+        }),
+      ),
+    );
+  }
+
+  hoverDifficultyTab(difficulty: Difficulty): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(
+      this.withState(
+        current,
+        setHover(current.state, {
+          kind: 'difficulty',
+          difficulty,
+        }),
+      ),
+    );
+  }
+
+  unhoverDifficultyTab(difficulty: Difficulty): void {
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(
+      this.withState(
+        current,
+        clearHover(current.state, {
+          kind: 'difficulty',
+          difficulty,
+        }),
+      ),
+    );
   }
 
   pointerOver(button: SongSelectButton): void {
-    this.apply((state) => hoverSongSelectButton(state, button));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(this.withState(current, hoverSongSelectButton(current.state, button)));
   }
 
   pointerOut(button: SongSelectButton): void {
-    this.apply((state) => unhoverSongSelectButton(state, button));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(this.withState(current, unhoverSongSelectButton(current.state, button)));
   }
 
   pointerDown(button: SongSelectButton): void {
-    this.apply((state) => pressSongSelectButton(state, button));
+    const current = this.open;
+    if (current === null) {
+      return;
+    }
+    this.apply(this.withState(current, pressSongSelectButton(current.state, button)));
   }
 
   pointerUp(button: SongSelectButton): void {
-    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
-    if (!this.apply((state) => releaseSongSelectButton(state, button))) {
+    const current = this.open;
+    if (current === null) {
       return;
     }
+    const released = this.withState(current, releaseSongSelectButton(current.state, button));
+    // 눌린 그 버튼이었을 때만 눌림이 풀려 state 가 바뀐다.
+    if (released.state === current.state) {
+      return;
+    }
+    const { feed, state } = released;
     switch (button) {
       case 'settings':
-        this.openSettings();
+        this.apply(released);
+        this.screen.playSound('click');
+        this.screen.openSettings(getSongSelectRestore(state, feed));
         return;
       case 'back':
-        this.back();
+        this.apply(released);
+        this.screen.playSound('close');
+        this.screen.backToMain();
         return;
-      case 'ranking':
-        this.openRanking();
+      case 'ranking': {
+        this.apply(released);
+        const chart = getPlayableSelection(state);
+        if (chart !== null) {
+          this.screen.playSound('click');
+          this.screen.openRanking(chart, getSongSelectRestore(state, feed));
+          return;
+        }
+        if (isFeedRetryInput(state, feed.status)) {
+          this.requestMoreFromUser();
+        }
         return;
+      }
       case 'retry':
+        this.apply(released);
         this.screen.playSound('click');
         this.requestMoreFromUser();
         return;
       case 'recordsRetry':
+        this.apply(this.withState(released, retryRecords(state)));
         this.screen.playSound('click');
-        this.apply(retryRecords);
         this.requestRecords();
         return;
       case 'controlsEntry':
-        this.openControls();
+        this.apply(this.withState(released, withControlsOpen(state, true)));
+        this.screen.playSound('click');
         return;
       case 'controlsClose':
       case 'controlsBackdrop':
-        this.closeControls();
+        this.apply(this.withState(released, withControlsOpen(state, false)));
+        this.screen.playSound('close');
         return;
       case 'controlsHelp':
+        this.apply(this.withState(released, clickControlsHelp(state)));
         this.screen.playSound('click');
-        this.apply(clickControlsHelp);
         return;
-      case 'levelReset':
-        this.resetLevelFilter();
+      case 'levelReset': {
+        const reset = this.withState(released, resetLevelSlider(state));
+        if (reset.state === state) {
+          this.apply(released);
+          return;
+        }
+        const switched = this.switchToLevelRangeFeed(reset);
+        this.apply(switched ?? reset);
+        this.screen.playSound('click');
+        if (switched !== null) {
+          this.requestMoreFromUser();
+        }
         return;
+      }
       case 'accountProfile':
-        this.openProfile();
+        this.apply(released);
+        this.screen.playSound('click');
+        this.screen.openProfile(getSongSelectRestore(state, feed));
+        return;
+      case 'accountSignIn':
+        this.apply(released);
+        this.signIn();
         return;
     }
   }
 
+  /** popup 이 사용자 입력에 이어지도록 signIn 호출 앞에 await 를 두지 않는다. */
+  private signIn(): void {
+    this.screen.playSound('click');
+    void this.ports
+      .signIn()
+      .then((user) => {
+        const current = this.open;
+        if (user === null || current === null) {
+          return;
+        }
+        this.screen.renderAccount();
+        this.apply(this.withState(current, completeSongSelectSignIn(current.state)));
+        this.requestTopRanks();
+        this.requestRecords();
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to sign in with Google', error);
+      });
+  }
+
   cycleFilter(direction: ListDirection): void {
     const current = this.open;
-    if (current !== null) {
-      this.selectFilter(cycleItem(SONG_FILTERS, current.state.filter, direction));
+    if (current === null) {
+      return;
     }
+    const filter = cycleItem(SONG_FILTERS, current.state.filter, direction);
+    if (filter === current.state.filter) {
+      return;
+    }
+    this.screen.playSound('click');
+    this.apply(
+      this.switchFeed(current, getSongSelectQuery(current.state, filter), (state, songs) =>
+        withFilter(state, filter, songs),
+      ),
+    );
+    this.requestMoreFromUser();
   }
 
   play(): void {
@@ -438,16 +683,6 @@ export class SongSelectController {
     }
   }
 
-  private openProfile(): void {
-    const current = this.open;
-    if (current === null) {
-      return;
-    }
-    const { feed, state } = current;
-    this.screen.playSound('click');
-    this.screen.openProfile(getSongSelectRestore(state, feed));
-  }
-
   openSettings(): void {
     const current = this.open;
     if (current === null) {
@@ -459,18 +694,24 @@ export class SongSelectController {
   }
 
   back(): void {
-    if (this.open === null) {
-      return;
-    }
     this.screen.playSound('close');
     this.screen.backToMain();
   }
 
   tick(): void {
     const { levelCommitAtMs } = this;
-    if (levelCommitAtMs !== null && this.ports.preview.now() >= levelCommitAtMs) {
+    const current = this.open;
+    if (
+      levelCommitAtMs !== null &&
+      current !== null &&
+      this.ports.preview.now() >= levelCommitAtMs
+    ) {
       this.levelCommitAtMs = null;
-      this.applyLevelRangeToFeed();
+      const switched = this.switchToLevelRangeFeed(current);
+      if (switched !== null) {
+        this.apply(switched);
+        this.requestMoreFromUser();
+      }
     }
     const { previewState } = this;
     switch (previewState.kind) {
@@ -508,8 +749,9 @@ export class SongSelectController {
     this.rankingsRequest = request;
     void this.ports.rankings.loadMyTopRanks().then(
       (ranked) => {
-        if (this.rankingsRequest === request) {
-          this.apply((state) => withTopRanks(state, ranked));
+        const current = this.open;
+        if (this.rankingsRequest === request && current !== null) {
+          this.apply(this.withState(current, withTopRanks(current.state, ranked)));
         }
       },
       (error: unknown) => {
@@ -525,66 +767,47 @@ export class SongSelectController {
     this.recordsRequest = request;
     void this.ports.rankings.loadMyRecords().then(
       (items) => {
-        if (this.recordsRequest === request) {
-          this.apply((state) => withMyRecords(state, items));
+        const current = this.open;
+        if (this.recordsRequest === request && current !== null) {
+          this.apply(this.withState(current, withMyRecords(current.state, items)));
         }
       },
       (error: unknown) => {
-        if (this.recordsRequest === request) {
+        const current = this.open;
+        if (this.recordsRequest === request && current !== null) {
           console.warn('Failed to load my records', error);
-          this.apply(failRecords);
+          this.apply(this.withState(current, failRecords(current.state)));
         }
       },
     );
   }
 
-  // 다 받기 전에 실패했으면 받아 둔 곡에서 고르고, 실패 알림이 다시 받기를 안내한다.
-  private pickRandomSong(): void {
-    if (this.apply((state) => selectRandomSong(state, this.ports.random))) {
-      this.requestMoreFromUser();
-    }
-  }
-
-  private changeLevelFocus(transition: Transition): void {
-    if (this.apply(transition)) {
-      this.screen.playSound('menuFocus');
-    }
-  }
-
-  private applyLevelRangeToFeed(): boolean {
-    const current = this.open;
-    if (current === null) {
-      return false;
-    }
+  private switchToLevelRangeFeed(current: ControllerState): ControllerState | null {
     const query = getSongSelectQuery(current.state, current.state.filter);
     if (isSameSongQuery(query, current.feed.query)) {
-      return false;
+      return null;
     }
-    this.switchFeed(current, query, (state, songs) =>
+    return this.switchFeed(current, query, (state, songs) =>
       withLevelRange(state, getSliderLevelRange(state), songs),
     );
-    return true;
   }
 
   private switchFeed(
     current: ControllerState,
     query: SongQuery,
     transition: (state: SongSelectState, songs: readonly Song[]) => SongSelectState,
-  ): void {
+  ): ControllerState {
     this.randomRequest = null;
     this.levelCommitAtMs = null;
     current.unsubscribe();
     const feed = this.ports.feeds.create(query);
-    this.commit(
-      this.attach(
-        feed,
-        releaseRetryHover(
-          releaseHover(transition(current.state, feed.songs), this.rowsPerPage),
-          feed.status,
-        ),
+    return this.attach(
+      feed,
+      releaseRetryHover(
+        releaseHover(transition(current.state, feed.songs), this.rowsPerPage),
+        feed.status,
       ),
     );
-    this.requestMoreFromUser();
   }
 
   private attach(feed: SongFeed, state: SongSelectState): ControllerState {
@@ -597,40 +820,29 @@ export class SongSelectController {
     };
   }
 
-  /** 키 이동과 목록 클릭은 같은 곡 포커스 이동이라 곡이 바뀔 때 같은 효과음을 낸다. */
-  private focusSongFromUser(transition: Transition): void {
-    if (this.apply(transition)) {
-      this.screen.playSound('menuFocus');
-    }
-    this.requestMoreFromUser();
-  }
-
-  private changeDifficultyFromUser(transition: Transition): void {
-    if (this.apply(transition)) {
-      this.screen.playSound('click');
-    }
-    this.requestMoreFromUser();
-  }
-
-  private apply(transition: Transition): boolean {
-    const current = this.open;
-    if (current === null) {
-      return false;
-    }
-    return this.commit({
+  private withState(current: ControllerState, state: SongSelectState): ControllerState {
+    return {
       ...current,
-      state: releaseHover(transition(current.state), this.rowsPerPage),
-    });
+      state: releaseHover(state, this.rowsPerPage),
+    };
   }
 
   // 닫힌 뒤이거나 바뀐 게 없으면 아무것도 하지 않는다.
-  private commit(next: ControllerState): boolean {
+  private apply(next: ControllerState): boolean {
     const current = this.open;
     if (current === null || isShallowEqual(next, current)) {
       return false;
     }
     this.current = next;
-    this.render(next);
+    const view: SongSelectView = {
+      state: next.state,
+      notice: next.notice,
+      isLoadingMore: next.isLoadingMore,
+      songCount: next.feed.songCount,
+    };
+    this.screen.render(this.shownView, view);
+    this.shownView = view;
+    this.focusPreview(next.state);
     return true;
   }
 
@@ -644,7 +856,7 @@ export class SongSelectController {
       releaseHover(withSongs(state, feed.songs), this.rowsPerPage),
       feed.status,
     );
-    this.commit({
+    this.apply({
       ...current,
       state: next,
       notice: getSongSelectNotice(next.songs.length, feed.status),
@@ -653,10 +865,6 @@ export class SongSelectController {
     if (isOnLastLoadedPage(next, this.rowsPerPage)) {
       void feed.requestMore();
     }
-  }
-
-  private setControlsOpen(isControlsOpen: boolean): void {
-    this.apply((state) => withControlsOpen(state, isControlsOpen));
   }
 
   private get open(): ControllerState | null {
@@ -668,19 +876,6 @@ export class SongSelectController {
     if (current !== null && isOnLastLoadedPage(current.state, this.rowsPerPage)) {
       void current.feed.requestMoreFromUser();
     }
-  }
-
-  private render(current: ControllerState): void {
-    const { feed, state, notice, isLoadingMore } = current;
-    const next: SongSelectView = {
-      state,
-      notice,
-      isLoadingMore,
-      songCount: feed.songCount,
-    };
-    this.screen.render(this.shownView, next);
-    this.shownView = next;
-    this.focusPreview(state);
   }
 
   private focusPreview(state: SongSelectState): void {

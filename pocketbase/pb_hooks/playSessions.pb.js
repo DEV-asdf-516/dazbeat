@@ -2,7 +2,7 @@
 
 routerAdd(
   'POST',
-  '/api/dazbeat/play-sessions',
+  '/api/dazbeat/play',
   (e) => {
     const { parseSessionRequest, InvalidSessionRequestError, SESSION_REJECTIONS } = require(
       `${__hooks}/lib/session/dto.cjs`,
@@ -57,7 +57,7 @@ routerAdd(
 
 routerAdd(
   'POST',
-  '/api/dazbeat/play-sessions/{sessionId}/result',
+  '/api/dazbeat/play/{sessionId}/result',
   (e) => {
     const { HTTP_STATUS } = require(`${__hooks}/lib/pbQuery.cjs`);
     const { PLAY_REJECTION_RESPONSES, SESSION_REJECTIONS } = require(

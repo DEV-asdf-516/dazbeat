@@ -13,9 +13,7 @@ import {
 } from '../../ui/state/buttonPointer.js';
 import type { ButtonHover, ButtonView } from '../../ui/state/buttonPointer.js';
 import {
-  getControlsCloseView,
   getControlsHelpButtonView,
-  isControlsEntryHovered,
   isControlsHelpShown,
   isControlsPanelOpen,
   leaveControlsButton,
@@ -41,7 +39,9 @@ export interface CreditCell {
   readonly lines: readonly string[];
 }
 
-export type CreditsButton = 'back' | ControlsButton | AccountPanelButton;
+export type CreditsLink = 'contact' | 'privacy';
+
+export type CreditsButton = 'back' | CreditsLink | ControlsButton | AccountPanelButton;
 
 export interface CreditsState {
   readonly entries: readonly CreditEntry[];
@@ -150,16 +150,12 @@ export function releaseCreditsButton(state: CreditsState, button: CreditsButton)
   return withHover(state, releaseButton(state.hover, button));
 }
 
-export function getBackButtonView(state: CreditsState): ButtonView {
-  return getButtonView(state.hover, 'back', true, false);
-}
-
-export function getCreditsControlsCloseView(state: CreditsState): ButtonView {
-  return getControlsCloseView(state.hover);
-}
-
-export function isCreditsControlsEntryHovered(state: CreditsState): boolean {
-  return isControlsEntryHovered(state.hover);
+// CREDITS 하단 버튼은 늘 활성이고 키보드 포커스를 받지 않는다.
+export function getCreditsButtonView(
+  state: CreditsState,
+  button: 'back' | CreditsLink,
+): ButtonView {
+  return getButtonView(state.hover, button, true, false);
 }
 
 export type CreditsRegion =
@@ -167,6 +163,8 @@ export type CreditsRegion =
   | 'scrollBar'
   | 'controls'
   | 'backButton'
+  | 'contactButton'
+  | 'privacyButton'
   | 'controlsEntry'
   | 'controlsClose'
   | 'controlsHelpCard'
@@ -189,6 +187,8 @@ const REGION_SOURCES: Readonly<Record<CreditsRegion, readonly CreditsReader[]>> 
   scrollBar: [readEntries, readTopRow],
   controls: [readControlsOpen],
   backButton: [readBackHovered, readBackPressed],
+  contactButton: [(state) => getCreditsButtonView(state, 'contact').appearance],
+  privacyButton: [(state) => getCreditsButtonView(state, 'privacy').appearance],
   controlsEntry: [readEntryHovered],
   accountButton: [(state) => getAccountPanelPointerKey(state.hover)],
   controlsClose: [readCloseHovered, readClosePressed],

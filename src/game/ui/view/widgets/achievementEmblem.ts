@@ -435,6 +435,7 @@ function paintPlayTrail(context: CanvasRenderingContext2D, ordinal: number): voi
 }
 
 function paintZodiacStage(context: CanvasRenderingContext2D, shape: ZodiacStageShape): void {
+  // eslint-disable-next-line dazbeat/two-way-switch -- 엠블럼 모양 종류는 늘어난다.
   switch (shape.kind) {
     case 'ring':
       withLineWidth(context, ZODIAC_STAGE_ARC_LINE_WIDTH, () =>
@@ -618,13 +619,13 @@ function paintZodiac(
       context.stroke();
     }
   });
-  points.forEach(([x, y], index) => {
+  for (const [index, [x, y]] of points.entries()) {
     if (figure.accentNodeIndices.includes(index)) {
       fillFourPointStar(context, x, y, ZODIAC_ACCENT_RADIUS);
     } else {
       fillDot(context, x, y, ZODIAC_NODE_RADIUS);
     }
-  });
+  }
   if (rule.mark !== 'clear') {
     paintMark(context, rule.mark, 50, 4, rule.mark === 'fc' ? 5 : 5.2);
   }
@@ -684,7 +685,7 @@ function fillRayStar(
   innerRadius: number,
 ): void {
   context.beginPath();
-  rays.forEach((rayRadius, index) => {
+  for (const [index, rayRadius] of rays.entries()) {
     const angle = -Math.PI / 2 + (index * 2 * Math.PI) / rays.length;
     const valleyAngle = angle + Math.PI / rays.length;
     context.lineTo(x + Math.cos(angle) * rayRadius, y + Math.sin(angle) * rayRadius);
@@ -692,7 +693,7 @@ function fillRayStar(
       x + Math.cos(valleyAngle) * innerRadius,
       y + Math.sin(valleyAngle) * innerRadius,
     );
-  });
+  }
   context.closePath();
   context.fill();
 }
