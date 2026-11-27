@@ -137,7 +137,6 @@ import { queueImageLoads } from '../ui/view/textures/imageLoad.js';
 import { ensureLightTextures } from '../ui/view/textures/lightTextures.js';
 import { requireKeyboard } from '../ui/view/input/menuInput.js';
 import { bindHoverTarget, pointButton } from '../ui/view/input/hoverTarget.js';
-import { getGrainedImageTexture } from '../ui/view/textures/grain.js';
 import type { ButtonPointer } from '../ui/view/input/hoverTarget.js';
 import { TextTabs } from '../ui/view/widgets/TextTabs.js';
 import type { TextTabsStyle } from '../ui/view/widgets/TextTabs.js';
@@ -1296,7 +1295,7 @@ export class SongSelectScene extends Phaser.Scene {
     if (this.textures.exists(RANKING_ICON_TEXTURE_KEY)) {
       button.setContent({
         kind: 'icon',
-        textureKey: getGrainedImageTexture(this, RANKING_ICON_TEXTURE_KEY, RANKING_ICON_SIZE_PX),
+        textureKey: RANKING_ICON_TEXTURE_KEY,
         sizePx: RANKING_ICON_SIZE_PX,
       });
     }

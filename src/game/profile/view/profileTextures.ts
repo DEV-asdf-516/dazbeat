@@ -1,6 +1,5 @@
 import type Phaser from 'phaser';
 import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
-import { ICON_GRAIN, applyGrain } from '../../ui/view/textures/grain.js';
 import { COLORS, cssColor } from '../../ui/view/theme.js';
 
 const CHEVRON_HALF_HEIGHT_PX = 9;
@@ -25,7 +24,6 @@ export function ensureRowChevronTexture(scene: Phaser.Scene): string {
       context.lineTo(CHEVRON_STROKE_PX + CHEVRON_HALF_HEIGHT_PX, heightPx / 2);
       context.lineTo(CHEVRON_STROKE_PX, heightPx - CHEVRON_STROKE_PX);
       context.stroke();
-      applyGrain(context, widthPx, heightPx, ICON_GRAIN);
     },
   );
   return ROW_CHEVRON_TEXTURE_KEY;

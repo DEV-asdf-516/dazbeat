@@ -1,17 +1,10 @@
 import Phaser from 'phaser';
 import { lerp } from '../../../../range.js';
-import { createCanvasTexture } from './canvasTexture.js';
 import { rgba } from './lightTextures.js';
 import { PIXEL_BYTES } from './imagePixels.js';
 
 const GRAIN_TILE_PX = 128;
 const RANDOM_SEED = 'dazbee-constellation';
-const ICON_GRAIN_MIN_ALPHA = 0.5;
-
-export const ICON_GRAIN = {
-  cellPx: 1,
-  minAlpha: ICON_GRAIN_MIN_ALPHA,
-} as const;
 
 export function applyGrain(
   context: CanvasRenderingContext2D,
@@ -48,38 +41,6 @@ export function applyGrain(
   context.fillStyle = pattern;
   context.fillRect(0, 0, widthPx / look.cellPx, heightPx / look.cellPx);
   context.restore();
-}
-
-// 표시할 때 줄어드는 그림은 입자도 함께 줄어 사라지므로 표시 크기 기준으로 입자를 잡는다.
-export function getGrainedImageTexture(
-  scene: Phaser.Scene,
-  imageKey: string,
-  displaySizePx: number,
-): string {
-  if (!scene.textures.exists(imageKey)) {
-    return imageKey;
-  }
-  const source = scene.textures.get(imageKey).getSourceImage();
-  if (!(source instanceof HTMLImageElement)) {
-    throw new Error(`Grained icon is not an image: ${imageKey}`);
-  }
-  const key = `${imageKey}:grained`;
-  createCanvasTexture(
-    scene,
-    {
-      key,
-      widthPx: source.width,
-      heightPx: source.height,
-    },
-    (context) => {
-      context.drawImage(source, 0, 0);
-      applyGrain(context, source.width, source.height, {
-        cellPx: source.width / displaySizePx,
-        minAlpha: ICON_GRAIN_MIN_ALPHA,
-      });
-    },
-  );
-  return key;
 }
 
 const LINE_STEP_PX = 4;
