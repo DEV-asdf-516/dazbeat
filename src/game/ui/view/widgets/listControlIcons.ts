@@ -1,6 +1,5 @@
 import type Phaser from 'phaser';
 import { createCanvasTexture } from '../textures/canvasTexture.js';
-import { ICON_GRAIN, applyGrain } from '../textures/grain.js';
 import { COLORS, cssColor } from '../theme.js';
 
 const GRID_UNITS = 24;
@@ -29,7 +28,6 @@ export function createLineIconTexture(
       context.beginPath();
       trace(context);
       context.stroke();
-      applyGrain(context, sizePx, sizePx, ICON_GRAIN);
     },
   );
   return key;

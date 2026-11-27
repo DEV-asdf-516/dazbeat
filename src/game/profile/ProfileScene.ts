@@ -61,7 +61,6 @@ import { bindHoverTarget, bindPointer, pointButton } from '../ui/view/input/hove
 import { getBrushRectTexture } from '../ui/view/textures/brushRect.js';
 import { addTextUnderline, placeTextUnderline } from '../ui/view/widgets/cometUnderline.js';
 import { getSortIconTexture } from '../ui/view/widgets/listControlIcons.js';
-import { getGrainedImageTexture } from '../ui/view/textures/grain.js';
 import { SoundEffects, queueSoundEffects } from '../ui/view/soundEffects.js';
 import { MENU_KEY_HINT_STYLE, addKeyHintRow } from '../ui/view/widgets/keyHintView.js';
 import { TextInput } from '../ui/view/widgets/TextInput.js';
@@ -1320,7 +1319,7 @@ export class ProfileScene extends Phaser.Scene {
       .image(
         nicknameFieldRightXPx - NICKNAME_FIELD_PADDING_X_PX,
         NICKNAME_CENTER_Y_PX,
-        getGrainedImageTexture(this, PEN_TEXTURE_KEY, PEN_SIZE_PX),
+        PEN_TEXTURE_KEY,
       )
       .setOrigin(1, 0.5)
       .setDisplaySize(PEN_SIZE_PX, PEN_SIZE_PX)

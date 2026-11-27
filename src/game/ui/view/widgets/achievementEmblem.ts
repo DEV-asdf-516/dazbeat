@@ -11,7 +11,6 @@ import { clamp, lerp } from '../../../../range.js';
 import { ZODIAC_FIGURES, fitZodiacFigure } from '../../../celestial/state/zodiacFigures.js';
 import { getSeriesOrdinal, getStageDotCount } from '../../state/achievementSeries.js';
 import { createCanvasTexture } from '../textures/canvasTexture.js';
-import { ICON_GRAIN, applyGrain } from '../textures/grain.js';
 import { fillLight, rgba } from '../textures/lightTextures.js';
 import { queueImageLoads } from '../textures/imageLoad.js';
 import { fillFourPointStar, fillStar } from '../textures/starShapes.js';
@@ -225,7 +224,6 @@ export function getAchievementEmblemTexture(
       context.lineJoin = 'round';
       if (rule.kind !== 'album' || albumFrame === undefined) {
         paintEmblem(context, achievement, catalog.definitions);
-        applyGrain(context, sizePx, sizePx, ICON_GRAIN);
         return;
       }
       const frameKey = albumFrameTextureKey(albumFrame);
@@ -237,7 +235,6 @@ export function getAchievementEmblemTexture(
         throw new Error(`Album frame is not an image: ${frameKey}`);
       }
       paintAlbumEmblem(context, frameImage, albumFrame, rule.mark);
-      applyGrain(context, sizePx, sizePx, ICON_GRAIN);
     },
   );
   return key;

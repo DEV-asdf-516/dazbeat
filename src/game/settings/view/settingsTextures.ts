@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { createCanvasTexture } from '../../ui/view/textures/canvasTexture.js';
-import { ICON_GRAIN, applyGrain } from '../../ui/view/textures/grain.js';
+import { applyGrain } from '../../ui/view/textures/grain.js';
 import { rgba, white } from '../../ui/view/textures/lightTextures.js';
 import { COLORS, cssColor } from '../../ui/view/theme.js';
 import type { VolumeMeterView } from '../state/settingsEditorState.js';
@@ -26,6 +26,10 @@ const METER_SEGMENT_GAP_PX = 5;
 const METER_SEGMENT_RADIUS_PX = 3;
 const METER_STROKE_PX = 1.5;
 const METER_MUTED_EMPTY_ALPHA = 0.5;
+const METER_GRAIN = {
+  cellPx: 1,
+  minAlpha: 0.5,
+} as const;
 
 export function ensureVolumeMeterTexture(
   scene: Phaser.Scene,
@@ -62,7 +66,7 @@ export function ensureVolumeMeterTexture(
         );
         context.stroke();
       }
-      applyGrain(context, widthPx, METER_SEGMENT_HEIGHT_PX, ICON_GRAIN);
+      applyGrain(context, widthPx, METER_SEGMENT_HEIGHT_PX, METER_GRAIN);
       if (isMuted) {
         return;
       }
@@ -136,7 +140,6 @@ export function ensureSpeakerTexture(
         }
       }
       context.stroke();
-      applyGrain(context, sizePx, sizePx, ICON_GRAIN);
     },
   );
   return key;
@@ -168,7 +171,6 @@ export function ensureChevronTexture(scene: Phaser.Scene, direction: ListDirecti
       context.lineTo(tipXPx, sizePx / 2);
       context.lineTo(tailXPx, sizePx - insetPx);
       context.stroke();
-      applyGrain(context, sizePx, sizePx, ICON_GRAIN);
     },
   );
   return key;
