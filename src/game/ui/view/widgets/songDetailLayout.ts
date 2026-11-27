@@ -39,7 +39,7 @@ export const INFO_X_PX = DETAIL_X_PX + JACKET_SIZE_PX + 48;
 export const TITLE_Y_PX = 272;
 // 오른쪽 여백을 목록 패널 왼쪽 여백과 같게 두어 한쪽으로 쏠려 보이지 않게 한다.
 export const DETAIL_RIGHT_X_PX = GAME_WIDTH - LIST_PANEL.xPx;
-const TITLE_MAX_WIDTH_PX = DETAIL_RIGHT_X_PX - INFO_X_PX;
+export const TITLE_MAX_WIDTH_PX = DETAIL_RIGHT_X_PX - INFO_X_PX;
 // 자켓 옆 칸이 좁아 긴 제목은 이 크기까지 줄인 뒤에도 넘치면 줄을 넘긴다.
 const TITLE_MIN_SIZE_PX = 40;
 const TITLE_SHRINK_STEP_PX = 4;
