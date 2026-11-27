@@ -83,6 +83,7 @@ import {
   ROW_X_PX,
   ROW_Y_PX,
   TITLE_MAX_LINES,
+  TITLE_MAX_WIDTH_PX,
   TITLE_Y_PX,
   UNSELECTED_WEIGHT,
   ZODIAC_AREA_GAP_PX,
@@ -293,20 +294,22 @@ const LEVEL_SLIDER_HIT = {
 const ROW_TOP_RANK_RIGHT_X_PX = 690;
 const ROW_TOP_RANK_NUMBER_SIZE_PX = 34;
 const ROW_TITLE_TOP_RANK_GAP_PX = 24;
-// RANKING 은 재킷 그림을 가리지 않도록 재킷 오른쪽 위 바깥에 두고, 아이콘 오른쪽 끝을 재킷 오른쪽 끝에 맞춘다.
-const RANKING_BUTTON_CENTER_Y_PX = 191;
 const RANKING_ICON_TEXTURE_KEY = 'ui:song-select-ranking';
 const RANKING_ICON_PATH = '/assets/ui/songSelect/ranking.png';
 const RANKING_ICON_SIZE_PX = 48;
+const RANKING_ICON_GAP_PX = 16;
+const RANKING_TRAILING_WIDTH_PX = RANKING_ICON_GAP_PX + RANKING_ICON_SIZE_PX;
+// 왕관 밑면은 48px 아이콘 가운데보다 14px 아래에 있다.
+const RANKING_ICON_BOTTOM_PX = 14;
 const LEVEL_RESET_ICON_SIZE_PX = 24;
 // 레일 오른쪽 끝 손잡이를 누르는 자리와 겹치지 않게 여백을 줄인다.
 const LEVEL_RESET_PADDING_X_PX = 6;
 const LEVEL_RESET_OFFSET_X_PX = 16;
 // 리셋 아이콘 원호의 밑면은 24px 아이콘 가운데보다 8px 아래에 있다.
 const LEVEL_RESET_ARC_BOTTOM_PX = 8;
-/** 아이콘 PNG 의 투명 여백만큼 더 밀어 획 끝을 재킷 오른쪽 선에 맞춘다. */
+/** 아이콘 PNG 의 투명 여백만큼 당겨 획 시작을 곡 이름 끝에서 간격만큼 띄운다. */
 const RANKING_ICON_MARGIN_X_PX = 4;
-/** quiet 버튼의 안쪽 가로 여백만큼 밀어 내용을 재킷 오른쪽 선에 맞춘다. */
+/** quiet 버튼의 안쪽 가로 여백만큼 당겨 내용을 곡 이름 끝 간격에 맞춘다. */
 const QUIET_BUTTON_PADDING_X_PX = 16;
 
 interface SongRow {
@@ -602,10 +605,38 @@ export class SongSelectScene extends Phaser.Scene {
                 const record = getSelectedRecordView(state);
                 const level = getSelectedLevel(state);
                 fitSongTitle(view.titleText, song.title);
+                const titleLines = view.titleText.getWrappedText().slice(0, TITLE_MAX_LINES);
+                const lastTitleLine = titleLines[titleLines.length - 1] ?? '';
+                const titleMetrics = view.titleText.getTextMetrics();
+                const titleLineHeightPx = titleMetrics.fontSize + view.titleText.lineSpacing;
+                const titleLeftXPx = view.titleText.x + (view.titleText.padding.left ?? 0);
+                const lastTitleLineEndXPx =
+                  titleLeftXPx + view.titleText.context.measureText(lastTitleLine.trimEnd()).width;
+                const isRankingWrapped =
+                  lastTitleLineEndXPx + RANKING_TRAILING_WIDTH_PX > INFO_X_PX + TITLE_MAX_WIDTH_PX;
+                const rankingLineIndex = titleLines.length - 1 + (isRankingWrapped ? 1 : 0);
+                view.rankingButton
+                  .setVisible(true)
+                  .setPosition(
+                    (isRankingWrapped ? titleLeftXPx : lastTitleLineEndXPx + RANKING_ICON_GAP_PX) -
+                      QUIET_BUTTON_PADDING_X_PX -
+                      RANKING_ICON_MARGIN_X_PX,
+                    view.titleText.y +
+                      (view.titleText.padding.top ?? 0) +
+                      titleMetrics.ascent +
+                      titleLineHeightPx * rankingLineIndex -
+                      RANKING_ICON_BOTTOM_PX -
+                      view.rankingButton.height / 2,
+                  );
                 setTextColor(view.categoryText, CATEGORY_COLORS[song.category]);
                 view.categoryText
                   .setText(song.category.toUpperCase())
-                  .setY(view.titleText.y + view.titleText.height + CATEGORY_GAP_PX);
+                  .setY(
+                    view.titleText.y +
+                      view.titleText.height +
+                      (isRankingWrapped ? titleLineHeightPx : 0) +
+                      CATEGORY_GAP_PX,
+                  );
                 renderLaneMarks(view.laneMarks, view.categoryText, state.laneCount);
                 const laneText = view.laneMarks.text;
                 const dividerXPx = laneText.x + laneText.width + INFO_DIVIDER_GAP_PX;
@@ -666,6 +697,7 @@ export class SongSelectScene extends Phaser.Scene {
               } else {
                 view.titleText.setText('');
                 view.categoryText.setText('');
+                view.rankingButton.setVisible(false);
                 renderLaneMarks(view.laneMarks, view.categoryText, null);
                 view.levelDivider.setVisible(false);
                 view.levelLabel.setVisible(false);
@@ -1299,14 +1331,7 @@ export class SongSelectScene extends Phaser.Scene {
         sizePx: RANKING_ICON_SIZE_PX,
       });
     }
-    return button.setPosition(
-      DETAIL_X_PX +
-        JACKET_SIZE_PX +
-        QUIET_BUTTON_PADDING_X_PX +
-        RANKING_ICON_MARGIN_X_PX -
-        button.width,
-      RANKING_BUTTON_CENTER_Y_PX - button.height / 2,
-    );
+    return button;
   }
 
   // 둥근 획의 밑면을 레벨 레일에 맞춘다.
